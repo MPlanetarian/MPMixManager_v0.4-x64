@@ -811,7 +811,7 @@ exit_mix_manager() {
 }
 trap 'exit_mix_manager' INT
 
-MANAGER_START_EPOCH="$(date +%s)"
+MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
 printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
 # Resolve symlinks so SCRIPT_DIR correctly points to codebase directory
 _RESOLVED_SRC="${BASH_SOURCE[0]}"
@@ -851,11 +851,13 @@ if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
         "/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links"; do
         [ -d "$_py_cand" ] && export PATH="$_py_cand:$PATH"
     done
-    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys' >/dev/null 2>&1; then
-        if command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+    _py3_path="$(type -p python3 2>/dev/null || true)"
+    if [ -z "$_py3_path" ] || [[ "$_py3_path" =~ WindowsApps ]]; then
+        _py_path="$(type -p python 2>/dev/null || true)"
+        if [ -n "$_py_path" ] && [[ ! "$_py_path" =~ WindowsApps ]]; then
             python3() { python "$@"; }
             export -f python3 2>/dev/null || true
-        elif command -v py >/dev/null 2>&1 && py -3 -c 'import sys' >/dev/null 2>&1; then
+        elif command -v py >/dev/null 2>&1; then
             python3() { py -3 "$@"; }
             export -f python3 2>/dev/null || true
         fi
@@ -1043,6 +1045,7 @@ ensure_manager_fullscreen() {
 
 align_mix_windows_on_screen() {
     ensure_manager_windowed
+    [ "$OS_TYPE" = "windows" ] && return 0
     local align_sh="$SCRIPT_DIR/scripts/align_mix_windows.py"
     [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"
     [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"
@@ -1858,14 +1861,23 @@ _LAST_INTERNET_CHECK=0
 _CACHED_INTERNET_STATUS=""
 
 is_internet_connected() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_INTERNET_CHECK)) -lt 30 ] && [ -n "$_CACHED_INTERNET_STATUS" ]; then
         [ "$_CACHED_INTERNET_STATUS" = "online" ]
         return $?
     fi
 
     _LAST_INTERNET_CHECK="$now"
+
+    # Fast path: curl HTTP probe to 1.1.1.1 (connect-timeout 250ms)
+    if command -v curl >/dev/null 2>&1; then
+        if curl -s -I --connect-timeout 0.25 http://1.1.1.1 >/dev/null 2>&1; then
+            _CACHED_INTERNET_STATUS="online"
+            return 0
+        fi
+    fi
+
     # Quick check for default route (if no default route, definitely offline)
     if command -v ip >/dev/null 2>&1; then
         if ! ip route 2>/dev/null | grep -q "^default"; then
@@ -2071,7 +2083,7 @@ if is_mix_archive_configured && ! { ! is_internet_connected && is_remote_or_clou
 else
     # Fallback to Application Root Folder 'MIX_ARCHIVE'
     MIX_ARCHIVE_DIR="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"
-    mkdir -p "$SCRIPT_DIR/MIX_ARCHIVE"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
+    [ -d "$SCRIPT_DIR/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" ] || mkdir -p "$SCRIPT_DIR/MIX_ARCHIVE"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
     if [ -d "$MIX_ARCHIVE_DIR" ]; then
         cd "$MIX_ARCHIVE_DIR" 2>/dev/null || cd "$SCRIPT_DIR/MIX_ARCHIVE" 2>/dev/null || cd "$SCRIPT_DIR" || exit 1
     else
@@ -2082,7 +2094,7 @@ fi
 # Resolve relative storage paths to active archive folder
 if [ -n "${MIX_ARCHIVE_DIR:-}" ] && ! { ! is_internet_connected && is_remote_or_cloud_path "$MIX_ARCHIVE_DIR"; } && [ -d "$MIX_ARCHIVE_DIR" ]; then
     if ! is_remote_or_cloud_path "$MIX_ARCHIVE_DIR"; then
-        mkdir -p "$MIX_ARCHIVE_DIR"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
+        [ -d "$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS" ] || mkdir -p "$MIX_ARCHIVE_DIR"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
     fi
     if [ ! -d "$OUTPUT_DIR" ] && [ -d "$MIX_ARCHIVE_DIR/$OUTPUT_DIR" ]; then
         OUTPUT_DIR="$MIX_ARCHIVE_DIR/$OUTPUT_DIR"
@@ -2114,7 +2126,7 @@ fi
 
 # Ensure PLAYLISTS_GENERATED exists in application root and all configured mix archive folders
 ensure_playlists_generated_dirs() {
-    mkdir -p "$SCRIPT_DIR/PLAYLISTS_GENERATED" 2>/dev/null || true
+    [ -d "$SCRIPT_DIR/PLAYLISTS_GENERATED" ] || mkdir -p "$SCRIPT_DIR/PLAYLISTS_GENERATED" 2>/dev/null || true
     local all_arch_dirs=()
     while IFS= read -r adir; do
         [ -n "$adir" ] && all_arch_dirs+=("$adir")
@@ -3003,8 +3015,8 @@ invalidate_archive_stats_cache() {
 }
 
 show_stats() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_STATS_CHECK)) -lt 30 ] && [ -n "$_CACHED_STATS_CORE" ]; then
         echo -e "$_CACHED_STATS_CORE"
     else
@@ -7381,16 +7393,20 @@ collect_converted_mix_dirs() {
 
 select_startup_mix() {
     local mode="${AUTO_PLAY_MIX_SELECTION:-latest}"
-    local list d
+    local list d f found_any=0
     list="$(mktemp "${TMPDIR:-/tmp}/sof_startup_XXXXXX")"
     while IFS= read -r d; do
         if ! is_internet_connected && is_remote_or_cloud_path "$d"; then
             continue
         fi
         [ -d "$d" ] || continue
-        find "$d" -maxdepth 1 -type f \( -iname '*.flac' -o -iname '*.mp3' -o -iname '*.wav' \) -print >> "$list"
+        for f in "$d"/*.flac "$d"/*.mp3 "$d"/*.wav "$d"/*.FLAC "$d"/*.MP3 "$d"/*.WAV; do
+            [ -f "$f" ] || continue
+            printf '%s\n' "$f" >> "$list"
+            found_any=1
+        done
     done < <(collect_converted_mix_dirs)
-    if [ ! -s "$list" ]; then
+    if [ "$found_any" -eq 0 ] || [ ! -s "$list" ]; then
         rm -f "$list"
         return 1
     fi
@@ -7672,10 +7688,12 @@ execute_startup_autoplay() {
     local selected_mix=""
     selected_mix="$(select_startup_mix)" || true
     if [ -z "$selected_mix" ] || [ ! -s "$selected_mix" ]; then
-        local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-        [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-        if [ -f "$mp_py" ]; then
-            selected_mix=$(python3 "$mp_py" --get-latest-mix 2>/dev/null || true)
+        if is_mix_archive_configured; then
+            local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
+            [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+            if [ -f "$mp_py" ]; then
+                selected_mix=$(python3 "$mp_py" --get-latest-mix 2>/dev/null || true)
+            fi
         fi
     fi
     if [ -z "$selected_mix" ] || [ ! -s "$selected_mix" ]; then
@@ -8579,8 +8597,8 @@ _LAST_PERF_CHECK=0
 _CACHED_PERF_DISPLAY=""
 
 get_system_perf_stats() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_PERF_CHECK)) -lt 5 ] && [ -n "$_CACHED_PERF_DISPLAY" ]; then
         echo -e "$_CACHED_PERF_DISPLAY"
         return 0
@@ -8589,8 +8607,10 @@ get_system_perf_stats() {
 
     local cpu_info="" ram_info="" disk_info=""
     
-    # 1. CPU / Load Info
-    if [ -f /proc/loadavg ]; then
+    # 1. CPU / Load Info (Skip /proc/loadavg on Windows to eliminate 400ms PDH query latency)
+    if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
+        cpu_info="Active"
+    elif [ -f /proc/loadavg ]; then
         read -r l1 l5 l15 _ < /proc/loadavg
         cpu_info="${l1} (1m), ${l5} (5m)"
     elif [ "$OS_TYPE" = "macos" ] || [ "$OS_TYPE" = "freebsd" ]; then
@@ -8603,13 +8623,18 @@ get_system_perf_stats() {
 
     # 2. RAM Info
     if [ -f /proc/meminfo ]; then
-        local mem_total mem_avail mem_used mem_total_g mem_used_g mem_pct
-        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        mem_avail=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        local mem_total="" mem_avail="" mem_used mem_total_g mem_used_g mem_pct key val
+        while read -r key val _; do
+            case "$key" in
+                MemTotal:*) mem_total="$val" ;;
+                MemAvailable:*) mem_avail="$val" ;;
+            esac
+            [ -n "$mem_total" ] && [ -n "$mem_avail" ] && break
+        done < /proc/meminfo
         if [ -n "$mem_total" ] && [ -n "$mem_avail" ] && [ "$mem_total" -gt 0 ]; then
             mem_used=$((mem_total - mem_avail))
-            mem_total_g=$(awk "BEGIN {printf \"%.1f\", $mem_total/1048576}")
-            mem_used_g=$(awk "BEGIN {printf \"%.1f\", $mem_used/1048576}")
+            mem_total_g="$((mem_total / 1048576)).$(( (mem_total % 1048576) * 10 / 1048576 ))"
+            mem_used_g="$((mem_used / 1048576)).$(( (mem_used % 1048576) * 10 / 1048576 ))"
             mem_pct=$(( (mem_used * 100) / mem_total ))
             ram_info="${mem_used_g}G/${mem_total_g}G (${mem_pct}%)"
         fi
@@ -8631,8 +8656,10 @@ get_system_perf_stats() {
 
     # 3. Disk Info (Mix Drive Only)
     local mix_target="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"
-    local d_avail="" d_pct=""
-    read -r _ _ _ d_avail d_pct _ < <(df -h "$mix_target" 2>/dev/null | tail -n 1)
+    local d_avail="" d_pct="" a="" p=""
+    while read -r _ _ _ a p _; do
+        [ -n "$a" ] && [ "$a" != "Avail" ] && d_avail="$a" && d_pct="$p"
+    done < <(df -h "$mix_target" 2>/dev/null)
     if [ -n "$d_avail" ]; then
         disk_info="${d_avail} free (${d_pct} used)"
     else
@@ -8647,8 +8674,8 @@ _LAST_AUDIO_IFACE_CHECK=0
 _CACHED_AUDIO_IFACE_DISPLAY=""
 
 get_active_audio_interface_display() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_AUDIO_IFACE_CHECK)) -lt 30 ] && [ -n "$_CACHED_AUDIO_IFACE_DISPLAY" ]; then
         echo -e "$_CACHED_AUDIO_IFACE_DISPLAY"
         return 0
@@ -8677,8 +8704,8 @@ _LAST_ALARM_STATUS_CHECK=0
 _CACHED_ALARM_CLOCK_STATUS=""
 
 get_alarm_clock_status_display() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_ALARM_STATUS_CHECK)) -lt 30 ] && [ -n "$_CACHED_ALARM_CLOCK_STATUS" ]; then
         echo -e "$_CACHED_ALARM_CLOCK_STATUS"
         return 0
@@ -11050,8 +11077,8 @@ manage_mix_scheduler() {
 }
 
 get_manager_uptime() {
-    local now
-    now=$(date +%s)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     local elapsed=$(( now - MANAGER_START_EPOCH ))
     local m_hours=$(( elapsed / 3600 ))
     local m_mins=$(( (elapsed % 3600) / 60 ))
@@ -11067,8 +11094,9 @@ get_manager_uptime() {
 
     local sys_up=""
     if [ -f /proc/uptime ]; then
-        local sec
-        sec=$(cut -d. -f1 /proc/uptime 2>/dev/null)
+        local uptime_val sec
+        read -r uptime_val _ < /proc/uptime 2>/dev/null
+        sec="${uptime_val%%.*}"
         local s_days=$(( sec / 86400 ))
         local s_hours=$(( (sec % 86400) / 3600 ))
         local s_mins=$(( (sec % 3600) / 60 ))
@@ -11554,11 +11582,17 @@ manage_system_motd_menu() {
     fi
 }
 
+_CACHED_OS_BADGE=""
+
 get_os_badge() {
+    if [ -n "$_CACHED_OS_BADGE" ]; then
+        echo -e "$_CACHED_OS_BADGE"
+        return 0
+    fi
     if [ "$OS_TYPE" = "macos" ]; then
         local mac_ver
         mac_ver=$(sw_vers -productVersion 2>/dev/null || uname -r)
-        echo -e "${BOLD}${CYAN}🍏 macOS:${NC} ${mac_ver} ($(uname -m))"
+        _CACHED_OS_BADGE="${BOLD}${CYAN}🍏 macOS:${NC} ${mac_ver} ($(uname -m))"
     elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
         local win_ver=""
         if [[ "$(uname -s)" =~ MINGW.*NT-([0-9.]+) ]] || [[ "$(uname -s)" =~ CYGWIN.*NT-([0-9.]+) ]] || [[ "$(uname -s)" =~ MSYS.*NT-([0-9.]+) ]]; then
@@ -11568,14 +11602,14 @@ get_os_badge() {
         fi
         [ -z "$win_ver" ] && win_ver="$(uname -r 2>/dev/null || echo '10/11')"
         if [ "$OS_TYPE" = "wsl" ]; then
-            echo -e "${BOLD}${CYAN}🪟 Windows (WSL2):${NC} ${win_ver}"
+            _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows (WSL2):${NC} ${win_ver}"
         else
-            echo -e "${BOLD}${CYAN}🪟 Windows:${NC} ${win_ver}"
+            _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows:${NC} ${win_ver}"
         fi
     elif [ "$OS_TYPE" = "freebsd" ]; then
         local fbsd_ver
         fbsd_ver=$(uname -r)
-        echo -e "${BOLD}${RED}😈 FreeBSD:${NC} ${fbsd_ver} ($(uname -m))"
+        _CACHED_OS_BADGE="${BOLD}${RED}😈 FreeBSD:${NC} ${fbsd_ver} ($(uname -m))"
     else
         local distro_name=""
         local distro_ver=""
@@ -11585,22 +11619,23 @@ get_os_badge() {
         fi
         if [ -n "$distro_name" ]; then
             if echo "$distro_name" | grep -qi "linux"; then
-                echo -e "${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} ${distro_ver} (${BOLD}$(uname -r)${NC})"
+                _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} ${distro_ver} (${BOLD}$(uname -r)${NC})"
             else
-                echo -e "${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} Linux ${distro_ver} (${BOLD}$(uname -r)${NC})"
+                _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} Linux ${distro_ver} (${BOLD}$(uname -r)${NC})"
             fi
         else
-            echo -e "${BOLD}${CYAN}🐧 Kernel:${NC} $(uname -r)"
+            _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 Kernel:${NC} $(uname -r)"
         fi
     fi
+    echo -e "$_CACHED_OS_BADGE"
 }
 
 _LAST_OS_UPDATE_CHECK=0
 _CACHED_OS_UPDATE_STATUS=""
 
 get_os_update_status() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_OS_UPDATE_CHECK)) -lt 60 ] && [ -n "$_CACHED_OS_UPDATE_STATUS" ]; then
         echo -e "$_CACHED_OS_UPDATE_STATUS"
         return 0
@@ -11675,8 +11710,8 @@ _LAST_CLOUD_CHECK=0
 _CACHED_CLOUD_STATUS=""
 
 get_cloud_backup_badge() {
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_CLOUD_CHECK)) -lt 30 ] && [ -n "$_CACHED_CLOUD_STATUS" ]; then
         echo -e "$_CACHED_CLOUD_STATUS"
         return 0
@@ -11701,8 +11736,10 @@ get_cloud_backup_badge() {
     fi
 
     if [ -z "$backup_date" ]; then
-        local latest_log
-        latest_log=$(ls -t "$SCRIPT_DIR/BACKUP_LOGS"/backup_*.log "${MIX_ARCHIVE_DIR:-}/BACKUP_LOGS"/backup_*.log 2>/dev/null | head -1)
+        local latest_log=""
+        if [ -d "$SCRIPT_DIR/BACKUP_LOGS" ] || { [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "${MIX_ARCHIVE_DIR:-}/BACKUP_LOGS" ]; }; then
+            latest_log=$(ls -t "$SCRIPT_DIR/BACKUP_LOGS"/backup_*.log "${MIX_ARCHIVE_DIR:-}/BACKUP_LOGS"/backup_*.log 2>/dev/null | head -1)
+        fi
         if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
             backup_time=$(stat -c %Y "$latest_log" 2>/dev/null || stat -f %m "$latest_log" 2>/dev/null || echo 0)
             backup_date=$(date -d "@$backup_time" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$backup_time" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Recently")
@@ -12185,14 +12222,26 @@ manage_playlists_and_history() {
     done
 }
 
+_LAST_TOP_5_CHECK=0
+_CACHED_TOP_5_BADGE=""
+
 get_top_5_status_badge() {
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ $((now - _LAST_TOP_5_CHECK)) -lt 30 ] && [ -n "$_CACHED_TOP_5_BADGE" ]; then
+        echo -e "$_CACHED_TOP_5_BADGE"
+        return 0
+    fi
+    _LAST_TOP_5_CHECK="$now"
+
     local py_script="$SCRIPT_DIR/scripts/top_5_tracks_manager.py"
     [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/top_5_tracks_manager.py"
     if [ -f "$py_script" ]; then
-        python3 "$py_script" --badge 2>/dev/null || echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}"
+        _CACHED_TOP_5_BADGE="$(python3 "$py_script" --badge 2>/dev/null || echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}")"
     else
-        echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}"
+        _CACHED_TOP_5_BADGE="$(echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}")"
     fi
+    echo -e "$_CACHED_TOP_5_BADGE"
 }
 
 manage_top_5_tracks() {

@@ -38,9 +38,17 @@ if (-not $FoundBash) {
     }
 }
 
+$env:PYTHONIOENCODING = "utf-8"
+if (Test-Path "$env:LOCALAPPDATA\Programs\Python\Python312") {
+    $env:PATH = "$env:LOCALAPPDATA\Programs\Python\Python312;$env:LOCALAPPDATA\Programs\Python\Python312\Scripts;$env:PATH"
+}
+if (Test-Path "$env:ProgramFiles\Python312") {
+    $env:PATH = "$env:ProgramFiles\Python312;$env:ProgramFiles\Python312\Scripts;$env:PATH"
+}
+
 try {
     if ($FoundBash) {
-        & $FoundBash --login "$UnixScriptDir/Mix_Archive_Manager.sh" @args
+        & $FoundBash "$UnixScriptDir/Mix_Archive_Manager.sh" @args
     } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
         $WslDir = (wsl.exe wslpath -a $UnixScriptDir).Trim()
         & wsl.exe bash -c "cd '$WslDir' && ./Mix_Archive_Manager.sh"

@@ -209,18 +209,39 @@ def _probe_macos(info):
 
 def _probe_windows(info):
     info["sound_system"] = "WASAPI"
+    info["rate"] = 48000
+    info["quantum"] = 480
+    info["latency_ms"] = 10.0
+    info["latency_str"] = "10.0ms (480 @ 48kHz)"
+    info["interface"] = "Windows Audio Endpoint"
+    # Fast path: query Windows sound device driver description directly from registry in < 1ms
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Class\{4d36e96c-e325-11ce-bfc1-08002be10318}")
+        num_subkeys = winreg.QueryInfoKey(key)[0]
+        for i in range(num_subkeys):
+            subkey_name = winreg.EnumKey(key, i)
+            if subkey_name.isdigit():
+                try:
+                    skey = winreg.OpenKey(key, subkey_name)
+                    desc, _ = winreg.QueryValueEx(skey, "DriverDesc")
+                    if desc and str(desc).strip():
+                        info["interface"] = str(desc).strip()
+                        return
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+    # Fallback to PowerShell if registry lookup fails
     try:
         cmd = ['powershell.exe', '-NoProfile', '-Command', 
                'Get-CimInstance Win32_SoundDevice | Select-Object -First 1 -ExpandProperty Name']
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=1.0)
         if p.returncode == 0 and p.stdout.strip():
             info["interface"] = p.stdout.strip().splitlines()[0].strip()
-        info["rate"] = 48000
-        info["quantum"] = 480
-        info["latency_ms"] = 10.0
-        info["latency_str"] = "10.0ms (480 @ 48kHz)"
     except Exception:
-        info["interface"] = "Windows Audio Endpoint"
+        pass
 
 def _probe_freebsd(info):
     info["sound_system"] = "OSS"
