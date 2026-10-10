@@ -286,7 +286,6 @@ def align_kwin(timeout_seconds=8.0, mgr_pid=0, parent_pid=0, expect_strawberry=F
         // A. Display the Manager on the PRIMARY display (Main Screen) in windowed mode (not in full screen)
         if (mgrWin) {{
             workspace.sendClientToScreen(mgrWin, primScreen);
-            mgrWin.fullScreen = false;
             workspace.raiseWindow(mgrWin);
             workspace.activeWindow = mgrWin;
         }}
@@ -390,7 +389,6 @@ def align_kwin(timeout_seconds=8.0, mgr_pid=0, parent_pid=0, expect_strawberry=F
     // Manager on single display in windowed mode (not in full screen)
     if (mgrWin) {{
         workspace.sendClientToScreen(mgrWin, screen);
-        mgrWin.fullScreen = false;
         workspace.raiseWindow(mgrWin);
         workspace.activeWindow = mgrWin;
     }}
@@ -550,7 +548,6 @@ def align_x11(mgr_pid=0):
 
             # Manager -> Primary display in windowed mode (not in full screen)
             if mgr_win:
-                subprocess.run(['wmctrl', '-i', '-r', mgr_win, '-b', 'remove,fullscreen'], check=False)
                 subprocess.run(['wmctrl', '-i', '-a', mgr_win], check=False)
 
             # Minimize tracklist window on multi-display
@@ -594,7 +591,6 @@ def align_x11(mgr_pid=0):
 
         # Single-display fallback: Manager in windowed mode (not in full screen)
         if mgr_win:
-            subprocess.run(['wmctrl', '-i', '-r', mgr_win, '-b', 'remove,fullscreen'], check=False)
             subprocess.run(['wmctrl', '-i', '-a', mgr_win], check=False)
 
         if cover_win or tl_win:

@@ -1028,23 +1028,16 @@ get_connected_displays_count() {
 }
 
 ensure_manager_windowed() {
+    # Set window title only - do not resize or alter user's window dimensions
     printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
-    # 1. Cancel fullscreen escape sequences (supported by VTE and modern terms)
-    printf '\033[10;0t' 2>/dev/null || true
-
-    # 2. X11 / Wayland wmctrl command to ensure windowed mode (remove fullscreen)
-    if command -v wmctrl >/dev/null 2>&1; then
-        wmctrl -r "Mix Archive Manager" -b remove,fullscreen 2>/dev/null || true
-        wmctrl -r :ACTIVE: -b remove,fullscreen 2>/dev/null || true
-    fi
 }
 
 ensure_manager_fullscreen() {
-    ensure_manager_windowed
+    # Set window title only - do not resize or alter user's window dimensions
+    printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
 }
 
 align_mix_windows_on_screen() {
-    ensure_manager_windowed
     [ "$OS_TYPE" = "windows" ] && return 0
     local align_sh="$SCRIPT_DIR/scripts/align_mix_windows.py"
     [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"
@@ -13165,7 +13158,6 @@ while true; do
     if [ "$STARTUP_AUTOPLAY_EXECUTED" -eq 0 ]; then
         STARTUP_AUTOPLAY_EXECUTED=1
         ensure_manager_windowed
-        align_mix_windows_on_screen
         if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
             execute_startup_autoplay
         else
