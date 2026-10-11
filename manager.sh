@@ -43,46 +43,56 @@ RESET='\033[0m'
 clear
 
 # Display CONGEN-style Header Banner (3-row compact isometric font)
-printf "${CYAN}%s${RESET}\n" "─────────────────────────────────────────────────────────────────────────────────"
-printf "${PURPLE}"
-cat << "EOF"
- ▌
- ▌  █▄▀█ █▀█   █▄▀█ █ ▀▄▀   █▀█ █▀▄ █▀▀ █ █ █ █ █▀▀   █▄▀█ █▀█ █▀▄ █▀█ █▀▀ █▀▄
- ▌  █ ▀█ █▀▀   █ ▀█ █ █ █   █▀█ █▀▄ █▄▄ █▀█ █ █ ██▄   █ ▀█ █▀█ █ █ █▀█ █ █ █▀▄
- ▌  ▀  ▀ ▀     ▀  ▀ ▀ ▀ ▀   ▀ ▀ ▀ ▀ ▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀   ▀  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▀▀ ▀ ▀
- ▌
-EOF
-printf "${CYAN}%s${RESET}\n" "─────────────────────────────────────────────────────────────────────────────────"
-printf "${GREEN} MP Mix Archive Manager  v0.3${RESET}\n\n"
+# printf "${CYAN}%s${RESET}\n" "─────────────────────────────────────────────────────────────────────────────────"
+# printf "${PURPLE}"
+# cat << "EOF"
+#  ▌
+#  ▌  █▄▀█ █▀█   █▄▀█ █ ▀▄▀   █▀█ █▀▄ █▀▀ █ █ █ █ █▀▀   █▄▀█ █▀█ █▀▄ █▀█ █▀▀ █▀▄
+#  ▌  █ ▀█ █▀▀   █ ▀█ █ █ █   █▀█ █▀▄ █▄▄ █▀█ █ █ ██▄   █ ▀█ █▀█ █ █ █▀█ █ █ █▀▄
+#  ▌  ▀  ▀ ▀     ▀  ▀ ▀ ▀ ▀   ▀ ▀ ▀ ▀ ▀▀▀ ▀ ▀ ▀ ▀ ▀▀▀   ▀  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀▀▀ ▀ ▀
+#  ▌
+# EOF
+# printf "${CYAN}%s${RESET}\n" "─────────────────────────────────────────────────────────────────────────────────"
+# printf "${GREEN} MP Mix Archive Manager  v0.3${RESET}\n\n"
 
-# Resolve script path and locate backend
-_RESOLVED_SRC="${BASH_SOURCE[0]}"
-_RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-command -v cygpath >/dev/null 2>&1 && _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-while [ -h "$_RESOLVED_SRC" ]; do
-    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
-    _RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-    command -v cygpath >/dev/null 2>&1 && _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
+# Resolve script source path across CLI, shortcut, or Explorer "Open With" launches
+_RAW_PATH="${1:-${BASH_SOURCE[0]}}"
 
-if [ ! -f "$SCRIPT_DIR/Mix_Archive_Manager.sh" ]; then
-    for _c in \
-        "$PWD" \
-        "$HOME/Downloads/MP_Mix_Manager_v0.3" \
-        "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.1"; do
-        if [ -f "$_c/Mix_Archive_Manager.sh" ]; then
-            SCRIPT_DIR="$_c"
+# If launched via Windows shell associations where arguments are dropped
+if [ -z "$_RAW_PATH" ] || [ "$_RAW_PATH" = "bash" ] || [ "$_RAW_PATH" = "-bash" ]; then
+    _CMD_LINE=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \"ProcessId = \$PID\").CommandLine" 2>/dev/null | tr -d '\r')
+    _MATCH=$(echo "$_CMD_LINE" | grep -oE '[A-Za-z]:\\[^"]+\.sh')
+    [ -n "$_MATCH" ] && _RAW_PATH="$_MATCH"
+fi
+
+# Fallback: check fallback locations if still missing
+if [ -z "$_RAW_PATH" ] || [ ! -e "$_RAW_PATH" ]; then
+    _RAW_PATH="$0"
+fi
+
+# Convert to POSIX format and extract directory
+command -v cygpath >/dev/null 2>&1 && _RAW_PATH="$(cygpath -u "$_RAW_PATH" 2>/dev/null || echo "$_RAW_PATH")"
+_RAW_PATH="${_RAW_PATH//\\//}"
+SCRIPT_DIR="$(cd -P "$(dirname "$_RAW_PATH")" >/dev/null 2>&1 && pwd)"
+
+# Safety fallback if resolution ended up in system directories
+if [ "$SCRIPT_DIR" = "/c/WINDOWS/system32" ] || [ -z "$SCRIPT_DIR" ]; then
+    for _fallback in "$PWD" "/x/MP_Mix_Manager_v0.3" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3"; do
+        if [ -f "$_fallback/Mix_Archive_Manager.sh" ]; then
+            SCRIPT_DIR="$_fallback"
             break
         fi
     done
 fi
 
-unset _RESOLVED_SRC _RESOLVED_DIR _c
+cd "$SCRIPT_DIR"
 
-# Execute core management script
-exec bash "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$@"
+# Verify target script exists before executing
+if [ ! -f "$SCRIPT_DIR/Mix_Archive_Manager.sh" ]; then
+    echo "Error: Mix_Archive_Manager.sh not found in: $SCRIPT_DIR"
+    read -rp "Press Enter to exit..."
+    exit 1
+fi
+
+# Execute core script
+bash "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$@"

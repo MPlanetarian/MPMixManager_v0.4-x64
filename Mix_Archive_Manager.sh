@@ -120,11 +120,7 @@ fi
 
 update_terminal_geometry() {
     local force="${1:-0}"
-    local cur_l="${LINES:-}"
-    local cur_c="${COLUMNS:-}"
-    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ] || \
-       { [ -n "$cur_l" ] && [ -n "${_TERM_LINES:-}" ] && [ "$cur_l" -ne "$_TERM_LINES" ]; } || \
-       { [ -n "$cur_c" ] && [ -n "${_TERM_COLS:-}" ] && [ "$cur_c" -ne "$_TERM_COLS" ]; }; then
+    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
         _TERM_RESIZED=0
         local sz=""
         if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
@@ -303,6 +299,19 @@ play_sound_effect() {
     fi
 }
 
+# Returns 0 exactly once per real terminal resize (WINCH or a change in bash's LINES/COLUMNS)
+_SEEN_LINES="${LINES:-}"
+_SEEN_COLS="${COLUMNS:-}"
+_resize_pending() {
+    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "${LINES:-}" != "$_SEEN_LINES" ] || [ "${COLUMNS:-}" != "$_SEEN_COLS" ]; then
+        _TERM_RESIZED=0
+        _SEEN_LINES="${LINES:-}"
+        _SEEN_COLS="${COLUMNS:-}"
+        return 0
+    fi
+    return 1
+}
+
 # Key reader for interactive navigation
 read_nav_key() {
     local _out_var="$1"
@@ -316,10 +325,7 @@ read_nav_key() {
         return 0
     }
 
-    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
-       { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
-       { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
-        _TERM_RESIZED=0
+    if _resize_pending; then
         _emit_key "RESIZE"
         return 0
     fi
@@ -328,20 +334,14 @@ read_nav_key() {
     local read_rc=$?
 
     if [ "$read_rc" -gt 128 ]; then
-        if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
-           { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
-           { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
-            _TERM_RESIZED=0
+        if _resize_pending; then
             _emit_key "RESIZE"
             return 0
         fi
         _emit_key "TICK"
         return 0
     elif [ "$read_rc" -ne 0 ]; then
-        if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
-           { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
-           { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
-            _TERM_RESIZED=0
+        if _resize_pending; then
             _emit_key "RESIZE"
             return 0
         fi
@@ -560,6 +560,10 @@ run_interactive_submenu() {
             echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
             echo -e "${BOLD}${MAGENTA}       ${menu_title}${NC}"
             echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        fi
+        if [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header >/dev/null 2>&1; then
+            update_terminal_geometry 0
+            menu_header="$(render_main_header "$(( _TERM_COLS - 4 ))")"
         fi
         [ -n "$menu_header" ] && echo -e "$menu_header"
         if get_mp_audio_player_track_info 2>/dev/null; then
@@ -841,6 +845,16 @@ run_interactive_submenu() {
                 ((tick_count++))
                 if [ $((tick_count % 4)) -eq 0 ]; then
                     update_terminal_geometry 1
+                    if [ -z "$menu_title" ]; then
+                        local _sig_before _sig_after
+                        header_cache_signature _sig_before
+                        load_header_cache 2>/dev/null || true
+                        header_cache_signature _sig_after
+                        if [ "$_sig_before" != "$_sig_after" ]; then
+                            build_header_block
+                        fi
+                        maybe_spawn_header_refresh
+                    fi
                 fi
                 continue
                 ;;
@@ -2160,6 +2174,7 @@ save_header_cache() {
     local c_dir="$HOME/.config/mix-manager"
     [ ! -d "$c_dir" ] && mkdir -p "$c_dir" 2>/dev/null || true
     local c_file="$c_dir/header_cache.env"
+    local c_tmp="$c_file.$$.tmp"
     {
         printf '_CACHED_STATS_CORE=%q\n' "${_CACHED_STATS_CORE:-}"
         printf '_CACHED_CLOUD_STATUS=%q\n' "${_CACHED_CLOUD_STATUS:-}"
@@ -2170,19 +2185,58 @@ save_header_cache() {
         printf '_CACHED_OS_BADGE=%q\n' "${_CACHED_OS_BADGE:-}"
         printf '_CACHED_OS_UPDATE_STATUS=%q\n' "${_CACHED_OS_UPDATE_STATUS:-}"
         printf '_CACHED_INTERNET_STATUS=%q\n' "${_CACHED_INTERNET_STATUS:-online}"
-    } > "$c_file" 2>/dev/null || true
+        printf '_CACHED_TOP_5_BADGE=%q\n' "${_CACHED_TOP_5_BADGE:-}"
+    } > "$c_tmp" 2>/dev/null && mv -f "$c_tmp" "$c_file" 2>/dev/null || rm -f "$c_tmp" 2>/dev/null || true
+}
+
+# Signature of everything the header displays from cache (used to detect async refreshes)
+header_cache_signature() {
+    printf -v "$1" '%s' "${_CACHED_STATS_CORE:-}|${_CACHED_CLOUD_STATUS:-}|${_CACHED_WEATHER_DISPLAY:-}|${_CACHED_PLANETS_DISPLAY:-}|${_CACHED_AUDIO_IFACE_DISPLAY:-}|${_CACHED_ALARM_CLOCK_STATUS:-}|${_CACHED_OS_UPDATE_STATUS:-}|${_CACHED_INTERNET_STATUS:-}|${_CACHED_TOP_5_BADGE:-}"
 }
 
 refresh_header_cache_worker() {
-    show_stats --force >/dev/null 2>&1 || true
-    get_cloud_backup_badge >/dev/null 2>&1 || true
-    get_active_audio_interface_display >/dev/null 2>&1 || true
-    get_current_weather >/dev/null 2>&1 || true
-    get_planets_above_horizon >/dev/null 2>&1 || true
-    get_alarm_clock_status_display >/dev/null 2>&1 || true
+    # Do the real collection work here in the background, but at most once per 30s
+    local lock_dir="$HOME/.config/mix-manager"
+    local lock_file="$lock_dir/.header_refresh_stamp"
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ "${1:-}" != "--force" ] && [ -f "$lock_file" ]; then
+        local last=0
+        read -r last < "$lock_file" 2>/dev/null || last=0
+        [[ "$last" =~ ^[0-9]+$ ]] || last=0
+        [ $((now - last)) -lt 30 ] && return 0
+    fi
+    [ -d "$lock_dir" ] || mkdir -p "$lock_dir" 2>/dev/null || true
+    echo "$now" > "$lock_file" 2>/dev/null || true
+
+    # Reset freshness timers so each collector really re-runs inside this background worker
+    _LAST_CLOUD_CHECK=0 _LAST_WEATHER_CHECK=0 _LAST_PLANETS_CHECK=0 _LAST_AUDIO_IFACE_CHECK=0
+    _LAST_OS_UPDATE_CHECK=0 _LAST_INTERNET_CHECK=0 _LAST_ALARM_STATUS_CHECK=0 _LAST_TOP_5_CHECK=0
+
+    is_internet_connected >/dev/null 2>&1 || true
     get_os_badge >/dev/null 2>&1 || true
     get_os_update_status >/dev/null 2>&1 || true
+    save_header_cache 2>/dev/null || true   # publish the quick items first
+    get_active_audio_interface_display >/dev/null 2>&1 || true
+    get_alarm_clock_status_display >/dev/null 2>&1 || true
+    get_top_5_status_badge >/dev/null 2>&1 || true
+    get_current_weather >/dev/null 2>&1 || true
+    get_planets_above_horizon >/dev/null 2>&1 || true
     save_header_cache 2>/dev/null || true
+    show_stats --force >/dev/null 2>&1 || true   # slowest (archive scan); also saves cache + cloud badge
+    get_cloud_backup_badge >/dev/null 2>&1 || true
+    save_header_cache 2>/dev/null || true
+}
+
+# Called from the interactive menu loop (main shell) so timers persist, unlike $(...) renders.
+_LAST_HDR_REFRESH_SPAWN=0
+maybe_spawn_header_refresh() {
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ $((now - _LAST_HDR_REFRESH_SPAWN)) -ge 60 ]; then
+        _LAST_HDR_REFRESH_SPAWN="$now"
+        (refresh_header_cache_worker >/dev/null 2>&1 &)
+    fi
 }
 
 load_header_cache
@@ -4032,6 +4086,41 @@ view_tasks() {
         local olm_pid_str=""
         [ -n "$olm_pids" ] && olm_pid_str=", PID: ${olm_pids% }"
         echo -e "  [${GREEN}RUNNING${NC}] Ollama Local AI Server (http://127.0.0.1:11434${olm_pid_str})"
+        ((tasks_found++))
+    fi
+
+    local webui_running=false webui_pids="" webui_port=8080
+    [ "$OS_TYPE" != "windows" ] && webui_port=42004
+    if curl -s -I --connect-timeout 1 "http://127.0.0.1:${webui_port}/" 2>/dev/null | grep -qi "HTTP/"; then
+        webui_running=true
+    elif curl -s -I --connect-timeout 1 "http://127.0.0.1:8080/" 2>/dev/null | grep -qi "HTTP/"; then
+        webui_running=true
+        webui_port=8080
+    elif curl -s -I --connect-timeout 1 "http://127.0.0.1:42004/" 2>/dev/null | grep -qi "HTTP/"; then
+        webui_running=true
+        webui_port=42004
+    fi
+    if [ "$OS_TYPE" = "windows" ]; then
+        if command -v netstat.exe >/dev/null 2>&1; then
+            webui_pids=$(netstat.exe -ano 2>/dev/null | grep -E ":${webui_port}\s+.*LISTENING" | awk '{print $5}' | sort -u | tr '\n' ' ')
+            [ -n "$webui_pids" ] && webui_running=true
+        fi
+        if [ "$webui_running" = "false" ] && command -v tasklist.exe >/dev/null 2>&1; then
+            if tasklist.exe //FI "IMAGENAME eq open-webui.exe" 2>/dev/null | grep -qi "open-webui.exe"; then
+                webui_running=true
+                webui_pids=$(tasklist.exe //FI "IMAGENAME eq open-webui.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
+            fi
+        fi
+    else
+        if systemctl --user is-active --quiet "open-webui.service" 2>/dev/null || pgrep -f "open-webui serve" >/dev/null 2>&1; then
+            webui_running=true
+            webui_pids=$(pgrep -f "open-webui serve" 2>/dev/null | tr '\n' ' ')
+        fi
+    fi
+    if [ "$webui_running" = "true" ]; then
+        local webui_pid_str=""
+        [ -n "$webui_pids" ] && webui_pid_str=", PID: ${webui_pids% }"
+        echo -e "  [${GREEN}RUNNING${NC}] Open WebUI Server (http://127.0.0.1:${webui_port}${webui_pid_str})"
         ((tasks_found++))
     fi
     
@@ -13818,10 +13907,12 @@ manage_ai_and_servers() {
     while true; do
         local olm_desc="(ollama serve in distrobox, Chat, Models, Logs :11434)"
         [ "$OS_TYPE" = "windows" ] && olm_desc="(ollama serve on Windows, Chat, Models, Logs :11434)"
+        local webui_desc="(Open Web UI Web Chat AI Harness, Service, Browser :42004)"
+        [ "$OS_TYPE" = "windows" ] && webui_desc="(Open Web UI Web Chat AI Harness on Windows, Browser :8080)"
         local opts=(
             "1|Launch AI Assistant / Models|(Claude Opus, Claude Sonnet, GPT-OSS, Gemini, Ollama, DeepSeek)"
             "2|Manage Ollama Server|${olm_desc}"
-            "3|Manage Open WebUI Server & Web Chat|(Open Web UI Web Chat AI Harness, Service, Browser :42004)"
+            "3|Manage Open WebUI Server & Web Chat|${webui_desc}"
             "4|Manage MP Harmony AI Agent|(Autonomous Engineering Engine & Voice Bridge :11435)"
             "5|Manage DeepSeek Harness Server|(dsh-mobile - Start, Stop, Mobile Web UI :3080)"
             "6|Manage WAN2GP Server|(Start, Stop, Restart in Profile 2 or 4.5)"
@@ -13957,27 +14048,24 @@ render_main_header() {
     hdr+="${BOLD}${MAGENTA}${title_sp}${title_text}${NC}\n"
     hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
 
-    local os_badge
-    os_badge=$(get_os_badge)
-    local os_updates
-    os_updates=$(get_os_update_status)
+    # Fast path: render only from in-memory cached values (refreshed asynchronously by
+    # refresh_header_cache_worker). Never run python/curl/network probes here.
+    [ -z "${_CACHED_OS_BADGE:-}" ] && get_os_badge >/dev/null 2>&1
+    local os_badge="${_CACHED_OS_BADGE:-}"
+    local os_updates="${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}"
     local shell_info="Bash ${BASH_VERSION%%(*}"
     local net_status
-    if is_internet_connected; then
-        net_status="${GREEN}Online${NC}"
-    else
+    if [ "${_CACHED_INTERNET_STATUS:-online}" = "offline" ]; then
         net_status="${YELLOW}Offline (LAN Only)${NC}"
+    else
+        net_status="${GREEN}Online${NC}"
     fi
     hdr+="  ${os_badge}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${os_updates}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} ${shell_info}\n"
-    local cloud_status
-    cloud_status=$(get_cloud_backup_badge 2>/dev/null)
-    [ -n "$cloud_status" ] && hdr+="  ${cloud_status}\n"
+    [ -n "${_CACHED_CLOUD_STATUS:-}" ] && hdr+="  ${_CACHED_CLOUD_STATUS}\n"
     local sys_perf
     sys_perf=$(get_system_perf_stats)
-    local audio_interface_disp
-    audio_interface_disp=$(get_active_audio_interface_display)
     [ -n "$sys_perf" ] && hdr+="${sys_perf}\n"
-    [ -n "$audio_interface_disp" ] && hdr+="${audio_interface_disp}\n"
+    [ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ] && hdr+="${_CACHED_AUDIO_IFACE_DISPLAY}\n"
 
     local h_dash
     printf -v h_dash '%*s' "$cur_box_w" ''
@@ -13990,19 +14078,13 @@ render_main_header() {
         if [ -n "${STARTUP_SPEK_NOTICE:-}" ]; then
             hdr+="  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}\n"
         fi
-        if [ "${WEATHER_ENABLED:-true}" = "true" ] && [ -n "${WEATHER_LOCATION:-}" ]; then
-            local current_weather
-            current_weather=$(get_current_weather)
-            [ -n "$current_weather" ] && hdr+="${current_weather}\n"
+        if [ "${WEATHER_ENABLED:-true}" = "true" ] && [ -n "${WEATHER_LOCATION:-}" ] && [ -n "${_CACHED_WEATHER_DISPLAY:-}" ]; then
+            hdr+="${_CACHED_WEATHER_DISPLAY}\n"
         fi
-        if [ "${PLANETS_ENABLED:-true}" = "true" ]; then
-            local current_planets
-            current_planets=$(get_planets_above_horizon)
-            [ -n "$current_planets" ] && hdr+="${current_planets}\n"
+        if [ "${PLANETS_ENABLED:-true}" = "true" ] && [ -n "${_CACHED_PLANETS_DISPLAY:-}" ]; then
+            hdr+="${_CACHED_PLANETS_DISPLAY}\n"
         fi
-        local alarm_clock_status
-        alarm_clock_status=$(get_alarm_clock_status_display)
-        [ -n "$alarm_clock_status" ] && hdr+="${alarm_clock_status}\n"
+        [ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ] && hdr+="${_CACHED_ALARM_CLOCK_STATUS}\n"
         hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
         if ! is_mix_archive_configured; then
             hdr+="\n  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}\n"
@@ -14028,7 +14110,9 @@ while true; do
         else
             (check_and_show_currently_playing_mix >/dev/null 2>&1 &)
         fi
-        (refresh_header_cache_worker >/dev/null 2>&1 &)
+        _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
+        (refresh_header_cache_worker --force >/dev/null 2>&1 &)
+
         # Ensure DJ mix scheduler daemon is active if pending scheduled mixes exist
         if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then
             if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then
@@ -14042,7 +14126,9 @@ while true; do
     update_terminal_geometry 0
     box_w=$(( _TERM_COLS - 4 ))
     [ "$box_w" -lt 74 ] && box_w=74
-    main_header="$(render_main_header "$box_w")"
+    # Header is rendered by run_interactive_submenu (build_header_block) from cached values
+    main_header=""
+
 
     main_opts=(
         "SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|"
@@ -14070,7 +14156,7 @@ while true; do
         "20|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)"
         "21|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)"
         "22|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)"
-        "23|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|$(get_top_5_status_badge)"
+        "23|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}"
         "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|"
         "24|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)"
         "25|System & Hardware Process Monitors Suite|(btop, nvtop, top)"
