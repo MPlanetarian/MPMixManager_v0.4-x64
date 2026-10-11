@@ -9,6 +9,37 @@ if [ "$(uname -s)" = "Darwin" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
     fi
 fi
 
+# Enable terminal window size tracking and resize signal handling
+shopt -s checkwinsize 2>/dev/null || true
+_TERM_LINES=""
+_TERM_COLS=""
+_TERM_RESIZED=1
+_on_winch() {
+    _TERM_RESIZED=1
+}
+trap '_on_winch' WINCH
+
+update_terminal_geometry() {
+    local force="${1:-0}"
+    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
+        _TERM_RESIZED=0
+        local sz=""
+        if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
+            read -r _TERM_LINES _TERM_COLS <<< "$sz"
+        elif [ -n "${LINES:-}" ] && [ -n "${COLUMNS:-}" ]; then
+            _TERM_LINES="$LINES"
+            _TERM_COLS="$COLUMNS"
+        else
+            _TERM_LINES=$(tput lines 2>/dev/null || echo 40)
+            _TERM_COLS=$(tput cols 2>/dev/null || echo 100)
+        fi
+        [ -z "$_TERM_LINES" ] || [ "$_TERM_LINES" -lt 15 ] && _TERM_LINES=40
+        [ -z "$_TERM_COLS" ] || [ "$_TERM_COLS" -lt 40 ] && _TERM_COLS=100
+        return 0
+    fi
+    return 1
+}
+
 # Colors for terminal styling & Theme Engine
 set_theme_colors() {
     local theme_name="${1:-dreamworlds}"
@@ -200,12 +231,34 @@ read_nav_key() {
         return 0
     }
 
-    IFS= read -rsn1 _k || {
+    if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+        _TERM_RESIZED=0
+        _emit_key "RESIZE"
+        return 0
+    fi
+
+    IFS= read -rsn1 -t 0.25 _k
+    local read_rc=$?
+
+    if [ "$read_rc" -gt 128 ]; then
+        if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+            _TERM_RESIZED=0
+            _emit_key "RESIZE"
+            return 0
+        fi
+        _emit_key "TICK"
+        return 0
+    elif [ "$read_rc" -ne 0 ]; then
+        if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+            _TERM_RESIZED=0
+            _emit_key "RESIZE"
+            return 0
+        fi
         if [ -n "$_out_var" ]; then
             printf -v "$_out_var" "%s" ""
         fi
         return 1
-    }
+    fi
 
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
         _emit_key "ENTER"
@@ -215,10 +268,10 @@ read_nav_key() {
         _emit_key "BACKSPACE"
     elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then
         local c2=""
-        if IFS= read -rsn1 -t 0.05 c2; then
+        if IFS= read -rsn1 -t 0.02 c2; then
             if [[ "$c2" == "[" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.05 c3; then
+                if IFS= read -rsn1 -t 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -228,7 +281,7 @@ read_nav_key() {
                         "F") _emit_key "END" ;;
                         "[")
                             local c4=""
-                            if IFS= read -rsn1 -t 0.05 c4; then
+                            if IFS= read -rsn1 -t 0.02 c4; then
                                 case "$c4" in
                                     "A") _emit_key "UP" ;;
                                     "B") _emit_key "DOWN" ;;
@@ -240,7 +293,7 @@ read_nav_key() {
                             ;;
                         [0-9])
                             local c4=""
-                            if IFS= read -rsn1 -t 0.05 c4; then
+                            if IFS= read -rsn1 -t 0.02 c4; then
                                 case "${c3}${c4}" in
                                     "5~") _emit_key "PAGE_UP" ;;
                                     "6~") _emit_key "PAGE_DOWN" ;;
@@ -251,7 +304,7 @@ read_nav_key() {
                                     *)
                                         local cur="${c4}"
                                         while [[ ! "$cur" =~ [A-Za-z~] ]]; do
-                                            IFS= read -rsn1 -t 0.05 cur || break
+                                            IFS= read -rsn1 -t 0.02 cur || break
                                         done
                                         case "$cur" in
                                             "A") _emit_key "UP" ;;
@@ -273,7 +326,7 @@ read_nav_key() {
                 fi
             elif [[ "$c2" == "O" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.05 c3; then
+                if IFS= read -rsn1 -t 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -304,6 +357,7 @@ highlight_menu_line() {
     local extra="$3"
     local color_idx="${4:-0}"
     local _out_var="$5"
+    local box_width="${6:-${_CURRENT_BOX_W:-74}}"
 
     local c_mod=$(( color_idx % 4 ))
     [ "$c_mod" -lt 0 ] && c_mod=$(( c_mod + 4 ))
@@ -349,7 +403,15 @@ highlight_menu_line() {
     local ext_part=""
     [ -n "$extra" ] && ext_part="  ${fg_ext}${extra}"
 
-    local line_out="${ptr}${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${ext_part} ${rst}\033[K"
+    local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${ext_part}"
+    local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} + ( ${#extra} > 0 ? 2 + ${#extra} : 0 ) ))
+    local target_w=$(( box_width - 6 ))
+    local pad_len=$(( target_w - raw_len ))
+    [ "$pad_len" -lt 1 ] && pad_len=1
+    local pad_spaces
+    printf -v pad_spaces '%*s' "$pad_len" ''
+
+    local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"
     if [ -n "$_out_var" ]; then
         printf -v "$_out_var" "%s" "$line_out"
     else
@@ -430,34 +492,55 @@ run_interactive_submenu() {
         return 0
     fi
 
-    # Pre-render static header block and line count once to eliminate runtime forks
+    update_terminal_geometry 0
+    local box_w=$(( _TERM_COLS - 4 ))
+    [ "$box_w" -lt 74 ] && box_w=74
+    _CURRENT_BOX_W="$box_w"
+
     local header_count=0
     local cached_header_block=""
-    if [ -n "$menu_title" ]; then
-        cached_header_block+="${BOLD}${MAGENTA}╭──────────────────────────────────────────────────────────────────────────╮\033[K${NC}\n"
-        local title_line
-        printf -v title_line "${BOLD}${MAGENTA}│ %-72s │\033[K${NC}\n" "  ${menu_title}"
-        cached_header_block+="$title_line"
-        cached_header_block+="${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯\033[K${NC}\n"
-    fi
-    if [ -n "$menu_header" ]; then
-        local exp_hdr=""
-        printf -v exp_hdr "%b" "$menu_header"
-        while IFS= read -r h_line; do
-            cached_header_block+="${h_line}\033[K\n"
-            ((header_count++))
-        done <<< "$exp_hdr"
-    fi
-    if [ -n "$menu_title" ]; then
-        cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, [Esc] to return immediately\033[K${NC}\n"
-    else
-        cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, 'q' to exit\033[K${NC}\n"
-    fi
+    local overhead=4
 
-    local overhead=4 # prompt, bottom divider, selection status, blank
-    [ -n "$menu_title" ] && overhead=$((overhead + 4))
-    overhead=$((overhead + header_count))
-    
+    build_header_block() {
+        header_count=0
+        cached_header_block=""
+        local inner_w=$(( box_w - 2 ))
+        local text_w=$(( box_w - 4 ))
+        local h_border
+        printf -v h_border '%*s' "$inner_w" ''
+        h_border="${h_border// /─}"
+
+        if [ -n "$menu_title" ]; then
+            cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"
+            local title_line
+            printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"
+            cached_header_block+="$title_line"
+            cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"
+        fi
+        if [ -z "$menu_title" ] && command -v render_main_header >/dev/null 2>&1; then
+            menu_header="$(render_main_header "$box_w")"
+        fi
+        if [ -n "$menu_header" ]; then
+            local exp_hdr=""
+            printf -v exp_hdr "%b" "$menu_header"
+            while IFS= read -r h_line; do
+                cached_header_block+="${h_line}\033[K\n"
+                ((header_count++))
+            done <<< "$exp_hdr"
+        fi
+        if [ -n "$menu_title" ]; then
+            cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, [Esc] to return immediately\033[K${NC}\n"
+        else
+            cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, 'q' to exit\033[K${NC}\n"
+        fi
+
+        overhead=4 # prompt, bottom divider, selection status, blank
+        [ -n "$menu_title" ] && overhead=$((overhead + 4))
+        overhead=$((overhead + header_count))
+    }
+
+    build_header_block
+
     # Clear screen once on entry and hide cursor
     clear
     printf '\033[?25l'
@@ -466,39 +549,72 @@ run_interactive_submenu() {
     local view_top=0
 
     while true; do
-        local term_lines="${LINES:-}"
-        local term_cols="${COLUMNS:-}"
-        [ -z "$term_lines" ] && term_lines=$(tput lines 2>/dev/null || echo 40)
-        [ -z "$term_cols" ] && term_cols=$(tput cols 2>/dev/null || echo 100)
-        [ -z "$term_lines" ] || [ "$term_lines" -lt 15 ] && term_lines=40
-        [ -z "$term_cols" ] || [ "$term_cols" -lt 40 ] && term_cols=100
+        update_terminal_geometry 0
+        local cur_box_w=$(( _TERM_COLS - 4 ))
+        [ "$cur_box_w" -lt 74 ] && cur_box_w=74
+        if [ "$cur_box_w" -ne "$box_w" ]; then
+            box_w="$cur_box_w"
+            _CURRENT_BOX_W="$box_w"
+            build_header_block
+        fi
+
+        local inner_w=$(( box_w - 2 ))
+        local text_w=$(( box_w - 4 ))
+        local h_border
+        printf -v h_border '%*s' "$inner_w" ''
+        h_border="${h_border// /─}"
 
         # Check MP Audio Player status and build live banner if active
         local player_banner=""
         local banner_lines=0
         if get_mp_audio_player_track_info 2>/dev/null; then
             local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"
-            [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
-            local disp_title="$MP_PLAYER_TITLE"
-            if [ ${#disp_title} -gt 40 ]; then
-                disp_title="${disp_title:0:37}..."
+            local st_raw="▶ PLAYING"
+            if [ "$MP_PLAYER_STATE" = "paused" ]; then
+                st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
+                st_raw="⏸ PAUSED"
             fi
-            player_banner+="  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ─────────────────────────────────────────────────────╮\033[K${NC}\n"
-            local line1_txt
-            printf -v line1_txt "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"
-            player_banner+="$line1_txt"
+
+            local rem_dashes=$(( inner_w - 22 ))
+            [ "$rem_dashes" -lt 10 ] && rem_dashes=10
+            local p_top_dashes
+            printf -v p_top_dashes '%*s' "$rem_dashes" ''
+            p_top_dashes="${p_top_dashes// /─}"
+
+            player_banner+="  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ${p_top_dashes}╮\033[K${NC}\n"
+
+            local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"
+            local max_t_len=$(( text_w - ${#pos_pct_str} - 16 ))
+            [ "$max_t_len" -lt 25 ] && max_t_len=25
+            local disp_title="$MP_PLAYER_TITLE"
+            if [ ${#disp_title} -gt "$max_t_len" ]; then
+                disp_title="${disp_title:0:$((max_t_len - 3))}..."
+            fi
+
+            local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"
+            local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"
+            local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} ))
+            local l1_pad=$(( text_w - raw_l1_len ))
+            [ "$l1_pad" -lt 2 ] && l1_pad=2
+            local l1_sp
+            printf -v l1_sp '%*s' "$l1_pad" ''
+            player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"
+
             local line2_ctrl="[Space] Toggle  [n] Next  [</>] Track  [p] UI  [f] FM"
             local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
-            local line2_txt
-            printf -v line2_txt "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: %-46b${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n" "$eq_disp" "$line2_ctrl"
-            player_banner+="$line2_txt"
-            player_banner+="  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯\033[K${NC}\n"
+            local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} ))
+            local l2_pad=$(( text_w - raw_l2_len ))
+            [ "$l2_pad" -lt 2 ] && l2_pad=2
+            local l2_sp
+            printf -v l2_sp '%*s' "$l2_pad" ''
+            player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"
+            player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"
             banner_lines=4
         fi
 
         # Compute maximum visible options
         local effective_overhead=$(( overhead + banner_lines ))
-        local max_visible=$(( term_lines - effective_overhead ))
+        local max_visible=$(( _TERM_LINES - effective_overhead ))
         if [ "$max_visible" -lt 6 ]; then
             max_visible=6
         fi
@@ -541,17 +657,22 @@ run_interactive_submenu() {
         for (( idx=view_top; idx<=view_end; idx++ )); do
             IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
             if [ "$o_key" = "SECTION" ]; then
-                frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ─────────\033[K${NC}\n"
+                local sec_rem=$(( inner_w - ${#o_label} - 8 ))
+                [ "$sec_rem" -lt 4 ] && sec_rem=4
+                local sec_dashes
+                printf -v sec_dashes '%*s' "$sec_rem" ''
+                sec_dashes="${sec_dashes// /─}"
+                frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"
                 continue
             elif [ "$o_key" = "SEP" ]; then
-                frame_buf+="  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────\033[K${NC}\n"
+                frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
                 continue
             fi
             
             if [ "$idx" -eq "$cur_idx" ]; then
                 local sel_color_idx="${selectable_map[$cur_idx]:-0}"
                 local h_line=""
-                highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line
+                highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"
                 frame_buf+="${h_line}\n"
             else
                 local key_formatted
@@ -572,7 +693,7 @@ run_interactive_submenu() {
             frame_buf+="\033[K\n"
         fi
 
-        frame_buf+="  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────\033[K${NC}\n"
+        frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
         IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
         if [ -n "$typed_buffer" ]; then
             if [ -n "$menu_title" ]; then
@@ -598,6 +719,18 @@ run_interactive_submenu() {
         read_nav_key key_action
         
         case "$key_action" in
+            RESIZE)
+                update_terminal_geometry 1
+                box_w=$(( _TERM_COLS - 4 ))
+                [ "$box_w" -lt 74 ] && box_w=74
+                _CURRENT_BOX_W="$box_w"
+                build_header_block
+                clear
+                continue
+                ;;
+            TICK)
+                continue
+                ;;
             SPACE)
                 local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
                 [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
@@ -2738,17 +2871,46 @@ print(json.dumps(data))
     return 0
 }
 
+_CACHED_PID_CHECK_PID=""
+_CACHED_PID_CHECK_TIME=0
+_CACHED_PID_CHECK_RES=1
+
 is_system_pid_alive() {
     local pid_to_check="$1"
     [ -z "$pid_to_check" ] && return 1
-    if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-        tasklist //FI "PID eq $pid_to_check" 2>/dev/null | grep -q "$pid_to_check"
-    else
-        kill -0 "$pid_to_check" 2>/dev/null
+
+    local now="$SECONDS"
+    if [ "$pid_to_check" = "$_CACHED_PID_CHECK_PID" ] && [ $(( now - _CACHED_PID_CHECK_TIME )) -lt 3 ]; then
+        return "$_CACHED_PID_CHECK_RES"
     fi
+
+    local alive=1
+    if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        if ps -W 2>/dev/null | awk -v pid="$pid_to_check" '$4 == pid {found=1; exit} END {exit !found}'; then
+            alive=0
+        fi
+    else
+        if kill -0 "$pid_to_check" 2>/dev/null; then
+            alive=0
+        fi
+    fi
+
+    _CACHED_PID_CHECK_PID="$pid_to_check"
+    _CACHED_PID_CHECK_TIME="$now"
+    _CACHED_PID_CHECK_RES="$alive"
+    return "$alive"
 }
 
+_CACHED_PLAYER_CHECK_TIME=-10
+_CACHED_PLAYER_ACTIVE_RES=1
+
 get_mp_audio_player_track_info() {
+    local now="$SECONDS"
+    if [ $(( now - _CACHED_PLAYER_CHECK_TIME )) -lt 1 ] && [ -n "$MP_PLAYER_STATE" ]; then
+        return "$_CACHED_PLAYER_ACTIVE_RES"
+    fi
+    _CACHED_PLAYER_CHECK_TIME="$now"
+
     MP_PLAYER_RUNNING=0
     MP_PLAYER_STATE=""
     MP_PLAYER_TITLE=""
@@ -2763,44 +2925,51 @@ get_mp_audio_player_track_info() {
     MP_PLAYER_VOLUME=85
 
     local state_file="$HOME/.config/mix-manager/mp_player_state.json"
-    [ ! -f "$state_file" ] && return 1
+    if [ ! -f "$state_file" ]; then
+        _CACHED_PLAYER_ACTIVE_RES=1
+        return 1
+    fi
 
-    local pid_file="$HOME/.config/mix-manager/mp_player.pid"
-    if [ -f "$pid_file" ]; then
-        local p_pid
-        p_pid="$(cat "$pid_file" 2>/dev/null)"
-        if [ -n "$p_pid" ] && ! is_system_pid_alive "$p_pid"; then
+    local content=""
+    read -r content < "$state_file" 2>/dev/null || { _CACHED_PLAYER_ACTIVE_RES=1; return 1; }
+    if [ -z "$content" ]; then
+        _CACHED_PLAYER_ACTIVE_RES=1
+        return 1
+    fi
+
+    local is_run="false" p_pid=0
+    [[ "$content" =~ \"running\":\ *(true|false) ]] && is_run="${BASH_REMATCH[1]}"
+    if [ "$is_run" != "true" ]; then
+        _CACHED_PLAYER_ACTIVE_RES=1
+        return 1
+    fi
+
+    [[ "$content" =~ \"state\":\ *\"([^\"]+)\" ]] && MP_PLAYER_STATE="${BASH_REMATCH[1]}"
+    if [ "$MP_PLAYER_STATE" = "stopped" ]; then
+        _CACHED_PLAYER_ACTIVE_RES=1
+        return 1
+    fi
+
+    [[ "$content" =~ \"position_fmt\":\ *\"([^\"]+)\" ]] && MP_PLAYER_POS_FMT="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"duration_fmt\":\ *\"([^\"]+)\" ]] && MP_PLAYER_DUR_FMT="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"progress_pct\":\ *([0-9.]+) ]] && MP_PLAYER_PROGRESS_PCT="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"title\":\ *\"([^\"]+)\" ]] && MP_PLAYER_TITLE="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"mini_eq\":\ *\"([^\"]*)\" ]] && MP_PLAYER_MINI_EQ="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"volume\":\ *([0-9]+) ]] && MP_PLAYER_VOLUME="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"path\":\ *\"([^\"]+)\" ]] && MP_PLAYER_RAW_PATH="${BASH_REMATCH[1]}"
+    [[ "$content" =~ \"pid\":\ *([0-9]+) ]] && p_pid="${BASH_REMATCH[1]}"
+
+    if [ -n "$p_pid" ] && [ "$p_pid" -gt 0 ] 2>/dev/null; then
+        if ! is_system_pid_alive "$p_pid"; then
+            _CACHED_PLAYER_ACTIVE_RES=1
             return 1
         fi
     fi
 
-    if command -v jq >/dev/null 2>&1; then
-        local is_run p_pid
-        IFS=$'\t' read -r is_run MP_PLAYER_STATE MP_PLAYER_VOLUME MP_PLAYER_POS_FMT MP_PLAYER_DUR_FMT MP_PLAYER_PROGRESS_PCT MP_PLAYER_MINI_EQ MP_PLAYER_TITLE MP_PLAYER_RAW_PATH p_pid < <(
-            jq -r '[.running // false, .state // "stopped", .volume // 85, .position_fmt // "00:00", .duration_fmt // "00:00", .progress_pct // 0, .mini_eq // "", .title // "", .path // "", .pid // 0] | @tsv' "$state_file" 2>/dev/null
-        )
-        [ "$is_run" != "true" ] && return 1
-        [ "$MP_PLAYER_STATE" = "stopped" ] && return 1
-        if [ -n "$p_pid" ] && [ "$p_pid" -gt 0 ] 2>/dev/null; then
-            is_system_pid_alive "$p_pid" || return 1
-        fi
-        MP_PLAYER_RUNNING=1
-        MP_PLAYER_RESOLVED_PATH="$MP_PLAYER_RAW_PATH"
-    elif [ -f "$SCRIPT_DIR/MP_Audio_Player.py" ]; then
-        local p_st
-        p_st="$(python3 "$SCRIPT_DIR/MP_Audio_Player.py" --status 2>/dev/null)"
-        [ -z "$p_st" ] && return 1
-        [[ "$p_st" =~ "\"running\": true" ]] || return 1
-        MP_PLAYER_RUNNING=1
-        MP_PLAYER_STATE="playing"
-        [[ "$p_st" =~ "\"state\": \"paused\"" ]] && MP_PLAYER_STATE="paused"
-    fi
-
-    if [ -n "$MP_PLAYER_RESOLVED_PATH" ] && [ -f "$MP_PLAYER_RESOLVED_PATH" ]; then
-        MP_PLAYER_FILE_EXISTS=1
-        MP_PLAYER_FILE_SIZE="$(ls -lh "$MP_PLAYER_RESOLVED_PATH" 2>/dev/null | awk '{print $5}')"
-    fi
-
+    MP_PLAYER_RUNNING=1
+    MP_PLAYER_RESOLVED_PATH="$MP_PLAYER_RAW_PATH"
+    [ -n "$MP_PLAYER_RESOLVED_PATH" ] && [ -f "$MP_PLAYER_RESOLVED_PATH" ] && MP_PLAYER_FILE_EXISTS=1
+    _CACHED_PLAYER_ACTIVE_RES=0
     return 0
 }
 
@@ -2950,7 +3119,7 @@ get_cliamp_track_info() {
 }
 
 # Command-line flags for quick inspection without full interactive menu
-if [ "$1" = "--track" ] || [ "$1" = "--current-track" ] || [ "$1" = "--audacious-path" ] || [ "$1" = "--strawberry-path" ] || [ "$1" = "--cliamp-path" ] || [ "$1" = "-p" ]; then
+if [ "${1:-}" = "--track" ] || [ "${1:-}" = "--current-track" ] || [ "${1:-}" = "--audacious-path" ] || [ "${1:-}" = "--strawberry-path" ] || [ "${1:-}" = "--cliamp-path" ] || [ "${1:-}" = "-p" ]; then
     if get_audacious_track_info 2>/dev/null && [ -n "$AUDACIOUS_RESOLVED_PATH" ]; then
         echo "$AUDACIOUS_RESOLVED_PATH"
         exit 0
@@ -11376,9 +11545,20 @@ open_video_url() {
     fi
 }
 
+_LAST_WEATHER_CHECK=0
+_CACHED_WEATHER_DISPLAY=""
+
 get_current_weather() {
     [ "${WEATHER_ENABLED:-true}" != "true" ] && return 0
     [ -z "${WEATHER_LOCATION:-}" ] && return 0
+
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ $((now - _LAST_WEATHER_CHECK)) -lt 60 ] && [ -n "$_CACHED_WEATHER_DISPLAY" ]; then
+        echo -e "$_CACHED_WEATHER_DISPLAY"
+        return 0
+    fi
+    _LAST_WEATHER_CHECK="$now"
 
     local weather_sh="$SCRIPT_DIR/scripts/get_weather.sh"
     [ ! -f "$weather_sh" ] && weather_sh="$PWD/scripts/get_weather.sh"
@@ -11386,9 +11566,11 @@ get_current_weather() {
         local w_data
         w_data=$("$weather_sh" get 2>/dev/null)
         if [ -n "$w_data" ]; then
-            echo -e "  ${BOLD}${CYAN}🌤️  Weather:${NC} ${WHITE}${w_data}${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
+            _CACHED_WEATHER_DISPLAY="  ${BOLD}${CYAN}🌤️  Weather:${NC} ${WHITE}${w_data}${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
+            echo -e "$_CACHED_WEATHER_DISPLAY"
         elif ! is_internet_connected; then
-            echo -e "  ${BOLD}${CYAN}🌤️  Weather:${NC} ${YELLOW}Offline (No Internet Connection)${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
+            _CACHED_WEATHER_DISPLAY="  ${BOLD}${CYAN}🌤️  Weather:${NC} ${YELLOW}Offline (No Internet Connection)${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
+            echo -e "$_CACHED_WEATHER_DISPLAY"
         fi
     fi
 }
@@ -13225,8 +13407,108 @@ manage_settings_and_system() {
 
 
 # ==============================================================================
-# MAIN APPLICATION LOOP
+# MAIN APPLICATION LOOP & HEADER RENDERER
 # ==============================================================================
+
+render_main_header() {
+    local cur_box_w="${1:-$(( _TERM_COLS - 4 ))}"
+    [ "$cur_box_w" -lt 74 ] && cur_box_w=74
+
+    local hdr=""
+    local b_mode="full"
+    [ "$_TERM_LINES" -lt 45 ] && b_mode="compact"
+
+    if [ "$CURRENT_THEME" = "dreamworlds" ] || [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
+        local ultra_flag=""
+        [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && ultra_flag="--ultra"
+        local b_key="${CURRENT_THEME}_${b_mode}"
+        if [ "${_CACHED_BANNER_KEY:-}" != "$b_key" ] || [ -z "${_CACHED_BANNER_OUTPUT:-}" ]; then
+            local local_anim_script="$SCRIPT_DIR/scripts/render_ascii_animation.py"
+            [ ! -f "$local_anim_script" ] && local_anim_script="$SCRIPT_DIR/render_ascii_animation.py"
+            if [ "$b_mode" = "full" ]; then
+                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag 2>/dev/null)"
+            else
+                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag --compact 2>/dev/null)"
+            fi
+            _CACHED_BANNER_KEY="$b_key"
+        fi
+        [ -n "$_CACHED_BANNER_OUTPUT" ] && hdr+="${_CACHED_BANNER_OUTPUT}\n"
+    else
+        local h_eq
+        printf -v h_eq '%*s' "$cur_box_w" ''
+        h_eq="${h_eq// /=}"
+        local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3)"
+        local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
+        [ "$title_pad" -lt 0 ] && title_pad=0
+        local title_sp
+        printf -v title_sp '%*s' "$title_pad" ''
+
+        hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
+        hdr+="${BOLD}${MAGENTA}${title_sp}${title_text}${NC}\n"
+        hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
+    fi
+
+    local os_badge
+    os_badge=$(get_os_badge)
+    local os_updates
+    os_updates=$(get_os_update_status)
+    local shell_info="Bash ${BASH_VERSION%%(*}"
+    local net_status
+    if is_internet_connected; then
+        net_status="${GREEN}Online${NC}"
+    else
+        net_status="${YELLOW}Offline (LAN Only)${NC}"
+    fi
+    hdr+="  ${os_badge}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${os_updates}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} ${shell_info}\n"
+    local cloud_status
+    cloud_status=$(get_cloud_backup_badge 2>/dev/null)
+    [ -n "$cloud_status" ] && hdr+="  ${cloud_status}\n"
+    local sys_perf
+    sys_perf=$(get_system_perf_stats)
+    local audio_interface_disp
+    audio_interface_disp=$(get_active_audio_interface_display)
+    [ -n "$sys_perf" ] && hdr+="${sys_perf}\n"
+    [ -n "$audio_interface_disp" ] && hdr+="${audio_interface_disp}\n"
+
+    local h_dash
+    printf -v h_dash '%*s' "$cur_box_w" ''
+    h_dash="${h_dash// /-}"
+
+    if [ "$_TERM_LINES" -ge 38 ]; then
+        if [ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]; then
+            hdr+="  ${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}\n"
+        fi
+        if [ -n "${STARTUP_SPEK_NOTICE:-}" ]; then
+            hdr+="  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}\n"
+        fi
+        if [ "${WEATHER_ENABLED:-true}" = "true" ] && [ -n "${WEATHER_LOCATION:-}" ]; then
+            local current_weather
+            current_weather=$(get_current_weather)
+            [ -n "$current_weather" ] && hdr+="${current_weather}\n"
+        fi
+        if [ "${PLANETS_ENABLED:-true}" = "true" ]; then
+            local current_planets
+            current_planets=$(get_planets_above_horizon)
+            [ -n "$current_planets" ] && hdr+="${current_planets}\n"
+        fi
+        local alarm_clock_status
+        alarm_clock_status=$(get_alarm_clock_status_display)
+        [ -n "$alarm_clock_status" ] && hdr+="${alarm_clock_status}\n"
+        hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
+        if ! is_mix_archive_configured; then
+            hdr+="\n  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}\n"
+            hdr+="  ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}\n"
+        fi
+        hdr+="\n"
+        hdr+="$(show_stats)\n\n"
+        hdr+="  $(get_manager_uptime)\n"
+    else
+        hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
+        hdr+="  $(get_manager_uptime)\n"
+    fi
+
+    echo -e "$hdr"
+}
 
 while true; do
     if [ "$STARTUP_AUTOPLAY_EXECUTED" -eq 0 ]; then
@@ -13253,78 +13535,10 @@ while true; do
         fi
     fi
 
-    term_lines=$(tput lines 2>/dev/null || echo 40)
-    [ -z "$term_lines" ] || [ "$term_lines" -lt 15 ] && term_lines=40
-
-    main_header=""
-    if [ "$CURRENT_THEME" = "dreamworlds" ] || [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
-        ultra_flag=""
-        [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && ultra_flag="--ultra"
-        b_mode="full"
-        [ "$term_lines" -lt 55 ] && b_mode="compact"
-        b_key="${CURRENT_THEME}_${b_mode}"
-        if [ "${_CACHED_BANNER_KEY:-}" != "$b_key" ] || [ -z "${_CACHED_BANNER_OUTPUT:-}" ]; then
-            local_anim_script="$SCRIPT_DIR/scripts/render_ascii_animation.py"
-            [ ! -f "$local_anim_script" ] && local_anim_script="$SCRIPT_DIR/render_ascii_animation.py"
-            if [ "$b_mode" = "full" ]; then
-                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag 2>/dev/null)"
-            else
-                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag --compact 2>/dev/null)"
-            fi
-            _CACHED_BANNER_KEY="$b_key"
-        fi
-        [ -n "$_CACHED_BANNER_OUTPUT" ] && main_header+="${_CACHED_BANNER_OUTPUT}\n"
-    else
-        main_header+="${BOLD}${MAGENTA}===================================================================================${NC}\n"
-        main_header+="${BOLD}${MAGENTA}                     Mix Archive Manager (MP_Mix_Manager_v0.3)                     ${NC}\n"
-        main_header+="${BOLD}${MAGENTA}===================================================================================${NC}\n"
-    fi
-    os_badge=$(get_os_badge)
-    os_updates=$(get_os_update_status)
-    shell_info="Bash ${BASH_VERSION%%(*}"
-    current_datetime=$(date "+%A, %B %d, %Y • %T %Z")
-    if is_internet_connected; then
-        net_status="${GREEN}Online${NC}"
-    else
-        net_status="${YELLOW}Offline (LAN Only)${NC}"
-    fi
-    main_header+="  ${os_badge}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${os_updates}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} ${shell_info}\n"
-    cloud_status=$(get_cloud_backup_badge 2>/dev/null)
-    [ -n "$cloud_status" ] && main_header+="  ${cloud_status}\n"
-    sys_perf=$(get_system_perf_stats)
-    audio_interface_disp=$(get_active_audio_interface_display)
-    [ -n "$sys_perf" ] && main_header+="${sys_perf}\n"
-    [ -n "$audio_interface_disp" ] && main_header+="${audio_interface_disp}\n"
-
-    if [ "$term_lines" -ge 55 ]; then
-        if [ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]; then
-            main_header+="  ${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}\n"
-        fi
-        if [ -n "${STARTUP_SPEK_NOTICE:-}" ]; then
-            main_header+="  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}\n"
-        fi
-        if [ "${WEATHER_ENABLED:-true}" = "true" ] && [ -n "${WEATHER_LOCATION:-}" ]; then
-            current_weather=$(get_current_weather)
-            [ -n "$current_weather" ] && main_header+="${current_weather}\n"
-        fi
-        if [ "${PLANETS_ENABLED:-true}" = "true" ]; then
-            current_planets=$(get_planets_above_horizon)
-            [ -n "$current_planets" ] && main_header+="${current_planets}\n"
-        fi
-        alarm_clock_status=$(get_alarm_clock_status_display)
-        [ -n "$alarm_clock_status" ] && main_header+="${alarm_clock_status}\n"
-        main_header+="${BOLD}${MAGENTA}-----------------------------------------------------------------------------------${NC}\n"
-        if ! is_mix_archive_configured; then
-            main_header+="\n  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}\n"
-            main_header+="  ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}\n"
-        fi
-        main_header+="\n"
-        main_header+="$(show_stats)\n\n"
-        main_header+="  $(get_manager_uptime)\n"
-    else
-        main_header+="${BOLD}${MAGENTA}-----------------------------------------------------------------------------------${NC}\n"
-        main_header+="  $(get_manager_uptime)\n"
-    fi
+    update_terminal_geometry 0
+    box_w=$(( _TERM_COLS - 4 ))
+    [ "$box_w" -lt 74 ] && box_w=74
+    main_header="$(render_main_header "$box_w")"
 
     main_opts=(
         "SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|"
