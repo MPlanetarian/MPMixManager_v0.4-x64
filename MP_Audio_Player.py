@@ -14,6 +14,7 @@ Features:
 
 from __future__ import annotations
 import os
+import re
 import sys
 import time
 import math
@@ -28,6 +29,17 @@ import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Lazy audio library imports to keep CLI and IPC operations instant (<0.02s)
 np = None
@@ -111,6 +123,7 @@ COLOR_SLATE_GREY = "\033[38;2;88;98;118m"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 SOCKET_PATH = CONFIG_DIR / "mp_audio_player.sock"
+PORT_FILE = CONFIG_DIR / "mp_audio_player.port"
 STATE_FILE = CONFIG_DIR / "mp_player_state.json"
 PID_FILE = CONFIG_DIR / "mp_player.pid"
 
@@ -565,38 +578,61 @@ class MixArchiveScanner:
         def add_dir(p_str: Optional[str]):
             if not p_str:
                 return
-            p = Path(os.path.expanduser(p_str)).resolve()
-            if p.is_dir() and str(p) not in seen:
-                seen.add(str(p))
-                dirs.append(p)
+            try:
+                clean_str = str(p_str).strip().strip('"').strip("'")
+                if not clean_str:
+                    return
+                p = Path(os.path.expanduser(clean_str)).resolve()
+                if p.is_dir() and str(p) not in seen:
+                    seen.add(str(p))
+                    dirs.append(p)
+            except Exception:
+                pass
 
-        # 1. Local environment configs
+        def parse_and_add_extra(extra_val: Optional[str]):
+            if not extra_val:
+                return
+            # Split by comma, semicolon, newline, or colon (guarding Windows drive letter C:\)
+            parts = re.split(r'[;\n,]|(?<!^[a-zA-Z]):(?![\\/])', extra_val)
+            for part in parts:
+                add_dir(part.strip())
+
+        # 1. Environment variables
+        add_dir(os.environ.get("MIX_ARCHIVE_DIR"))
+        parse_and_add_extra(os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or os.environ.get("MIX_ARCHIVE_DIRS"))
+
+        # 2. Local environment configs
         env_files = [
             self.base_dir / "config.env",
-            CONFIG_DIR / "config.env"
+            CONFIG_DIR / "config.env",
+            Path(__file__).resolve().parent / "config.env",
         ]
+        if sys.platform == "win32":
+            env_files.append(Path("B:/MIX_ARCHIVE/config.env"))
+
         for ef in env_files:
             cfg = parse_env_file(ef)
             add_dir(cfg.get("MIX_ARCHIVE_DIR"))
-            extra = cfg.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("MIX_ARCHIVE_DIRS")
-            if extra:
-                for sep in [":", ",", ";", "\n"]:
-                    if sep in extra:
-                        parts = extra.split(sep)
-                        for part in parts:
-                            add_dir(part.strip())
-                        break
-                else:
-                    add_dir(extra.strip())
+            parse_and_add_extra(cfg.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("MIX_ARCHIVE_DIRS"))
 
-        # 2. Well-known project directories
+        # 3. Well-known project directories
         add_dir(str(self.base_dir / "MIX_ARCHIVE"))
         add_dir(str(self.base_dir / "FLAC_CONVERTED_OUTPUTS"))
         add_dir(str(self.base_dir / "MP3_CONVERTED_OUTPUTS"))
         add_dir(str(self.base_dir / "WAV_CONVERTED_OUTPUTS"))
-        add_dir("/run/media/mplanetarian/WD BLACK B/MIX_ARCHIVE")
-        add_dir("/run/media/mplanetarian/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS")
-        add_dir(os.path.expanduser("~/GoogleDrive/MIX_ARCHIVE"))
+
+        if sys.platform == "win32":
+            add_dir("B:/MIX_ARCHIVE")
+            add_dir("B:/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS")
+            add_dir("X:/MIX_ARCHIVE")
+            for drive_letter in ("B", "D", "E", "F", "G", "N", "V", "X", "Z"):
+                cand = Path(f"{drive_letter}:/MIX_ARCHIVE")
+                if cand.is_dir():
+                    add_dir(str(cand))
+        else:
+            add_dir("/run/media/mplanetarian/WD BLACK B/MIX_ARCHIVE")
+            add_dir("/run/media/mplanetarian/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS")
+            add_dir(os.path.expanduser("~/GoogleDrive/MIX_ARCHIVE"))
 
         return dirs
 
@@ -610,7 +646,8 @@ class MixArchiveScanner:
                 continue
             try:
                 for root, _, files in os.walk(ad):
-                    if "/." in root or "__pycache__" in root:
+                    norm_root = root.replace("\\", "/")
+                    if "/." in norm_root or "__pycache__" in norm_root:
                         continue
                     for f in files:
                         ext = os.path.splitext(f)[1].lower()
@@ -1115,14 +1152,25 @@ class PlayerIPCServer:
         self.sock: Optional[socket.socket] = None
 
     def start(self):
-        if SOCKET_PATH.exists():
-            try:
-                SOCKET_PATH.unlink()
-            except OSError:
-                pass
+        if hasattr(socket, "AF_UNIX"):
+            if SOCKET_PATH.exists():
+                try:
+                    SOCKET_PATH.unlink()
+                except OSError:
+                    pass
+            self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.sock.bind(str(SOCKET_PATH))
+        else:
+            if PORT_FILE.exists():
+                try:
+                    PORT_FILE.unlink()
+                except OSError:
+                    pass
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.bind(("127.0.0.1", 0))
+            port = self.sock.getsockname()[1]
+            PORT_FILE.write_text(str(port))
 
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.bind(str(SOCKET_PATH))
         self.sock.listen(10)
         self.sock.setblocking(False)
 
@@ -1188,7 +1236,13 @@ class PlayerIPCServer:
                 except OSError:
                     pass
                 try:
-                    SOCKET_PATH.unlink()
+                    if SOCKET_PATH.exists():
+                        SOCKET_PATH.unlink()
+                except OSError:
+                    pass
+                try:
+                    if PORT_FILE.exists():
+                        PORT_FILE.unlink()
                 except OSError:
                     pass
                 try:
@@ -1283,13 +1337,23 @@ class PlayerIPCServer:
 # ==============================================================================
 
 def send_ipc_command(cmd: str, **kwargs) -> Optional[Dict[str, Any]]:
-    if not SOCKET_PATH.exists():
+    has_unix = hasattr(socket, "AF_UNIX")
+    if has_unix and not SOCKET_PATH.exists():
         return None
+    if not has_unix and not PORT_FILE.exists():
+        return None
+
     for attempt in range(3):
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(str(SOCKET_PATH))
+            if has_unix:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(2.0)
+                sock.connect(str(SOCKET_PATH))
+            else:
+                port = int(PORT_FILE.read_text().strip())
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2.0)
+                sock.connect(("127.0.0.1", port))
             payload = {"cmd": cmd}
             payload.update(kwargs)
             sock.sendall(json.dumps(payload).encode('utf-8'))
@@ -1306,8 +1370,34 @@ def is_player_daemon_running() -> bool:
     if PID_FILE.exists():
         try:
             pid = int(PID_FILE.read_text().strip())
-            os.kill(pid, 0)
-            return True
+            if sys.platform == "win32":
+                import ctypes
+                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                SYNCHRONIZE = 0x00100000
+                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid)
+                if handle:
+                    exit_code = ctypes.c_ulong()
+                    if ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                        ctypes.windll.kernel32.CloseHandle(handle)
+                        if exit_code.value == 259:  # STILL_ACTIVE
+                            return True
+                    else:
+                        ctypes.windll.kernel32.CloseHandle(handle)
+                try:
+                    PID_FILE.unlink()
+                except OSError:
+                    pass
+                try:
+                    if SOCKET_PATH.exists():
+                        SOCKET_PATH.unlink()
+                    if PORT_FILE.exists():
+                        PORT_FILE.unlink()
+                except OSError:
+                    pass
+                return False
+            else:
+                os.kill(pid, 0)
+                return True
         except (OSError, ValueError):
             try:
                 PID_FILE.unlink()
@@ -1316,10 +1406,13 @@ def is_player_daemon_running() -> bool:
             try:
                 if SOCKET_PATH.exists():
                     SOCKET_PATH.unlink()
+                if PORT_FILE.exists():
+                    PORT_FILE.unlink()
             except OSError:
                 pass
             return False
-    if SOCKET_PATH.exists():
+
+    if hasattr(socket, "AF_UNIX") and SOCKET_PATH.exists():
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             s.settimeout(0.2)
@@ -1329,6 +1422,19 @@ def is_player_daemon_running() -> bool:
         except Exception:
             try:
                 SOCKET_PATH.unlink()
+            except OSError:
+                pass
+    elif not hasattr(socket, "AF_UNIX") and PORT_FILE.exists():
+        try:
+            port = int(PORT_FILE.read_text().strip())
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.2)
+            s.connect(("127.0.0.1", port))
+            s.close()
+            return True
+        except Exception:
+            try:
+                PORT_FILE.unlink()
             except OSError:
                 pass
     return False
@@ -1964,8 +2070,40 @@ class TerminalPlayerUI:
     def _input_loop(self):
         if not sys.stdin.isatty():
             return
-        fd = sys.stdin.fileno()
 
+        if sys.platform == "win32":
+            import msvcrt
+            while self.running:
+                try:
+                    if msvcrt.kbhit():
+                        ch = msvcrt.getch()
+                        if ch in (b"\x00", b"\xe0"):
+                            ch2 = msvcrt.getch()
+                            if ch2 == b"H":
+                                self._process_key(b"\x1b[A")  # Up
+                            elif ch2 == b"P":
+                                self._process_key(b"\x1b[B")  # Down
+                            elif ch2 == b"M":
+                                self._process_key(b"\x1b[C")  # Right
+                            elif ch2 == b"K":
+                                self._process_key(b"\x1b[D")  # Left
+                            elif ch2 == b"G":
+                                self._process_key(b"\x1b[H")  # Home
+                            elif ch2 == b"O":
+                                self._process_key(b"\x1b[F")  # End
+                            elif ch2 == b"I":
+                                self._process_key(b"\x1b[5~") # Page Up
+                            elif ch2 == b"Q":
+                                self._process_key(b"\x1b[6~") # Page Down
+                        else:
+                            self._process_key(ch)
+                    else:
+                        time.sleep(0.02)
+                except Exception:
+                    time.sleep(0.02)
+            return
+
+        fd = sys.stdin.fileno()
 
         while self.running:
             try:
@@ -2560,7 +2698,7 @@ def main():
                 )
                 for _ in range(30):
                     time.sleep(0.04)
-                    if is_player_daemon_running() and (SOCKET_PATH.exists() or STATE_FILE.exists()):
+                    if is_player_daemon_running() and (SOCKET_PATH.exists() or PORT_FILE.exists() or STATE_FILE.exists()):
                         break
         elif target_file:
             send_ipc_command("play", file=target_file)
@@ -2627,6 +2765,11 @@ def main():
         try:
             if SOCKET_PATH.exists():
                 SOCKET_PATH.unlink()
+        except OSError:
+            pass
+        try:
+            if PORT_FILE.exists():
+                PORT_FILE.unlink()
         except OSError:
             pass
         sys.exit(0)

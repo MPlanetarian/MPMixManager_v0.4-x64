@@ -812,7 +812,8 @@ exit_mix_manager() {
 trap 'exit_mix_manager' INT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
-printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
+ APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
+ printf '\033]0;%s\007' "MP Mix Archive Manager [${APP_VERSION}]" 2>/dev/null || true
 # Resolve symlinks so SCRIPT_DIR correctly points to codebase directory
 _RESOLVED_SRC="${BASH_SOURCE[0]}"
 _RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
@@ -1029,12 +1030,16 @@ get_connected_displays_count() {
 
 ensure_manager_windowed() {
     # Set window title only - do not resize or alter user's window dimensions
-    printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
+    local app_ver
+    app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
+    printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
 }
 
 ensure_manager_fullscreen() {
     # Set window title only - do not resize or alter user's window dimensions
-    printf '\033]0;%s\007' "Mix Archive Manager" 2>/dev/null || true
+    local app_ver
+    app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
+    printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
 }
 
 align_mix_windows_on_screen() {
@@ -2163,46 +2168,79 @@ save_config_setting() {
     local key="$1"
     local val="$2"
     local cfg_file="$SCRIPT_DIR/config.env"
+    [ -z "$SCRIPT_DIR" ] && cfg_file="$PWD/config.env"
+    [ ! -f "$cfg_file" ] && [ -w "$(dirname "$cfg_file")" ] && touch "$cfg_file" 2>/dev/null || true
     [ ! -f "$cfg_file" ] && cfg_file="$PWD/config.env"
+    [ ! -f "$cfg_file" ] && touch "$cfg_file" 2>/dev/null || true
 
+    # Normalize backslashes for cross-platform compatibility
+    val="${val//\\//}"
+
+    # Try Python first
     python3 -c "
 import sys, re
 key = sys.argv[1]
 val = sys.argv[2]
 path = sys.argv[3]
 try:
-    with open(path, 'r', encoding='utf-8') as f:
-        c = f.read()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            c = f.read()
+    except (FileNotFoundError, OSError):
+        c = ''
     pat = rf'^[ \t]*{re.escape(key)}=.*$'
-    if re.search(pat, c, re.MULTILINE):
+    if c and re.search(pat, c, re.MULTILINE):
         new_c = re.sub(pat, f'{key}=\"{val}\"', c, flags=re.MULTILINE)
     else:
-        new_c = c.rstrip() + f'\n{key}=\"{val}\"\n'
+        new_c = (c.rstrip() + f'\n{key}=\"{val}\"\n') if c else f'{key}=\"{val}\"\n'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_c)
 except Exception:
     pass
 " "$key" "$val" "$cfg_file" 2>/dev/null || true
 
-    if [ -f "$HOME/.config/mix-manager/config.env" ]; then
+    # Pure bash fallback if Python failed or file was not modified
+    if [ ! -f "$cfg_file" ] || ! grep -q "^[[:space:]]*${key}=" "$cfg_file" 2>/dev/null; then
+        if [ ! -f "$cfg_file" ]; then
+            echo "${key}=\"${val}\"" > "$cfg_file"
+        else
+            echo "${key}=\"${val}\"" >> "$cfg_file"
+        fi
+    fi
+
+    # Also sync to user home config directory if available
+    local user_cfg_dir="$HOME/.config/mix-manager"
+    if [ -d "$user_cfg_dir" ]; then
+        local user_cfg="$user_cfg_dir/config.env"
         python3 -c "
 import sys, re
 key = sys.argv[1]
 val = sys.argv[2]
 path = sys.argv[3]
 try:
-    with open(path, 'r', encoding='utf-8') as f:
-        c = f.read()
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            c = f.read()
+    except (FileNotFoundError, OSError):
+        c = ''
     pat = rf'^[ \t]*{re.escape(key)}=.*$'
-    if re.search(pat, c, re.MULTILINE):
+    if c and re.search(pat, c, re.MULTILINE):
         new_c = re.sub(pat, f'{key}=\"{val}\"', c, flags=re.MULTILINE)
     else:
-        new_c = c.rstrip() + f'\n{key}=\"{val}\"\n'
+        new_c = (c.rstrip() + f'\n{key}=\"{val}\"\n') if c else f'{key}=\"{val}\"\n'
     with open(path, 'w', encoding='utf-8') as f:
         f.write(new_c)
 except Exception:
     pass
-" "$key" "$val" "$HOME/.config/mix-manager/config.env" 2>/dev/null || true
+" "$key" "$val" "$user_cfg" 2>/dev/null || true
+
+        if [ ! -f "$user_cfg" ] || ! grep -q "^[[:space:]]*${key}=" "$user_cfg" 2>/dev/null; then
+            if [ ! -f "$user_cfg" ]; then
+                echo "${key}=\"${val}\"" > "$user_cfg"
+            else
+                echo "${key}=\"${val}\"" >> "$user_cfg"
+            fi
+        fi
     fi
 }
 
@@ -2700,6 +2738,16 @@ print(json.dumps(data))
     return 0
 }
 
+is_system_pid_alive() {
+    local pid_to_check="$1"
+    [ -z "$pid_to_check" ] && return 1
+    if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        tasklist //FI "PID eq $pid_to_check" 2>/dev/null | grep -q "$pid_to_check"
+    else
+        kill -0 "$pid_to_check" 2>/dev/null
+    fi
+}
+
 get_mp_audio_player_track_info() {
     MP_PLAYER_RUNNING=0
     MP_PLAYER_STATE=""
@@ -2721,7 +2769,7 @@ get_mp_audio_player_track_info() {
     if [ -f "$pid_file" ]; then
         local p_pid
         p_pid="$(cat "$pid_file" 2>/dev/null)"
-        if [ -n "$p_pid" ] && ! kill -0 "$p_pid" 2>/dev/null; then
+        if [ -n "$p_pid" ] && ! is_system_pid_alive "$p_pid"; then
             return 1
         fi
     fi
@@ -2734,7 +2782,7 @@ get_mp_audio_player_track_info() {
         [ "$is_run" != "true" ] && return 1
         [ "$MP_PLAYER_STATE" = "stopped" ] && return 1
         if [ -n "$p_pid" ] && [ "$p_pid" -gt 0 ] 2>/dev/null; then
-            kill -0 "$p_pid" 2>/dev/null || return 1
+            is_system_pid_alive "$p_pid" || return 1
         fi
         MP_PLAYER_RUNNING=1
         MP_PLAYER_RESOLVED_PATH="$MP_PLAYER_RAW_PATH"
@@ -9290,6 +9338,9 @@ configure_mix_archive_folder() {
                     fi
                 fi
                 
+                # Normalize path (convert backslashes to forward slashes)
+                new_dir="${new_dir//\\//}"
+                
                 # Setup subdirectories
                 mkdir -p "$new_dir"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
                 
@@ -9304,6 +9355,11 @@ configure_mix_archive_folder() {
                 
                 save_config_setting "MIX_ARCHIVE_DIR" "$new_dir"
                 save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
+                save_config_setting "OUTPUT_DIR" "$new_dir/FLAC_CONVERTED_OUTPUTS"
+                save_config_setting "ARCHIVE_DIR" "$new_dir/CONVERTED_WAV_FILES"
+                save_config_setting "MP3_OUTPUT_DIR" "$new_dir/MP3_CONVERTED_OUTPUTS"
+                save_config_setting "WAV_OUTPUT_DIR" "$new_dir/WAV_CONVERTED_OUTPUTS"
+                save_config_setting "MP4_OUTPUT_DIR" "$new_dir/MP4_CONVERTED_OUTPUTS"
                 
                 cd "$new_dir" 2>/dev/null || true
                 play_sound_effect "storage"
@@ -9315,7 +9371,19 @@ configure_mix_archive_folder() {
                 local found_dirs=()
                 echo -e "\n${CYAN}Scanning mounted drives and volumes for candidate mix folders...${NC}"
                 shopt -s nullglob
-                for d in "/run/media/$USER"/* "/run/media/mplanetarian"/* "/Volumes"/* "/media/$USER"/* "/mnt"/*; do
+                local drive_candidates=(
+                    "/run/media/$USER"/*
+                    "/run/media/mplanetarian"/*
+                    "/Volumes"/*
+                    "/media/$USER"/*
+                    "/mnt"/*
+                )
+                if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    for ltr in b d e f g h j k n p s t u v x z; do
+                        [ -d "/$ltr" ] && drive_candidates+=("/$ltr")
+                    done
+                fi
+                for d in "${drive_candidates[@]}"; do
                     if [ -d "$d" ]; then
                         [ -d "$d/MIX_ARCHIVE" ] && found_dirs+=("$d/MIX_ARCHIVE")
                         [ -d "$d/MIX_ARCHIVE2" ] && found_dirs+=("$d/MIX_ARCHIVE2")
@@ -9356,6 +9424,7 @@ configure_mix_archive_folder() {
                 read -r -p "Select a location [1-${#unique_dirs[@]}, 0]: " sel_idx
                 if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#unique_dirs[@]}" ]; then
                     local chosen_dir="${unique_dirs[$((sel_idx - 1))]}"
+                    chosen_dir="${chosen_dir//\\//}"
                     mkdir -p "$chosen_dir"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
                     MIX_ARCHIVE_DIR="$chosen_dir"
                     MIX_ARCHIVE_CONFIGURED="true"
@@ -9367,6 +9436,11 @@ configure_mix_archive_folder() {
                     export MIX_ARCHIVE_DIR MIX_ARCHIVE_CONFIGURED OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR
                     save_config_setting "MIX_ARCHIVE_DIR" "$chosen_dir"
                     save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
+                    save_config_setting "OUTPUT_DIR" "$chosen_dir/FLAC_CONVERTED_OUTPUTS"
+                    save_config_setting "ARCHIVE_DIR" "$chosen_dir/CONVERTED_WAV_FILES"
+                    save_config_setting "MP3_OUTPUT_DIR" "$chosen_dir/MP3_CONVERTED_OUTPUTS"
+                    save_config_setting "WAV_OUTPUT_DIR" "$chosen_dir/WAV_CONVERTED_OUTPUTS"
+                    save_config_setting "MP4_OUTPUT_DIR" "$chosen_dir/MP4_CONVERTED_OUTPUTS"
                     cd "$chosen_dir" 2>/dev/null || true
                     play_sound_effect "storage"
                     echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully set to:${NC} ${BOLD}${WHITE}${chosen_dir}${NC}"

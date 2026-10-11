@@ -71,6 +71,7 @@ Cover_old.png
 *.tar.xz
 *.7z
 *.bak*
+*.exe
 
 # Execution Logs
 *.log
