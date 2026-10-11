@@ -167,10 +167,24 @@ if [ -z "$AUDIO_FILE" ] && [ -z "$VIDEO_FILE" ]; then
             search_dirs+=("$MIX_ARCHIVE_DIR")
         fi
         if [ -n "${EXTRA_MIX_ARCHIVE_DIRS:-}" ]; then
-            IFS=':;,' read -ra EXTRA_DIRS <<< "$EXTRA_MIX_ARCHIVE_DIRS"
+            EXTRA_DIRS=()
+            if [[ "$EXTRA_MIX_ARCHIVE_DIRS" == *";"* || "$EXTRA_MIX_ARCHIVE_DIRS" == *","* || "$EXTRA_MIX_ARCHIVE_DIRS" == *$'\n'* ]]; then
+                IFS=';,'$'\n' read -ra EXTRA_DIRS <<< "$EXTRA_MIX_ARCHIVE_DIRS"
+            elif [[ "$EXTRA_MIX_ARCHIVE_DIRS" =~ :[a-zA-Z]: ]]; then
+                _fixed="$(printf '%s' "$EXTRA_MIX_ARCHIVE_DIRS" | sed -E 's/:([a-zA-Z]:)/;\1/g')"
+                IFS=';' read -ra EXTRA_DIRS <<< "$_fixed"
+            elif [[ ! "$EXTRA_MIX_ARCHIVE_DIRS" =~ ^[a-zA-Z]: && "$EXTRA_MIX_ARCHIVE_DIRS" == *":"* ]]; then
+                IFS=':' read -ra EXTRA_DIRS <<< "$EXTRA_MIX_ARCHIVE_DIRS"
+            else
+                EXTRA_DIRS=("$EXTRA_MIX_ARCHIVE_DIRS")
+            fi
             for ed in "${EXTRA_DIRS[@]}"; do
-                ed="$(echo "$ed" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+                ed="$(echo "$ed" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')"
                 [ -z "$ed" ] && continue
+                ed="${ed//\\//}"
+                if [[ ! "$ed" =~ ^[a-zA-Z]:/$ && "$ed" != "/" ]]; then
+                    ed="${ed%/}"
+                fi
                 if [ -d "$ed/FLAC_CONVERTED_OUTPUTS" ]; then
                     search_dirs+=("$ed/FLAC_CONVERTED_OUTPUTS")
                 elif [ -d "$ed" ]; then

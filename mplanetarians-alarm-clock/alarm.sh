@@ -276,8 +276,23 @@ archive_dirs() {
         done <"$cfg"
     fi
     if [[ -n "${extra:-}" ]]; then
-        IFS=':;,' read -r -a parts <<<"${extra//,/:}"
+        local parts=()
+        if [[ "$extra" == *";"* || "$extra" == *","* || "$extra" == *$'\n'* ]]; then
+            IFS=';,'$'\n' read -ra parts <<< "$extra"
+        elif [[ "$extra" =~ :[a-zA-Z]: ]]; then
+            local _fixed
+            _fixed="$(printf '%s' "$extra" | sed -E 's/:([a-zA-Z]:)/;\1/g')"
+            IFS=';' read -ra parts <<< "$_fixed"
+        elif [[ ! "$extra" =~ ^[a-zA-Z]: && "$extra" == *":"* ]]; then
+            IFS=':' read -ra parts <<< "$extra"
+        else
+            parts=("$extra")
+        fi
         for part in "${parts[@]+"${parts[@]}"}"; do
+            part="${part//\\//}"
+            if [[ ! "$part" =~ ^[a-zA-Z]:/$ && "$part" != "/" ]]; then
+                part="${part%/}"
+            fi
             [[ -n "$part" ]] && dirs+=("$part")
         done
     fi

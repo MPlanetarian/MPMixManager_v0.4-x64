@@ -128,8 +128,21 @@ def has_processed_mix():
 
     extra_dirs = cfg.get("EXTRA_MIX_ARCHIVE_DIRS", "")
     if extra_dirs:
-        for ed in re.split(r"[:;,]", extra_dirs):
-            ed = ed.strip()
+        raw_extra = extra_dirs.strip()
+        parsed_extras = []
+        for sep in ('\n', ';', ','):
+            if sep in raw_extra:
+                parsed_extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
+                break
+        else:
+            if re.search(r':[a-zA-Z]:', raw_extra):
+                _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                parsed_extras = [x.strip().strip('"').strip("'") for x in _fixed.split(';') if x.strip().strip('"').strip("'")]
+            elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                parsed_extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(':') if x.strip().strip('"').strip("'")]
+            elif raw_extra:
+                parsed_extras = [raw_extra.strip('"').strip("'")]
+        for ed in parsed_extras:
             if ed and os.path.isdir(ed):
                 candidates.append(ed)
                 candidates.append(os.path.join(ed, "FLAC_CONVERTED_OUTPUTS"))

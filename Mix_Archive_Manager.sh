@@ -2101,6 +2101,82 @@ clear_archive_dir_cache() {
     _CACHED_ALL_WAV_ARCHIVE_DIRS=()
 }
 
+# Helper: Parse EXTRA_MIX_ARCHIVE_DIRS preserving Windows drive letters (e.g. G:/, B:/)
+parse_extra_mix_archive_dirs() {
+    local raw="$1"
+    local -a parsed=()
+    [ -z "$raw" ] && return 0
+    raw="${raw#"${raw%%[![:space:]]*}"}"
+    raw="${raw%"${raw##*[![:space:]]}"}"
+    [ -z "$raw" ] && return 0
+
+    if [[ "$raw" == *";"* || "$raw" == *","* || "$raw" == *$'\n'* ]]; then
+        local IFS_BACK="$IFS"
+        IFS=';,'$'\n'
+        for item in $raw; do
+            IFS="$IFS_BACK"
+            item="${item#"${item%%[![:space:]]*}"}"
+            item="${item%"${item##*[![:space:]]}"}"
+            item="${item%\"}"
+            item="${item#\"}"
+            item="${item%\'}"
+            item="${item#\'}"
+            [ -n "$item" ] && parsed+=("$item")
+            IFS=';,'$'\n'
+        done
+        IFS="$IFS_BACK"
+    elif [[ "$raw" =~ :[a-zA-Z]: ]]; then
+        local fixed_raw
+        fixed_raw="$(printf '%s' "$raw" | sed -E 's/:([a-zA-Z]:)/;\1/g')"
+        local IFS_BACK="$IFS"
+        IFS=';'
+        for item in $fixed_raw; do
+            IFS="$IFS_BACK"
+            item="${item#"${item%%[![:space:]]*}"}"
+            item="${item%"${item##*[![:space:]]}"}"
+            item="${item%\"}"
+            item="${item#\"}"
+            item="${item%\'}"
+            item="${item#\'}"
+            [ -n "$item" ] && parsed+=("$item")
+            IFS=';'
+        done
+        IFS="$IFS_BACK"
+    elif [[ ! "$raw" =~ ^[a-zA-Z]: && "$raw" == *":"* ]]; then
+        local IFS_BACK="$IFS"
+        IFS=':'
+        for item in $raw; do
+            IFS="$IFS_BACK"
+            item="${item#"${item%%[![:space:]]*}"}"
+            item="${item%"${item##*[![:space:]]}"}"
+            item="${item%\"}"
+            item="${item#\"}"
+            item="${item%\'}"
+            item="${item#\'}"
+            [ -n "$item" ] && parsed+=("$item")
+            IFS=':'
+        done
+        IFS="$IFS_BACK"
+    else
+        local item="$raw"
+        item="${item#"${item%%[![:space:]]*}"}"
+        item="${item%"${item##*[![:space:]]}"}"
+        item="${item%\"}"
+        item="${item#\"}"
+        item="${item%\'}"
+        item="${item#\'}"
+        [ -n "$item" ] && parsed+=("$item")
+    fi
+
+    for p in "${parsed[@]}"; do
+        p="${p//\\//}"
+        if [[ ! "$p" =~ ^[a-zA-Z]:/$ && "$p" != "/" ]]; then
+            p="${p%/}"
+        fi
+        [ -n "$p" ] && printf '%s\n' "$p"
+    done
+}
+
 # Helper: Get all configured mix archive directories
 get_all_mix_archive_dirs() {
     if [ "${1:-}" != "--refresh" ] && [ ${#_CACHED_ALL_MIX_ARCHIVE_DIRS[@]} -gt 0 ]; then
@@ -2114,32 +2190,35 @@ get_all_mix_archive_dirs() {
     # Primary archive directory
     local primary="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"
     if [ -n "$primary" ]; then
-        local clean_p="${primary%/}"
+        local clean_p="${primary//\\//}"
+        if [[ ! "$clean_p" =~ ^[a-zA-Z]:/$ && "$clean_p" != "/" ]]; then
+            clean_p="${clean_p%/}"
+        fi
         if is_internet_connected || ! is_remote_or_cloud_path "$clean_p"; then
             dirs+=("$clean_p")
             seen+=("$clean_p")
         fi
     fi
 
-    # Extra archive directories (colon, comma, or newline separated)
+    # Extra archive directories (semicolon, comma, newline, or non-drive colon separated)
     local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
     if [ -n "$raw_extras" ]; then
-        local IFS_BACK="$IFS"
-        IFS=':,;'
-        for raw_entry in $raw_extras; do
-            IFS="$IFS_BACK"
-            local d
-            d="${raw_entry#"${raw_entry%%[![:space:]]*}"}"
-            d="${d%"${d##*[![:space:]]}"}"
-            d="${d%\"}"
-            d="${d#\"}"
-            d="${d%\'}"
-            d="${d#\'}"
+        local -a extra_parsed=()
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            [ -n "$line" ] && extra_parsed+=("$line")
+        done < <(parse_extra_mix_archive_dirs "$raw_extras")
+
+        for d in "${extra_parsed[@]}"; do
             if [[ "$d" =~ ^~(/.*)?$ ]]; then
                 d="${HOME}${d:1}"
             fi
+            d="${d//\\//}"
             if [ -n "$d" ]; then
-                local clean_d="${d%/}"
+                local clean_d="$d"
+                if [[ ! "$clean_d" =~ ^[a-zA-Z]:/$ && "$clean_d" != "/" ]]; then
+                    clean_d="${clean_d%/}"
+                fi
                 if ! is_internet_connected && is_remote_or_cloud_path "$clean_d"; then
                     continue
                 fi
@@ -2148,9 +2227,7 @@ get_all_mix_archive_dirs() {
                     dirs+=("$clean_d")
                 fi
             fi
-            IFS=':,;'
         done
-        IFS="$IFS_BACK"
     fi
 
     _CACHED_ALL_MIX_ARCHIVE_DIRS=("${dirs[@]}")
@@ -9346,65 +9423,74 @@ add_extra_mix_archive_dir() {
     local new_dir="$1"
     [ -z "$new_dir" ] && return 1
 
-    local current_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
-    local new_extras=""
-    if [ -z "$current_extras" ]; then
-        new_extras="$new_dir"
-    else
-        local IFS_BACK="$IFS"
-        IFS=':,;'
-        for e in $current_extras; do
-            IFS="$IFS_BACK"
-            local clean_e="${e#"${e%%[![:space:]]*}"}"
-            clean_e="${clean_e%"${clean_e##*[![:space:]]}"}"
-            clean_e="${clean_e%\"}"
-            clean_e="${clean_e#\"}"
-            clean_e="${clean_e%\'}"
-            clean_e="${clean_e#\'}"
-            if [ "$clean_e" = "$new_dir" ]; then
-                return 0
-            fi
-            IFS=':,;'
-        done
-        IFS="$IFS_BACK"
-        new_extras="${current_extras}:${new_dir}"
+    new_dir="${new_dir//\\//}"
+    if [[ ! "$new_dir" =~ ^[a-zA-Z]:/$ && "$new_dir" != "/" ]]; then
+        new_dir="${new_dir%/}"
     fi
 
-    EXTRA_MIX_ARCHIVE_DIRS="$new_extras"
+    local current_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
+    local -a current_list=()
+    if [ -n "$current_extras" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            [ -n "$line" ] && current_list+=("$line")
+        done < <(parse_extra_mix_archive_dirs "$current_extras")
+    fi
+
+    for clean_e in "${current_list[@]}"; do
+        if [ "$clean_e" = "$new_dir" ]; then
+            return 0
+        fi
+    done
+
+    current_list+=("$new_dir")
+
+    local joined=""
+    for k in "${current_list[@]}"; do
+        if [ -z "$joined" ]; then
+            joined="$k"
+        else
+            joined="${joined};${k}"
+        fi
+    done
+
+    EXTRA_MIX_ARCHIVE_DIRS="$joined"
     export EXTRA_MIX_ARCHIVE_DIRS
     clear_archive_dir_cache
-    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$new_extras"
+    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$joined"
     save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
 }
 
 # Helper: Remove extra mix archive storage directory and persist
 remove_extra_mix_archive_dir() {
     local target_dir="$1"
+    target_dir="${target_dir//\\//}"
+    if [[ ! "$target_dir" =~ ^[a-zA-Z]:/$ && "$target_dir" != "/" ]]; then
+        target_dir="${target_dir%/}"
+    fi
+
     local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
+    local -a existing_list=()
+    if [ -n "$raw_extras" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
+            [ -n "$line" ] && existing_list+=("$line")
+        done < <(parse_extra_mix_archive_dirs "$raw_extras")
+    fi
+
     local kept=()
-    local IFS_BACK="$IFS"
-    IFS=':,;'
-    for e in $raw_extras; do
-        IFS="$IFS_BACK"
-        local clean_e="${e#"${e%%[![:space:]]*}"}"
-        clean_e="${clean_e%"${clean_e##*[![:space:]]}"}"
-        clean_e="${clean_e%\"}"
-        clean_e="${clean_e#\"}"
-        clean_e="${clean_e%\'}"
-        clean_e="${clean_e#\'}"
+    for clean_e in "${existing_list[@]}"; do
         if [ -n "$clean_e" ] && [ "$clean_e" != "$target_dir" ]; then
             kept+=("$clean_e")
         fi
-        IFS=':,;'
     done
-    IFS="$IFS_BACK"
 
     local joined=""
     for k in "${kept[@]}"; do
         if [ -z "$joined" ]; then
             joined="$k"
         else
-            joined="${joined}:${k}"
+            joined="${joined};${k}"
         fi
     done
 
@@ -9445,21 +9531,10 @@ configure_mix_archive_folder() {
         local extra_list=()
         local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
         if [ -n "$raw_extras" ]; then
-            local IFS_BACK="$IFS"
-            IFS=':,;'
-            for e_item in $raw_extras; do
-                IFS="$IFS_BACK"
-                local clean_e
-                clean_e="${e_item#"${e_item%%[![:space:]]*}"}"
-                clean_e="${clean_e%"${clean_e##*[![:space:]]}"}"
-                clean_e="${clean_e%\"}"
-                clean_e="${clean_e#\"}"
-                clean_e="${clean_e%\'}"
-                clean_e="${clean_e#\'}"
-                [ -n "$clean_e" ] && extra_list+=("$clean_e")
-                IFS=':,;'
-            done
-            IFS="$IFS_BACK"
+            while IFS= read -r line || [ -n "$line" ]; do
+                line="${line%$'\r'}"
+                [ -n "$line" ] && extra_list+=("$line")
+            done < <(parse_extra_mix_archive_dirs "$raw_extras")
         fi
 
         if [ ${#extra_list[@]} -gt 0 ]; then
@@ -9515,7 +9590,11 @@ configure_mix_archive_folder() {
             1)
                 echo ""
                 echo -e "${BOLD}Enter full path to your Primary Mix Archive storage directory:${NC}"
-                echo -e "${DIM}(e.g. /run/media/$USER/WD BLACK B/MIX_ARCHIVE or /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  B:\\MIX_ARCHIVE  or  /g/My Drive/MIX_ARCHIVE)${NC}"
+                else
+                    echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/WD BLACK B/MIX_ARCHIVE  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                fi
                 read -e -r -p "Path: " new_dir
                 new_dir="${new_dir#"${new_dir%%[![:space:]]*}"}"
                 new_dir="${new_dir%"${new_dir##*[![:space:]]}"}"
@@ -9527,6 +9606,12 @@ configure_mix_archive_folder() {
                 # Expand tilde ~
                 if [[ "$new_dir" =~ ^~(/.*)?$ ]]; then
                     new_dir="${HOME}${new_dir:1}"
+                fi
+
+                # Normalize path (convert backslashes to forward slashes) BEFORE directory check
+                new_dir="${new_dir//\\//}"
+                if [[ ! "$new_dir" =~ ^[a-zA-Z]:/$ && "$new_dir" != "/" ]]; then
+                    new_dir="${new_dir%/}"
                 fi
                 
                 [ -z "$new_dir" ] && continue
@@ -9544,9 +9629,6 @@ configure_mix_archive_folder() {
                         continue
                     fi
                 fi
-                
-                # Normalize path (convert backslashes to forward slashes)
-                new_dir="${new_dir//\\//}"
                 
                 # Setup subdirectories
                 mkdir -p "$new_dir"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
@@ -9585,8 +9667,8 @@ configure_mix_archive_folder() {
                     "/media/$USER"/*
                     "/mnt"/*
                 )
-                if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-                    for ltr in b d e f g h j k n p s t u v x z; do
+                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    for ltr in {a..z}; do
                         [ -d "/$ltr" ] && drive_candidates+=("/$ltr")
                     done
                 fi
@@ -9594,6 +9676,7 @@ configure_mix_archive_folder() {
                     if [ -d "$d" ]; then
                         [ -d "$d/MIX_ARCHIVE" ] && found_dirs+=("$d/MIX_ARCHIVE")
                         [ -d "$d/MIX_ARCHIVE2" ] && found_dirs+=("$d/MIX_ARCHIVE2")
+                        [ -d "$d/My Drive/MIX_ARCHIVE" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE")
                         [ -d "$d/Mixes" ] && found_dirs+=("$d/Mixes")
                         [ -d "$d/MIXES" ] && found_dirs+=("$d/MIXES")
                         found_dirs+=("$d")
@@ -9675,7 +9758,11 @@ configure_mix_archive_folder() {
             4)
                 echo ""
                 echo -e "${BOLD}Enter full path to the Additional Mix Archive folder:${NC}"
-                echo -e "${DIM}(e.g. /run/media/$USER/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS/)${NC}"
+                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  D:\\Mixes\\FLAC_CONVERTED_OUTPUTS  or  /g/My Drive/MIX_ARCHIVE)${NC}"
+                else
+                    echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS/  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                fi
                 read -e -r -p "Additional Archive Path: " add_dir
                 add_dir="${add_dir#"${add_dir%%[![:space:]]*}"}"
                 add_dir="${add_dir%"${add_dir##*[![:space:]]}"}"
@@ -9686,6 +9773,12 @@ configure_mix_archive_folder() {
                 
                 if [[ "$add_dir" =~ ^~(/.*)?$ ]]; then
                     add_dir="${HOME}${add_dir:1}"
+                fi
+
+                # Normalize Windows backslashes to forward slashes BEFORE checking existence
+                add_dir="${add_dir//\\//}"
+                if [[ ! "$add_dir" =~ ^[a-zA-Z]:/$ && "$add_dir" != "/" ]]; then
+                    add_dir="${add_dir%/}"
                 fi
                 
                 [ -z "$add_dir" ] && continue
@@ -9735,13 +9828,27 @@ configure_mix_archive_folder() {
                 local found_dirs=()
                 echo -e "\n${CYAN}Scanning mounted drives for potential mix archive folders...${NC}"
                 shopt -s nullglob
-                for d in "/run/media/$USER"/* "/run/media/mplanetarian"/* "/Volumes"/* "/media/$USER"/* "/mnt"/*; do
+                local drive_candidates=(
+                    "/run/media/$USER"/*
+                    "/run/media/mplanetarian"/*
+                    "/Volumes"/*
+                    "/media/$USER"/*
+                    "/mnt"/*
+                )
+                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    for ltr in {a..z}; do
+                        [ -d "/$ltr" ] && drive_candidates+=("/$ltr")
+                    done
+                fi
+                for d in "${drive_candidates[@]}"; do
                     if [ -d "$d" ]; then
                         [ -d "$d/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/FLAC_CONVERTED_OUTPUTS")
                         [ -d "$d/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS")
                         [ -d "$d/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS")
+                        [ -d "$d/My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS")
                         [ -d "$d/MIX_ARCHIVE" ] && found_dirs+=("$d/MIX_ARCHIVE")
                         [ -d "$d/MIX_ARCHIVE2" ] && found_dirs+=("$d/MIX_ARCHIVE2")
+                        [ -d "$d/My Drive/MIX_ARCHIVE" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE")
                         [ -d "$d/Mixes" ] && found_dirs+=("$d/Mixes")
                         [ -d "$d/MIXES" ] && found_dirs+=("$d/MIXES")
                     fi
@@ -9805,6 +9912,7 @@ configure_mix_archive_folder() {
                 if [[ "$clr_ans" =~ ^[yY] ]]; then
                     EXTRA_MIX_ARCHIVE_DIRS=""
                     export EXTRA_MIX_ARCHIVE_DIRS
+                    clear_archive_dir_cache
                     save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" ""
                     echo -e "\n${GREEN}✓ All additional storage locations cleared.${NC}"
                     sleep 1.5
@@ -10828,7 +10936,11 @@ export_mixes_to_path() {
     echo -e "${BOLD}${MAGENTA}                 EXPORT & COPY MIXES TO DESTINATION                   ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
 
-    read -r -p "Enter destination path (e.g. /media/USB_DRIVE/Mixes, ~/Music/Export): " dest_dir
+    if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        read -r -p "Enter destination path (e.g. D:\Mixes\Export, G:\My Drive\Export): " dest_dir
+    else
+        read -r -p "Enter destination path (e.g. /media/USB_DRIVE/Mixes, ~/Music/Export): " dest_dir
+    fi
     if [ -z "$dest_dir" ]; then
         echo -e "\n${YELLOW}Export cancelled.${NC}"
         sleep 1
@@ -10836,6 +10948,10 @@ export_mixes_to_path() {
     fi
 
     dest_dir="${dest_dir/#\~/$HOME}"
+    dest_dir="${dest_dir//\\//}"
+    if [[ ! "$dest_dir" =~ ^[a-zA-Z]:/$ && "$dest_dir" != "/" ]]; then
+        dest_dir="${dest_dir%/}"
+    fi
 
     if [ ! -d "$dest_dir" ]; then
         echo -e "${YELLOW}Destination directory does not exist.${NC}"

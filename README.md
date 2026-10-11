@@ -783,8 +783,9 @@ Mix Archive Manager automatically reads `config.env` from the project directory 
 MIX_ARCHIVE_CONFIGURED="true"
 MIX_ARCHIVE_DIR="/run/media/$USER/WD BLACK B/MIX_ARCHIVE"
 
-# Additional / Multiple Mix Archive Storage Locations (colon, comma, or newline separated)
+# Additional / Multiple Mix Archive Storage Locations (semicolon, comma, or newline separated; semicolon recommended for Windows drive paths)
 EXTRA_MIX_ARCHIVE_DIRS="/run/media/$USER/DATA/MIX_ARCHIVE2"
+# Windows example: EXTRA_MIX_ARCHIVE_DIRS="G:\My Drive\MIX_ARCHIVE;D:\Mixes\FLAC_CONVERTED_OUTPUTS"
 
 # Output directories (relative to MIX_ARCHIVE_DIR or absolute)
 OUTPUT_DIR="FLAC_CONVERTED_OUTPUTS"

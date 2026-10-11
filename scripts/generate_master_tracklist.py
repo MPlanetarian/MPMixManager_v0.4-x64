@@ -408,12 +408,19 @@ def discover_archives(cfg):
 
     extra_list = []
     if extra_archives_env:
-        for sep in (":", ";", ","):
-            if sep in extra_archives_env:
-                extra_list = [item.strip() for item in extra_archives_env.split(sep) if item.strip()]
+        raw_extra = extra_archives_env.strip()
+        for sep in ('\n', ';', ','):
+            if sep in raw_extra:
+                extra_list = [item.strip().strip('"').strip("'") for item in raw_extra.split(sep) if item.strip().strip('"').strip("'")]
                 break
-        if not extra_list and extra_archives_env.strip():
-            extra_list = [extra_archives_env.strip()]
+        else:
+            if re.search(r':[a-zA-Z]:', raw_extra):
+                _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                extra_list = [item.strip().strip('"').strip("'") for item in _fixed.split(';') if item.strip().strip('"').strip("'")]
+            elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                extra_list = [item.strip().strip('"').strip("'") for item in raw_extra.split(':') if item.strip().strip('"').strip("'")]
+            elif raw_extra:
+                extra_list = [raw_extra.strip('"').strip("'")]
 
     for index, extra_dir in enumerate(extra_list, 1):
         flac_sub = os.path.join(extra_dir, "FLAC_CONVERTED_OUTPUTS")

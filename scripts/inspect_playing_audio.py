@@ -806,12 +806,20 @@ def main():
                     flac_dirs.append(p)
             extra_env = os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("EXTRA_MIX_ARCHIVE_DIRS")
             if extra_env:
-                for sep in [':', ';', ',']:
-                    if sep in extra_env:
-                        extras = [x.strip() for x in extra_env.split(sep) if x.strip()]
+                raw_extra = extra_env.strip()
+                extras = []
+                for sep in ('\n', ';', ','):
+                    if sep in raw_extra:
+                        extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
                         break
                 else:
-                    extras = [extra_env.strip()] if extra_env.strip() else []
+                    if re.search(r':[a-zA-Z]:', raw_extra):
+                        _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                        extras = [x.strip().strip('"').strip("'") for x in _fixed.split(';') if x.strip().strip('"').strip("'")]
+                    elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                        extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(':') if x.strip().strip('"').strip("'")]
+                    elif raw_extra:
+                        extras = [raw_extra.strip('"').strip("'")]
                 for ed in extras:
                     p1 = os.path.join(ed, "FLAC_CONVERTED_OUTPUTS")
                     if os.path.isdir(p1) and p1 not in flac_dirs:
@@ -838,12 +846,20 @@ def main():
                     wav_dirs.append(p)
             extra_env = os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("EXTRA_MIX_ARCHIVE_DIRS")
             if extra_env:
-                for sep in [':', ';', ',']:
-                    if sep in extra_env:
-                        extras = [x.strip() for x in extra_env.split(sep) if x.strip()]
+                raw_extra = extra_env.strip()
+                extras = []
+                for sep in ('\n', ';', ','):
+                    if sep in raw_extra:
+                        extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
                         break
                 else:
-                    extras = [extra_env.strip()] if extra_env.strip() else []
+                    if re.search(r':[a-zA-Z]:', raw_extra):
+                        _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                        extras = [x.strip().strip('"').strip("'") for x in _fixed.split(';') if x.strip().strip('"').strip("'")]
+                    elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                        extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(':') if x.strip().strip('"').strip("'")]
+                    elif raw_extra:
+                        extras = [raw_extra.strip('"').strip("'")]
                 for ed in extras:
                     p2 = os.path.join(ed, "CONVERTED_WAV_FILES")
                     if os.path.isdir(p2) and p2 not in wav_dirs:

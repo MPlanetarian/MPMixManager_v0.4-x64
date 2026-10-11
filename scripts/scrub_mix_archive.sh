@@ -56,16 +56,29 @@ get_all_flac_scan_dirs() {
 
     local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
     if [ -n "$raw_extras" ]; then
-        local IFS_BACK="$IFS"
-        IFS=':,;'
-        for ed in $raw_extras; do
-            IFS="$IFS_BACK"
+        local extra_parsed=()
+        if [[ "$raw_extras" == *";"* || "$raw_extras" == *","* || "$raw_extras" == *$'\n'* ]]; then
+            IFS=';,'$'\n' read -ra extra_parsed <<< "$raw_extras"
+        elif [[ "$raw_extras" =~ :[a-zA-Z]: ]]; then
+            local _fixed
+            _fixed="$(printf '%s' "$raw_extras" | sed -E 's/:([a-zA-Z]:)/;\1/g')"
+            IFS=';' read -ra extra_parsed <<< "$_fixed"
+        elif [[ ! "$raw_extras" =~ ^[a-zA-Z]: && "$raw_extras" == *":"* ]]; then
+            IFS=':' read -ra extra_parsed <<< "$raw_extras"
+        else
+            extra_parsed=("$raw_extras")
+        fi
+        for ed in "${extra_parsed[@]}"; do
             local clean_ed="${ed#"${ed%%[![:space:]]*}"}"
             clean_ed="${clean_ed%"${clean_ed##*[![:space:]]}"}"
             clean_ed="${clean_ed%\"}"
             clean_ed="${clean_ed#\"}"
             clean_ed="${clean_ed%\'}"
             clean_ed="${clean_ed#\'}"
+            clean_ed="${clean_ed//\\//}"
+            if [[ ! "$clean_ed" =~ ^[a-zA-Z]:/$ && "$clean_ed" != "/" ]]; then
+                clean_ed="${clean_ed%/}"
+            fi
             if [ -n "$clean_ed" ]; then
                 if [ -d "$clean_ed/FLAC_CONVERTED_OUTPUTS" ]; then
                     local cand
@@ -77,9 +90,7 @@ get_all_flac_scan_dirs() {
                     [[ ! " ${dirs[*]} " =~ " ${cand} " ]] && dirs+=("$cand")
                 fi
             fi
-            IFS=':,;'
         done
-        IFS="$IFS_BACK"
     fi
 
     if [ ${#dirs[@]} -eq 0 ]; then

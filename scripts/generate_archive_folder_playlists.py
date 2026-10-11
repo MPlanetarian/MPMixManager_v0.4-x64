@@ -73,13 +73,22 @@ def get_configured_archive_dirs():
             pass
 
     if extra:
-        for sep in [':', ';', ',']:
-            if sep in extra:
-                for x in extra.split(sep):
-                    add(x)
+        raw_extra = extra.strip()
+        parsed_extras = []
+        for sep in ('\n', ';', ','):
+            if sep in raw_extra:
+                parsed_extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
                 break
         else:
-            add(extra)
+            if re.search(r':[a-zA-Z]:', raw_extra):
+                _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                parsed_extras = [x.strip().strip('"').strip("'") for x in _fixed.split(';') if x.strip().strip('"').strip("'")]
+            elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                parsed_extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(':') if x.strip().strip('"').strip("'")]
+            elif raw_extra:
+                parsed_extras = [raw_extra.strip('"').strip("'")]
+        for x in parsed_extras:
+            add(x)
 
     if not dirs:
         fallback = base_dir / "MIX_ARCHIVE"

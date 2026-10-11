@@ -127,12 +127,20 @@ def get_existing_archive_keys(dest_dir):
     env_vars = load_config()
     extra_env = os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or env_vars.get("EXTRA_MIX_ARCHIVE_DIRS")
     if extra_env:
-        for sep in [':', ';', ',']:
-            if sep in extra_env:
-                extras = [x.strip() for x in extra_env.split(sep) if x.strip()]
+        raw_extra = extra_env.strip()
+        extras = []
+        for sep in ('\n', ';', ','):
+            if sep in raw_extra:
+                extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
                 break
         else:
-            extras = [extra_env.strip()] if extra_env.strip() else []
+            if re.search(r':[a-zA-Z]:', raw_extra):
+                _fixed = re.sub(r':([a-zA-Z]:)', r';\1', raw_extra)
+                extras = [x.strip().strip('"').strip("'") for x in _fixed.split(';') if x.strip().strip('"').strip("'")]
+            elif ':' in raw_extra and not re.match(r'^[a-zA-Z]:', raw_extra):
+                extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(':') if x.strip().strip('"').strip("'")]
+            elif raw_extra:
+                extras = [raw_extra.strip('"').strip("'")]
         for ed in extras:
             subdirs_to_check.append(ed)
             subdirs_to_check.append(os.path.join(ed, "FLAC_CONVERTED_OUTPUTS"))
