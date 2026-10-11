@@ -83,29 +83,59 @@ for arch_d in "${all_mix_archive_roots[@]}"; do
     fi
 done
 
+if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+    for _py_cand in \
+        "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" \
+        "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312/Scripts" \
+        "/c/Program Files/Python312" \
+        "/c/Program Files/Python312/Scripts" \
+        "/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links"; do
+        [ -d "$_py_cand" ] && export PATH="$_py_cand:$PATH"
+    done
+    _py3_path="$(type -p python3 2>/dev/null || true)"
+    if [ -z "$_py3_path" ] || [[ "$_py3_path" =~ WindowsApps ]]; then
+        _py_path="$(type -p python 2>/dev/null || true)"
+        if [ -n "$_py_path" ] && [[ ! "$_py_path" =~ WindowsApps ]]; then
+            python3() { python "$@"; }
+            export -f python3 2>/dev/null || true
+        elif command -v py >/dev/null 2>&1; then
+            python3() { py -3 "$@"; }
+            export -f python3 2>/dev/null || true
+        fi
+    fi
+fi
+
 # Cross-platform helper functions (Bash 3.2+ compatible)
+has_interactive_tty() {
+    [ -t 0 ] && (: </dev/tty) 2>/dev/null
+}
+
 get_abs_path() {
     local target="$1"
+    local res=""
     if command -v realpath >/dev/null 2>&1; then
-        realpath "$target" 2>/dev/null || readlink -f "$target" 2>/dev/null
+        res="$(realpath "$target" 2>/dev/null || readlink -f "$target" 2>/dev/null)"
     elif command -v python3 >/dev/null 2>&1; then
-        python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$target" 2>/dev/null
+        res="$(python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$target" 2>/dev/null)"
     else
-        echo "$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")"
+        res="$(cd "$(dirname "$target")" 2>/dev/null && pwd)/$(basename "$target")"
     fi
+    printf "%s" "${res%$'\r'}"
 }
 
 get_str_hash() {
     local s="$1"
+    local res=""
     if command -v md5sum >/dev/null 2>&1; then
-        echo -n "$s" | md5sum | awk '{print $1}'
+        res="$(echo -n "$s" | md5sum | awk '{print $1}')"
     elif command -v md5 >/dev/null 2>&1; then
-        md5 -q -s "$s"
+        res="$(md5 -q -s "$s")"
     elif command -v python3 >/dev/null 2>&1; then
-        python3 -c "import hashlib, sys; print(hashlib.md5(sys.argv[1].encode('utf-8')).hexdigest())" "$s"
+        res="$(python3 -c "import hashlib, sys; print(hashlib.md5(sys.argv[1].encode('utf-8')).hexdigest())" "$s")"
     else
-        echo -n "$s" | cksum | awk '{print $1}'
+        res="$(echo -n "$s" | cksum | awk '{print $1}')"
     fi
+    printf "%s" "${res%$'\r'}"
 }
 
 safe_mktemp() {
@@ -261,7 +291,7 @@ choose_conversion_output() {
         flac|mp3|wav|mp4|ogg) return 0 ;;
     esac
     OUTPUT_FORMAT=""
-    if [ ! -r /dev/tty ]; then
+    if ! has_interactive_tty; then
         OUTPUT_FORMAT="flac"
         return 0
     fi
@@ -304,7 +334,7 @@ CUSTOM_COMMENT="${SOF_COMMENT:-}"
 CUSTOM_COVER_IMAGE="${SOF_COVER_IMAGE:-}"
 
 configure_conversion_metadata_and_cover() {
-    if [ ! -r /dev/tty ]; then
+    if ! has_interactive_tty; then
         return 0
     fi
 
@@ -683,8 +713,10 @@ for g_hash in "${group_keys[@]}"; do
     wav_file_list="$GROUP_TMP_DIR/group_${g_hash}.wavs"
     if [ -f "$wav_file_list" ]; then
         while IFS= read -r wav || [ -n "$wav" ]; do
+            wav="${wav%$'\r'}"
             [ -z "$wav" ] && continue
             size=$(wc -c < "$wav" 2>/dev/null || stat -c %s "$wav" 2>/dev/null || stat -f %z "$wav" 2>/dev/null || echo 0)
+            size="${size%$'\r'}"
             total_size_bytes=$((total_size_bytes + size))
         done < "$wav_file_list"
     fi
@@ -695,6 +727,7 @@ if [ ${#group_keys[@]} -gt 0 ]; then
     first_wav_list="$GROUP_TMP_DIR/group_${group_keys[0]}.wavs"
     if [ -f "$first_wav_list" ]; then
         first_w="$(head -n 1 "$first_wav_list" 2>/dev/null || true)"
+        first_w="${first_w%$'\r'}"
         if [ -n "$first_w" ]; then
             check_target_dir="$(dirname "$first_w")"
         fi
@@ -708,6 +741,7 @@ if command -v python3 >/dev/null 2>&1; then
 else
     available_space_bytes=$(df -k "$check_target_dir" 2>/dev/null | awk 'NR==2 {print $4 * 1024}')
 fi
+available_space_bytes="${available_space_bytes%$'\r'}"
 [ -z "$available_space_bytes" ] && available_space_bytes=0
 
 if [ "$available_space_bytes" -gt 0 ] && [ "$available_space_bytes" -lt "$total_size_bytes" ]; then
@@ -847,6 +881,7 @@ PY_MATCH
         if [ -z "$matched_history" ] && [ -n "$session_date" ]; then
             matched_history=$(find "$LOCAL_HISTORY_DIR" -maxdepth 2 -type f \( -name "*.nml" -o -name "*.xml" -o -name "*.txt" \) 2>/dev/null | grep -i -- "$session_date" | sort | tail -n 1 || true)
         fi
+        matched_history="${matched_history%$'\r'}"
 
         if [ -n "$matched_history" ] && [ -f "$matched_history" ]; then
             echo " -> Matched Traktor history file: $(basename "$matched_history")"
@@ -1069,7 +1104,7 @@ review_converted_tracklist() {
     fi
     echo "ALERT: No tracklist was found in the Traktor history for this mix."
     echo "The text above is a placeholder, not the tracks that were played."
-    if [ ! -r /dev/tty ]; then
+    if ! has_interactive_tty; then
         return 0
     fi
     while true; do
@@ -1386,7 +1421,8 @@ archive_snapshot() {
         echo "0 0"
         return 0
     fi
-    python3 - "$dir" "$ext" <<'PY' 2>/dev/null || echo "0 0"
+    local snap=""
+    snap=$(python3 - "$dir" "$ext" <<'PY' 2>/dev/null || echo "0 0"
 import os, sys
 d, e = sys.argv[1], "." + sys.argv[2].lower()
 c = b = 0
@@ -1401,6 +1437,8 @@ for n in os.listdir(d):
             pass
 print(c, b)
 PY
+)
+    echo "${snap%$'\r'}"
     return 0
 }
 
@@ -1462,7 +1500,7 @@ show_archive_accumulation() {
 # ------------------------------------------------------------------------------
 listen_to_converted_audio() {
     [ ${#newly_exported_flacs[@]} -eq 0 ] && return 0
-    [ ! -r /dev/tty ] && return 0
+    ! has_interactive_tty && return 0
 
     local files=() f listen=""
     for f in "${newly_exported_flacs[@]}"; do
@@ -1538,7 +1576,7 @@ listen_to_converted_audio() {
 
 post_conversion_tasks() {
     [ ${#newly_exported_flacs[@]} -eq 0 ] && return 0
-    [ ! -r /dev/tty ] && return 0
+    ! has_interactive_tty && return 0
 
     # 1. Prompt to generate YouTube Video
     if [ "$OUTPUT_FORMAT" != "mp4" ]; then
@@ -1642,15 +1680,18 @@ post_conversion_tasks() {
 # 4. Process, Merge, Convert, Tag Groups, Write Tracklist, and Generate Spectrogram
 counter=1
 for g_hash in "${group_keys[@]}"; do
-    base=$(cat "$GROUP_TMP_DIR/group_${g_hash}.base")
+    base=$(cat "$GROUP_TMP_DIR/group_${g_hash}.base" | tr -d '\r')
     wav_file_list="$GROUP_TMP_DIR/group_${g_hash}.wavs"
 
     declare -a current_wavs=()
     if [ -f "$wav_file_list" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%$'\r'}"
             [[ -n "$line" ]] && current_wavs+=("$line")
         done < <(python3 -c "
 import sys, re
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(newline='\n')
 def key_func(path):
     fname = path.strip().split('/')[-1]
     name = re.sub(r'\.(wav|flac|mp3)$', '', fname, flags=re.I)
@@ -1666,14 +1707,14 @@ def key_func(path):
         return (2, int(m.group(1)), fname)
     return (0, 0, fname)
 
-lines = [line.strip() for line in sys.stdin if line.strip()]
+lines = [line.strip().replace('\r', '') for line in sys.stdin if line.strip()]
 for p in sorted(lines, key=key_func):
-    print(p)
+    sys.stdout.write(p + '\n')
 " < "$wav_file_list" 2>/dev/null || LC_ALL=C sort "$wav_file_list")
     fi
     
     # Determine owning archive directory for this session group
-    first_wav="${current_wavs[0]}"
+    first_wav="${current_wavs[0]%$'\r'}"
     group_wav_dir="$(dirname "$first_wav")"
     group_wav_real="$(cd "$group_wav_dir" 2>/dev/null && pwd -P || echo "$group_wav_dir")"
     target_archive_dir=""
@@ -1825,6 +1866,8 @@ for p in sorted(lines, key=key_func):
     
     # Prepare a safely resized/optimized temporary cover art to avoid FLAC 16MB metadata limits
     OPTIMIZED_COVER=$(safe_mktemp png)
+    OPTIMIZED_COVER="${OPTIMIZED_COVER%$'\r'}"
+    selected_cover="${selected_cover%$'\r'}"
     ffmpeg -y -i "$selected_cover" -vf "scale='min(1400,iw)':-1" "$OPTIMIZED_COVER" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "WARNING: Failed to optimize cover art. Using original '$(basename "$selected_cover")'."
@@ -1832,13 +1875,16 @@ for p in sorted(lines, key=key_func):
     fi
 
     concat_list=""
-    session_audio="${current_wavs[0]}"
+    session_audio="${current_wavs[0]%$'\r'}"
     if [ ${#current_wavs[@]} -gt 1 ]; then
         concat_list=$(safe_mktemp)
+        concat_list="${concat_list%$'\r'}"
         for w in "${current_wavs[@]}"; do
+            w="${w%$'\r'}"
             echo "file '$w'" >> "$concat_list"
         done
         session_audio=$(safe_mktemp wav)
+        session_audio="${session_audio%$'\r'}"
         echo " -> Merging ${#current_wavs[@]} split WAV files..."
         if ! ffmpeg -y -f concat -safe 0 -i "$concat_list" -c:a pcm_s24le "$session_audio" >/dev/null 2>&1; then
             echo "ERROR: Could not merge the split WAV files for '$base'."
@@ -1853,8 +1899,18 @@ for p in sorted(lines, key=key_func):
     eff_year="${CUSTOM_YEAR:-$(date +%Y)}"
     eff_genre="${CUSTOM_GENRE:-Electronic / Trance}"
     eff_comment="${CUSTOM_COMMENT:-Stream of Frequency Mix Archive}"
+    eff_artist="${eff_artist%$'\r'}"
+    eff_title="${eff_title%$'\r'}"
+    eff_album="${eff_album%$'\r'}"
+    eff_year="${eff_year%$'\r'}"
+    eff_genre="${eff_genre%$'\r'}"
+    eff_comment="${eff_comment%$'\r'}"
+    output_path="${output_path%$'\r'}"
+    session_audio="${session_audio%$'\r'}"
 
     conversion_status=1
+    ffmpeg_err_tmp=$(safe_mktemp log)
+    ffmpeg_err_tmp="${ffmpeg_err_tmp%$'\r'}"
     case "$OUTPUT_FORMAT" in
         mp3)
             echo " -> Converting to MP3 320 kbps with cover art and tags..."
@@ -1868,7 +1924,7 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>&1; then
+              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
                 conversion_status=0
             fi
             ;;
@@ -1881,7 +1937,7 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>&1; then
+              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
                 conversion_status=0
             fi
             ;;
@@ -1901,6 +1957,7 @@ for p in sorted(lines, key=key_func):
                 echo " -> YouTube video encoder: ${MP4_VCODEC}, audio: ${MP4_ACODEC}"
             fi
             audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$session_audio" 2>/dev/null || echo "")
+            audio_duration="${audio_duration%$'\r'}"
             total_sec=$(printf "%.0f" "${audio_duration:-0}")
             fade_filter=""
             if [ "$total_sec" -ge 12 ]; then
@@ -1919,7 +1976,7 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>&1; then
+              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
                 conversion_status=0
             fi
             ;;
@@ -1933,7 +1990,7 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>&1; then
+              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
                 conversion_status=0
             fi
             ;;
@@ -1949,7 +2006,7 @@ for p in sorted(lines, key=key_func):
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
               -disposition:v:0 attached_pic \
-              "$output_path" >/dev/null 2>&1; then
+              "$output_path" 2>"$ffmpeg_err_tmp"; then
                 conversion_status=0
             fi
             ;;
@@ -1960,13 +2017,19 @@ for p in sorted(lines, key=key_func):
 
     if [ $conversion_status -ne 0 ]; then
         echo "ERROR: FFmpeg conversion failed for group '$base'!"
+        if [ -s "$ffmpeg_err_tmp" ]; then
+            echo " -> FFmpeg error details:"
+            cat "$ffmpeg_err_tmp"
+        fi
+        rm -f "$ffmpeg_err_tmp" "$OPTIMIZED_COVER"
         all_groups_successful=false
-        rm -f "$OPTIMIZED_COVER"
         exit 1
     fi
+    rm -f "$ffmpeg_err_tmp"
 
     newly_exported_flacs+=("$output_path")
 
+    spek_image="${spek_image%$'\r'}"
     if [ ! -f "$spek_image" ]; then
         echo " -> Generating spectrogram..."
         ffmpeg -y -i "$output_path" \
@@ -1981,7 +2044,9 @@ for p in sorted(lines, key=key_func):
     echo "✓ Audio Conversion Finished: $(basename "$output_path")"
     echo "=================================================="
     ask_split=""
-    read -r -p "Would you like to split '$output_filename' into separate parts/sets? [y/N]: " ask_split </dev/tty || ask_split=""
+    if has_interactive_tty; then
+        read -r -p "Would you like to split '$output_filename' into separate parts/sets? [y/N]: " ask_split </dev/tty || ask_split=""
+    fi
     case "$ask_split" in
         [yY]|[yY][eE][sS])
             splitter_bin=""
