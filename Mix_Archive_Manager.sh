@@ -200,24 +200,6 @@ play_sound_effect() {
     fi
 }
 
-show_dreamworlds_ascii_banner() {
-    local animate="${1:-false}"
-    [ "$OS_TYPE" = "windows" ] && animate="false"
-    if [ "$CURRENT_THEME" = "dreamworlds" ] || [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
-        local anim_script="$SCRIPT_DIR/scripts/render_ascii_animation.py"
-        [ ! -f "$anim_script" ] && anim_script="$SCRIPT_DIR/render_ascii_animation.py"
-        local ultra_flag=""
-        [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && ultra_flag="--ultra"
-        if [ -f "$anim_script" ]; then
-            if [ "$animate" = "true" ]; then
-                python3 "$anim_script" $ultra_flag --animate 2>/dev/null || python3 "$anim_script" $ultra_flag 2>/dev/null
-            else
-                python3 "$anim_script" $ultra_flag 2>/dev/null
-            fi
-        fi
-    fi
-}
-
 # Key reader for interactive navigation
 read_nav_key() {
     local _out_var="$1"
@@ -2032,8 +2014,6 @@ save_header_cache() {
         printf '_CACHED_OS_BADGE=%q\n' "${_CACHED_OS_BADGE:-}"
         printf '_CACHED_OS_UPDATE_STATUS=%q\n' "${_CACHED_OS_UPDATE_STATUS:-}"
         printf '_CACHED_INTERNET_STATUS=%q\n' "${_CACHED_INTERNET_STATUS:-online}"
-        printf '_CACHED_BANNER_OUTPUT=%q\n' "${_CACHED_BANNER_OUTPUT:-}"
-        printf '_CACHED_BANNER_KEY=%q\n' "${_CACHED_BANNER_KEY:-}"
     } > "$c_file" 2>/dev/null || true
 }
 
@@ -8789,13 +8769,11 @@ manage_themes() {
             1|dreamworlds|default)
                 save_theme "dreamworlds"
                 echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"
-                show_dreamworlds_ascii_banner true
                 sleep 0.8
                 ;;
             2|ultra|dreamworlds_ultra|hotpurple|trafficlight|"dreamworlds ultra"|"Dreamworlds Ultra MP Mix Manager")
                 save_theme "dreamworlds_ultra"
                 echo -e "\n${BOLD}${GREEN}✓ Theme switched to Dreamworlds Ultra MP Mix Manager!${NC}"
-                show_dreamworlds_ascii_banner true
                 sleep 0.8
                 ;;
             3|cyberpunk)
@@ -13475,38 +13453,19 @@ render_main_header() {
     [ "$cur_box_w" -lt 74 ] && cur_box_w=74
 
     local hdr=""
-    local b_mode="full"
-    [ "$_TERM_LINES" -lt 45 ] && b_mode="compact"
 
-    if [ "$CURRENT_THEME" = "dreamworlds" ] || [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
-        local ultra_flag=""
-        [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && ultra_flag="--ultra"
-        local b_key="${CURRENT_THEME}_${b_mode}"
-        if [ "${_CACHED_BANNER_KEY:-}" != "$b_key" ] || [ -z "${_CACHED_BANNER_OUTPUT:-}" ]; then
-            local local_anim_script="$SCRIPT_DIR/scripts/render_ascii_animation.py"
-            [ ! -f "$local_anim_script" ] && local_anim_script="$SCRIPT_DIR/render_ascii_animation.py"
-            if [ "$b_mode" = "full" ]; then
-                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag 2>/dev/null)"
-            else
-                _CACHED_BANNER_OUTPUT="$(python3 "$local_anim_script" $ultra_flag --compact 2>/dev/null)"
-            fi
-            _CACHED_BANNER_KEY="$b_key"
-        fi
-        [ -n "$_CACHED_BANNER_OUTPUT" ] && hdr+="${_CACHED_BANNER_OUTPUT}\n"
-    else
-        local h_eq
-        printf -v h_eq '%*s' "$cur_box_w" ''
-        h_eq="${h_eq// /=}"
-        local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3)"
-        local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
-        [ "$title_pad" -lt 0 ] && title_pad=0
-        local title_sp
-        printf -v title_sp '%*s' "$title_pad" ''
+    local h_eq
+    printf -v h_eq '%*s' "$cur_box_w" ''
+    h_eq="${h_eq// /=}"
+    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3)"
+    local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
+    [ "$title_pad" -lt 0 ] && title_pad=0
+    local title_sp
+    printf -v title_sp '%*s' "$title_pad" ''
 
-        hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
-        hdr+="${BOLD}${MAGENTA}${title_sp}${title_text}${NC}\n"
-        hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
-    fi
+    hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
+    hdr+="${BOLD}${MAGENTA}${title_sp}${title_text}${NC}\n"
+    hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
 
     local os_badge
     os_badge=$(get_os_badge)
@@ -13586,12 +13545,6 @@ while true; do
                 python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon >/dev/null 2>&1 &
             elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then
                 "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon >/dev/null 2>&1 &
-            fi
-        fi
-        if [ "$CURRENT_THEME" = "dreamworlds" ] || [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
-            if [ "$OS_TYPE" != "windows" ]; then
-                show_dreamworlds_ascii_banner true
-                sleep 0.2
             fi
         fi
     fi

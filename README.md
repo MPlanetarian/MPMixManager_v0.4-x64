@@ -69,12 +69,11 @@ An enterprise-grade workstation orchestration console and media management suite
 ## 🌌 Spotlight: MPlanetarian Dreamworlds & TUI Navigation
 
 > [!IMPORTANT]
-> **Experience the new default aesthetic and seamless keyboard control!** Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a smooth **animated 24-bit TrueColor rainbow ASCII banner** (`render_ascii_animation.py`) and a modern **interactive TUI menu system** with arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
+> **Experience the new default aesthetic and seamless keyboard control!** Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a modern **interactive TUI menu system** with arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
 
 ```mermaid
 flowchart TD
-    A["🌈 MPlanetarian Dreamworlds [Default]"] --> B["✨ 24-bit TrueColor Animated Rainbow ASCII Banner"]
-    A --> C["⌨️ Interactive TUI Navigation (↑/↓ Arrows, Enter, Esc)"]
+    A["🌈 MPlanetarian Dreamworlds [Default]"] --> C["⌨️ Interactive TUI Navigation (↑/↓ Arrows, Enter, Esc)"]
     A --> D["🔊 Audio Chime Feedback on Theme Switch & Storage Config"]
     C --> E["⚡ Sub-20ms Menu Redraw Latency (TTL Telemetry Caching)"]
     C --> F["🚀 Instant Return: Press Esc in Any Submenu to Return to Previous Screen"]
@@ -83,7 +82,6 @@ flowchart TD
 ### 🎨 Dreamworlds & TUI Features:
 - 🌈 **MPlanetarian Dreamworlds Palette**: Hand-crafted 24-bit TrueColor RGB scheme matching KDE Plasma Sweet / Nice themes.
 - ⚡ **Sub-20ms Redraw Latency**: Slashed main menu redraw latency from ~1.7s down to **<20ms** via intelligent TTL caching for audio sinks, telemetry, alarm states, and planetary ephemeris.
-- ✨ **Animated & Static Rainbow ASCII Banner**: Live animated wave header on launch and static TrueColor banner at the top of the main menu.
 - ⌨️ **Interactive Arrow-Key Navigation**: Navigate effortlessly using `Up` and `Down` arrow keys, jump with `Home` and `End`, type numbers or letters to quick-search, press `Enter` to select, and press `Esc` to instantly return to the previous screen.
 - 🔊 **System Sound Feedback**: Plays soothing system audio chimes via PipeWire / ALSA when switching to Dreamworlds or configuring mix archive storage locations.
 - 🎭 **12 Built-in Themes**: Dreamworlds (Default), Dreamworlds Ultra (BTOP HotPurpleTrafficLight), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI.
@@ -730,7 +728,6 @@ MP_Mix_Manager_v0.3/
 ├── close_allapps.sh             # Graceful desktop application closer (protects manager)
 ├── manage_motd.py               # Dynamic System MOTD generator (recent mixes & technical specs)
 ├── update_system_motd.sh        # Shell launcher for dynamic system MOTD
-├── render_ascii_animation.py    # 24-bit TrueColor animated ASCII banner wave renderer
 ├── manage_installation_config.sh# Migration wizard & configuration backup/export/import suite
 ├── update_manager.sh            # System updater & version checker (`mix-archive-manager update`)
 ├── install.sh                   # Cross-platform automated environment installer

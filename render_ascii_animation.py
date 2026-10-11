@@ -1,1 +1,0 @@
-scripts/render_ascii_animation.py
