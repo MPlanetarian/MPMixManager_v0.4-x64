@@ -137,11 +137,68 @@ else:
 
 MODEL_TYPE = "flux2_klein_9b"
 BFS_LORA = "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors"
+BFS_LORA_URL = "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap/resolve/main/bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors"
 INFERENCE_STEPS = 4
 SAFE_PROFILE = "4.5"
 ATTENTION_MODE = "sage"
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def ensure_lora_available(lora_name: str, lora_url: str | None, wan_app_root: Path, subfolder: str = "flux2_klein_9b") -> tuple[bool, str]:
+    """Check if LoRA file exists locally; if missing and URL provided, auto-download from Hugging Face."""
+    if not lora_name or lora_name.lower() in ("none", "off", "disable", "disabled"):
+        return False, ""
+
+    candidate_paths = [
+        wan_app_root / "loras" / subfolder / lora_name,
+        wan_app_root / "loras" / lora_name,
+        Path(lora_name),
+    ]
+
+    for p in candidate_paths:
+        if p.is_file() and p.stat().st_size > 0:
+            return True, lora_name
+
+    if not lora_url:
+        print(f"{YELLOW}[!] LoRA file '{lora_name}' not found on disk and no download URL available.{RESET}")
+        return False, ""
+
+    target_path = wan_app_root / "loras" / subfolder / lora_name
+    print(f"\n{BOLD}{CYAN}[*] LoRA '{lora_name}' not found locally.{RESET}")
+    print(f"{BOLD}{CYAN}[*] Downloading from Hugging Face...{RESET}")
+    print(f"    Target: {target_path}")
+
+    try:
+        import urllib.request
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target_path.with_suffix(target_path.suffix + ".downloading")
+        req = urllib.request.Request(lora_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(temp_path, "wb") as f:
+            total_size = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 1024 * 1024
+            last_report = time.time()
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                f.write(chunk)
+                downloaded += len(chunk)
+                if time.time() - last_report >= 0.5:
+                    last_report = time.time()
+                    if total_size > 0:
+                        pct = (downloaded / total_size) * 100
+                        print(f"\r{CYAN}    Downloading: {pct:.1f}% ({downloaded / (1024*1024):.1f}/{total_size / (1024*1024):.1f} MB){RESET}", end="", flush=True)
+                    else:
+                        print(f"\r{CYAN}    Downloading: {downloaded / (1024*1024):.1f} MB{RESET}", end="", flush=True)
+        print(f"\r{GREEN}    [✓] Download finished: {downloaded / (1024*1024):.1f} MB.{RESET}               ")
+        temp_path.replace(target_path)
+        return True, lora_name
+    except Exception as e:
+        print(f"\n{RED}[-] Failed to download LoRA '{lora_name}': {e}{RESET}")
+        print(f"{YELLOW}[!] Will fall back to Base Flux 2 Klein 9B model without LoRA.{RESET}")
+        return False, ""
 
 
 def format_duration(seconds: float | None) -> str:
@@ -488,6 +545,8 @@ def main():
     parser.add_argument("--single-control", "-s", action="store_true", help="Force single-control mode: process only the first/primary control image")
     parser.add_argument("--batch-dir", type=str, default=None, help="Batch directory containing CTRL_IMAGE and batch files (default: WAN2GP_FLUX_BATCH_DIR)")
     parser.add_argument("--output-dir", type=str, default=None, help="Output directory for generated files (default: WAN2GP_OUTPUTS)")
+    parser.add_argument("--lora", type=str, default=BFS_LORA, help=f"LoRA file to apply (default: {BFS_LORA})")
+    parser.add_argument("--no-lora", action="store_true", help="Run base Flux 2 Klein 9B model without any LoRA")
     args = parser.parse_args()
 
     if args.batch_dir:
@@ -505,6 +564,21 @@ def main():
     (BATCH_DIR / "PENDING_ICONIC").mkdir(parents=True, exist_ok=True)
 
     all_ctrls = get_control_images(CTRL_IMAGE_DIR)
+
+    # Resolve LoRA configuration
+    if args.no_lora or not args.lora or args.lora.lower() in ("none", "false", "0"):
+        active_lora_file = None
+        lora_status_label = "Disabled (--no-lora / Base Model)"
+    else:
+        lora_target = args.lora
+        lora_url = BFS_LORA_URL if lora_target == BFS_LORA else None
+        lora_ok, resolved_lora = ensure_lora_available(lora_target, lora_url, WAN_APP_ROOT, subfolder="flux2_klein_9b")
+        if lora_ok:
+            active_lora_file = resolved_lora
+            lora_status_label = f"BFS LoRA ({resolved_lora})"
+        else:
+            active_lora_file = None
+            lora_status_label = "Disabled (Missing / Fallback to Base Model)"
 
     # Determine control mode
     if args.multi_control:
@@ -542,7 +616,7 @@ def main():
     print(f"{BOLD}{CYAN}    WAN2GP FLUX 2 KLEIN 9B BATCH IMAGE PROCESSOR      {RESET}")
     print(f"{BOLD}{CYAN}======================================================{RESET}")
     print(f"  Model:            {GREEN}Flux 2 Klein 9B (Distilled, 4 Steps){RESET}")
-    print(f"  LoRA:             {GREEN}BFS LoRA (bfs_head_v1_flux-klein_9b...){RESET}")
+    print(f"  LoRA:             {GREEN if active_lora_file else YELLOW}{lora_status_label}{RESET}")
     print(f"  Quality:          {GREEN}720p Output Resolution{RESET}")
     print(f"  Reference Mode:   {GREEN}Picture 1 = Control Image, Picture 2 = Batch Image (KI){RESET}")
     print(f"  Naming Pattern:   {GREEN}[image]{'_[ctrl]' if use_multi else ''}_2.[ext]{RESET}")
@@ -628,6 +702,9 @@ def main():
             print(f"    Est. Batch Remaining:      {CYAN}~{format_duration(est_rem)} ({rem_convs} conversion(s) left @ ~{avg_t:.1f}s/ea){RESET}")
         print(f"{CYAN}--------------------------------------------------{RESET}")
 
+        loras_list = [active_lora_file] if active_lora_file else []
+        loras_mult = "1.0" if active_lora_file else ""
+
         settings = session.get_default_settings(MODEL_TYPE)
         settings.update({
             "prompt": prompt,
@@ -635,16 +712,17 @@ def main():
             "video_prompt_type": "KI",
             "image_guide": str(ctrl_path.resolve()),
             "image_refs": [str(ctrl_path.resolve()), str(image_path.resolve())],
-            "activated_loras": [BFS_LORA],
-            "loras_multipliers": "1.0",
+            "activated_loras": loras_list,
+            "loras_multipliers": loras_mult,
             "num_inference_steps": INFERENCE_STEPS,
         })
 
+        current_model_label = f"Flux 2 Klein 9B ({active_lora_file})" if active_lora_file else "Flux 2 Klein 9B"
         tracker = BatchProgressTracker(
             batch_index=conv_idx,
             total_batch=total_convs,
             image_name=image_path.name,
-            model_name="Flux 2 Klein 9B",
+            model_name=current_model_label,
             completed_durations=completed_durations,
             inference_steps=INFERENCE_STEPS,
         )
@@ -654,6 +732,26 @@ def main():
             result = session.run_task(settings, callbacks=tracker)
             elapsed = time.time() - start_t
             tracker.stop()
+
+            # Automatic recovery: If Wan2GP reported a LoRA missing or invalid error, retry with base model
+            if not result.success and active_lora_file and any("lora" in (e.message or "").lower() or "missing or invalid" in (e.message or "").lower() for e in result.errors):
+                err_text = "; ".join(e.message for e in result.errors)
+                print(f"\n{YELLOW}[!] Wan2GP LoRA validation failed: {err_text}{RESET}")
+                print(f"{CYAN}[*] Automatically retrying conversion with Base Flux 2 Klein 9B (no LoRA)...{RESET}")
+                settings["activated_loras"] = []
+                settings["loras_multipliers"] = ""
+                tracker = BatchProgressTracker(
+                    batch_index=conv_idx,
+                    total_batch=total_convs,
+                    image_name=image_path.name,
+                    model_name="Flux 2 Klein 9B (Base)",
+                    completed_durations=completed_durations,
+                    inference_steps=INFERENCE_STEPS,
+                )
+                start_t = time.time()
+                result = session.run_task(settings, callbacks=tracker)
+                elapsed = time.time() - start_t
+                tracker.stop()
 
             if result.success:
                 completed_durations.append(elapsed)

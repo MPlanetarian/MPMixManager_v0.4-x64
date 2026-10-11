@@ -213,35 +213,101 @@ AVAILABLE_LORAS = {
         "name": "BFS Head Swap (LTX-2 Video)",
         "files": ["bfs_head_swap_v1_ltx2_ic_lora_12000_train_3.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
+        "url": "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap/resolve/main/bfs_head_swap_v1_ltx2_ic_lora_12000_train_3.safetensors",
     },
     "msr": {
         "id": "msr",
         "name": "LTX-2.5 MSR (Multi-Subject Reference)",
         "files": ["LTX-2.5-Licon-MSR-V1_bf16.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
     },
     "deblur": {
         "id": "deblur",
         "name": "LTX-2.5 Deblur / Refocus",
         "files": ["ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
     },
     "decompression": {
         "id": "decompression",
         "name": "LTX-2.5 Decompression Cleanup",
         "files": ["ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
     },
     "ingredients": {
         "id": "ingredients",
         "name": "LTX-2.5 Ingredients Reference",
         "files": ["ltx-2.5-22b-ic-lora-ingredients-0.9.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
     },
 }
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+
+
+def ensure_ltx_loras_available(lora_info: dict, wan_app_root: Path) -> dict:
+    """Validate all LoRA files for an LTX configuration exist; auto-download known ones or fall back to clean base."""
+    files = lora_info.get("files", [])
+    if not files:
+        return lora_info
+
+    subfolder = lora_info.get("subfolder", "ltx2")
+    missing_files = []
+    for f in files:
+        paths = [
+            wan_app_root / "loras" / subfolder / f,
+            wan_app_root / "loras" / f,
+            Path(f),
+        ]
+        if not any(p.is_file() and p.stat().st_size > 0 for p in paths):
+            missing_files.append(f)
+
+    if not missing_files:
+        return lora_info
+
+    url = lora_info.get("url")
+    if url and len(missing_files) == 1 and missing_files[0] == files[0]:
+        target = wan_app_root / "loras" / subfolder / missing_files[0]
+        print(f"\n{BOLD}{CYAN}[*] LTX LoRA '{missing_files[0]}' not found locally.{RESET}")
+        print(f"{BOLD}{CYAN}[*] Downloading from Hugging Face...{RESET}")
+        print(f"    Target: {target}")
+        try:
+            import urllib.request
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temp = target.with_suffix(target.suffix + ".downloading")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=180) as resp, open(temp, "wb") as f_out:
+                total_size = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 1024 * 1024
+                last_report = time.time()
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f_out.write(chunk)
+                    downloaded += len(chunk)
+                    if time.time() - last_report >= 0.5:
+                        last_report = time.time()
+                        if total_size > 0:
+                            pct = (downloaded / total_size) * 100
+                            print(f"\r{CYAN}    Downloading: {pct:.1f}% ({downloaded / (1024*1024):.1f}/{total_size / (1024*1024):.1f} MB){RESET}", end="", flush=True)
+                        else:
+                            print(f"\r{CYAN}    Downloading: {downloaded / (1024*1024):.1f} MB{RESET}", end="", flush=True)
+                print(f"\r{GREEN}    [✓] Download finished: {downloaded / (1024*1024):.1f} MB.{RESET}               ")
+                temp.replace(target)
+                return lora_info
+        except Exception as e:
+            print(f"\n{RED}[-] Failed to download LTX LoRA '{missing_files[0]}': {e}{RESET}")
+
+    print(f"\n{YELLOW}[!] Notice: LTX LoRA file(s) not found on disk: {missing_files}{RESET}")
+    print(f"{YELLOW}[*] Falling back to Clean Base model without LoRA.{RESET}\n")
+    return AVAILABLE_LORAS["none"]
 
 
 def format_duration(seconds: float | None) -> str:
@@ -724,6 +790,7 @@ def main():
 
     lora_key = (args.lora or "none").lower()
     lora_info = AVAILABLE_LORAS.get(lora_key, AVAILABLE_LORAS["none"])
+    lora_info = ensure_ltx_loras_available(lora_info, WAN_APP_ROOT)
 
     if args.batch_dir:
         BATCH_DIR = Path(args.batch_dir)
@@ -865,6 +932,26 @@ def main():
             result = session.run_task(settings, callbacks=tracker)
             elapsed = time.time() - start_t
             tracker.stop()
+
+            # Automatic recovery: If Wan2GP reported a LoRA missing or invalid error, retry with clean base model
+            if not result.success and lora_info.get("files") and any("lora" in (e.message or "").lower() or "missing or invalid" in (e.message or "").lower() for e in result.errors):
+                err_text = "; ".join(e.message for e in result.errors)
+                print(f"\n{YELLOW}[!] Wan2GP LoRA validation failed: {err_text}{RESET}")
+                print(f"{CYAN}[*] Automatically retrying generation with Clean Base model (no LoRA)...{RESET}")
+                settings["activated_loras"] = []
+                settings["loras_multipliers"] = ""
+                tracker = BatchProgressTracker(
+                    batch_index=batch_idx,
+                    total_batch=total_batch,
+                    image_name=image_path.name,
+                    model_name=f"{model_name} (Base)",
+                    completed_durations=completed_durations,
+                    inference_steps=expected_steps,
+                )
+                start_t = time.time()
+                result = session.run_task(settings, callbacks=tracker)
+                elapsed = time.time() - start_t
+                tracker.stop()
 
             if result.success:
                 completed_durations.append(elapsed)
