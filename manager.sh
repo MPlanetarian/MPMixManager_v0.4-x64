@@ -3,6 +3,36 @@
 # MP_Mix_Manager_v0.3 - Local Launcher
 # ==============================================================================
 
+# Enable terminal window size tracking and resize signal handling
+shopt -s checkwinsize 2>/dev/null || true
+export PYTHONIOENCODING="utf-8"
+export PYTHONUTF8=1
+
+# Normalize HOME on Windows / Git Bash if needed
+if command -v cygpath >/dev/null 2>&1; then
+    if [ -n "$USERPROFILE" ] && { [ -z "$HOME" ] || [ ! -d "$HOME" ] || [ "$HOME" = "/home/$USER" ]; }; then
+        _WIN_HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"
+        [ -n "$_WIN_HOME" ] && [ -d "$_WIN_HOME" ] && export HOME="$_WIN_HOME"
+        unset _WIN_HOME
+    fi
+fi
+
+# Prepend native Python 3.12 to PATH on Windows / Git Bash if available
+for _py_cand in \
+    "$LOCALAPPDATA/Programs/Python/Python312" \
+    "$USERPROFILE/AppData/Local/Programs/Python/Python312" \
+    "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" \
+    "/c/Program Files/Python312" \
+    "/c/Program Files/Python311"; do
+    _py_u="$_py_cand"
+    command -v cygpath >/dev/null 2>&1 && _py_u="$(cygpath -u "$_py_cand" 2>/dev/null || echo "$_py_cand")"
+    if [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ]; then
+        export PATH="$_py_u:$_py_u/Scripts:$PATH"
+        break
+    fi
+done
+unset _py_cand _py_u
+
 # ANSI Color Codes
 CYAN='\033[38;5;51m'
 PURPLE='\033[38;5;135m'

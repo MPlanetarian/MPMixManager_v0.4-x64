@@ -11,6 +11,34 @@ fi
 
 # Enable terminal window size tracking and resize signal handling
 shopt -s checkwinsize 2>/dev/null || true
+export PYTHONIOENCODING="utf-8"
+export PYTHONUTF8=1
+
+# Normalize HOME on Windows / Git Bash if needed
+if command -v cygpath >/dev/null 2>&1; then
+    if [ -n "$USERPROFILE" ] && { [ -z "$HOME" ] || [ ! -d "$HOME" ] || [ "$HOME" = "/home/$USER" ]; }; then
+        _WIN_HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"
+        [ -n "$_WIN_HOME" ] && [ -d "$_WIN_HOME" ] && export HOME="$_WIN_HOME"
+        unset _WIN_HOME
+    fi
+fi
+
+# Prepend native Python 3.12 to PATH on Windows / Git Bash if available
+for _py_cand in \
+    "$LOCALAPPDATA/Programs/Python/Python312" \
+    "$USERPROFILE/AppData/Local/Programs/Python/Python312" \
+    "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" \
+    "/c/Program Files/Python312" \
+    "/c/Program Files/Python311"; do
+    _py_u="$_py_cand"
+    command -v cygpath >/dev/null 2>&1 && _py_u="$(cygpath -u "$_py_cand" 2>/dev/null || echo "$_py_cand")"
+    if [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ]; then
+        export PATH="$_py_u:$_py_u/Scripts:$PATH"
+        break
+    fi
+done
+unset _py_cand _py_u
+
 _TERM_LINES=""
 _TERM_COLS=""
 _TERM_RESIZED=1
@@ -92,7 +120,11 @@ fi
 
 update_terminal_geometry() {
     local force="${1:-0}"
-    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
+    local cur_l="${LINES:-}"
+    local cur_c="${COLUMNS:-}"
+    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ] || \
+       { [ -n "$cur_l" ] && [ -n "${_TERM_LINES:-}" ] && [ "$cur_l" -ne "$_TERM_LINES" ]; } || \
+       { [ -n "$cur_c" ] && [ -n "${_TERM_COLS:-}" ] && [ "$cur_c" -ne "$_TERM_COLS" ]; }; then
         _TERM_RESIZED=0
         local sz=""
         if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
@@ -284,7 +316,9 @@ read_nav_key() {
         return 0
     }
 
-    if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
+       { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
+       { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
         _TERM_RESIZED=0
         _emit_key "RESIZE"
         return 0
@@ -294,7 +328,9 @@ read_nav_key() {
     local read_rc=$?
 
     if [ "$read_rc" -gt 128 ]; then
-        if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+        if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
+           { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
+           { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
             _TERM_RESIZED=0
             _emit_key "RESIZE"
             return 0
@@ -302,7 +338,9 @@ read_nav_key() {
         _emit_key "TICK"
         return 0
     elif [ "$read_rc" -ne 0 ]; then
-        if [ "${_TERM_RESIZED:-0}" -eq 1 ]; then
+        if [ "${_TERM_RESIZED:-0}" -eq 1 ] || \
+           { [ -n "${LINES:-}" ] && [ -n "${_TERM_LINES:-}" ] && [ "$LINES" -ne "$_TERM_LINES" ]; } || \
+           { [ -n "${COLUMNS:-}" ] && [ -n "${_TERM_COLS:-}" ] && [ "$COLUMNS" -ne "$_TERM_COLS" ]; }; then
             _TERM_RESIZED=0
             _emit_key "RESIZE"
             return 0
@@ -354,6 +392,11 @@ read_nav_key() {
                                     "4~"|"8~") _emit_key "END" ;;
                                     "2~") _emit_key "INSERT" ;;
                                     "3~") _emit_key "DELETE" ;;
+                                    "23"|"24")
+                                        local c5=""
+                                        IFS= read -rsn1 -t 0.02 c5
+                                        _emit_key "TOGGLE_FULLSCREEN"
+                                        ;;
                                     *)
                                         local cur="${c4}"
                                         while [[ ! "$cur" =~ [A-Za-z~] ]]; do
@@ -595,11 +638,11 @@ run_interactive_submenu() {
     build_header_block
 
     cleanup_submenu_screen() {
-        printf '\033[?1049l\033[?25h\033[?2026l'
+        printf '\033[?25h\033[?2026l'
     }
 
-    # Switch to Alternate Screen Buffer to eliminate scrollback bounce and lock viewport
-    printf '\033[?1049h\033[?25l'
+    # Keep cursor hidden during interactive navigation; use primary screen buffer
+    printf '\033[?25l'
     
     local typed_buffer=""
     local view_top=0
@@ -775,6 +818,16 @@ run_interactive_submenu() {
         read_nav_key key_action
         
         case "$key_action" in
+            TOGGLE_FULLSCREEN)
+                toggle_manager_fullscreen
+                update_terminal_geometry 1
+                box_w=$(( _TERM_COLS - 4 ))
+                [ "$box_w" -lt 74 ] && box_w=74
+                last_term_lines="$_TERM_LINES"
+                _CURRENT_BOX_W="$box_w"
+                build_header_block
+                continue
+                ;;
             RESIZE)
                 update_terminal_geometry 1
                 box_w=$(( _TERM_COLS - 4 ))
@@ -782,7 +835,6 @@ run_interactive_submenu() {
                 last_term_lines="$_TERM_LINES"
                 _CURRENT_BOX_W="$box_w"
                 build_header_block
-                printf '\033[2J\033[H'
                 continue
                 ;;
             TICK)
@@ -918,7 +970,7 @@ run_interactive_submenu() {
                     if [ "$has_exact_p" -eq 0 ]; then
                         cleanup_submenu_screen
                         manage_mp_audio_player
-                        printf '\033[?1049h\033[?25l'
+                        printf '\033[?25l'
                         clear
                         continue
                     fi
@@ -997,14 +1049,14 @@ load_theme
 
 # Ctrl+C at the main menu exits. Monitors that catch INT restore this afterwards.
 exit_mix_manager() {
-    printf '\033[?1049l\033[?25h\033[?2026l' 2>/dev/null || true
+    printf '\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
 trap 'exit_mix_manager' INT
-trap 'printf "\033[?1049l\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
+trap 'printf "\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
@@ -1223,18 +1275,35 @@ get_connected_displays_count() {
     echo 1
 }
 
+_IS_FULLSCREEN=0
+
+toggle_manager_fullscreen() {
+    local app_ver
+    app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
+    if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then
+        _IS_FULLSCREEN=0
+        # Restore windowed mode (DEC/xterm unmaximize and un-fullscreen)
+        printf '\033[10;0t\033[9;0t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
+    else
+        _IS_FULLSCREEN=1
+        # Set fullscreen / maximized mode (DEC/xterm fullscreen and maximize)
+        printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
+    fi
+}
+
 ensure_manager_windowed() {
-    # Set window title only - do not resize or alter user's window dimensions
+    _IS_FULLSCREEN=0
+    # Set window title only - do not alter user's window dimensions
     local app_ver
     app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
     printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
 }
 
 ensure_manager_fullscreen() {
-    # Set window title only - do not resize or alter user's window dimensions
+    _IS_FULLSCREEN=1
     local app_ver
     app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
-    printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
+    printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
 }
 
 align_mix_windows_on_screen() {
@@ -2105,7 +2174,7 @@ save_header_cache() {
 }
 
 refresh_header_cache_worker() {
-    show_stats >/dev/null 2>&1 || true
+    show_stats --force >/dev/null 2>&1 || true
     get_cloud_backup_badge >/dev/null 2>&1 || true
     get_active_audio_interface_display >/dev/null 2>&1 || true
     get_current_weather >/dev/null 2>&1 || true
@@ -3429,10 +3498,25 @@ invalidate_archive_stats_cache() {
 }
 
 show_stats() {
+    local force="${1:-}"
     local now="${EPOCHSECONDS:-0}"
     [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_STATS_CHECK)) -lt 30 ] && [ -n "$_CACHED_STATS_CORE" ]; then
-        echo -e "$_CACHED_STATS_CORE"
+    if [ "$force" != "--force" ] && [ "$force" != "-f" ]; then
+        if [ -z "$_CACHED_STATS_CORE" ]; then
+            load_header_cache 2>/dev/null || true
+        fi
+        if [ -n "$_CACHED_STATS_CORE" ]; then
+            if [ $((now - _LAST_STATS_CHECK)) -ge 60 ]; then
+                _LAST_STATS_CHECK="$now"
+                (refresh_header_cache_worker >/dev/null 2>&1 &)
+            fi
+            echo -e "$_CACHED_STATS_CORE"
+        else
+            _LAST_STATS_CHECK="$now"
+            _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}\n  ${DIM}⚡ Loading archive statistics in background...${NC}"
+            (refresh_header_cache_worker >/dev/null 2>&1 &)
+            echo -e "$_CACHED_STATS_CORE"
+        fi
     else
         _LAST_STATS_CHECK="$now"
         local stats_buff=""
@@ -3588,6 +3672,7 @@ PY
         [ -n "$cloud_stat" ] && stats_buff+="  ${cloud_stat}\n"
         
         _CACHED_STATS_CORE="$(printf '%b' "$stats_buff")"
+        save_header_cache 2>/dev/null || true
         echo -e "$_CACHED_STATS_CORE"
     fi
 
@@ -3888,10 +3973,30 @@ view_tasks() {
         echo -e "  [${GREEN}RUNNING${NC}] cliamp Retro Music Player (PID: ${cliamp_pids})${cliamp_desc}"
         ((tasks_found++))
     fi
-    if ss -tuln 2>/dev/null | grep -q ":3080 " || pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" >/dev/null 2>&1; then
-        local dsh_pids
-        dsh_pids=$(lsof -ti:3080 2>/dev/null || pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" 2>/dev/null | tr '\n' ' ')
-        echo -e "  [${GREEN}RUNNING${NC}] DeepSeek Harness (dsh-mobile - http://192.168.1.11:3080, PID: ${dsh_pids% })"
+    local dsh_running=false dsh_pids=""
+    if [ "$OS_TYPE" = "windows" ] && command -v netstat.exe >/dev/null 2>&1; then
+        if netstat.exe -ano 2>/dev/null | grep -E ":3080\s+.*LISTENING" >/dev/null 2>&1; then
+            dsh_running=true
+            dsh_pids=$(netstat.exe -ano 2>/dev/null | grep -E ":3080\s+.*LISTENING" | sed -e 's/.*LISTENING *//' | tr -d '\r' | sort -u | tr '\n' ' ')
+        fi
+    fi
+    if [ "$dsh_running" = "false" ] && command -v curl >/dev/null 2>&1; then
+        local code
+        code=$(curl -s -m 1 -o /dev/null -w "%{http_code}" "http://192.168.1.11:3080/" 2>/dev/null || true)
+        if [ "$code" != "000" ] && [ -n "$code" ]; then
+            dsh_running=true
+        fi
+    fi
+    if [ "$dsh_running" = "false" ]; then
+        if ss -tuln 2>/dev/null | grep -q ":3080 " || { command -v pgrep >/dev/null 2>&1 && pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" >/dev/null 2>&1; }; then
+            dsh_running=true
+            dsh_pids=$(lsof -ti:3080 2>/dev/null || pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" 2>/dev/null | tr '\n' ' ')
+        fi
+    fi
+    if [ "$dsh_running" = "true" ]; then
+        local pid_str=""
+        [ -n "$dsh_pids" ] && pid_str=", PID: ${dsh_pids% }"
+        echo -e "  [${GREEN}RUNNING${NC}] DeepSeek Harness (dsh-mobile - http://192.168.1.11:3080${pid_str})"
         ((tasks_found++))
     fi
     if command -v podman >/dev/null 2>&1 && podman ps --filter "name=beszel" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel$"; then
@@ -13641,10 +13746,13 @@ manage_desktop_and_display() {
             d1="Open Windows Display Settings"; d1_info="(ms-settings:display - HDR & Scale)"
             d2="Open Windows Sound Settings"; d2_info="(control.exe mmsys.cpl)"
         fi
+        local fs_info="([F11] key in manager)"
+        [ "${_IS_FULLSCREEN:-0}" -eq 1 ] && fs_info="(Currently Fullscreen - switch to Windowed)" || fs_info="(Currently Windowed - switch to Fullscreen)"
         local opts=(
             "1|${d1}|${d1_info}"
             "2|${d2}|${d2_info}"
             "3|Close All Desktop Applications|(Keep Manager Open)"
+            "4|Toggle Fullscreen / Windowed Mode|${fs_info}"
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "DESKTOP DISPLAY SETTINGS & APP CONTROL" "" opts 0
@@ -13670,6 +13778,9 @@ manage_desktop_and_display() {
                 ;;
             3)
                 close_all_desktop_apps
+                ;;
+            4)
+                toggle_manager_fullscreen
                 ;;
             0|[qQ]|[eE][xX][iI][tT]|ESC)
                 return 0
