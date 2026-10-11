@@ -534,26 +534,32 @@ run_interactive_submenu() {
             cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, 'q' to exit\033[K${NC}\n"
         fi
 
-        overhead=4 # prompt, bottom divider, selection status, blank
-        [ -n "$menu_title" ] && overhead=$((overhead + 4))
+        overhead=5 # prompt help line (1), top scroll (1), bottom scroll (1), bottom divider (1), selection status (1)
+        [ -n "$menu_title" ] && overhead=$((overhead + 3)) # top box border, title line, bottom box border
         overhead=$((overhead + header_count))
     }
 
     build_header_block
 
-    # Clear screen once on entry and hide cursor
-    clear
-    printf '\033[?25l'
+    cleanup_submenu_screen() {
+        printf '\033[?1049l\033[?25h\033[?2026l'
+    }
+
+    # Switch to Alternate Screen Buffer to eliminate scrollback bounce and lock viewport
+    printf '\033[?1049h\033[?25l'
     
     local typed_buffer=""
     local view_top=0
+    local last_term_lines="$_TERM_LINES"
+    local tick_count=0
 
     while true; do
         update_terminal_geometry 0
         local cur_box_w=$(( _TERM_COLS - 4 ))
         [ "$cur_box_w" -lt 74 ] && cur_box_w=74
-        if [ "$cur_box_w" -ne "$box_w" ]; then
+        if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then
             box_w="$cur_box_w"
+            last_term_lines="$_TERM_LINES"
             _CURRENT_BOX_W="$box_w"
             build_header_block
         fi
@@ -612,11 +618,11 @@ run_interactive_submenu() {
             banner_lines=4
         fi
 
-        # Compute maximum visible options
+        # Compute maximum visible options with safe headroom
         local effective_overhead=$(( overhead + banner_lines ))
-        local max_visible=$(( _TERM_LINES - effective_overhead ))
-        if [ "$max_visible" -lt 6 ]; then
-            max_visible=6
+        local max_visible=$(( _TERM_LINES - effective_overhead - 2 ))
+        if [ "$max_visible" -lt 4 ]; then
+            max_visible=4
         fi
 
         if [ "$max_visible" -ge "$total_opts" ]; then
@@ -697,23 +703,20 @@ run_interactive_submenu() {
         IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
         if [ -n "$typed_buffer" ]; then
             if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K${NC}\n"
+                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
             else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K${NC}\n"
+                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
             fi
         else
             if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K${NC}\n"
+                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
             else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K${NC}\n"
+                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
             fi
         fi
         
-        # Clear lines below output
-        frame_buf+="\033[J"
-        
-        # Atomically draw complete frame with Synchronized Output (DEC Mode 2026) to eliminate flicker
-        printf '\033[?2026h\033[H%b\033[?2026l' "$frame_buf"
+        # Atomically draw complete frame with Synchronized Output (DEC Mode 2026) to eliminate flicker and bouncing
+        printf '\033[?2026h\033[H%b\033[J\033[?2026l' "$frame_buf"
         
         local key_action=""
         read_nav_key key_action
@@ -723,12 +726,17 @@ run_interactive_submenu() {
                 update_terminal_geometry 1
                 box_w=$(( _TERM_COLS - 4 ))
                 [ "$box_w" -lt 74 ] && box_w=74
+                last_term_lines="$_TERM_LINES"
                 _CURRENT_BOX_W="$box_w"
                 build_header_block
-                clear
+                printf '\033[2J\033[H'
                 continue
                 ;;
             TICK)
+                ((tick_count++))
+                if [ $((tick_count % 4)) -eq 0 ]; then
+                    update_terminal_geometry 1
+                fi
                 continue
                 ;;
             SPACE)
@@ -824,7 +832,7 @@ run_interactive_submenu() {
                 typed_buffer=""
                 ;;
             ENTER)
-                printf '\033[?25h\033[?2026l'
+                cleanup_submenu_screen
                 clear
                 if [ -n "$typed_buffer" ]; then
                     REPLY="$typed_buffer"
@@ -835,7 +843,7 @@ run_interactive_submenu() {
                 return 0
                 ;;
             ESC)
-                printf '\033[?25h\033[?2026l'
+                cleanup_submenu_screen
                 clear
                 REPLY="ESC"
                 return 0
@@ -855,10 +863,10 @@ run_interactive_submenu() {
                         fi
                     done
                     if [ "$has_exact_p" -eq 0 ]; then
-                        printf '\033[?25h\033[?2026l'
+                        cleanup_submenu_screen
                         manage_mp_audio_player
+                        printf '\033[?1049h\033[?25l'
                         clear
-                        printf '\033[?25l'
                         continue
                     fi
                 fi
@@ -889,7 +897,7 @@ run_interactive_submenu() {
                     ((m_idx++))
                 done
                 if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ] || [ "$typed_buffer" = "b" ] || [ "$typed_buffer" = "B" ]; then
-                    printf '\033[?25h\033[?2026l'
+                    cleanup_submenu_screen
                     clear
                     REPLY="$typed_buffer"
                     return 0
@@ -936,13 +944,14 @@ load_theme
 
 # Ctrl+C at the main menu exits. Monitors that catch INT restore this afterwards.
 exit_mix_manager() {
-    printf '\033[?25h' 2>/dev/null || true
+    printf '\033[?1049l\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
 trap 'exit_mix_manager' INT
+trap 'printf "\033[?1049l\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
@@ -1987,9 +1996,60 @@ is_mix_archive_configured() {
     return 1
 }
 
-# Global in-memory caches for network and archive discovery
+# Global in-memory caches and persistent state for instant startup
 _LAST_INTERNET_CHECK=0
 _CACHED_INTERNET_STATUS=""
+
+load_header_cache() {
+    local c_file="$HOME/.config/mix-manager/header_cache.env"
+    if [ -f "$c_file" ]; then
+        # shellcheck source=/dev/null
+        source "$c_file" 2>/dev/null || true
+        local now="${EPOCHSECONDS:-0}"
+        [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+        _LAST_STATS_CHECK="$now"
+        _LAST_CLOUD_CHECK="$now"
+        _LAST_WEATHER_CHECK="$now"
+        _LAST_PLANETS_CHECK="$now"
+        _LAST_AUDIO_IFACE_CHECK="$now"
+        _LAST_OS_UPDATE_CHECK="$now"
+        _LAST_INTERNET_CHECK="$now"
+        _LAST_ALARM_STATUS_CHECK="$now"
+    fi
+}
+
+save_header_cache() {
+    local c_dir="$HOME/.config/mix-manager"
+    [ ! -d "$c_dir" ] && mkdir -p "$c_dir" 2>/dev/null || true
+    local c_file="$c_dir/header_cache.env"
+    {
+        printf '_CACHED_STATS_CORE=%q\n' "${_CACHED_STATS_CORE:-}"
+        printf '_CACHED_CLOUD_STATUS=%q\n' "${_CACHED_CLOUD_STATUS:-}"
+        printf '_CACHED_WEATHER_DISPLAY=%q\n' "${_CACHED_WEATHER_DISPLAY:-}"
+        printf '_CACHED_PLANETS_DISPLAY=%q\n' "${_CACHED_PLANETS_DISPLAY:-}"
+        printf '_CACHED_AUDIO_IFACE_DISPLAY=%q\n' "${_CACHED_AUDIO_IFACE_DISPLAY:-}"
+        printf '_CACHED_ALARM_CLOCK_STATUS=%q\n' "${_CACHED_ALARM_CLOCK_STATUS:-}"
+        printf '_CACHED_OS_BADGE=%q\n' "${_CACHED_OS_BADGE:-}"
+        printf '_CACHED_OS_UPDATE_STATUS=%q\n' "${_CACHED_OS_UPDATE_STATUS:-}"
+        printf '_CACHED_INTERNET_STATUS=%q\n' "${_CACHED_INTERNET_STATUS:-online}"
+        printf '_CACHED_BANNER_OUTPUT=%q\n' "${_CACHED_BANNER_OUTPUT:-}"
+        printf '_CACHED_BANNER_KEY=%q\n' "${_CACHED_BANNER_KEY:-}"
+    } > "$c_file" 2>/dev/null || true
+}
+
+refresh_header_cache_worker() {
+    show_stats >/dev/null 2>&1 || true
+    get_cloud_backup_badge >/dev/null 2>&1 || true
+    get_active_audio_interface_display >/dev/null 2>&1 || true
+    get_current_weather >/dev/null 2>&1 || true
+    get_planets_above_horizon >/dev/null 2>&1 || true
+    get_alarm_clock_status_display >/dev/null 2>&1 || true
+    get_os_badge >/dev/null 2>&1 || true
+    get_os_update_status >/dev/null 2>&1 || true
+    save_header_cache 2>/dev/null || true
+}
+
+load_header_cache
 
 is_internet_connected() {
     local now="${EPOCHSECONDS:-0}"
@@ -13515,10 +13575,11 @@ while true; do
         STARTUP_AUTOPLAY_EXECUTED=1
         ensure_manager_windowed
         if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
-            execute_startup_autoplay
+            (execute_startup_autoplay >/dev/null 2>&1 &)
         else
-            check_and_show_currently_playing_mix
+            (check_and_show_currently_playing_mix >/dev/null 2>&1 &)
         fi
+        (refresh_header_cache_worker >/dev/null 2>&1 &)
         # Ensure DJ mix scheduler daemon is active if pending scheduled mixes exist
         if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then
             if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then

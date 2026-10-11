@@ -20,6 +20,12 @@ import os
 import sys
 import time
 
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 # Enable Virtual Terminal Processing on Windows 10 & 11 so ANSI escape codes render properly
 if sys.platform == "win32" or os.name == "nt":
     try:
