@@ -4007,10 +4007,31 @@ view_tasks() {
         echo -e "  [${GREEN}RUNNING${NC}] Beszel Server Monitoring (${bsz_status})"
         ((tasks_found++))
     fi
-    if curl -s --connect-timeout 1 "http://127.0.0.1:11434/" 2>/dev/null | grep -qi "Ollama is running" || pgrep -f "ollama serve" >/dev/null 2>&1; then
-        local olm_pids
-        olm_pids=$(pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' ')
-        echo -e "  [${GREEN}RUNNING${NC}] Ollama Local AI Server (http://127.0.0.1:11434, PID: ${olm_pids% })"
+    local olm_running=false olm_pids=""
+    if curl -s --connect-timeout 1 "http://127.0.0.1:11434/" 2>/dev/null | grep -qi "Ollama is running"; then
+        olm_running=true
+    fi
+    if [ "$OS_TYPE" = "windows" ]; then
+        if command -v netstat.exe >/dev/null 2>&1; then
+            olm_pids=$(netstat.exe -ano 2>/dev/null | grep -E ":11434\s+.*LISTENING" | awk '{print $5}' | sort -u | tr '\n' ' ')
+            [ -n "$olm_pids" ] && olm_running=true
+        fi
+        if [ "$olm_running" = "false" ] && command -v tasklist.exe >/dev/null 2>&1; then
+            if tasklist.exe //FI "IMAGENAME eq ollama.exe" 2>/dev/null | grep -qi "ollama.exe"; then
+                olm_running=true
+                olm_pids=$(tasklist.exe //FI "IMAGENAME eq ollama.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
+            fi
+        fi
+    else
+        if pgrep -f "ollama serve" >/dev/null 2>&1; then
+            olm_running=true
+            olm_pids=$(pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' ')
+        fi
+    fi
+    if [ "$olm_running" = "true" ]; then
+        local olm_pid_str=""
+        [ -n "$olm_pids" ] && olm_pid_str=", PID: ${olm_pids% }"
+        echo -e "  [${GREEN}RUNNING${NC}] Ollama Local AI Server (http://127.0.0.1:11434${olm_pid_str})"
         ((tasks_found++))
     fi
     
@@ -13795,9 +13816,11 @@ manage_desktop_and_display() {
 
 manage_ai_and_servers() {
     while true; do
+        local olm_desc="(ollama serve in distrobox, Chat, Models, Logs :11434)"
+        [ "$OS_TYPE" = "windows" ] && olm_desc="(ollama serve on Windows, Chat, Models, Logs :11434)"
         local opts=(
             "1|Launch AI Assistant / Models|(Claude Opus, Claude Sonnet, GPT-OSS, Gemini, Ollama, DeepSeek)"
-            "2|Manage Ollama Server|(ollama serve in distrobox, Chat, Models, Logs :11434)"
+            "2|Manage Ollama Server|${olm_desc}"
             "3|Manage Open WebUI Server & Web Chat|(Open Web UI Web Chat AI Harness, Service, Browser :42004)"
             "4|Manage MP Harmony AI Agent|(Autonomous Engineering Engine & Voice Bridge :11435)"
             "5|Manage DeepSeek Harness Server|(dsh-mobile - Start, Stop, Mobile Web UI :3080)"

@@ -2,7 +2,8 @@
 # ==============================================================================
 # scripts/manage_ollama.sh
 # Purpose: Start, stop, restart, and monitor Ollama Server (ollama serve)
-#          Running inside distrobox container: ollama-container
+#          Supports native Windows (ollama.exe / start_ollama.bat)
+#          and Linux (distrobox container / systemd)
 # ==============================================================================
 
 # Terminal Colors
@@ -14,6 +15,24 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
+
+# Operating System Detection
+if [ -z "${OS_TYPE:-}" ]; then
+    OS_TYPE="linux"
+    case "$(uname -s)" in
+        Darwin*) OS_TYPE="macos" ;;
+        CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;;
+        FreeBSD*) OS_TYPE="freebsd" ;;
+        Linux*)
+            if grep -qi microsoft /proc/version 2>/dev/null; then
+                OS_TYPE="wsl"
+            else
+                OS_TYPE="linux"
+            fi
+            ;;
+        *) OS_TYPE="linux" ;;
+    esac
+fi
 
 OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama-container}"
 OLLAMA_HOST="${OLLAMA_HOST:-0.0.0.0}"
@@ -29,13 +48,62 @@ if [ "$OLLAMA_HOST" = "0.0.0.0" ]; then
 else
     OLLAMA_CHECK_URL="${OLLAMA_URL}"
 fi
-LOG_FILE="/tmp/ollama-serve.log"
+
+# Locate Ollama executable and launcher files
+OLLAMA_BIN="ollama"
+OLLAMA_START_BAT=""
+if [ "$OS_TYPE" = "windows" ]; then
+    for cand in \
+        "C:/Users/${USER:-Mathe}/AppData/Local/Programs/Ollama/ollama.exe" \
+        "$LOCALAPPDATA/Programs/Ollama/ollama.exe" \
+        "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Ollama/ollama.exe" \
+        "/c/Program Files/Ollama/ollama.exe"; do
+        if [ -x "$cand" ] || [ -f "$cand" ]; then
+            OLLAMA_BIN="$cand"
+            break
+        fi
+    done
+    if [ "$OLLAMA_BIN" = "ollama" ] && command -v ollama.exe >/dev/null 2>&1; then
+        OLLAMA_BIN="ollama.exe"
+    fi
+
+    for b_cand in "X:/OLLAMA/start_ollama.bat" "X:\OLLAMA\start_ollama.bat" "X:/STARTAI/start_ollama.bat"; do
+        if [ -f "$b_cand" ]; then
+            OLLAMA_START_BAT="$b_cand"
+            break
+        fi
+    done
+
+    export OLLAMA_MODELS="${OLLAMA_MODELS:-X:\OLLAMA\models}"
+    export OLLAMA_ORIGINS="${OLLAMA_ORIGINS:-*}"
+    LOG_FILE="X:/OLLAMA/ollama-serve.log"
+else
+    LOG_FILE="/tmp/ollama-serve.log"
+fi
+
+get_lan_ip() {
+    local ip=""
+    if [ "$OS_TYPE" = "windows" ] && command -v ipconfig.exe >/dev/null 2>&1; then
+        ip=$(ipconfig.exe 2>/dev/null | grep -i "IPv4" | head -n 1 | awk -F': ' '{print $2}' | tr -d '\r ')
+    fi
+    if [ -z "$ip" ]; then
+        ip=$(ip -4 addr show wlp2s0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    echo "$ip"
+}
 
 is_ollama_running() {
     if curl -s --connect-timeout 1 "${OLLAMA_CHECK_URL}/" 2>/dev/null | grep -qi "Ollama is running"; then
         return 0
     elif curl -s --connect-timeout 1 "http://127.0.0.1:${OLLAMA_PORT}/" 2>/dev/null | grep -qi "Ollama is running"; then
         return 0
+    elif [ "$OS_TYPE" = "windows" ]; then
+        if command -v netstat.exe >/dev/null 2>&1 && netstat.exe -ano 2>/dev/null | grep -E ":${OLLAMA_PORT}\s+.*LISTENING" >/dev/null 2>&1; then
+            return 0
+        fi
+        if command -v tasklist.exe >/dev/null 2>&1 && tasklist.exe //FI "IMAGENAME eq ollama.exe" 2>/dev/null | grep -qi "ollama.exe"; then
+            return 0
+        fi
     elif pgrep -f "ollama serve" >/dev/null 2>&1; then
         return 0
     fi
@@ -43,10 +111,22 @@ is_ollama_running() {
 }
 
 get_ollama_pids() {
-    pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' '
+    if [ "$OS_TYPE" = "windows" ]; then
+        local pids=""
+        if command -v netstat.exe >/dev/null 2>&1; then
+            pids=$(netstat.exe -ano 2>/dev/null | grep -E ":${OLLAMA_PORT}\s+.*LISTENING" | awk '{print $5}' | sort -u | tr '\n' ' ')
+        fi
+        if [ -z "$pids" ] && command -v tasklist.exe >/dev/null 2>&1; then
+            pids=$(tasklist.exe //FI "IMAGENAME eq ollama.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
+        fi
+        echo "$pids"
+    else
+        pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' '
+    fi
 }
 
 ensure_container_started() {
+    [ "$OS_TYPE" = "windows" ] && return 0
     if command -v podman >/dev/null 2>&1; then
         if ! podman ps --filter "name=${OLLAMA_CONTAINER}" --format "{{.Names}}" 2>/dev/null | grep -q "^${OLLAMA_CONTAINER}$"; then
             echo -e "  ${YELLOW}Starting podman container '${OLLAMA_CONTAINER}'...${NC}"
@@ -65,11 +145,41 @@ start_ollama_bg() {
         return 0
     fi
 
-    ensure_container_started
+    if [ "$OS_TYPE" = "windows" ]; then
+        export OLLAMA_MODELS="${OLLAMA_MODELS:-X:\OLLAMA\models}"
+        export OLLAMA_ORIGINS="${OLLAMA_ORIGINS:-*}"
+        export OLLAMA_HOST="${OLLAMA_BIND}"
+        [ -d "X:/OLLAMA/models" ] || mkdir -p "X:/OLLAMA/models" 2>/dev/null || true
+        [ -d "X:/OLLAMA" ] || mkdir -p "X:/OLLAMA" 2>/dev/null || true
 
-    echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
-    nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env OLLAMA_HOST="${OLLAMA_BIND}" OLLAMA_ORIGINS="*" ollama serve >"$LOG_FILE" 2>&1 &
-    local launch_pid=$!
+        local bg_bat="X:/OLLAMA/start_ollama_bg.bat"
+        local win_bin win_models win_log win_err
+        win_bin="$(cygpath -w "$OLLAMA_BIN" 2>/dev/null || echo "$OLLAMA_BIN")"
+        win_models="$(cygpath -w "$OLLAMA_MODELS" 2>/dev/null || echo "$OLLAMA_MODELS")"
+        win_log="$(cygpath -w "$LOG_FILE" 2>/dev/null || echo "$LOG_FILE")"
+        win_err="$(cygpath -w "${LOG_FILE%.*}.err" 2>/dev/null || echo "${LOG_FILE%.*}.err")"
+
+        cat << EOFBAT > "$bg_bat"
+@echo off
+set OLLAMA_MODELS=${win_models}
+set OLLAMA_ORIGINS=*
+set OLLAMA_HOST=${OLLAMA_BIND}
+if not exist "${win_models}" mkdir "${win_models}"
+cd /d "X:\OLLAMA"
+"${win_bin}" serve > "${win_log}" 2> "${win_err}"
+EOFBAT
+
+        echo -e "Launching 'ollama serve' in background on Windows [listening on ${OLLAMA_BIND}, models in ${OLLAMA_MODELS}]..."
+        if command -v powershell.exe >/dev/null 2>&1; then
+            powershell.exe -NoProfile -Command "([wmiclass]'win32_process').Create('cmd.exe /c X:\OLLAMA\start_ollama_bg.bat')" >/dev/null 2>&1 &
+        else
+            cmd.exe /c start /b "" "X:\OLLAMA\start_ollama_bg.bat" >/dev/null 2>&1 &
+        fi
+    else
+        ensure_container_started
+        echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
+        nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env OLLAMA_HOST="${OLLAMA_BIND}" OLLAMA_ORIGINS="*" ollama serve >"$LOG_FILE" 2>&1 &
+    fi
 
     echo -e "Waiting for Ollama API endpoint to become responsive..."
     local ready=false
@@ -77,12 +187,15 @@ start_ollama_bg() {
         if curl -s --connect-timeout 1 "${OLLAMA_CHECK_URL}/" 2>/dev/null | grep -qi "Ollama is running"; then
             ready=true
             break
+        elif curl -s --connect-timeout 1 "http://127.0.0.1:${OLLAMA_PORT}/" 2>/dev/null | grep -qi "Ollama is running"; then
+            ready=true
+            break
         fi
         sleep 0.5
     done
 
     local LAN_IP
-    LAN_IP=$(ip -4 addr show wlp2s0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || hostname -I 2>/dev/null | awk '{print $1}')
+    LAN_IP=$(get_lan_ip)
 
     if [ "$ready" = "true" ]; then
         local pids
@@ -111,6 +224,33 @@ start_ollama_window() {
         pids=$(get_ollama_pids)
         echo -e "${GREEN}✓ Ollama server is already running (PID: ${pids% }, URL: ${OLLAMA_CHECK_URL}).${NC}"
         return 0
+    fi
+
+    if [ "$OS_TYPE" = "windows" ]; then
+        export OLLAMA_MODELS="${OLLAMA_MODELS:-X:\OLLAMA\models}"
+        export OLLAMA_ORIGINS="${OLLAMA_ORIGINS:-*}"
+        export OLLAMA_HOST="${OLLAMA_BIND}"
+        [ -d "X:/OLLAMA/models" ] || mkdir -p "X:/OLLAMA/models" 2>/dev/null || true
+        [ -d "X:/OLLAMA" ] || mkdir -p "X:/OLLAMA" 2>/dev/null || true
+
+        echo -e "Launching Ollama Server in new Windows terminal window..."
+        if [ -n "$OLLAMA_START_BAT" ] && [ -f "$OLLAMA_START_BAT" ]; then
+            cmd.exe /c start "Ollama Server" "$(cygpath -w "$OLLAMA_START_BAT" 2>/dev/null || echo "$OLLAMA_START_BAT")" >/dev/null 2>&1 &
+        else
+            local win_bin
+            win_bin="$(cygpath -w "$OLLAMA_BIN" 2>/dev/null || echo "$OLLAMA_BIN")"
+            cmd.exe /c start "Ollama Server" cmd.exe /k "set OLLAMA_MODELS=X:\OLLAMA\models && set OLLAMA_ORIGINS=* && set OLLAMA_HOST=${OLLAMA_BIND} && \"$win_bin\" serve" >/dev/null 2>&1 &
+        fi
+
+        echo -e "Waiting for Ollama to initialize..."
+        sleep 2
+        if is_ollama_running; then
+            echo -e "${BOLD}${GREEN}✓ Ollama server running in new window (${OLLAMA_CHECK_URL}).${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}Terminal window launched. Please check the new window for server logs.${NC}"
+            return 0
+        fi
     fi
 
     ensure_container_started
@@ -154,29 +294,60 @@ stop_ollama() {
     pids=$(get_ollama_pids)
     echo -e "Terminating Ollama process(es): ${pids% }..."
 
-    # Graceful TERM
-    distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -TERM -f "ollama serve" 2>/dev/null || true
-    pkill -TERM -f "ollama serve" 2>/dev/null || true
-
-    sleep 1.5
-
-    if ! is_ollama_running; then
-        echo -e "${BOLD}${GREEN}✓ Ollama server stopped successfully.${NC}"
-        if command -v notify-send >/dev/null 2>&1; then
-            notify-send -a "Ollama" -i "dialog-ok" "Ollama Server" "✓ Ollama server stopped." 2>/dev/null || true
+    if [ "$OS_TYPE" = "windows" ]; then
+        for pid in $pids; do
+            [ -n "$pid" ] && taskkill.exe //F //T //PID "$pid" 2>/dev/null || true
+        done
+        taskkill.exe //F //IM "ollama.exe" 2>/dev/null || true
+        if command -v powershell.exe >/dev/null 2>&1; then
+            powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { \$_.CommandLine -like '*start_ollama*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
         fi
-        return 0
-    else
-        echo -e "${RED}Process still running. Force killing...${NC}"
-        distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -9 -f "ollama serve" 2>/dev/null || true
-        pkill -9 -f "ollama serve" 2>/dev/null || true
         sleep 1
+
+        if ! is_ollama_running; then
+            echo -e "${BOLD}${GREEN}✓ Ollama server stopped successfully.${NC}"
+            return 0
+        fi
+
+        # Force terminate any remaining process on the port
+        local rem_pids
+        rem_pids=$(get_ollama_pids)
+        for pid in $rem_pids; do
+            [ -n "$pid" ] && taskkill.exe //F //T //PID "$pid" 2>/dev/null || true
+        done
+        sleep 0.5
         if ! is_ollama_running; then
             echo -e "${BOLD}${GREEN}✓ Ollama server force terminated.${NC}"
             return 0
         else
             echo -e "${RED}Error: Unable to terminate all Ollama processes.${NC}"
             return 1
+        fi
+    else
+        # Graceful TERM on Linux
+        distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -TERM -f "ollama serve" 2>/dev/null || true
+        pkill -TERM -f "ollama serve" 2>/dev/null || true
+
+        sleep 1.5
+
+        if ! is_ollama_running; then
+            echo -e "${BOLD}${GREEN}✓ Ollama server stopped successfully.${NC}"
+            if command -v notify-send >/dev/null 2>&1; then
+                notify-send -a "Ollama" -i "dialog-ok" "Ollama Server" "✓ Ollama server stopped." 2>/dev/null || true
+            fi
+            return 0
+        else
+            echo -e "${RED}Process still running. Force killing...${NC}"
+            distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -9 -f "ollama serve" 2>/dev/null || true
+            pkill -9 -f "ollama serve" 2>/dev/null || true
+            sleep 1
+            if ! is_ollama_running; then
+                echo -e "${BOLD}${GREEN}✓ Ollama server force terminated.${NC}"
+                return 0
+            else
+                echo -e "${RED}Error: Unable to terminate all Ollama processes.${NC}"
+                return 1
+            fi
         fi
     fi
 }
@@ -194,24 +365,35 @@ show_status() {
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
 
     local LAN_IP
-    LAN_IP=$(ip -4 addr show wlp2s0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || hostname -I 2>/dev/null | awk '{print $1}')
+    LAN_IP=$(get_lan_ip)
 
     if is_ollama_running; then
         local pids
         pids=$(get_ollama_pids)
-        echo -e "  Server Status:    ${BOLD}${GREEN}● RUNNING${NC} (PID: ${pids% })"
+        echo -e "  Server Status:    ${BOLD}${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
         echo -e "  Local Endpoint:   ${BOLD}${CYAN}http://127.0.0.1:${OLLAMA_PORT}${NC}"
         [ -n "$LAN_IP" ] && echo -e "  LAN Endpoint:     ${BOLD}${CYAN}http://${LAN_IP}:${OLLAMA_PORT}${NC}"
-        if systemctl --user is-active --quiet ollama-caddy.service 2>/dev/null; then
-            echo -e "  HTTPS Endpoints:  ${BOLD}${CYAN}https://${LAN_IP:-127.0.0.1}:8443${NC} | ${BOLD}${CYAN}https://${LAN_IP:-127.0.0.1}:11436${NC}"
+        if [ "$OS_TYPE" = "windows" ]; then
+            echo -e "  HTTP Health:      ${GREEN}HTTP 200 OK (Ollama is running)${NC}"
+            echo -e "  Runtime Backend:  ${GREEN}Native Windows${NC} (Models: ${OLLAMA_MODELS:-X:\OLLAMA\models})"
+            [ -n "$OLLAMA_START_BAT" ] && [ -f "$OLLAMA_START_BAT" ] && echo -e "  Launcher Batch:   ${CYAN}${OLLAMA_START_BAT}${NC}"
+        else
+            if systemctl --user is-active --quiet ollama-caddy.service 2>/dev/null; then
+                echo -e "  HTTPS Endpoints:  ${BOLD}${CYAN}https://${LAN_IP:-127.0.0.1}:8443${NC} | ${BOLD}${CYAN}https://${LAN_IP:-127.0.0.1}:11436${NC}"
+            fi
+            echo -e "  HTTP Health:      ${GREEN}HTTP 200 OK (Ollama is running)${NC}"
+            echo -e "  Container:        ${GREEN}${OLLAMA_CONTAINER}${NC} (distrobox/podman)"
         fi
-        echo -e "  HTTP Health:      ${GREEN}HTTP 200 OK (Ollama is running)${NC}"
-        echo -e "  Container:        ${GREEN}${OLLAMA_CONTAINER}${NC} (distrobox/podman)"
     else
         echo -e "  Server Status:    ${BOLD}${RED}○ STOPPED${NC}"
         echo -e "  Local Endpoint:   ${BOLD}${CYAN}http://127.0.0.1:${OLLAMA_PORT}${NC} (Offline)"
         [ -n "$LAN_IP" ] && echo -e "  LAN Endpoint:     ${BOLD}${CYAN}http://${LAN_IP}:${OLLAMA_PORT}${NC} (Offline)"
-        echo -e "  Container:        ${YELLOW}${OLLAMA_CONTAINER}${NC}"
+        if [ "$OS_TYPE" = "windows" ]; then
+            echo -e "  Runtime Backend:  ${YELLOW}Native Windows${NC} (Models: ${OLLAMA_MODELS:-X:\OLLAMA\models})"
+            [ -n "$OLLAMA_START_BAT" ] && [ -f "$OLLAMA_START_BAT" ] && echo -e "  Launcher Batch:   ${CYAN}${OLLAMA_START_BAT}${NC}"
+        else
+            echo -e "  Container:        ${YELLOW}${OLLAMA_CONTAINER}${NC}"
+        fi
     fi
 
     # GPU info
@@ -228,12 +410,29 @@ show_status() {
         model_list=$(curl -s "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null)
         if [ -n "$model_list" ] && command -v jq >/dev/null 2>&1; then
             echo "$model_list" | jq -r '.models[]? | "  • \(.name) (\((.size / 1073741824 * 10 | floor) / 10) GB, \(.details.parameter_size // "N/A"), \(.details.quantization_level // "N/A"))"' 2>/dev/null
+        elif [ "$OS_TYPE" = "windows" ]; then
+            "$OLLAMA_BIN" list 2>/dev/null | sed 's/^/  /' || true
         else
             distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | sed 's/^/  /'
         fi
     else
-        echo -e "  ${YELLOW}(Start server to query models via API)${NC}"
-        distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | sed 's/^/  /' || true
+        local found_offline=false
+        local manifest_dir="X:/OLLAMA/models/manifests"
+        [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        if [ -d "$manifest_dir" ]; then
+            echo -e "  ${YELLOW}(Server stopped - detected models in storage):${NC}"
+            while IFS= read -r mf; do
+                [ -z "$mf" ] && continue
+                local tag="$(basename "$mf")"
+                local parent="$(dirname "$mf")"
+                local mname="$(basename "$parent")"
+                echo -e "  • ${mname}:${tag}"
+                found_offline=true
+            done < <(find "$manifest_dir" -type f 2>/dev/null)
+        fi
+        if [ "$found_offline" = "false" ]; then
+            echo -e "  ${YELLOW}(Start server to query models via API)${NC}"
+        fi
     fi
     echo ""
 }
@@ -252,7 +451,25 @@ run_chat_cli() {
     fi
 
     if [ ${#models[@]} -eq 0 ]; then
-        mapfile -t models < <(distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+        if [ "$OS_TYPE" = "windows" ]; then
+            mapfile -t models < <("$OLLAMA_BIN" list 2>/dev/null | awk 'NR>1 {print $1}')
+        else
+            mapfile -t models < <(distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+        fi
+    fi
+
+    if [ ${#models[@]} -eq 0 ]; then
+        local manifest_dir="X:/OLLAMA/models/manifests"
+        [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        if [ -d "$manifest_dir" ]; then
+            while IFS= read -r mf; do
+                [ -z "$mf" ] && continue
+                local tag="$(basename "$mf")"
+                local parent="$(dirname "$mf")"
+                local mname="$(basename "$parent")"
+                models+=("${mname}:${tag}")
+            done < <(find "$manifest_dir" -type f 2>/dev/null)
+        fi
     fi
 
     if [ ${#models[@]} -eq 0 ]; then
@@ -278,7 +495,15 @@ run_chat_cli() {
         local chosen_model="${models[$((m_choice - 1))]}"
         echo -e "\n${BOLD}${GREEN}Launching interactive chat with '${chosen_model}'...${NC}\n"
         echo -e "${CYAN}Type /bye or press Ctrl+D to exit the chat.${NC}\n"
-        distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$chosen_model"
+        if [ "$OS_TYPE" = "windows" ]; then
+            if command -v winpty >/dev/null 2>&1 && [ -t 0 ]; then
+                winpty "$OLLAMA_BIN" run "$chosen_model"
+            else
+                "$OLLAMA_BIN" run "$chosen_model"
+            fi
+        else
+            distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$chosen_model"
+        fi
     else
         echo -e "${RED}Invalid selection.${NC}"
         sleep 1
@@ -290,11 +515,44 @@ view_logs() {
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
     echo -e "${BOLD}${MAGENTA}                       OLLAMA SERVER LOGS                             ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-    if [ -f "$LOG_FILE" ]; then
-        echo -e "Last 50 lines of ${LOG_FILE}:\n"
-        tail -n 50 "$LOG_FILE"
+
+    local found_log=""
+    local check_logs=()
+    if [ "$OS_TYPE" = "windows" ]; then
+        [ -n "$LOG_FILE" ] && check_logs+=("${LOG_FILE%.*}.err" "$LOG_FILE")
+        check_logs+=("X:/OLLAMA/ollama-serve.err" "X:/OLLAMA/ollama-serve.log" "/x/OLLAMA/ollama-serve.err" "/x/OLLAMA/ollama-serve.log")
+        if [ -n "$LOCALAPPDATA" ]; then
+            local u_local
+            u_local="$(cygpath -u "$LOCALAPPDATA" 2>/dev/null || echo "$LOCALAPPDATA")"
+            check_logs+=("$u_local/Ollama/server.log" "$u_local/Ollama/app.log")
+        fi
+        check_logs+=("$HOME/AppData/Local/Ollama/server.log" "$HOME/AppData/Local/Ollama/app.log")
     else
-        echo -e "Log file ${LOG_FILE} does not exist yet (server may have been started in a terminal window)."
+        [ -n "$LOG_FILE" ] && check_logs+=("$LOG_FILE")
+    fi
+    check_logs+=("/tmp/ollama-serve.log" "/tmp/ollama.log")
+
+    for lf in "${check_logs[@]}"; do
+        if [ -f "$lf" ] && [ -s "$lf" ]; then
+            found_log="$lf"
+            break
+        fi
+    done
+    if [ -z "$found_log" ]; then
+        for lf in "${check_logs[@]}"; do
+            if [ -f "$lf" ]; then
+                found_log="$lf"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$found_log" ]; then
+        echo -e "Log file: ${found_log} (Last 50 lines):\n"
+        tail -n 50 "$found_log"
+    else
+        echo -e "Log file does not exist yet (server may have been started in a dedicated terminal window)."
+        echo -e "Target log paths: ${LOG_FILE:-X:/OLLAMA/ollama-serve.log}"
     fi
     echo ""
     read -r -p "Press Enter to return..."
@@ -370,12 +628,24 @@ case "${1:-}" in
         show_status
         ;;
     models|list)
-        distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list
+        if [ "$OS_TYPE" = "windows" ]; then
+            "$OLLAMA_BIN" list
+        else
+            distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list
+        fi
         ;;
     chat|run)
         shift
         if [ -n "$1" ]; then
-            distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$1"
+            if [ "$OS_TYPE" = "windows" ]; then
+                if command -v winpty >/dev/null 2>&1 && [ -t 0 ]; then
+                    winpty "$OLLAMA_BIN" run "$1"
+                else
+                    "$OLLAMA_BIN" run "$1"
+                fi
+            else
+                distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$1"
+            fi
         else
             run_chat_cli
         fi

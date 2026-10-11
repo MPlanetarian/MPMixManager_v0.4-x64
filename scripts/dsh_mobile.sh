@@ -210,9 +210,17 @@ start_dsh_window() {
         if [ -n "$DSH_START_BAT" ] && [ -f "$DSH_START_BAT" ]; then
             local bat_path
             bat_path=$(cygpath -w "$DSH_START_BAT" 2>/dev/null || echo "$DSH_START_BAT")
-            cmd.exe /c start "$TITLE" "$bat_path" >/dev/null 2>&1 &
+            if command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -NoProfile -Command "([wmiclass]'win32_process').Create('cmd.exe /k \"$bat_path\"')" >/dev/null 2>&1
+            else
+                cmd.exe /c start "$TITLE" "$bat_path" >/dev/null 2>&1 &
+            fi
         else
-            cmd.exe /c start "$TITLE" cmd.exe /k "set DSH_HOME=$win_dsh_dir && set HF_HOME=X:\DeepSeekHarness\cache\huggingface && set TORCH_HOME=X:\DeepSeekHarness\cache\torch && cd /d $win_dsh_dir && node --import tsx/esm apps/cli/src/bin.ts web --host $DSH_LAN_IP --port $DSH_PORT" >/dev/null 2>&1 &
+            if command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -NoProfile -Command "([wmiclass]'win32_process').Create('cmd.exe /k cd /d \"$win_dsh_dir\" && node --import tsx/esm apps/cli/src/bin.ts web --host $DSH_LAN_IP --port $DSH_PORT')" >/dev/null 2>&1
+            else
+                cmd.exe /c start "$TITLE" cmd.exe /k "set DSH_HOME=$win_dsh_dir && set HF_HOME=X:\DeepSeekHarness\cache\huggingface && set TORCH_HOME=X:\DeepSeekHarness\cache\torch && cd /d $win_dsh_dir && node --import tsx/esm apps/cli/src/bin.ts web --host $DSH_LAN_IP --port $DSH_PORT" >/dev/null 2>&1 &
+            fi
         fi
     elif command -v konsole >/dev/null 2>&1; then
         local CMD="cd \"$DSH_DIR\" && pnpm dsh web --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
@@ -283,11 +291,23 @@ start_dsh_bg() {
 
     echo -e "Launching dsh web in background..."
     if [ "$OS_TYPE" = "windows" ]; then
-        export DSH_HOME="$(cygpath -w "$DSH_DIR" 2>/dev/null || echo "$DSH_DIR")"
-        export HF_HOME="X:\DeepSeekHarness\cache\huggingface"
-        export TORCH_HOME="X:\DeepSeekHarness\cache\torch"
-        [ -d "X:/DeepSeekHarness/cache" ] || mkdir -p "X:/DeepSeekHarness/cache"
-        (cd "$DSH_DIR" && nohup node --import tsx/esm apps/cli/src/bin.ts web --host "${DSH_LAN_IP}" --port "${DSH_PORT}" --no-open >"$LOG_FILE" 2>&1 &)
+        local bg_bat="X:/DEEPSEEK/start_dsh_bg.bat"
+        if [ ! -f "$bg_bat" ]; then
+            cat << 'EOFBAT' > "$bg_bat"
+@echo off
+set DSH_HOME=X:\DEEPSEEK\deepseek-harness
+set HF_HOME=X:\DeepSeekHarness\cache\huggingface
+set TORCH_HOME=X:\DeepSeekHarness\cache\torch
+if not exist "X:\DeepSeekHarness\cache" mkdir "X:\DeepSeekHarness\cache"
+cd /d "X:\DEEPSEEK\deepseek-harness"
+node --import tsx/esm apps/cli/src/bin.ts web --host 192.168.1.11 --port 3080 --no-open > "X:\DEEPSEEK\dsh-mobile.log" 2>&1
+EOFBAT
+        fi
+        if command -v powershell.exe >/dev/null 2>&1; then
+            powershell.exe -NoProfile -Command "([wmiclass]'win32_process').Create('cmd.exe /c X:\DEEPSEEK\start_dsh_bg.bat')" >/dev/null 2>&1
+        else
+            cmd.exe /c start /b "" "X:\DEEPSEEK\start_dsh_bg.bat" >/dev/null 2>&1 &
+        fi
     else
         (cd "$DSH_DIR" && nohup pnpm dsh web --trusted-host "${DSH_LAN_IP}:${DSH_PORT}" --trusted-host "${DSH_LAN_IP}" --no-open >"$LOG_FILE" 2>&1 &)
     fi
@@ -486,7 +506,8 @@ view_logs() {
         echo -e "Target log path: ${LOG_FILE}"
     fi
     echo ""
-    read -r -p "Press Enter to return..."
+    [ -t 0 ] && read -r -p "Press Enter to return..."
+    return 0
 }
 
 interactive_menu() {
