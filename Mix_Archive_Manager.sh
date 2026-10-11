@@ -19,6 +19,77 @@ _on_winch() {
 }
 trap '_on_winch' WINCH
 
+# Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
+if ! command -v pgrep >/dev/null 2>&1; then
+    pgrep() {
+        local flag_f=false
+        local flag_x=false
+        local flag_i=false
+        local pattern=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -f) flag_f=true; shift ;;
+                -x) flag_x=true; shift ;;
+                -i) flag_i=true; shift ;;
+                -a|-fa|-l) shift ;;
+                -*) shift ;;
+                *) pattern="$1"; shift ;;
+            esac
+        done
+        [ -z "$pattern" ] && return 1
+
+        local matches=""
+        if [ "$flag_i" = true ]; then
+            matches=$(ps -ef 2>/dev/null | grep -iE -- "$pattern" | grep -v "grep" || true)
+        else
+            matches=$(ps -ef 2>/dev/null | grep -E -- "$pattern" | grep -v "grep" || true)
+        fi
+
+        if [ -n "$matches" ]; then
+            echo "$matches" | awk '{print $2}'
+            return 0
+        fi
+
+        if command -v tasklist.exe >/dev/null 2>&1; then
+            local win_matches
+            win_matches=$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null | grep -iE -- "$pattern" || true)
+            if [ -n "$win_matches" ]; then
+                echo "$win_matches" | cut -d',' -f2 | tr -d '"'
+                return 0
+            fi
+        fi
+        return 1
+    }
+    export -f pgrep 2>/dev/null || true
+fi
+
+if ! command -v pkill >/dev/null 2>&1; then
+    pkill() {
+        local sig="TERM"
+        local pattern=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -9|-KILL) sig="KILL"; shift ;;
+                -15|-TERM) sig="TERM"; shift ;;
+                -f|-i|-x) shift ;;
+                -*) shift ;;
+                *) pattern="$1"; shift ;;
+            esac
+        done
+        [ -z "$pattern" ] && return 1
+        local pids
+        pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            for pid in $pids; do
+                kill -$sig "$pid" 2>/dev/null || true
+            done
+            return 0
+        fi
+        return 1
+    }
+    export -f pkill 2>/dev/null || true
+fi
+
 update_terminal_geometry() {
     local force="${1:-0}"
     if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
@@ -1973,6 +2044,22 @@ export OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR EXTRA
 
 is_mix_archive_configured() {
     if [ "${MIX_ARCHIVE_CONFIGURED:-false}" = "true" ] && [ -n "${MIX_ARCHIVE_DIR:-}" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# WAN2GP AI Video & Image Generator configuration
+WAN2GP_CONFIGURED="${WAN2GP_CONFIGURED:-false}"
+WAN2GP_DIR="${WAN2GP_DIR:-}"
+WAN2GP_PYTHON="${WAN2GP_PYTHON:-}"
+WAN2GP_OUTPUTS="${WAN2GP_OUTPUTS:-}"
+WAN2GP_FLUX_BATCH_DIR="${WAN2GP_FLUX_BATCH_DIR:-}"
+WAN2GP_LTX_BATCH_DIR="${WAN2GP_LTX_BATCH_DIR:-}"
+export WAN2GP_CONFIGURED WAN2GP_DIR WAN2GP_PYTHON WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR
+
+is_wan2gp_configured() {
+    if [ "${WAN2GP_CONFIGURED:-false}" = "true" ] && [ -n "${WAN2GP_OUTPUTS:-}" ] && [ -n "${WAN2GP_FLUX_BATCH_DIR:-}" ] && [ -n "${WAN2GP_LTX_BATCH_DIR:-}" ]; then
         return 0
     fi
     return 1
@@ -4638,7 +4725,8 @@ launch_wan2gp_terminal() {
     [ ! -f "$script" ] && script="$HOME/wan2gp.sh"
     [ ! -f "$script" ] && script="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/wan2gp.sh"
     [ ! -f "$script" ] && script="$HOME/Documents/BASH_SCRIPTS/wan2gp.sh"
-    local cmd="bash \"$script\" \"$profile\"; echo ''; echo 'WAN2GP finished. Press [Enter] to exit...'; read -r"
+    export WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR WAN2GP_DIR WAN2GP_PYTHON
+    local cmd="export WAN2GP_OUTPUTS=\"$WAN2GP_OUTPUTS\" WAN2GP_FLUX_BATCH_DIR=\"$WAN2GP_FLUX_BATCH_DIR\" WAN2GP_LTX_BATCH_DIR=\"$WAN2GP_LTX_BATCH_DIR\" WAN2GP_DIR=\"$WAN2GP_DIR\" WAN2GP_PYTHON=\"$WAN2GP_PYTHON\"; bash \"$script\" \"$profile\"; echo ''; echo 'WAN2GP finished. Press [Enter] to exit...'; read -r"
 
     if launch_in_terminal "$title" "$cmd" "tab"; then
         echo -e "${GREEN}✓ WAN2GP launched in a new console tab/window (Profile $profile).${NC}"
@@ -4669,7 +4757,8 @@ launch_wan2gp_flux_batch_terminal() {
         return 1
     fi
     chmod +x "$script" 2>/dev/null || true
-    local cmd="bash \"$script\" $mode; echo ''; echo 'Batch process finished. Press [Enter] to exit...'; read -r"
+    export WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR WAN2GP_DIR WAN2GP_PYTHON
+    local cmd="export WAN2GP_OUTPUTS=\"$WAN2GP_OUTPUTS\" WAN2GP_FLUX_BATCH_DIR=\"$WAN2GP_FLUX_BATCH_DIR\" WAN2GP_LTX_BATCH_DIR=\"$WAN2GP_LTX_BATCH_DIR\" WAN2GP_DIR=\"$WAN2GP_DIR\" WAN2GP_PYTHON=\"$WAN2GP_PYTHON\"; bash \"$script\" --batch-dir \"$WAN2GP_FLUX_BATCH_DIR\" --output-dir \"$WAN2GP_OUTPUTS\" $mode; echo ''; echo 'Batch process finished. Press [Enter] to exit...'; read -r"
 
     if launch_in_terminal "$title" "$cmd" "tab"; then
         echo -e "${GREEN}✓ Flux 2 Klein 9B Batch Processor launched in a new console tab/window.${NC}"
@@ -4710,7 +4799,8 @@ launch_wan2gp_ltx_batch_terminal() {
     if [ -n "$lora" ] && [ "$lora" != "none" ]; then
         lora_arg="--lora $lora"
     fi
-    local cmd="bash \"$script\" --model $model $lora_arg $mode; echo ''; echo 'Batch process finished. Press [Enter] to exit...'; read -r"
+    export WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR WAN2GP_DIR WAN2GP_PYTHON
+    local cmd="export WAN2GP_OUTPUTS=\"$WAN2GP_OUTPUTS\" WAN2GP_FLUX_BATCH_DIR=\"$WAN2GP_FLUX_BATCH_DIR\" WAN2GP_LTX_BATCH_DIR=\"$WAN2GP_LTX_BATCH_DIR\" WAN2GP_DIR=\"$WAN2GP_DIR\" WAN2GP_PYTHON=\"$WAN2GP_PYTHON\"; bash \"$script\" --model $model $lora_arg --batch-dir \"$WAN2GP_LTX_BATCH_DIR\" --output-dir \"$WAN2GP_OUTPUTS\" $mode; echo ''; echo 'Batch process finished. Press [Enter] to exit...'; read -r"
 
     if launch_in_terminal "$title" "$cmd" "tab"; then
         echo -e "${GREEN}✓ LTX Video ${model^^} Batch Processor launched in a new console tab/window.${NC}"
@@ -4770,63 +4860,209 @@ run_wan2gp_tts_batch() {
 }
 
 
+configure_wan2gp_directories() {
+    clear
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}          CONFIGURE WAN2GP WORKSPACE & OUTPUT DIRECTORIES             ${NC}"
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+    echo -e "WAN2GP operations require three directory locations to be configured:"
+    echo -e "  ${BOLD}1. WAN2GP Outputs Directory${NC}  : Master destination for generated videos/images"
+    echo -e "  ${BOLD}2. Flux Batch Workspace${NC}      : Input/working folder for Flux 2 Klein 9B"
+    echo -e "  ${BOLD}3. LTX Video Batch Workspace${NC} : Input/working folder for LTX Video models\n"
+
+    local is_win=false
+    if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]] || [ -n "${WINDIR:-}" ] || command -v cmd.exe >/dev/null 2>&1; then
+        is_win=true
+    fi
+
+    # Suggested defaults
+    local def_outputs def_flux def_ltx
+    if [ "$is_win" = true ]; then
+        def_outputs="D:/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"
+        def_flux="D:/DATA_DRIVE_MOVED/WAN2GP_FLUX_BATCH"
+        def_ltx="D:/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH"
+    else
+        def_outputs="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"
+        def_flux="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_FLUX_BATCH"
+        def_ltx="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH"
+    fi
+
+    # Use current values if already set
+    [ -n "$WAN2GP_OUTPUTS" ] && def_outputs="$WAN2GP_OUTPUTS"
+    [ -n "$WAN2GP_FLUX_BATCH_DIR" ] && def_flux="$WAN2GP_FLUX_BATCH_DIR"
+    [ -n "$WAN2GP_LTX_BATCH_DIR" ] && def_ltx="$WAN2GP_LTX_BATCH_DIR"
+
+    # Display OS hint
+    if [ "$is_win" = true ]; then
+        echo -e "${YELLOW}[Windows Mode] You can enter paths like: D:\\DATA_DRIVE_MOVED\\WAN2GP_OUTPUTS or D:/DATA_DRIVE_MOVED/...${NC}\n"
+    else
+        echo -e "${YELLOW}[Linux/Unix Mode] You can enter paths like: /run/media/$USER/... or ~/WAN2GP_OUTPUTS${NC}\n"
+    fi
+
+    # Prompt 1: WAN2GP_OUTPUTS
+    local in_outputs
+    echo -e "${BOLD}${CYAN}[1/3] WAN2GP General Outputs Directory:${NC}"
+    echo -e "Current / Default: ${BOLD}${GREEN}${def_outputs}${NC}"
+    read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_outputs
+    in_outputs="${in_outputs#"${in_outputs%%[![:space:]]*}"}"
+    in_outputs="${in_outputs%"${in_outputs##*[![:space:]]}"}"
+    if [ "$in_outputs" = "q" ] || [ "$in_outputs" = "Q" ]; then
+        echo -e "\n${YELLOW}Configuration canceled.${NC}"
+        sleep 1
+        return 1
+    fi
+    [ -z "$in_outputs" ] && in_outputs="$def_outputs"
+    in_outputs="${in_outputs//\\//}"
+
+    # Prompt 2: WAN2GP_FLUX_BATCH_DIR
+    local in_flux
+    echo -e "\n${BOLD}${CYAN}[2/3] Flux 2 Klein 9B Batch Workspace Directory:${NC}"
+    echo -e "Current / Default: ${BOLD}${GREEN}${def_flux}${NC}"
+    read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_flux
+    in_flux="${in_flux#"${in_flux%%[![:space:]]*}"}"
+    in_flux="${in_flux%"${in_flux##*[![:space:]]}"}"
+    if [ "$in_flux" = "q" ] || [ "$in_flux" = "Q" ]; then
+        echo -e "\n${YELLOW}Configuration canceled.${NC}"
+        sleep 1
+        return 1
+    fi
+    [ -z "$in_flux" ] && in_flux="$def_flux"
+    in_flux="${in_flux//\\//}"
+
+    # Prompt 3: WAN2GP_LTX_BATCH_DIR
+    local in_ltx
+    echo -e "\n${BOLD}${CYAN}[3/3] LTX Video Batch Workspace Directory:${NC}"
+    echo -e "Current / Default: ${BOLD}${GREEN}${def_ltx}${NC}"
+    read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_ltx
+    in_ltx="${in_ltx#"${in_ltx%%[![:space:]]*}"}"
+    in_ltx="${in_ltx%"${in_ltx##*[![:space:]]}"}"
+    if [ "$in_ltx" = "q" ] || [ "$in_ltx" = "Q" ]; then
+        echo -e "\n${YELLOW}Configuration canceled.${NC}"
+        sleep 1
+        return 1
+    fi
+    [ -z "$in_ltx" ] && in_ltx="$def_ltx"
+    in_ltx="${in_ltx//\\//}"
+
+    # Create directories and subdirectories if needed
+    echo -e "\n${CYAN}Creating and verifying directory structures...${NC}"
+    mkdir -p "$in_outputs" 2>/dev/null || true
+    mkdir -p "$in_flux" "$in_flux/CTRL_IMAGE" "$in_flux/PROCESSED" "$in_flux/PENDING_ICONIC" 2>/dev/null || true
+    mkdir -p "$in_ltx" "$in_ltx/CTRL_VIDEO" "$in_ltx/PROCESSED" 2>/dev/null || true
+
+    # Save to config.env
+    save_config_setting "WAN2GP_OUTPUTS" "$in_outputs"
+    save_config_setting "WAN2GP_FLUX_BATCH_DIR" "$in_flux"
+    save_config_setting "WAN2GP_LTX_BATCH_DIR" "$in_ltx"
+    save_config_setting "WAN2GP_CONFIGURED" "true"
+
+    # Update active environment variables
+    WAN2GP_OUTPUTS="$in_outputs"
+    WAN2GP_FLUX_BATCH_DIR="$in_flux"
+    WAN2GP_LTX_BATCH_DIR="$in_ltx"
+    WAN2GP_CONFIGURED="true"
+    export WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR WAN2GP_CONFIGURED
+
+    echo -e "${GREEN}✓ Successfully configured WAN2GP Directories:${NC}"
+    echo -e "  • Outputs : ${BOLD}${in_outputs}${NC}"
+    echo -e "  • Flux    : ${BOLD}${in_flux}${NC} (with CTRL_IMAGE, PROCESSED, PENDING_ICONIC)"
+    echo -e "  • LTX     : ${BOLD}${in_ltx}${NC} (with CTRL_VIDEO, PROCESSED)"
+    echo ""
+    press_enter
+    return 0
+}
+
 manage_wan2gp() {
+    # Gate menu: require configuration of the three output/batch directories first
+    while ! is_wan2gp_configured; do
+        clear
+        echo -e "${BOLD}${MAGENTA}==================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}             WAN2GP SERVER MANAGER                ${NC}"
+        echo -e "${BOLD}${MAGENTA}==================================================${NC}\n"
+        echo -e "${YELLOW}Notice: WAN2GP Output & Batch Directories are not yet configured.${NC}"
+        echo -e "Before accessing the WAN2GP operations, you must configure the 3 directory paths:\n"
+        echo -e "  1) WAN2GP Outputs Directory  (${BOLD}WAN2GP_OUTPUTS${NC})"
+        echo -e "  2) Flux Batch Workspace      (${BOLD}WAN2GP_FLUX_BATCH_DIR${NC})"
+        echo -e "  3) LTX Video Batch Workspace (${BOLD}WAN2GP_LTX_BATCH_DIR${NC})\n"
+        echo -e "${BOLD}Select an option:${NC}"
+        echo -e "  ${BOLD}${CYAN}1)${NC} Configure WAN2GP Directories Now"
+        echo -e "  ${BOLD}${CYAN}0)${NC} Return to Previous Menu (or 'q')"
+        echo ""
+        read -r -p "Enter choice [1 or 0]: " init_choice
+        case "$init_choice" in
+            1)
+                configure_wan2gp_directories
+                ;;
+            0|[qQ]|[eE][xX][iI][tT])
+                return 0
+                ;;
+            *)
+                echo -e "${RED}Invalid selection.${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+
     while true; do
         clear
         echo -e "${BOLD}${MAGENTA}==================================================${NC}"
         echo -e "${BOLD}${MAGENTA}             WAN2GP SERVER MANAGER                ${NC}"
         echo -e "${BOLD}${MAGENTA}==================================================${NC}"
+        echo -e "  ${DIM}Outputs Dir:${NC}   ${BOLD}${CYAN}${WAN2GP_OUTPUTS}${NC}"
+        echo -e "  ${DIM}Flux Batch Dir:${NC}${BOLD}${CYAN}${WAN2GP_FLUX_BATCH_DIR}${NC}"
+        echo -e "  ${DIM}LTX Batch Dir:${NC} ${BOLD}${CYAN}${WAN2GP_LTX_BATCH_DIR}${NC}"
         echo ""
         
         local wgp_pids
-        wgp_pids=$(pgrep -f "python.*wgp\.py" | tr '\n' ' ')
+        wgp_pids=$(pgrep -f "python.*wgp\.py" 2>/dev/null | tr '\n' ' ' || true)
         if [ -n "$wgp_pids" ]; then
-            echo -e "  Server Status:    ${BOLD}${GREEN}● RUNNING${NC} (PID: ${wgp_pids})"
+            echo -e "  Server Status:       ${BOLD}${GREEN}● RUNNING${NC} (PID: ${wgp_pids})"
         else
-            echo -e "  Server Status:    ${BOLD}${RED}○ STOPPED${NC}"
+            echo -e "  Server Status:       ${BOLD}${RED}○ STOPPED${NC}"
         fi
 
         local flux_pids
-        flux_pids=$(pgrep -f "wan2gp_flux_batch" | tr '\n' ' ')
+        flux_pids=$(pgrep -f "wan2gp_flux_batch" 2>/dev/null | tr '\n' ' ' || true)
         if [ -n "$flux_pids" ]; then
-            echo -e "  Flux Batch:       ${BOLD}${GREEN}● RUNNING${NC} (PID: ${flux_pids})"
+            echo -e "  Flux Batch:          ${BOLD}${GREEN}● RUNNING${NC} (PID: ${flux_pids})"
         else
-            echo -e "  Flux Batch:       ${BOLD}${RED}○ STOPPED${NC}"
+            echo -e "  Flux Batch:          ${BOLD}${RED}○ STOPPED${NC}"
         fi
 
         local ltx_pids
-        ltx_pids=$(pgrep -f "wan2gp_ltx.*batch" | tr '\n' ' ')
+        ltx_pids=$(pgrep -f "wan2gp_ltx.*batch" 2>/dev/null | tr '\n' ' ' || true)
         if [ -n "$ltx_pids" ]; then
-            echo -e "  LTX Video Batch:  ${BOLD}${GREEN}● RUNNING${NC} (PID: ${ltx_pids})"
+            echo -e "  LTX Video Batch:     ${BOLD}${GREEN}● RUNNING${NC} (PID: ${ltx_pids})"
         else
-            echo -e "  LTX Video Batch:  ${BOLD}${RED}○ STOPPED${NC}"
+            echo -e "  LTX Video Batch:     ${BOLD}${RED}○ STOPPED${NC}"
         fi
 
-        local ltx_ctrl_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH/CTRL_VIDEO"
+        local ltx_ctrl_dir="${WAN2GP_LTX_BATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH}/CTRL_VIDEO"
         [ ! -d "$ltx_ctrl_dir" ] && ltx_ctrl_dir="/run/media/mplanetarian/DATA/WAN2GP_LTX_BATCH/CTRL_VIDEO"
         if [ -d "$ltx_ctrl_dir" ]; then
             shopt -s nullglob nocaseglob
             local ltx_ctrl_vids=("$ltx_ctrl_dir"/*.mp4 "$ltx_ctrl_dir"/*.mov "$ltx_ctrl_dir"/*.avi "$ltx_ctrl_dir"/*.mkv "$ltx_ctrl_dir"/*.webm)
             shopt -u nullglob nocaseglob
             if [ ${#ltx_ctrl_vids[@]} -gt 0 ]; then
-                echo -e "  LTX Control Video:${BOLD}${YELLOW} ${#ltx_ctrl_vids[@]} video(s) detected in CTRL_VIDEO${NC}"
+                echo -e "  LTX Control Video:   ${BOLD}${YELLOW}${#ltx_ctrl_vids[@]} video(s) detected in CTRL_VIDEO${NC}"
             fi
         fi
 
         local dup_pids
-        dup_pids=$(pgrep -f "remove_duplicate_images\.py" | tr '\n' ' ')
+        dup_pids=$(pgrep -f "remove_duplicate_images\.py" 2>/dev/null | tr '\n' ' ' || true)
         if [ -n "$dup_pids" ]; then
-            echo -e "  Duplicate Cleaner:${BOLD}${GREEN}● RUNNING${NC} (PID: ${dup_pids})"
+            echo -e "  Duplicate Cleaner:   ${BOLD}${GREEN}● RUNNING${NC} (PID: ${dup_pids})"
         fi
 
-        local tts_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_TTSBATCH"
+        local tts_dir="${WAN2GP_TTSBATCH_DIR:-$(dirname "$WAN2GP_OUTPUTS")/WAN2GP_TTSBATCH}"
+        [ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_TTSBATCH"
         [ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/DATA/WAN2GP_TTSBATCH"
         if [ -d "$tts_dir" ]; then
             shopt -s nullglob
             local tts_txts=("$tts_dir"/*.txt)
             local tts_wavs=("$tts_dir"/TTS_CONVERTED/*.wav)
             shopt -u nullglob
-            echo -e "  TTS Batch:        ${BOLD}${CYAN}${#tts_txts[@]} .txt pending${NC} | ${BOLD}${GREEN}${#tts_wavs[@]} audio converted in TTS_CONVERTED${NC}"
+            echo -e "  TTS Batch:           ${BOLD}${CYAN}${#tts_txts[@]} .txt pending${NC} | ${BOLD}${GREEN}${#tts_wavs[@]} audio converted in TTS_CONVERTED${NC}"
         fi
         echo ""
         echo -e "${BOLD}Select a WAN2GP operation:${NC}"
@@ -4855,9 +5091,10 @@ manage_wan2gp() {
         echo -e "  ${BOLD}${CYAN}23)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${GREEN}Clean Base / Video+Audio${NC}]"
         echo -e "  ${BOLD}${CYAN}24)${NC} Scan & Remove Byte-for-Byte Duplicate Images (${GREEN}remove_duplicate_images.py${NC})"
         echo -e "  ${BOLD}${CYAN}25)${NC} Text to Speech (TTS) Batch Converter & Audio Player (${GREEN}wan2gp_tts_batch.py${NC})"
+        echo -e "  ${BOLD}${CYAN}C)${NC}  ${YELLOW}Configure / Change Output & Batch Directory Paths${NC}"
         echo -e "  ${BOLD}${CYAN}26)${NC} Return to Main Menu"
         echo ""
-        read -r -p "Enter choice [1-26]: " w_choice
+        read -r -p "Enter choice [1-26, C]: " w_choice
 
         case $w_choice in
             1)
@@ -4975,7 +5212,10 @@ manage_wan2gp() {
             25)
                 run_wan2gp_tts_batch
                 ;;
-            26)
+            [cC]|config|dirs|0)
+                configure_wan2gp_directories
+                ;;
+            26|[qQ]|[eE][xX][iI][tT])
                 return 0
                 ;;
             *)

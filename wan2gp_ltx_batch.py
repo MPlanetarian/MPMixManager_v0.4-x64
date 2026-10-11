@@ -1,18 +1,51 @@
 #!/usr/bin/env bash
 "true" '''\'
 # Self-executing Python wrapper using the WAN2GP virtual environment
-APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
-VENV_PYTHON="$APP_DIR/venv/bin/python"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _cfg in "$SCRIPT_DIR/config.env" "$SCRIPT_DIR/../config.env" "$PWD/config.env" "/x/MP_Mix_Manager_v0.3/config.env" "X:/MP_Mix_Manager_v0.3/config.env" "$HOME/MP_Mix_Manager_v0.3/config.env"; do
+    if [ -f "$_cfg" ]; then
+        source "$_cfg" 2>/dev/null || true
+        break
+    fi
+done
 
-if [ ! -x "$VENV_PYTHON" ]; then
-    echo -e "\033[0;31m[-] Error: WAN2GP Python virtualenv not found at: $VENV_PYTHON\033[0m" >&2
+# Resolve WAN2GP App Root
+APP_DIR="${WAN2GP_DIR:-}"
+[ -z "$APP_DIR" ] && [ -d "X:/WAN2GP/Wan2GP" ] && APP_DIR="X:/WAN2GP/Wan2GP"
+[ -z "$APP_DIR" ] && [ -d "D:/WAN2GP/Wan2GP" ] && APP_DIR="D:/WAN2GP/Wan2GP"
+[ -z "$APP_DIR" ] && [ -d "/var/home/mplanetarian/pinokio/api/wan.git/app" ] && APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
+[ -z "$APP_DIR" ] && [ -d "$HOME/pinokio/api/wan.git/app" ] && APP_DIR="$HOME/pinokio/api/wan.git/app"
+
+# Resolve Python environment
+VENV_PYTHON="${WAN2GP_PYTHON:-}"
+[ -z "$VENV_PYTHON" ] && [ -x "X:/WAN2GP/conda_envs/wan2gp/python.exe" ] && VENV_PYTHON="X:/WAN2GP/conda_envs/wan2gp/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/Scripts/python.exe" ] && VENV_PYTHON="$APP_DIR/venv/Scripts/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/bin/python" ] && VENV_PYTHON="$APP_DIR/venv/bin/python"
+if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        VENV_PYTHON="$(command -v python3)"
+    elif command -v python >/dev/null 2>&1; then
+        VENV_PYTHON="$(command -v python)"
+    fi
+fi
+
+if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
+    echo -e "\033[0;31m[-] Error: WAN2GP Python environment not found!\033[0m" >&2
+    echo -e "\033[0;33mPlease ensure WAN2GP_PYTHON is set in config.env or Python is installed.\033[0m" >&2
     exit 1
 fi
 
-SITE_PKGS=$("$VENV_PYTHON" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null)
-export LD_LIBRARY_PATH="$SITE_PKGS/nvidia/cudnn/lib:$SITE_PKGS/nvidia/cublas/lib:$SITE_PKGS/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH:-}"
+export WAN2GP_DIR="$APP_DIR"
+export WAN2GP_PYTHON="$VENV_PYTHON"
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 export CUDA_VISIBLE_DEVICES="0"
+
+if [ "$(uname -s)" = "Linux" ]; then
+    SITE_PKGS=$("$VENV_PYTHON" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || true)
+    if [ -n "$SITE_PKGS" ]; then
+        export LD_LIBRARY_PATH="$SITE_PKGS/nvidia/cudnn/lib:$SITE_PKGS/nvidia/cublas/lib:$SITE_PKGS/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH:-}"
+    fi
+fi
 
 exec "$VENV_PYTHON" "$0" "$@"
 '''
@@ -40,9 +73,35 @@ RED = "\033[0;31m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+def load_config_env():
+    """Load config.env variables into os.environ if not already present."""
+    possible_cfgs = [
+        Path(__file__).resolve().parent / "config.env",
+        Path(__file__).resolve().parent.parent / "config.env",
+        Path.cwd() / "config.env",
+        Path("X:/MP_Mix_Manager_v0.3/config.env"),
+    ]
+    for cfg in possible_cfgs:
+        if cfg.exists():
+            try:
+                with open(cfg, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in os.environ and v:
+                                os.environ[k] = v
+                break
+            except Exception:
+                pass
+
+load_config_env()
+
 # Default directories
-PRIMARY_DATA_DIR = Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED")
-FALLBACK_DATA_DIR = Path("/run/media/mplanetarian/DATA")
+PRIMARY_DATA_DIR = Path("D:/DATA_DRIVE_MOVED")
+FALLBACK_DATA_DIR = Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED")
 DATA_DIR = PRIMARY_DATA_DIR if PRIMARY_DATA_DIR.exists() else FALLBACK_DATA_DIR
 
 BATCH_DIR = Path(os.environ.get("WAN2GP_LTX_BATCH_DIR", DATA_DIR / "WAN2GP_LTX_BATCH"))
@@ -54,15 +113,28 @@ if env_output:
     OUTPUT_DIR = Path(env_output)
 elif (DATA_DIR / "WAN2GP_OUTPUTS").exists():
     OUTPUT_DIR = DATA_DIR / "WAN2GP_OUTPUTS"
+elif Path("D:/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS").exists():
+    OUTPUT_DIR = Path("D:/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS")
 elif Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS").exists():
     OUTPUT_DIR = Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS")
-elif Path("/home/mplanetarian/Documents/WAN2GP_OUTPUTS").exists():
-    OUTPUT_DIR = Path("/home/mplanetarian/Documents/WAN2GP_OUTPUTS")
 else:
-    OUTPUT_DIR = Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS")
+    OUTPUT_DIR = DATA_DIR / "WAN2GP_OUTPUTS"
 
 # WAN2GP constants
-WAN_APP_ROOT = Path("/var/home/mplanetarian/pinokio/api/wan.git/app")
+wan_root_candidate = os.environ.get("WAN2GP_DIR")
+if wan_root_candidate and Path(wan_root_candidate).exists():
+    WAN_APP_ROOT = Path(wan_root_candidate)
+elif Path("X:/WAN2GP/Wan2GP").exists():
+    WAN_APP_ROOT = Path("X:/WAN2GP/Wan2GP")
+elif Path("D:/WAN2GP/Wan2GP").exists():
+    WAN_APP_ROOT = Path("D:/WAN2GP/Wan2GP")
+elif Path("/var/home/mplanetarian/pinokio/api/wan.git/app").exists():
+    WAN_APP_ROOT = Path("/var/home/mplanetarian/pinokio/api/wan.git/app")
+elif (Path.home() / "pinokio/api/wan.git/app").exists():
+    WAN_APP_ROOT = Path.home() / "pinokio/api/wan.git/app"
+else:
+    WAN_APP_ROOT = Path("X:/WAN2GP/Wan2GP")
+
 SAFE_PROFILE = "4.5"
 ATTENTION_MODE = "sage"
 
@@ -448,8 +520,24 @@ LENGTH_OPTIONS = {
 def check_and_resolve_running_server():
     """Ensure no conflicting wgp.py server is running to prevent OOM/GPU lockup."""
     try:
-        res = subprocess.run(["pgrep", "-f", "python.*wgp\\.py"], capture_output=True, text=True)
-        pids = [p.strip() for p in res.stdout.strip().split("\n") if p.strip()]
+        pids = []
+        if shutil.which("pgrep"):
+            try:
+                res = subprocess.run(["pgrep", "-f", "python.*wgp\\.py"], capture_output=True, text=True)
+                pids = [p.strip() for p in res.stdout.strip().split("\n") if p.strip()]
+            except Exception:
+                pass
+        elif sys.platform == "win32":
+            try:
+                res = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True)
+                for line in res.stdout.splitlines():
+                    if "python" in line.lower() and "wgp" in line.lower():
+                        parts = [p.strip(' "') for p in line.split(",")]
+                        if len(parts) > 1 and parts[1].isdigit():
+                            pids.append(parts[1])
+            except Exception:
+                pass
+
         current_pid = str(os.getpid())
         pids = [p for p in pids if p != current_pid]
 
@@ -459,19 +547,17 @@ def check_and_resolve_running_server():
             ans = input(f"{BOLD}    Would you like to stop the WAN2GP server now to proceed safely? [Y/n]: {RESET}").strip().lower()
             if ans in ("", "y", "yes"):
                 print(f"{CYAN}[*] Stopping existing WAN2GP instance...{RESET}")
-                stop_script = Path("/var/home/mplanetarian/wan2gp.sh")
-                if stop_script.exists():
+                stop_script = Path(__file__).resolve().parent / "wan2gp.sh"
+                if not stop_script.exists():
+                    stop_script = Path("/var/home/mplanetarian/wan2gp.sh")
+                if stop_script.exists() and shutil.which("bash"):
                     subprocess.run(["bash", str(stop_script), "stop"], check=False)
-                else:
+                elif shutil.which("pkill"):
                     subprocess.run(["pkill", "-TERM", "-f", "python.*wgp\\.py"], check=False)
+                elif sys.platform == "win32":
+                    for p in pids:
+                        subprocess.run(["taskkill", "/F", "/PID", p], check=False)
                 time.sleep(2)
-                # Verify stopped
-                check_res = subprocess.run(["pgrep", "-f", "python.*wgp\\.py"], capture_output=True, text=True)
-                check_pids = [p.strip() for p in check_res.stdout.strip().split("\n") if p.strip() and p.strip() != current_pid]
-                if check_pids:
-                    print(f"{YELLOW}[*] Forcefully terminating lingering server processes...{RESET}")
-                    subprocess.run(["pkill", "-9", "-f", "python.*wgp\\.py"], check=False)
-                    time.sleep(1)
                 print(f"{GREEN}[✓] WAN2GP server stopped. GPU VRAM is now available.{RESET}")
             else:
                 print(f"{RED}[-] Aborting batch run to avoid memory conflict.{RESET}")
@@ -614,6 +700,7 @@ def move_to_processed(source_path: Path, processed_dir: Path) -> Path:
 
 
 def main():
+    global BATCH_DIR, CTRL_VIDEO_DIR, OUTPUT_DIR, PROCESSED_DIR
     script_basename = Path(sys.argv[0]).name.lower()
     default_model_key = "13b" if "13b" in script_basename else "2b"
 
@@ -626,6 +713,8 @@ def main():
     parser.add_argument("--no-control", action="store_true", help="Disable control video (force pure Image-to-Video)")
     parser.add_argument("--watch", "-w", action="store_true", help="Run in continuous watch mode (check every 2 seconds)")
     parser.add_argument("--interval", "-i", type=float, default=2.0, help="Check interval in seconds for watch mode (default: 2.0)")
+    parser.add_argument("--batch-dir", type=str, default=None, help="Batch directory containing CTRL_VIDEO and batch files (default: WAN2GP_LTX_BATCH_DIR)")
+    parser.add_argument("--output-dir", type=str, default=None, help="Output directory for generated files (default: WAN2GP_OUTPUTS)")
     args = parser.parse_args()
 
     model_key = args.model.lower()
@@ -636,11 +725,14 @@ def main():
     lora_key = (args.lora or "none").lower()
     lora_info = AVAILABLE_LORAS.get(lora_key, AVAILABLE_LORAS["none"])
 
-    # 1. Verify DATA directory
-    if not DATA_DIR.exists():
-        print(f"{RED}[-] Error: DATA drive not mounted at {DATA_DIR}! Please mount it first.{RESET}")
-        sys.exit(1)
+    if args.batch_dir:
+        BATCH_DIR = Path(args.batch_dir)
+        CTRL_VIDEO_DIR = BATCH_DIR / "CTRL_VIDEO"
+        PROCESSED_DIR = BATCH_DIR / "PROCESSED"
+    if args.output_dir:
+        OUTPUT_DIR = Path(args.output_dir)
 
+    # 1. Verify and create batch & output directories
     BATCH_DIR.mkdir(parents=True, exist_ok=True)
     CTRL_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -687,6 +779,12 @@ def main():
 
     # 6. Initialize WAN2GP Session in safe Profile 4.5
     sys.path.insert(0, str(WAN_APP_ROOT))
+    if WAN_APP_ROOT.exists():
+        try:
+            os.chdir(str(WAN_APP_ROOT))
+        except Exception:
+            pass
+
     import torch
     from shared.api import WanGPSession
 

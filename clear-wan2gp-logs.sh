@@ -58,10 +58,38 @@ echo -e "${BOLD}${MAGENTA}             WAN2GP LOG CLEANER UTILITY           ${NC
 echo -e "${BOLD}${MAGENTA}==================================================${NC}"
 echo ""
 
+# Load config if present
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _cfg in "$_SCRIPT_DIR/config.env" "$_SCRIPT_DIR/../config.env" "$PWD/config.env" "/x/MP_Mix_Manager_v0.3/config.env" "X:/MP_Mix_Manager_v0.3/config.env" "$HOME/MP_Mix_Manager_v0.3/config.env"; do
+    if [ -f "$_cfg" ]; then
+        # shellcheck disable=SC1090
+        source "$_cfg" 2>/dev/null || true
+        break
+    fi
+done
+
 # Collect log files
 found_files=()
 
-# 1. Check WAN2GP update reports and console logs
+# 1. Check WAN2GP outputs and batch directory logs
+for d in "${WAN2GP_OUTPUTS:-}" "${WAN2GP_FLUX_BATCH_DIR:-}" "${WAN2GP_LTX_BATCH_DIR:-}"; do
+    if [ -n "$d" ] && [ -d "$d" ]; then
+        while IFS= read -r f; do
+            [ -f "$f" ] && found_files+=("$f")
+        done < <(find "$d" -maxdepth 2 -name "*.log" 2>/dev/null || true)
+    fi
+done
+
+# 2. Check WAN2GP application root logs (excluding virtualenv and conda envs)
+for app_root in "${WAN2GP_DIR:-}" "X:/WAN2GP/Wan2GP" "D:/WAN2GP/Wan2GP" "$HOME/pinokio/api/wan.git/app"; do
+    if [ -n "$app_root" ] && [ -d "$app_root" ]; then
+        while IFS= read -r f; do
+            [ -f "$f" ] && found_files+=("$f")
+        done < <(find "$app_root" -maxdepth 2 -name "*.log" -not -path "*/venv/*" -not -path "*/conda_envs/*" 2>/dev/null || true)
+    fi
+done
+
+# 3. Check WAN2GP update reports and console logs
 if [ -d "$HOME/Documents/WAN2GP_UPDATE_RERPORTS" ]; then
     for f in "$HOME/Documents/WAN2GP_UPDATE_RERPORTS"/*.log \
              "$HOME/Documents/WAN2GP_UPDATE_RERPORTS"/FULL_AGY_CONSOLE_LOG.txt; do
@@ -69,21 +97,14 @@ if [ -d "$HOME/Documents/WAN2GP_UPDATE_RERPORTS" ]; then
     done
 fi
 
-# 2. Check WAN2GP app directory logs (excluding virtualenv)
-if [ -d "$HOME/pinokio/api/wan.git/app" ]; then
-    while IFS= read -r f; do
-        [ -f "$f" ] && found_files+=("$f")
-    done < <(find "$HOME/pinokio/api/wan.git/app" -maxdepth 2 -name "*.log" -not -path "*/venv/*" 2>/dev/null || true)
-fi
-
-# 3. Check Pinokio wan.git logs directory
+# 4. Check Pinokio wan.git logs directory
 if [ -d "$HOME/pinokio/api/wan.git/logs" ]; then
     while IFS= read -r f; do
         [ -f "$f" ] && found_files+=("$f")
     done < <(find "$HOME/pinokio/api/wan.git/logs" -maxdepth 2 -type f 2>/dev/null || true)
 fi
 
-# 4. Check Pinokio cleaned shell task logs for wan.git
+# 5. Check Pinokio cleaned shell task logs for wan.git
 if [ -d "$HOME/pinokio/logs/shell/cleaned/api/wan.git" ]; then
     while IFS= read -r f; do
         [ -f "$f" ] && found_files+=("$f")
