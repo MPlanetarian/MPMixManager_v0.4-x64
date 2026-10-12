@@ -5,122 +5,54 @@
 #          save cut video in the same directory, and open a file manager window.
 # ==============================================================================
 
-# Terminal Colors
+#!/bin/bash
+
+# Function to open file manager
+open_file_manager() {
+    local dir="$1"
+    if command -v xdg-open &>/dev/null; then
+        xdg-open "$dir"
+    elif command -v explorer &>/dev/null; then
+        explorer "$dir"
+    elif command -v open &>/dev/null; then
+        open "$dir"
+    fi
+}
+
+# Constants
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Ensure required utilities exist
-for tool in ffmpeg ffprobe; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo -e "${RED}Error: Required tool '$tool' is not installed or not in PATH.${NC}"
-        exit 1
-    fi
-done
+# Check FFmpeg installation
+if ! command -v ffmpeg &>/dev/null || ! command -v ffprobe &>/dev/null; then
+    echo -e "${RED}Error: FFmpeg and ffprobe are required but not installed!${NC}"
+    exit 1
+fi
 
-open_file_manager() {
-    local target_dir="$1"
-    if [ -z "$target_dir" ] || [ ! -d "$target_dir" ]; then
-        return 0
-    fi
-    echo -e "${CYAN}Opening file manager in: ${BOLD}${target_dir}${NC}"
-    if [[ "$OSTYPE" == "darwin"* ]] || [[ "$(uname -s)" == "Darwin"* ]]; then
-        open "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]]; then
-        if command -v cygpath >/dev/null 2>&1; then
-            local win_p
-            win_p="$(cygpath -w "$target_dir" 2>/dev/null || echo "$target_dir")"
-            cmd.exe /c start "" "$win_p" >/dev/null 2>&1 &
-        else
-            explorer.exe "$target_dir" >/dev/null 2>&1 &
-        fi
-        disown 2>/dev/null || true
-    elif command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    elif command -v dolphin >/dev/null 2>&1; then
-        dolphin "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    elif command -v nautilus >/dev/null 2>&1; then
-        nautilus "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    elif command -v open >/dev/null 2>&1; then
-        open "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    elif command -v explorer.exe >/dev/null 2>&1; then
-        explorer.exe "$target_dir" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    fi
-}
-
-echo -e "${BOLD}${MAGENTA}==================================================${NC}"
-echo -e "${BOLD}${MAGENTA}        VIDEO CUTTING UTILITY (.MP4 / .MKV)       ${NC}"
-echo -e "${BOLD}${MAGENTA}==================================================${NC}\n"
-
-# 1. Ask user for full path to the video (or use CLI argument $1)
+# Input file
 input_path="$1"
+if [ -z "$input_path" ] || [ ! -f "$input_path" ]; then
+    echo -e "${RED}Error: No input file provided or file does not exist!${NC}"
+    exit 1
+fi
 
-while true; do
-    if [ -z "$input_path" ]; then
-        read -r -e -p "Enter full path to the video file (.mp4 or .mkv): " input_path
-    fi
+# Get video info
+video_info=$(ffprobe -v error -show_entries format=duration -show_entries stream=codec_type,codec_name,width,height -of default=noprint_wrappers=1 "$input_path" 2>/dev/null)
 
-    # Clean input quotes and spaces from drag & drop or copy-paste
-    input_path=$(echo "$input_path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+# Extract relevant info
+video_duration=$(echo "$video_info" | grep -Eo '^duration=\K[0-9.]+')
+video_codec=$(echo "$video_info" | grep -Eo 'codec_name=[^ ]+' | head -n1 | cut -d'=' -f2)
+video_res=$(echo "$video_info" | grep -Eo 'width=\K[0-9]+' | head -n1 | xargs -I{} echo "{}x$(echo "$video_info" | grep -Eo 'height=\K[0-9]+' | head -n1)")
 
-    if [ -z "$input_path" ]; then
-        echo -e "${RED}Error: Video file path cannot be empty!${NC}\n"
-        input_path=""
-        [ -n "$1" ] && exit 1
-        continue
-    fi
-
-    # Expand tilde if present
-    if [[ "$input_path" == ~* ]]; then
-        input_path="${input_path/#~/$HOME}"
-    fi
-
-    # Check if file exists
-    if [ ! -f "$input_path" ]; then
-        echo -e "${RED}Error: File not found at '$input_path'!${NC}\n"
-        input_path=""
-        [ -n "$1" ] && exit 1
-        continue
-    fi
-
-    # Resolve full path
-    input_path=$(realpath "$input_path" 2>/dev/null || readlink -f "$input_path" 2>/dev/null || echo "$input_path")
-
-    # Validate file format / extension (.mp4 or .mkv)
-    fname=$(basename "$input_path")
-    fext="${fname##*.}"
-    fext_lower=$(echo "$fext" | tr '[:upper:]' '[:lower:]')
-
-    if [ "$fext_lower" != "mp4" ] && [ "$fext_lower" != "mkv" ]; then
-        echo -e "${RED}Error: Unsupported format '.$fext'! Only .mp4 and .mkv videos are supported.${NC}\n"
-        input_path=""
-        [ -n "$1" ] && exit 1
-        continue
-    fi
-
-    break
-done
-
-# Read video metadata using ffprobe
-video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$input_path" 2>/dev/null)
-file_size=$(ls -lh "$input_path" 2>/dev/null | awk '{print $5}')
-video_res=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$input_path" 2>/dev/null | head -n 1)
-
-echo -e "\n${BOLD}${GREEN}✓ Loaded Video:${NC} $(basename "$input_path")"
-echo -e "  Directory:  $(dirname "$input_path")"
-echo -e "  File Size:  $file_size"
-[ -n "$video_res" ] && echo -e "  Resolution: $video_res"
+# Display video info
+echo -e "${BOLD}Video Information:${NC}"
+echo -e "  Input:       $input_path"
+echo -e "  Codec:       $video_codec"
+[ -n "$video_res" ] && echo -e "  Resolution:  $video_res"
 
 if [ -n "$video_duration" ]; then
     dur_formatted=$(awk -v d="$video_duration" 'BEGIN {
@@ -131,84 +63,56 @@ if [ -n "$video_duration" ]; then
         if (h > 0) printf "%02d:%02d:%02d (%.2f sec)", h, m, s, d
         else printf "%02d:%02d (%.2f sec)", m, s, d
     }')
-    echo -e "  Duration:   $dur_formatted"
+    echo -e "  Duration:    $dur_formatted"
 fi
 echo ""
 
-# 2. Ask for start point in seconds (or use CLI argument $2)
+# Get start point
 start_sec="$2"
 while true; do
     if [ -z "$start_sec" ]; then
         read -r -p "Enter start point in seconds (e.g. 0 or 15.5): " start_sec
     fi
-
     start_sec=$(echo "$start_sec" | tr -d '[:space:]')
-    if ! [[ "$start_sec" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-        echo -e "${RED}Error: Start point must be a valid positive number or 0.${NC}"
+    if ! [[ "$start_sec" =~ ^[0-9]+([.][0-9]+)?$ ]] || ( [ -n "$video_duration" ] && awk -v s="$start_sec" -v d="$video_duration" 'BEGIN { exit !(s >= d) }' ); then
+        echo -e "${RED}Error: Invalid start point.${NC}"
         start_sec=""
         [ -n "$2" ] && exit 1
         continue
     fi
-
-    if [ -n "$video_duration" ]; then
-        if awk -v s="$start_sec" -v d="$video_duration" 'BEGIN { exit !(s >= d) }'; then
-            echo -e "${RED}Error: Start point (${start_sec}s) is equal to or greater than video duration (${video_duration}s)!${NC}"
-            start_sec=""
-            [ -n "$2" ] && exit 1
-            continue
-        fi
-    fi
-
     break
 done
 
-# 3. Ask for end point in seconds (or use CLI argument $3)
+# Get end point
 end_sec="$3"
 while true; do
     if [ -z "$end_sec" ]; then
         read -r -p "Enter end point in seconds (e.g. 45 or 120): " end_sec
     fi
-
     end_sec=$(echo "$end_sec" | tr -d '[:space:]')
-    if ! [[ "$end_sec" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-        echo -e "${RED}Error: End point must be a valid positive number.${NC}"
+    if ! [[ "$end_sec" =~ ^[0-9]+([.][0-9]+)?$ ]] || awk -v s="$start_sec" -v e="$end_sec" 'BEGIN { exit !(e <= s) }'; then
+        echo -e "${RED}Error: Invalid end point.${NC}"
         end_sec=""
         [ -n "$3" ] && exit 1
         continue
     fi
-
-    if awk -v s="$start_sec" -v e="$end_sec" 'BEGIN { exit !(e <= s) }'; then
-        echo -e "${RED}Error: End point (${end_sec}s) must be greater than start point (${start_sec}s)!${NC}"
-        end_sec=""
-        [ -n "$3" ] && exit 1
-        continue
+    if [ -n "$video_duration" ] && awk -v e="$end_sec" -v d="$video_duration" 'BEGIN { exit !(e > d) }'; then
+        echo -e "${YELLOW}Notice: End point exceeds video duration. Clip will cut to the end of the video.${NC}"
     fi
-
-    if [ -n "$video_duration" ]; then
-        if awk -v e="$end_sec" -v d="$video_duration" 'BEGIN { exit !(e > d) }'; then
-            echo -e "${YELLOW}Notice: End point (${end_sec}s) exceeds video duration (${video_duration}s). Clip will cut to the end of the video.${NC}"
-        fi
-    fi
-
     break
 done
 
-# Cutting Mode Selection
-# Default to Fast Lossless Stream Copy (mode 1). Frame-accurate re-encode (mode 2) can also be selected.
-cut_mode="1"
-if [ -n "$4" ]; then
-    cut_mode="$4"
-else
+# Cutting mode
+cut_mode="$4"
+if [ -z "$cut_mode" ]; then
     echo -e "\n${BOLD}Cutting Mode:${NC}"
     echo -e "  ${BOLD}${CYAN}1)${NC} Fast Stream Copy (Instant, lossless, cuts on keyframes) ${GREEN}[Default]${NC}"
     echo -e "  ${BOLD}${CYAN}2)${NC} Frame-Accurate Re-encode (Exact frame cut, visually lossless CRF 18)"
     read -r -p "Select mode [1/2, default: 1]: " user_mode || true
-    if [ "$user_mode" = "2" ]; then
-        cut_mode="2"
-    fi
+    cut_mode="${user_mode:-1}"
 fi
 
-# 4. Save the cut video to the same directory as where the existing video is
+# Output path
 video_dir=$(dirname "$input_path")
 filename=$(basename "$input_path")
 name_no_ext="${filename%.*}"
@@ -217,7 +121,6 @@ ext="${filename##*.}"
 output_filename="${name_no_ext}_cut_${start_sec}s-${end_sec}s.${ext}"
 output_path="${video_dir}/${output_filename}"
 
-# Prevent collision / overwriting existing files
 if [ -f "$output_path" ]; then
     seq=1
     while [ -f "${video_dir}/${name_no_ext}_cut_${start_sec}s-${end_sec}s_${seq}.${ext}" ]; do
@@ -249,9 +152,7 @@ if [ "$cut_mode" = "2" ]; then
         -c:v libx264 -preset veryfast -crf 18 -c:a copy \
         "$output_path"
     ffmpeg_status=$?
-    # Fallback to aac audio if audio stream copy fails in re-encode mode
     if [ $ffmpeg_status -ne 0 ]; then
-        echo -e "${YELLOW}Retrying with AAC audio re-encode...${NC}"
         ffmpeg -y -hide_banner -loglevel warning -stats \
             -i "$input_path" \
             -ss "$start_sec" -to "$end_sec" \
@@ -266,9 +167,7 @@ else
         -c copy -avoid_negative_ts make_zero -map 0 \
         "$output_path"
     ffmpeg_status=$?
-    # Fallback if map 0 fails on extraneous data streams
     if [ $ffmpeg_status -ne 0 ]; then
-        echo -e "${YELLOW}Retrying stream copy without extra metadata streams...${NC}"
         ffmpeg -y -hide_banner -loglevel warning -stats \
             -i "$input_path" \
             -ss "$start_sec" -to "$end_sec" \
@@ -284,16 +183,9 @@ if [ $ffmpeg_status -eq 0 ] && [ -f "$output_path" ] && [ -s "$output_path" ]; t
     final_size=$(ls -lh "$output_path" 2>/dev/null | awk '{print $5}')
     final_dur=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output_path" 2>/dev/null)
     echo -e "${BOLD}${GREEN}✓ Video successfully cut and saved!${NC}"
-    echo -e "  Path:     ${BOLD}${output_path}${NC}"
-    echo -e "  Size:     ${final_size}"
-    [ -n "$final_dur" ] && echo -e "  Duration: ${final_dur}s"
-    echo ""
-    
-    # 5. Open file manager window immediately afterwards in the same directory
+    echo -e "  Size:        $final_size"
+    echo -e "  Duration:    $final_dur"
     open_file_manager "$video_dir"
-    exit 0
 else
-    echo -e "${BOLD}${RED}✗ Error: Video cutting failed (exit code: $ffmpeg_status)!${NC}"
-    [ -f "$output_path" ] && [ ! -s "$output_path" ] && rm -f "$output_path"
-    exit 1
+    echo -e "${RED}Error: Failed to cut video.${NC}"
 fi
