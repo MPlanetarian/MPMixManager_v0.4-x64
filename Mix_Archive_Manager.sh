@@ -13219,7 +13219,7 @@ manage_desktop_shortcuts() {
             "2|Generate Keyboard Shortcut for a Desktop Shortcut|(e.g. Ctrl+Alt+Enter)"
             "0|Return to Main Menu|(or Esc / q)"
         )
-        run_interactive_submenu "RUN ANY DESKTOP SHORTCUTS — LINUX (KDE Plasma)" "  Launch and automate Desktop Shortcuts on KDE Plasma (Linux).\n" opts 0
+        run_interactive_submenu "RUN ANY DESKTOP SHORTCUTS — Linux / Windows / macOS" "  Launch and automate Desktop Shortcuts (Linux KDE Plasma, Windows .lnk, macOS .app).\n" opts 0
         local dsk_top_choice="$REPLY"
         case "$dsk_top_choice" in
             1)
@@ -13239,8 +13239,473 @@ manage_desktop_shortcuts() {
     done
 }
 
+# ─── Windows support (Git Bash / MSYS / Cygwin): .lnk / .url shortcuts ───────
+_dsk_is_windows() {
+    [ "${OS_TYPE:-}" = "windows" ] && return 0
+    case "${OSTYPE:-}" in msys*|cygwin*|win32*) return 0 ;; esac
+    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
+    return 1
+}
+
+_dsk_have_ps() {
+    command -v powershell.exe >/dev/null 2>&1 || command -v pwsh.exe >/dev/null 2>&1 || command -v pwsh >/dev/null 2>&1
+}
+
+# Run a PowerShell snippet ($1) and print its output (CR stripped)
+_dsk_ps() {
+    local _ps=""
+    _ps="$(command -v powershell.exe 2>/dev/null || command -v pwsh.exe 2>/dev/null || command -v pwsh 2>/dev/null)"
+    [ -n "$_ps" ] || return 127
+    "$_ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $1" 2>/dev/null | tr -d '\r'
+    return "${PIPESTATUS[0]}"
+}
+
+# Fills caller arrays: shortcut_names, shortcut_files (Windows paths), shortcut_comments (target), shortcut_existing_keys
+_dsk_collect_windows() {
+    shortcut_names=(); shortcut_files=(); shortcut_comments=(); shortcut_categories=(); shortcut_existing_keys=()
+    local _out
+    _out="$(_dsk_ps '
+$dirs=@([Environment]::GetFolderPath("Desktop"),[Environment]::GetFolderPath("CommonDesktopDirectory"),[Environment]::GetFolderPath("Programs"),[Environment]::GetFolderPath("CommonPrograms")) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+$sh=New-Object -ComObject WScript.Shell
+$seen=@{}
+foreach($d in $dirs){
+  Get-ChildItem -LiteralPath $d -Recurse -Depth 2 -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in ".lnk",".url" } | Sort-Object Name | ForEach-Object {
+    if($_.BaseName -match "(?i)uninstall"){return}
+    if($seen.ContainsKey($_.FullName)){return}
+    $seen[$_.FullName]=1
+    $hk="";$tg=""
+    if($_.Extension -eq ".lnk"){ try{$l=$sh.CreateShortcut($_.FullName);$hk=$l.Hotkey;$tg=$l.TargetPath}catch{} }
+    Write-Output ($_.BaseName+"`t"+$_.FullName+"`t"+$hk+"`t"+$tg)
+  }
+}')"
+    local _n _p _h _t
+    while IFS=$'\t' read -r _n _p _h _t; do
+        [ -n "$_p" ] || continue
+        shortcut_names+=("$_n")
+        shortcut_files+=("$_p")
+        shortcut_existing_keys+=("$_h")
+        shortcut_comments+=("$_t")
+        shortcut_categories+=("")
+    done <<< "$_out"
+}
+
+_run_desktop_shortcut_manual_windows() {
+    local -a shortcut_names shortcut_files shortcut_comments shortcut_categories shortcut_existing_keys
+    if ! _dsk_have_ps; then
+        echo -e "\n${RED}PowerShell was not found — it is required to launch Windows shortcuts.${NC}"
+        press_enter; return 0
+    fi
+    echo -e "\n${DIM}Scanning Desktop and Start Menu for Windows shortcuts...${NC}"
+    _dsk_collect_windows
+    if [ ${#shortcut_names[@]} -eq 0 ]; then
+        echo -e "\n${RED}No Windows shortcuts (.lnk / .url) found on the Desktop or in the Start Menu.${NC}"
+        press_enter; return 0
+    fi
+    while true; do
+        clear
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}   🖥️  RUN ANY DESKTOP SHORTCUT MANUALLY — Windows                     ${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "  ${DIM}Select a number to launch the shortcut. Press 0 to go back.${NC}"
+        echo ""
+        local idx _idx_str
+        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
+            printf -v _idx_str "%3d" "$(( idx + 1 ))"
+            echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} 📌 ${BOLD}${shortcut_names[$idx]}${NC}"
+            [ -n "${shortcut_comments[$idx]}" ] && echo -e "       ${DIM}${shortcut_comments[$idx]}${NC}"
+        done
+        echo ""
+        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
+        echo ""
+        local sc_choice
+        read -r -p "Enter shortcut number to launch [0-${#shortcut_names[@]}]: " sc_choice
+        if [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]]; then return 0; fi
+        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
+            echo -e "\n${RED}Invalid selection — please enter a number between 1 and ${#shortcut_names[@]}.${NC}"
+            sleep 1.5; continue
+        fi
+        local _sel_name="${shortcut_names[$((sc_choice-1))]}"
+        local _sel_file="${shortcut_files[$((sc_choice-1))]}"
+        echo ""
+        echo -e "${BOLD}${YELLOW}▶  Launching: ${GREEN}${_sel_name}${NC}"
+        echo -e "   ${DIM}File: ${_sel_file}${NC}"
+        if DSK_LNK="$_sel_file" _dsk_ps 'Start-Process -FilePath $env:DSK_LNK; if($?){exit 0}else{exit 1}' >/dev/null; then
+            echo -e "${GREEN}✔  Shortcut launched successfully!${NC}"
+        else
+            echo -e "${RED}Error: Failed to launch shortcut.${NC}"
+        fi
+        echo ""
+        press_enter
+    done
+}
+
+_bind_desktop_shortcut_keyboard_windows() {
+    local -a shortcut_names shortcut_files shortcut_comments shortcut_categories shortcut_existing_keys
+    if ! _dsk_have_ps; then
+        echo -e "\n${RED}PowerShell was not found — it is required to set Windows shortcut keys.${NC}"
+        press_enter; return 0
+    fi
+    echo -e "\n${DIM}Scanning Desktop and Start Menu for Windows shortcuts...${NC}"
+    _dsk_collect_windows
+    # Windows hotkeys are only supported on .lnk files
+    local -a _n2=() _f2=() _c2=() _k2=()
+    local i
+    for (( i=0; i<${#shortcut_files[@]}; i++ )); do
+        case "${shortcut_files[$i]}" in
+            *.lnk|*.LNK) _n2+=("${shortcut_names[$i]}"); _f2+=("${shortcut_files[$i]}"); _c2+=("${shortcut_comments[$i]}"); _k2+=("${shortcut_existing_keys[$i]}") ;;
+        esac
+    done
+    shortcut_names=("${_n2[@]}"); shortcut_files=("${_f2[@]}"); shortcut_comments=("${_c2[@]}"); shortcut_existing_keys=("${_k2[@]}")
+    if [ ${#shortcut_names[@]} -eq 0 ]; then
+        echo -e "\n${RED}No Windows .lnk shortcuts found on the Desktop or in the Start Menu.${NC}"
+        press_enter; return 0
+    fi
+    while true; do
+        clear
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}   ⌨️  GENERATE KEYBOARD SHORTCUT FOR DESKTOP SHORTCUT (Windows)       ${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "  ${DIM}Select a shortcut and assign a hotkey (stored in the .lnk file).${NC}"
+        echo ""
+        local idx _idx_str _badge
+        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
+            printf -v _idx_str "%3d" "$(( idx + 1 ))"
+            _badge=""; [ -n "${shortcut_existing_keys[$idx]}" ] && _badge=" ${CYAN}[${shortcut_existing_keys[$idx]}]${NC}"
+            echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} 📌 ${BOLD}${shortcut_names[$idx]}${NC}${_badge}"
+        done
+        echo ""
+        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
+        echo ""
+        local sc_choice
+        read -r -p "Enter shortcut number to bind [0-${#shortcut_names[@]}]: " sc_choice
+        if [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]]; then return 0; fi
+        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
+            echo -e "\n${RED}Invalid selection.${NC}"; sleep 1.5; continue
+        fi
+        local _sel_idx=$(( sc_choice - 1 ))
+        local _sel_name="${shortcut_names[$_sel_idx]}"
+        local _sel_file="${shortcut_files[$_sel_idx]}"
+        echo ""
+        echo -e "  ${BOLD}Selected shortcut:${NC} ${GREEN}${_sel_name}${NC}"
+        echo -e "  ${DIM}File: ${_sel_file}${NC}"
+        [ -n "${shortcut_existing_keys[$_sel_idx]}" ] && echo -e "  ${YELLOW}⚠️  Currently bound to: ${BOLD}${shortcut_existing_keys[$_sel_idx]}${NC}"
+        echo -e "  ${DIM}Examples: Ctrl+Alt+G   Ctrl+Shift+F5   Ctrl+Alt+1  (Windows always includes Ctrl+Alt)${NC}"
+        echo -e "  ${DIM}Enter 'clear' to remove the existing hotkey. The Windows/Meta key is not supported.${NC}"
+        local new_shortcut
+        read -r -p "  Keyboard shortcut (or 0 to cancel): " new_shortcut
+        if [[ "$new_shortcut" == "0" ]] || [[ -z "$new_shortcut" ]]; then continue; fi
+        local norm_shortcut=""
+        if [[ "$(echo "$new_shortcut" | tr 'A-Z' 'a-z')" == "clear" ]]; then
+            norm_shortcut=""
+        else
+            if echo "$new_shortcut" | grep -qiE '(^|\+)[[:space:]]*(meta|win|super)[[:space:]]*(\+|$)'; then
+                echo -e "\n${RED}The Windows/Meta key cannot be used in Windows shortcut hotkeys.${NC}"
+                press_enter; continue
+            fi
+            norm_shortcut="$(echo "$new_shortcut" | tr -d ' ' | sed -E 's/[Cc][Oo][Nn][Tt][Rr][Oo][Ll]/Ctrl/g' | awk -F+ 'BEGIN{OFS="+"}{for(i=1;i<=NF;i++) $i=toupper($i); print}')"
+        fi
+        local confirm_bind
+        read -r -p "  Apply '${norm_shortcut:-<none>}' to ${_sel_name}? [Y/n]: " confirm_bind
+        [[ "$confirm_bind" =~ ^[Nn]$ ]] && continue
+        local _result
+        _result="$(DSK_LNK="$_sel_file" DSK_HK="$norm_shortcut" _dsk_ps '
+try{
+  $sh=New-Object -ComObject WScript.Shell
+  $l=$sh.CreateShortcut($env:DSK_LNK)
+  $l.Hotkey=$env:DSK_HK
+  $l.Save()
+  $sh.CreateShortcut($env:DSK_LNK).Hotkey
+}catch{ Write-Output ("ERROR: "+$_.Exception.Message) }')"
+        if [[ "$_result" == ERROR:* ]] || { [ -n "$norm_shortcut" ] && [ -z "$_result" ]; }; then
+            echo -e "\n${RED}Failed to write hotkey. ${_result}${NC}"
+            echo -e "${DIM}Shortcuts in 'All Users' locations may need an Administrator terminal.${NC}"
+        else
+            echo -e "\n${GREEN}✔  Hotkey set to: ${BOLD}${_result:-<none>}${NC}"
+            echo -e "  ${DIM}Windows only honours hotkeys on shortcuts located on the Desktop or in the Start Menu.${NC}"
+            shortcut_existing_keys[$_sel_idx]="$_result"
+        fi
+        press_enter
+    done
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── macOS support: .app / .command / .webloc shortcuts (bash 3.2 safe) ───────
+_dsk_is_mac() {
+    [ "${OS_TYPE:-}" = "macos" ] && return 0
+    [ "$(uname -s 2>/dev/null)" = "Darwin" ]
+}
+
+# Fills caller arrays: shortcut_names, shortcut_files, shortcut_comments, shortcut_categories, shortcut_existing_keys
+_dsk_collect_mac() {
+    shortcut_names=(); shortcut_files=(); shortcut_comments=(); shortcut_categories=(); shortcut_existing_keys=()
+    local _dir _f _base _key
+    for _dir in "$HOME/Desktop" "$HOME/Applications" "/Applications" "/Applications/Utilities" "/System/Applications"; do
+        [ -d "$_dir" ] || continue
+        while IFS= read -r -d '' _f; do
+            _base="$(basename "$_f")"
+            _base="${_base%.*}"
+            shortcut_names+=("$_base")
+            shortcut_files+=("$_f")
+            shortcut_comments+=("$_f")
+            shortcut_categories+=("")
+            _key="$(/usr/libexec/PlistBuddy -c "Print :NSServicesStatus:'(null) - Launch ${_base} - runWorkflowAsService':key_equivalent" "$HOME/Library/Preferences/pbs.plist" 2>/dev/null)"
+            shortcut_existing_keys+=("$(_dsk_mac_key_display "$_key")")
+        done < <(find "$_dir" -maxdepth 1 \( -name '*.app' -o -name '*.command' -o -name '*.webloc' \) -print0 2>/dev/null | sort -z)
+    done
+}
+
+# "@~^g" -> "Cmd+Option+Ctrl+G"
+_dsk_mac_key_display() {
+    local _k="$1" _out="" _c
+    [ -n "$_k" ] || return 0
+    while [ -n "$_k" ]; do
+        _c="${_k:0:1}"; _k="${_k:1}"
+        case "$_c" in
+            '@') _out="${_out}Cmd+" ;;
+            '~') _out="${_out}Option+" ;;
+            '^') _out="${_out}Ctrl+" ;;
+            '$') _out="${_out}Shift+" ;;
+            *)   _out="${_out}$(echo "$_c" | tr 'a-z' 'A-Z')" ;;
+        esac
+    done
+    echo "$_out"
+}
+
+_run_desktop_shortcut_manual_mac() {
+    local -a shortcut_names shortcut_files shortcut_comments shortcut_categories shortcut_existing_keys
+    echo -e "\n${DIM}Scanning Desktop and Applications folders...${NC}"
+    _dsk_collect_mac
+    if [ ${#shortcut_names[@]} -eq 0 ]; then
+        echo -e "\n${RED}No macOS applications or shortcuts (.app / .command / .webloc) found.${NC}"
+        press_enter; return 0
+    fi
+    while true; do
+        clear
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}   🖥️  RUN ANY DESKTOP SHORTCUT MANUALLY — macOS                       ${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "  ${DIM}Select a number to launch. Press 0 to go back.${NC}"
+        echo ""
+        local idx _idx_str
+        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
+            printf -v _idx_str "%3d" "$(( idx + 1 ))"
+            echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} 📌 ${BOLD}${shortcut_names[$idx]}${NC}"
+            echo -e "       ${DIM}${shortcut_comments[$idx]}${NC}"
+        done
+        echo ""
+        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
+        echo ""
+        local sc_choice
+        read -r -p "Enter shortcut number to launch [0-${#shortcut_names[@]}]: " sc_choice
+        if [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]]; then return 0; fi
+        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
+            echo -e "\n${RED}Invalid selection — please enter a number between 1 and ${#shortcut_names[@]}.${NC}"
+            sleep 1.5; continue
+        fi
+        local _sel_name="${shortcut_names[$((sc_choice-1))]}"
+        local _sel_file="${shortcut_files[$((sc_choice-1))]}"
+        echo ""
+        echo -e "${BOLD}${YELLOW}▶  Launching: ${GREEN}${_sel_name}${NC}"
+        echo -e "   ${DIM}Command: open \"${_sel_file}\"${NC}"
+        if open "$_sel_file" >/dev/null 2>&1; then
+            echo -e "${GREEN}✔  Shortcut launched successfully!${NC}"
+        else
+            echo -e "${RED}Error: Failed to launch shortcut.${NC}"
+        fi
+        echo ""
+        press_enter
+    done
+}
+
+# Global hotkeys on macOS: creates a Quick Action (~/Library/Services) that runs
+# `open <item>` and assigns a key equivalent through the pbs services preferences.
+_bind_desktop_shortcut_keyboard_mac() {
+    local -a shortcut_names shortcut_files shortcut_comments shortcut_categories shortcut_existing_keys
+    echo -e "\n${DIM}Scanning Desktop and Applications folders...${NC}"
+    _dsk_collect_mac
+    if [ ${#shortcut_names[@]} -eq 0 ]; then
+        echo -e "\n${RED}No macOS applications or shortcuts (.app / .command / .webloc) found.${NC}"
+        press_enter; return 0
+    fi
+    while true; do
+        clear
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}   ⌨️  GENERATE KEYBOARD SHORTCUT FOR DESKTOP SHORTCUT (macOS)         ${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
+        echo -e "  ${DIM}Creates a Quick Action service with a keyboard shortcut.${NC}"
+        echo ""
+        local idx _idx_str _badge
+        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
+            printf -v _idx_str "%3d" "$(( idx + 1 ))"
+            _badge=""; [ -n "${shortcut_existing_keys[$idx]}" ] && _badge=" ${CYAN}[${shortcut_existing_keys[$idx]}]${NC}"
+            echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} 📌 ${BOLD}${shortcut_names[$idx]}${NC}${_badge}"
+        done
+        echo ""
+        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
+        echo ""
+        local sc_choice
+        read -r -p "Enter shortcut number to bind [0-${#shortcut_names[@]}]: " sc_choice
+        if [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]]; then return 0; fi
+        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
+            echo -e "\n${RED}Invalid selection.${NC}"; sleep 1.5; continue
+        fi
+        local _sel_idx=$(( sc_choice - 1 ))
+        local _sel_name="${shortcut_names[$_sel_idx]}"
+        local _sel_file="${shortcut_files[$_sel_idx]}"
+        echo ""
+        echo -e "  ${BOLD}Selected:${NC} ${GREEN}${_sel_name}${NC}"
+        echo -e "  ${DIM}File: ${_sel_file}${NC}"
+        echo -e "  ${DIM}Examples: Ctrl+Option+G   Cmd+Shift+F5   Ctrl+Cmd+1  (Alt = Option, Meta = Cmd)${NC}"
+        local new_shortcut
+        read -r -p "  Keyboard shortcut (or 0 to cancel): " new_shortcut
+        if [[ "$new_shortcut" == "0" ]] || [[ -z "$new_shortcut" ]]; then continue; fi
+
+        # Translate to pbs key_equivalent: @=Cmd ~=Option ^=Ctrl $=Shift
+        local _mods="" _keytok="" _tok _lc _bad=0
+        local _old_ifs="$IFS"; IFS='+'
+        local -a _toks=( $(echo "$new_shortcut" | tr -d ' ') )
+        IFS="$_old_ifs"
+        local _n=${#_toks[@]} _i
+        for (( _i=0; _i<_n; _i++ )); do
+            _tok="${_toks[$_i]}"
+            _lc="$(echo "$_tok" | tr 'A-Z' 'a-z')"
+            if [ "$_i" -eq $(( _n - 1 )) ]; then
+                if [ "${#_tok}" -eq 1 ]; then _keytok="$_lc"; else _bad=1; fi
+            else
+                case "$_lc" in
+                    cmd|command|meta|win|super) _mods="${_mods}@" ;;
+                    alt|option|opt)             _mods="${_mods}~" ;;
+                    ctrl|control)               _mods="${_mods}^" ;;
+                    shift)                      _mods="${_mods}\$" ;;
+                    *) _bad=1 ;;
+                esac
+            fi
+        done
+        if [ "$_bad" -eq 1 ] || [ -z "$_mods" ] || [ -z "$_keytok" ]; then
+            echo -e "\n${RED}Invalid shortcut. Use modifiers plus a single letter/digit key, e.g. Ctrl+Option+G.${NC}"
+            press_enter; continue
+        fi
+        local _keyeq="${_mods}${_keytok}"
+        local _display; _display="$(_dsk_mac_key_display "$_keyeq")"
+        local confirm_bind
+        read -r -p "  Apply ${_display} to ${_sel_name}? [Y/n]: " confirm_bind
+        [[ "$confirm_bind" =~ ^[Nn]$ ]] && continue
+
+        local _svc_name="Launch ${_sel_name}"
+        local _wf="$HOME/Library/Services/${_svc_name}.workflow"
+        local _esc_path
+        _esc_path="$(printf '%s' "$_sel_file" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e "s/'/'\\\\''/g")"
+        local _esc_name
+        _esc_name="$(printf '%s' "$_svc_name" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+        mkdir -p "$_wf/Contents" || { echo -e "${RED}Cannot create ${_wf}${NC}"; press_enter; continue; }
+        cat > "$_wf/Contents/Info.plist" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>${_esc_name}</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>runWorkflowAsService</string>
+		</dict>
+	</array>
+</dict>
+</plist>
+PLISTEOF
+        cat > "$_wf/Contents/document.wflow" <<WFEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AMApplicationBuild</key><string>523</string>
+	<key>AMApplicationVersion</key><string>2.10</string>
+	<key>AMDocumentVersion</key><string>2</string>
+	<key>actions</key>
+	<array>
+		<dict>
+			<key>action</key>
+			<dict>
+				<key>AMAccepts</key>
+				<dict>
+					<key>Container</key><string>List</string>
+					<key>Optional</key><true/>
+					<key>Types</key><array><string>com.apple.cocoa.string</string></array>
+				</dict>
+				<key>AMActionVersion</key><string>2.0.3</string>
+				<key>AMApplication</key><array><string>Automator</string></array>
+				<key>AMParameterProperties</key>
+				<dict>
+					<key>COMMAND_STRING</key><dict/>
+					<key>CheckedForUserDefaultShell</key><dict/>
+					<key>inputMethod</key><dict/>
+					<key>shell</key><dict/>
+					<key>source</key><dict/>
+				</dict>
+				<key>AMProvides</key>
+				<dict>
+					<key>Container</key><string>List</string>
+					<key>Types</key><array><string>com.apple.cocoa.string</string></array>
+				</dict>
+				<key>ActionBundlePath</key><string>/System/Library/Automator/Run Shell Script.action</string>
+				<key>ActionName</key><string>Run Shell Script</string>
+				<key>ActionParameters</key>
+				<dict>
+					<key>COMMAND_STRING</key><string>open '${_esc_path}'</string>
+					<key>CheckedForUserDefaultShell</key><true/>
+					<key>inputMethod</key><integer>1</integer>
+					<key>shell</key><string>/bin/bash</string>
+					<key>source</key><string></string>
+				</dict>
+				<key>BundleIdentifier</key><string>com.apple.RunShellScript</string>
+				<key>CFBundleVersion</key><string>2.0.3</string>
+				<key>Class Name</key><string>RunShellScriptAction</string>
+				<key>InputUUID</key><string>A1B2C3D4-0000-4000-8000-000000000001</string>
+				<key>OutputUUID</key><string>A1B2C3D4-0000-4000-8000-000000000002</string>
+				<key>UUID</key><string>A1B2C3D4-0000-4000-8000-000000000003</string>
+				<key>arguments</key><dict/>
+			</dict>
+		</dict>
+	</array>
+	<key>connectors</key><dict/>
+	<key>workflowMetaData</key>
+	<dict>
+		<key>serviceInputTypeIdentifier</key><string>com.apple.Automator.nothing</string>
+		<key>serviceOutputTypeIdentifier</key><string>com.apple.Automator.nothing</string>
+		<key>serviceProcessesInput</key><integer>0</integer>
+		<key>workflowTypeIdentifier</key><string>com.apple.Automator.servicesMenu</string>
+	</dict>
+</dict>
+</plist>
+WFEOF
+        # Assign the key equivalent in the pbs (Services) preferences
+        local _pbs_key="(null) - ${_svc_name} - runWorkflowAsService"
+        if defaults write pbs NSServicesStatus -dict-add "\"${_pbs_key}\"" \
+              "{ enabled_context_menu = 0; enabled_services_menu = 1; key_equivalent = \"${_keyeq}\"; presentation_modes = { ContextMenu = 0; ServicesMenu = 1; }; }" 2>/dev/null; then
+            /System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
+            echo -e "\n${GREEN}✔  Quick Action created: ${BOLD}${_wf}${NC}"
+            echo -e "${GREEN}✔  Keyboard shortcut set: ${BOLD}${_display}${NC}"
+            echo -e "  ${DIM}If it doesn't fire, check System Settings → Keyboard → Keyboard Shortcuts → Services → General,${NC}"
+            echo -e "  ${DIM}or log out/in. Service shortcuts only fire inside apps that expose a Services menu.${NC}"
+            shortcut_existing_keys[$_sel_idx]="$_display"
+        else
+            echo -e "\n${RED}Failed to register the keyboard shortcut with macOS (defaults write pbs).${NC}"
+        fi
+        press_enter
+    done
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Internal helper: parse and launch a desktop shortcut ────────────────────
 _run_desktop_shortcut_manual() {
+    if _dsk_is_windows; then _run_desktop_shortcut_manual_windows; return 0; fi
+    if _dsk_is_mac; then _run_desktop_shortcut_manual_mac; return 0; fi
     # ── Collect .desktop file paths from Desktop & local applications ──────
     local -a desktop_paths=()
     local -a search_dirs=(
@@ -13440,6 +13905,8 @@ _run_desktop_shortcut_manual() {
 
 # ─── Bind a Desktop Shortcut to a Global Keyboard Shortcut (KDE Plasma) ───────
 _bind_desktop_shortcut_keyboard() {
+    if _dsk_is_windows; then _bind_desktop_shortcut_keyboard_windows; return 0; fi
+    if _dsk_is_mac; then _bind_desktop_shortcut_keyboard_mac; return 0; fi
     # ── Step 1: collect & parse desktop files (reuse same logic as _run_desktop_shortcut_manual)
     local -a desktop_paths=()
     local -a search_dirs=(
@@ -14171,7 +14638,7 @@ while true; do
 
     main_opts=(
         "SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|"
-        "0|Run Any Desktop Shortcuts — Linux|(Games, Audio, Files, Tools, AI Servers — KDE Plasma)"
+        "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)"
         "1|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)"
         "2|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)"
         "3|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)"
