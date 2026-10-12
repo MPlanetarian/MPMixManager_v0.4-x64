@@ -8669,7 +8669,7 @@ configure_audio_player_and_startup() {
         echo -e "  • Config File Location:          ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
 
         echo -e "${BOLD}Select Player or Setting to Change:${NC}"
-        echo -e "  ${BOLD}${CYAN} 1)${NC} Set Default Player to: ${BOLD}MP Audio Player${NC} (Built-in Audiophile Player, Animated EQ) [${GREEN}Installed${NC}]"
+        echo -e "  ${BOLD}${CYAN} 1)${NC} Set Default Player to: ${BOLD}MP Audio Player${NC} (Built-in Audio Player, Animated EQ) [${GREEN}Installed${NC}]"
         echo -e "  ${BOLD}${CYAN} 2)${NC} Set Default Player to: ${BOLD}Audacious${NC} (Audio Player) [${audacious_st}]"
         echo -e "  ${BOLD}${CYAN} 3)${NC} Set Default Player to: ${BOLD}cliamp${NC} (Retro Terminal Player) [${cliamp_st}]"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Set Default Player to: ${BOLD}Strawberry${NC} (Music Player) [${straw_st}]"
@@ -9012,7 +9012,7 @@ manage_audio_players() {
         fi
 
         echo -e "${BOLD}Select an Audio Player to launch / manage:${NC}"
-        echo -e "  ${BOLD}${CYAN} 1)${NC} Play Mix/Audio File (MP Audio Player) (${GREEN}Built-in Audiophile Player, Animated EQ${NC})"
+        echo -e "  ${BOLD}${CYAN} 1)${NC} Play Mix/Audio File (MP Audio Player) (${GREEN}Built-in Audio Player, Animated EQ${NC})"
         echo -e "  ${BOLD}${CYAN} 2)${NC} Launch Audacious Audio Player (New Window) (${GREEN}audacious / org.atheme.audacious${NC})"
         echo -e "  ${BOLD}${CYAN} 3)${NC} Cliamp Music Player & Current Track Info (${GREEN}Now Playing Path, Controls & Launch${NC})"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Launch VLC Media Player (${GREEN}vlc / org.videolan.VLC${NC})"
@@ -12000,7 +12000,7 @@ get_manager_uptime() {
 }
 
 detect_currently_playing_mix() {
-    # 0. Check MP Audio Player (Built-in Audiophile Player)
+    # 0. Check MP Audio Player (Built-in Audiop Player)
     if get_mp_audio_player_track_info 2>/dev/null; then
         if [ -n "$MP_PLAYER_RAW_PATH" ] && [ -f "$MP_PLAYER_RAW_PATH" ]; then
             echo "$MP_PLAYER_RAW_PATH"

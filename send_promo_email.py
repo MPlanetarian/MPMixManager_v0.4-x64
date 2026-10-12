@@ -63,7 +63,7 @@ def load_config():
         "PROMO_WEBSITE_URL": os.environ.get("PROMO_WEBSITE_URL", "https://mplanetarian.com"),
         "PROMO_BIO": (
             "MPlanetarian is an electronic music producer, DJ, and sound designer curating the 'Stream of Frequency' "
-            "audiophile mix series. Spanning deep progressive, melodic journey trance, and driving uplifting sounds, "
+            "audio mix series. Spanning deep progressive, melodic journey trance, and driving uplifting sounds, "
             "each episode is mastered in pristine 32-bit lossless audio accompanied by comprehensive tracklists and 4K visuals."
         ),
         "PROMO_TECH_RIDER": (
@@ -585,7 +585,7 @@ def render_email_content(template_id, context):
 
 I hope this email finds you well.
 
-My name is {sender_name}, and I am reaching out to introduce our audiophile electronic music podcast series, 'Stream of Frequency', for consideration regarding syndication, distribution, or featured editorial placement on {recip_org}.
+My name is {sender_name}, and I am reaching out to introduce our Audio electronic music podcast series, 'Stream of Frequency', for consideration regarding syndication, distribution, or featured editorial placement on {recip_org}.
 
 ABOUT THE SERIES:
 'Stream of Frequency' is a masterfully curated journey bridging melodic progressive house, deep organic grooves, and driving uplifting trance. Each episode is engineered with meticulous attention to transitions and mastered at high resolution (32-bit lossless FLAC), accompanied by comprehensive cue tracklists, acoustic spectrograms, and 4K visual accompaniments.
@@ -645,11 +645,11 @@ Podcast: {podcast_url}
     <div class="content">
       <p>Dear <strong>{recip_name}</strong> and the <strong>{recip_org}</strong> editorial team,</p>
       <p>I hope this email finds you well.</p>
-      <p>My name is <strong>{sender_name}</strong>, and I am reaching out to introduce our audiophile electronic music podcast series, <em>Stream of Frequency</em>, for consideration regarding syndication, distribution, or featured placement on <strong>{recip_org}</strong>.</p>
+      <p>My name is <strong>{sender_name}</strong>, and I am reaching out to introduce our audio electronic music podcast series, <em>Stream of Frequency</em>, for consideration regarding syndication, distribution, or featured placement on <strong>{recip_org}</strong>.</p>
       
       <div class="card">
         <h3 style="margin: 0 0 10px 0; color: #38bdf8; font-size: 16px;">Latest Showcase: Episode {ep_num} &mdash; {ep_title}</h3>
-        <p style="margin: 0 0 6px 0; font-size: 14px; color: #cbd5e1;">Mastered in 32-bit Audiophile Lossless FLAC &bull; {track_count} Curated Works</p>
+        <p style="margin: 0 0 6px 0; font-size: 14px; color: #cbd5e1;">Mastered in 32-bit Audio Lossless FLAC &bull; {track_count} Curated Works</p>
         <div style="margin-top: 14px;">
           <a class="btn" href="{stream_url}">🎧 Listen to Showcase Mix</a>
           <a class="btn" style="background: #475569;" href="{podcast_url}">🎙 Apple Podcasts Feed</a>
@@ -664,7 +664,7 @@ Podcast: {podcast_url}
 
       <h3 style="color: #f1f5f9; margin-top: 24px; font-size: 16px;">Why Stream of Frequency Fits {recip_org}:</h3>
       <ul>
-        <li><strong>Uncompromising Quality:</strong> Lossless 32-bit mastering and clean transitions crafted for audiophile listeners.</li>
+        <li><strong>Uncompromising Quality:</strong> Lossless 32-bit mastering and clean transitions crafted for audio listeners.</li>
         <li><strong>Editorial Integrity:</strong> Full tracklist transparency with complete attribution for all producers and labels.</li>
         <li><strong>Reliability:</strong> Consistent production cadence and bespoke station drops/intros available on demand.</li>
       </ul>
@@ -802,7 +802,7 @@ Listen on Apple Podcasts: {podcast_url}
 Watch in 4K UHD on YouTube: {youtube_url}
 
 ABOUT THIS EPISODE:
-Featuring {track_count} handpicked progressive and trance records, seamlessly mixed and mastered at audiophile 32-bit sample depth.
+Featuring {track_count} handpicked progressive and trance records, seamlessly mixed and mastered at Audio 32-bit sample depth.
 
 TRACKLIST:
 {tl_plain}
@@ -997,7 +997,7 @@ Email: {sender_email}
       <p>I am pleased to submit a broadcast-grade guest mix from <em>Stream of Frequency</em> for your programming schedule.</p>
       <div class="card">
         <h3 style="margin:0 0 6px 0; color:#60a5fa; font-size:15px;">Broadcast Master: Episode {ep_num}</h3>
-        <p style="margin:0 0 10px 0; font-size:13px; color:#cbd5e1;">Pristine 32-bit audiophile master &bull; Compliant radio cues &bull; {track_count} tracks</p>
+        <p style="margin:0 0 10px 0; font-size:13px; color:#cbd5e1;">Pristine 32-bit audio master &bull; Compliant radio cues &bull; {track_count} tracks</p>
         <a class="btn" href="{stream_url}">🎧 Stream Audio Preview</a>
       </div>
       <h3 style="color:#f1f5f9; margin-top:20px; font-size:15px;">Cue Sheet &amp; Tracklist:</h3>

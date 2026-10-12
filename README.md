@@ -10,7 +10,7 @@
 [![FreeBSD](https://img.shields.io/badge/FreeBSD-14.x%20%7C%2015--CURRENT%20%7C%20Ports%20%26%20Pkg-red.svg)]()
 [![Shell](https://img.shields.io/badge/Language-Bash%205.x%20%7C%20Python%203.10%2B%20%7C%20PowerShell-ff8c00.svg)]()
 [![Audio](https://img.shields.io/badge/Audio-32bit%20Lossless%20FLAC%20%7C%20EBU%20R128-00ff66.svg)]()
-[![Player](https://img.shields.io/badge/MP%20Audio%20Player-Terminal%20Audiophile%20Visualizer-bd93f9.svg)](MP_Audio_Player.py)
+[![Player](https://img.shields.io/badge/MP%20Audio%20Player-Terminal%20Audio%20Visualizer-bd93f9.svg)](MP_Audio_Player.py)
 [![Web Companion](https://img.shields.io/badge/Web%20Companion-DJ%20Booth%20Remote%20%3A8888-ff007f.svg)](mix_web_companion.py)
 [![AI Suite](https://img.shields.io/badge/AI%20Suite-Harmony%20%7C%20Ollama%20%7C%20OpenWebUI%20%7C%20WAN2GP-9b59b6.svg)](scripts/manage_harmony_agent.sh)
 [![Alarm Clock](https://img.shields.io/badge/Alarm%20Clock-Steam%20%26%20FLAC%20Mix%20(Linux)-FF5722.svg)](mplanetarians-alarm-clock/README.md)
@@ -25,7 +25,7 @@ An enterprise-grade workstation orchestration console and media management suite
 
 - [🔥 What's New & Highlighted Features in v0.3.5](#-whats-new--highlighted-features-in-v035)
 - [🌌 MPlanetarian Dreamworlds & TUI Navigation](#-spotlight-mplanetarian-dreamworlds--tui-navigation)
-- [🎧 MP Audio Player (Terminal Audiophile Suite)](#-spotlight-mp-audio-player-terminal-audiophile-suite)
+- [🎧 MP Audio Player (Terminal Audio Suite)](#-spotlight-mp-audio-player-terminal-audio-suite)
 - [📱 DJ Booth & Studio Mobile Web Companion](#-spotlight-dj-booth--studio-mobile-web-companion)
 - [🎬 YouTube Shorts 1080x1920 Promotional Video Generator](#-spotlight-youtube-shorts-1080x1920-promotional-video-generator)
 - [🎥 Screencast YouTube Video Generator with NVENC & Image Transitions](#-spotlight-screencast-youtube-video-generator-with-nvenc--image-transitions)
@@ -60,7 +60,7 @@ An enterprise-grade workstation orchestration console and media management suite
 | **🗣️ AI Video & Audio** | **[WAN2GP TTS Batch Suite](scripts/wan2gp_tts_batch.py)** | Integrated Text-to-Speech batch converter transforming `.txt` scripts into uncompressed `.wav` audio using British/international Neural (Edge-TTS) and offline (eSpeak-NG) voices, accompanying Flux Klein 9B and LTX Video 2B/13B video generators. |
 | **🎙️ AI Voice Autonomy** | **[MP Harmony AI Voice Agent](scripts/manage_harmony_agent.sh)** | Autonomous engineering agent running on port 11435 with background setsid detachment, zero-lag port readiness wait, model tag sanitization, and an interactive **Voice Chat CLI** (`local-voice-talk` via `mix-archive-manager --harmony-voice` or Option 32.4). |
 | **🎛️ Audio Mastering & Storage** | **Multi-Archive Routing** | Ingest and batch-convert across multiple physical drives (`MIX_ARCHIVE_DIR` & `EXTRA_MIX_ARCHIVE_DIRS`), with origin-aware output routing that deposits converted FLACs and spectrograms back to their respective origin drives. |
-| **🎧 Terminal Audiophile Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column panoramic layout, widened tracklist & banner boxes aligned flush to the DJ pitch window, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files via native GUI dialog or CLI. |
+| **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column panoramic layout, widened tracklist & banner boxes aligned flush to the DJ pitch window, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files via native GUI dialog or CLI. |
 | **📱 Social Media Outreach** | **[YouTube Shorts Generator](generate_youtube_short_promo.py)** | 1080x1920 60fps vertical promo videos with animated waveform overlays for TikTok, Instagram Reels, and YouTube Shorts. |
 | **📑 Master Tracklists** | **HTML Auto-Open & Paths** | Generates master tracklists with rich file path metadata and auto-opens in default web browser. |
 
@@ -88,10 +88,10 @@ flowchart TD
 
 ---
 
-## 🎧 Spotlight: MP Audio Player (Terminal Audiophile Suite)
+## 🎧 Spotlight: MP Audio Player (Terminal Audio Suite)
 
 > [!TIP]
-> **Built-in Audiophile Playback with Real-Time Spectrum Visualization!** Launchable directly via **Option 11** or `mix-archive-manager p`, **MP Audio Player** (`MP_Audio_Player.py`) is an in-terminal high-resolution music player engineered for seamless playback of 32-bit, 24-bit, and 16-bit FLAC, WAV, MP3, OGG, and AAC mixes.
+> **Built-in Audiop Playback with Real-Time Spectrum Visualization!** Launchable directly via **Option 11** or `mix-archive-manager p`, **MP Audio Player** (`MP_Audio_Player.py`) is an in-terminal high-resolution music player engineered for seamless playback of 32-bit, 24-bit, and 16-bit FLAC, WAV, MP3, OGG, and AAC mixes.
 
 ```mermaid
 flowchart LR
@@ -125,7 +125,7 @@ flowchart LR
   - `s` / `r`: Shuffle / Repeat mode toggles.
   - `q` / `Esc`: Return cleanly to master manager menu.
 - 🔍 **Integrated Archive Catalog Browser & Flexible Path Ingestion**: Pass specific mix audio paths directly via CLI or browse the entire catalog by mix episode, artist, title, or date with instant enter-to-play dispatch.
-- 🎧 **Audiophile Bit-Perfect Output**: Direct integration with PipeWire, ALSA, PulseAudio, macOS CoreAudio, and WASAPI.
+- 🎧 **Audio Bit-Perfect Output**: Direct integration with PipeWire, ALSA, PulseAudio, macOS CoreAudio, and WASAPI.
 
 ---
 
@@ -299,7 +299,7 @@ flowchart LR
 - 🔁 **Every-Time Conversion Prompt**: Never miss splitting a multi-DJ recording session. Immediately upon conversion completion, the system asks if you want to split the file.
 - 📁 **Same Output Directory**: All split parts are saved right alongside the converted audio file.
 - 📊 **Batch Spek Spectrogram Generation**: One-click generation of ultra-clean 1920x1080 logarithmic audio spectrograms for every individual split set, proving lossless frequency cutoffs and audio mastering health.
-- 🦭 **Full Ogg Vorbis Support**: Seamlessly ingest and convert to/from Ogg Vorbis (`.ogg`) at audiophile quality (Q8 / Q10 / 320 kbps) across all single and batch conversion routines.
+- 🦭 **Full Ogg Vorbis Support**: Seamlessly ingest and convert to/from Ogg Vorbis (`.ogg`) at audio quality (Q8 / Q10 / 320 kbps) across all single and batch conversion routines.
 - 🧩 **Multi-Archive Origin-Aware Routing**: Batch conversion detects which archive disk source WAV files came from and automatically deposits converted FLACs and spectrograms back to their respective origin drives.
 
 ---
@@ -534,7 +534,7 @@ chmod +x manager_freebsd.sh install.sh
 ### ─── [ SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO ] ──
 | # | Operation | Description & Sub-Features |
 |---|---|---|
-| **11**| **Play Mix/Audio File (MP Audio Player)** | Built-in terminal audiophile player (`MP_Audio_Player.py`): "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column layout, widened tracklist & banner boxes aligned to the DJ pitch window, dedicated tracklist viewer (`T` / `-t`), universal playlist exporter (`E` / `-e` strictly saving as `.m3u` files), animated TrueColor spectrum visualizer, stereo level meters, DJ pitch fader (-20% to +20%), unbuffered keyboard controls, and bit-perfect lossless 32-bit/24-bit/16-bit FLAC/WAV/MP3/OGG playback. |
+| **11**| **Play Mix/Audio File (MP Audio Player)** | Built-in terminal audio player (`MP_Audio_Player.py`): "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column layout, widened tracklist & banner boxes aligned to the DJ pitch window, dedicated tracklist viewer (`T` / `-t`), universal playlist exporter (`E` / `-e` strictly saving as `.m3u` files), animated TrueColor spectrum visualizer, stereo level meters, DJ pitch fader (-20% to +20%), unbuffered keyboard controls, and bit-perfect lossless 32-bit/24-bit/16-bit FLAC/WAV/MP3/OGG playback. |
 | **12**| **Tracklist Management, Scanning & Metadata Suite** | Complete metadata suite (`manage_tracklist_suite`): browse/search archive tracklists, view in borderless console, export to styled HTML and vector PDF (`generate_tracklist_docs.py`), Traktor XML history extractor (`Check_Find_Tracklists.sh`), master HTML index generator with browser auto-open (`Generate_Master_Tracklist.sh`), MusicBrainz Picard tagger, YouTube/SoundCloud chapter exporter (`export_chapters.py`), and AcoustID audio fingerprint identifier (`identify_mix_tracks.py`). |
 | **13**| **Audio Players & Retro Playback Suite** | Universal player launcher (`manage_audio_players`): cliamp retro terminal player, Audacious, VLC, Haruna, Kodi, Strawberry, foobar2000 (macOS & Windows), Winamp (Windows), Apple Music (macOS), Apple Podcasts, Audacity, and MIDI hardware device inspector. |
 | **14**| **Configure Mix Archive Storage Locations** | Interactive setup wizard for primary mix storage folder (`MIX_ARCHIVE_DIR`) and additional secondary archive drives (`EXTRA_MIX_ARCHIVE_DIRS`). |
@@ -625,7 +625,7 @@ MP_Mix_Manager_v0.3/
 ├── manager.bat                  # Windows native Command Prompt / Batch launcher
 ├── manager.ps1                  # Windows native PowerShell launcher
 │
-├── MP_Audio_Player.py           # Standalone terminal audiophile player with animated spectrum visualizer
+├── MP_Audio_Player.py           # Standalone terminal audio player with animated spectrum visualizer
 ├── MP_Audio_Player.sh           # Shell launcher for MP Audio Player
 ├── mix_web_companion.py         # Zero-dependency DJ Booth Mobile Web Companion server (port 8888)
 ├── mix_web_companion.sh         # Shell launcher for Mobile Web Companion
@@ -846,4 +846,4 @@ Mix Archive Manager includes an automated test harness ensuring shell script val
 Mix Archive Manager is licensed under the **[MIT License](LICENSE)**.
 
 ---
-*Created with ❤️ by **MPlanetarian** for audiophiles, DJs, and media creators worldwide.*
+*Created with ❤️ by **MPlanetarian** for audio producers, DJs, and media creators worldwide.*
