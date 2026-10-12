@@ -515,6 +515,60 @@ highlight_menu_line() {
     fi
 }
 
+# Keep the Windows console caret hidden while a menu is open.
+# Git Bash shows that caret again on every read, and a full-screen redraw
+# then leaves it blinking in the header. CONOUT$ is the screen buffer even
+# when this helper's own stdout is discarded.
+_start_win_cursor_hider() {
+    [ "${OS_TYPE:-}" != "windows" ] && return 0
+    if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then
+        return 0
+    fi
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then
+        py="python3"
+    elif command -v python >/dev/null 2>&1; then
+        py="python"
+    else
+        return 0
+    fi
+    "$py" -u - >/dev/null 2>&1 <<'PY' &
+import ctypes, sys, time
+k = ctypes.WinDLL("kernel32", use_last_error=True)
+k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
+k.CreateFileW.restype = ctypes.c_void_p
+k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.GetConsoleCursorInfo.restype = ctypes.c_int
+k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.SetConsoleCursorInfo.restype = ctypes.c_int
+GENERIC_RW = 0x80000000 | 0x40000000
+h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
+invalid = ctypes.c_void_p(-1).value
+if not h or h == invalid:
+    sys.exit(0)
+
+class CCI(ctypes.Structure):
+    _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
+
+info = CCI()
+while True:
+    if k.GetConsoleCursorInfo(h, ctypes.byref(info)) and info.bVisible:
+        info.bVisible = 0
+        k.SetConsoleCursorInfo(h, ctypes.byref(info))
+    time.sleep(0.04)
+PY
+    _WIN_CURSOR_HIDER_PID=$!
+}
+
+_stop_win_cursor_hider() {
+    local pid="${_WIN_CURSOR_HIDER_PID:-}"
+    _WIN_CURSOR_HIDER_PID=""
+    if [ -n "$pid" ]; then
+        kill -9 "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+}
+
 # Interactive Submenu Runner
 run_interactive_submenu() {
     local menu_title="$1"
@@ -642,11 +696,16 @@ run_interactive_submenu() {
     build_header_block
 
     cleanup_submenu_screen() {
-        printf '\033[?25h\033[?2026l'
+        _stop_win_cursor_hider
+        # Restore wrap, blinking, and the caret for the next prompt.
+        printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
     }
 
-    # Keep cursor hidden during interactive navigation; use primary screen buffer
-    printf '\033[?25l'
+    # Hide the caret, stop it blinking, and stop long header lines from wrapping
+    # onto the next row. Wrapping is what walks the caret through the header.
+    _start_win_cursor_hider
+    printf '\033[?25l\033[?12l\033[?7l'
+    local _last_menu_frame=""
     
     local typed_buffer=""
     local view_top=0
@@ -815,8 +874,13 @@ run_interactive_submenu() {
             fi
         fi
         
-        # Atomically draw complete frame with Synchronized Output (DEC Mode 2026) to eliminate flicker and bouncing
-        printf '\033[?2026h\033[H%b\033[J\033[?2026l' "$frame_buf"
+        # Draw only when the screen changed. An unchanged tick must not move the caret.
+        # The final CUP parks it on the last cell, then the caret is hidden again.
+        # Hide is repeated after synchronized output so that mode cannot turn it back on.
+        if [ "$frame_buf" != "$_last_menu_frame" ]; then
+            _last_menu_frame="$frame_buf"
+            printf '\033[?25l\033[?12l\033[?7l\033[?2026h\033[H%b\033[J\033[%d;%dH\033[?2026l\033[?25l' "$frame_buf" "${_TERM_LINES:-1}" "${_TERM_COLS:-1}"
+        fi
         
         local key_action=""
         read_nav_key key_action
@@ -984,7 +1048,8 @@ run_interactive_submenu() {
                     if [ "$has_exact_p" -eq 0 ]; then
                         cleanup_submenu_screen
                         manage_mp_audio_player
-                        printf '\033[?25l'
+                        _start_win_cursor_hider
+                        printf '\033[?25l\033[?12l\033[?7l'
                         clear
                         continue
                     fi
@@ -1063,14 +1128,15 @@ load_theme
 
 # Ctrl+C at the main menu exits. Monitors that catch INT restore this afterwards.
 exit_mix_manager() {
-    printf '\033[?25h\033[?2026l' 2>/dev/null || true
+    _stop_win_cursor_hider
+    printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
 trap 'exit_mix_manager' INT
-trap 'printf "\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
+trap '_stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"

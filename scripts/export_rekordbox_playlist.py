@@ -16,21 +16,18 @@ import xml.dom.minidom
 
 
 def parse_m3u(filepath):
-    """Parse M3U / M3U8 playlist file."""
     tracks = []
-    current_title = ""
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        current_title = ""
         for line in f:
             line = line.strip()
             if line.startswith("#EXTINF:"):
-                # #EXTINF:123,Artist - Title
                 parts = line.split(",", 1)
-                if len(parts) > 1:
-                    current_title = parts[1].strip()
+                current_title = parts[1].strip() if len(parts) > 1 else ""
             elif line and not line.startswith("#"):
                 track_path = Path(line)
                 artist, title = "Unknown Artist", track_path.stem
-                if current_title and " - " in current_title:
+                if " - " in current_title:
                     artist, title = current_title.split(" - ", 1)
                 elif " - " in track_path.stem:
                     artist, title = track_path.stem.split(" - ", 1)
@@ -45,36 +42,17 @@ def parse_m3u(filepath):
 
 
 def parse_traktor_nml(filepath):
-    """Parse Traktor .nml collection or history file."""
     tracks = []
     tree = ET.parse(filepath)
     root = tree.getroot()
-
-    # Search for ENTRY elements in COLLECTION
     for entry in root.findall(".//ENTRY"):
         title = entry.get("TITLE", "")
         artist = entry.get("ARTIST", "")
         key = ""
         bpm = 0.0
-        duration = 0
-
-        info = entry.find("INFO")
-        if info is not None:
-            key = info.get("KEY", "")
-            duration = int(float(info.get("PLAYTIME", 0)))
-
-        tempo = entry.find("TEMPO")
-        if tempo is not None:
-            bpm = float(tempo.get("BPM", 0.0))
-
+        duration = int(float(entry.find("INFO").get("PLAYTIME", 0))) if entry.find("INFO") else 0
         loc = entry.find("LOCATION")
-        location = ""
-        if loc is not None:
-            volume = loc.get("VOLUME", "")
-            dir_path = loc.get("DIR", "").replace("/:", "/")
-            file_name = loc.get("FILE", "")
-            location = f"{volume}{dir_path}{file_name}"
-
+        location = "file://localhost" + loc.get("VOLUME", "") + loc.get("DIR", "").replace("/:", "/") + loc.get("FILE", "") if loc else ""
         tracks.append({
             "location": location,
             "artist": artist,
@@ -87,10 +65,8 @@ def parse_traktor_nml(filepath):
 
 
 def create_rekordbox_xml(playlist_name, tracks, output_xml):
-    """Generate standard Rekordbox XML structure."""
     rb = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
     ET.SubElement(rb, "PRODUCT", Name="rekordbox", Version="6.8.0", Company="AlphaTheta")
-
     collection = ET.SubElement(rb, "COLLECTION", Entries=str(len(tracks)))
     playlists_elem = ET.SubElement(rb, "PLAYLISTS")
     root_node = ET.SubElement(playlists_elem, "NODE", Type="0", Name="ROOT", Count="1")
@@ -99,31 +75,15 @@ def create_rekordbox_xml(playlist_name, tracks, output_xml):
     for idx, t in enumerate(tracks, start=1):
         track_id = str(idx)
         loc = t.get("location", "")
-        # Format location as file:// URL for Rekordbox
         loc_url = "file://localhost" + loc if loc.startswith("/") else loc
-
-        ET.SubElement(
-            collection,
-            "TRACK",
-            TrackID=track_id,
-            Name=t.get("title", f"Track {idx}"),
-            Artist=t.get("artist", "Unknown Artist"),
-            TotalTime=str(int(t.get("duration", 0))),
-            AverageBpm=f"{t.get('bpm', 138.0):.2f}" if t.get('bpm') else "138.00",
-            Tonality=t.get("key", ""),
-            Location=loc_url
-        )
-
+        track_elem = ET.SubElement(collection, "TRACK", TrackID=track_id, Name=t.get("title", f"Track {idx}"), Artist=t.get("artist", "Unknown Artist"), TotalTime=str(int(t.get("duration", 0))), AverageBpm=f"{t.get('bpm', 138.0):.2f}", Tonality=t.get("key", ""), Location=loc_url)
         ET.SubElement(playlist_node, "TRACK", Key=track_id)
 
-    # Format prettily
     xml_str = ET.tostring(rb, encoding="utf-8")
     parsed_xml = xml.dom.minidom.parseString(xml_str)
     pretty_xml = parsed_xml.toprettyxml(indent="  ", encoding="utf-8").decode("utf-8")
-
     with open(output_xml, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
-
     print(f"[✓] Successfully exported Rekordbox XML with {len(tracks)} tracks to: {output_xml}")
 
 
