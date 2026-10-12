@@ -4053,14 +4053,50 @@ view_tasks() {
         echo -e "  [${GREEN}RUNNING${NC}] DeepSeek Harness (dsh-mobile - http://192.168.1.11:3080${pid_str})"
         ((tasks_found++))
     fi
-    if command -v podman >/dev/null 2>&1 && podman ps --filter "name=beszel" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel$"; then
-        local bsz_status="Hub :8090"
-        if podman ps --filter "name=beszel-agent" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel-agent$"; then
-            bsz_status="Hub :8090 + Agent"
+
+    local bsz_running=false
+    local bsz_has_agent=false
+
+    if command -v netstat.exe >/dev/null 2>&1; then
+        if netstat.exe -ano 2>/dev/null | grep -E ":8090\s+.*LISTENING" >/dev/null 2>&1; then
+            bsz_running=true
         fi
+        if netstat.exe -ano 2>/dev/null | grep -E ":45876\s+.*LISTENING" >/dev/null 2>&1; then
+            bsz_has_agent=true
+        fi
+    elif command -v curl >/dev/null 2>&1; then
+        if curl -s -m 1 -o /dev/null "http://localhost:8090/" 2>/dev/null; then
+            bsz_running=true
+        fi
+    fi
+
+    # Fallback to process checks if netstat/curl miss it
+    if [ "$bsz_running" = false ] && command -v tasklist.exe >/dev/null 2>&1; then
+        if tasklist.exe //FI "IMAGENAME eq beszel.exe" 2>/dev/null | grep -qi "beszel.exe"; then
+            bsz_running=true
+        fi
+        if tasklist.exe //FI "IMAGENAME eq beszel-agent.exe" 2>/dev/null | grep -qi "beszel-agent.exe"; then
+            bsz_has_agent=true
+        fi
+    fi
+
+    # Linux / Podman fallback
+    if [ "$bsz_running" = false ] && command -v podman >/dev/null 2>&1; then
+        if podman ps --filter "name=beszel" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel$"; then
+            bsz_running=true
+            if podman ps --filter "name=beszel-agent" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel-agent$"; then
+                bsz_has_agent=true
+            fi
+        fi
+    fi
+
+    if [ "$bsz_running" = true ]; then
+        local bsz_status="Hub :8090"
+        [ "$bsz_has_agent" = true ] && bsz_status="Hub :8090 + Agent"
         echo -e "  [${GREEN}RUNNING${NC}] Beszel Server Monitoring (${bsz_status})"
         ((tasks_found++))
     fi
+    
     local olm_running=false olm_pids=""
     if curl -s --connect-timeout 1 "http://127.0.0.1:11434/" 2>/dev/null | grep -qi "Ollama is running"; then
         olm_running=true
