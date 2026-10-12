@@ -27,6 +27,7 @@ import shutil
 import argparse
 import threading
 import subprocess
+import unicodedata
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -1651,6 +1652,232 @@ def is_player_daemon_running() -> bool:
 # ANIMATED EQUALIZER & VISUALIZERS (TUI RENDERER)
 # ==============================================================================
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_WIN_CONSOLE = None
+
+
+def _char_display_width(ch: str) -> int:
+    """Column width of one character. Emoji are 2 cells; box drawing stays 1."""
+    if ch in ("\ufe0e", "\ufe0f") or unicodedata.combining(ch):
+        return 0
+    if ord(ch) >= 0x1F000:
+        return 2
+    if unicodedata.east_asian_width(ch) in ("W", "F"):
+        return 2
+    return 1
+
+
+def _display_width(text: str) -> int:
+    return sum(_char_display_width(ch) for ch in _ANSI_RE.sub("", text))
+
+
+def _clip_display(text: str, max_cols: int) -> str:
+    """Cut a colored line so it cannot wrap onto the next console row."""
+    if max_cols <= 0:
+        return ""
+    out: List[str] = []
+    cols = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\033":
+            match = _ANSI_RE.match(text, i)
+            if match:
+                out.append(match.group(0))
+                i = match.end()
+                continue
+        ch = text[i]
+        width = _char_display_width(ch)
+        if cols + width > max_cols:
+            break
+        out.append(ch)
+        cols += width
+        i += 1
+    if i < n:
+        out.append("\033[0m")
+    return "".join(out)
+
+
+def _boxed_rule(left: str, text: str, right: str, inner: int, color: str) -> str:
+    """One box edge that is exactly `inner` columns between the corners."""
+    inner = max(4, int(inner))
+    shown = text if _display_width(text) <= inner else _clip_display(text, inner)
+    pad = inner - _display_width(shown)
+    return f"  {color}{left}{shown}{'─' * pad}{right}{NC}"
+
+
+def _fit_text_line(candidates: List[str], max_cols: int) -> str:
+    for line in candidates:
+        if _display_width(line) <= max_cols:
+            return line
+    return _clip_display(candidates[-1] if candidates else "", max_cols)
+
+
+def _console_output_handle():
+    if sys.platform != "win32":
+        return None
+    try:
+        import msvcrt
+        return msvcrt.get_osfhandle(sys.stdout.fileno())
+    except Exception:
+        return None
+
+
+def _win_console_begin():
+    """Turn on VT mode, stop end-of-line wrap, and remember the real window size."""
+    global _WIN_CONSOLE
+    handle = _console_output_handle()
+    if not handle:
+        return None
+    try:
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel32.GetConsoleMode.restype = ctypes.c_int
+        kernel32.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.SetConsoleMode.restype = ctypes.c_int
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return None
+        enable_vt = 0x0004
+        disable_wrap = 0x0002
+        new_mode = (mode.value | enable_vt) & ~disable_wrap
+        kernel32.SetConsoleMode(handle, new_mode)
+        state = {"handle": handle, "mode": mode.value, "kernel32": kernel32}
+        _WIN_CONSOLE = state
+        _win_console_fit_buffer()
+        return state
+    except Exception:
+        return None
+
+
+def _win_console_fit_buffer():
+    """Make the screen buffer match the visible window so the scrollbar cannot grow."""
+    state = _WIN_CONSOLE
+    if not state:
+        return
+    try:
+        import ctypes
+
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class SMALL_RECT(ctypes.Structure):
+            _fields_ = [
+                ("Left", ctypes.c_short),
+                ("Top", ctypes.c_short),
+                ("Right", ctypes.c_short),
+                ("Bottom", ctypes.c_short),
+            ]
+
+        class CSBI(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", COORD),
+                ("dwCursorPosition", COORD),
+                ("wAttributes", ctypes.c_ushort),
+                ("srWindow", SMALL_RECT),
+                ("dwMaximumWindowSize", COORD),
+            ]
+
+        kernel32 = state["kernel32"]
+        handle = state["handle"]
+        kernel32.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(CSBI)]
+        kernel32.GetConsoleScreenBufferInfo.restype = ctypes.c_int
+        kernel32.SetConsoleScreenBufferSize.argtypes = [ctypes.c_void_p, COORD]
+        kernel32.SetConsoleScreenBufferSize.restype = ctypes.c_int
+        kernel32.SetConsoleWindowInfo.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(SMALL_RECT)]
+        kernel32.SetConsoleWindowInfo.restype = ctypes.c_int
+        info = CSBI()
+        if not kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):
+            return
+        win_w = info.srWindow.Right - info.srWindow.Left + 1
+        win_h = info.srWindow.Bottom - info.srWindow.Top + 1
+        if win_w <= 0 or win_h <= 0:
+            return
+        state["window"] = (win_w, win_h)
+        if info.dwSize.X == win_w and info.dwSize.Y == win_h and info.srWindow.Top == 0 and info.srWindow.Left == 0:
+            return
+        if "original_buffer" not in state:
+            state["original_buffer"] = (info.dwSize.X, info.dwSize.Y)
+            state["original_window"] = (
+                info.srWindow.Left, info.srWindow.Top, info.srWindow.Right, info.srWindow.Bottom
+            )
+        rect = SMALL_RECT(0, 0, win_w - 1, win_h - 1)
+        kernel32.SetConsoleWindowInfo(handle, True, ctypes.byref(rect))
+        kernel32.SetConsoleScreenBufferSize(handle, COORD(win_w, win_h))
+    except Exception:
+        pass
+
+
+def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
+    state = _WIN_CONSOLE
+    if state and state.get("window"):
+        _win_console_fit_buffer()
+        size = _WIN_CONSOLE.get("window") if _WIN_CONSOLE else None
+        if size and size[0] > 0 and size[1] > 0:
+            return int(size[0]), int(size[1])
+    try:
+        size = shutil.get_terminal_size(fallback)
+        return int(size.columns), int(size.lines)
+    except Exception:
+        return fallback
+
+
+def _win_console_end(state):
+    global _WIN_CONSOLE
+    if not state:
+        _WIN_CONSOLE = None
+        return
+    try:
+        import ctypes
+        kernel32 = state["kernel32"]
+        handle = state["handle"]
+        if "original_window" in state and "original_buffer" in state:
+            left, top, right, bottom = state["original_window"]
+            buf_w, buf_h = state["original_buffer"]
+
+            class COORD(ctypes.Structure):
+                _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+            class SMALL_RECT(ctypes.Structure):
+                _fields_ = [
+                    ("Left", ctypes.c_short),
+                    ("Top", ctypes.c_short),
+                    ("Right", ctypes.c_short),
+                    ("Bottom", ctypes.c_short),
+                ]
+
+            # Buffer must be at least as large as the window before the window can move back.
+            kernel32.SetConsoleScreenBufferSize(handle, COORD(max(buf_w, right - left + 1), max(buf_h, bottom - top + 1)))
+            rect = SMALL_RECT(left, top, right, bottom)
+            kernel32.SetConsoleWindowInfo(handle, True, ctypes.byref(rect))
+            kernel32.SetConsoleScreenBufferSize(handle, COORD(buf_w, buf_h))
+        kernel32.SetConsoleMode(handle, state["mode"])
+    except Exception:
+        pass
+    _WIN_CONSOLE = None
+
+
+def _present_frame(lines: List[str], width: int, height: int):
+    """Draw one frame in place. No trailing newline, so the window does not scroll."""
+    width = max(1, int(width))
+    height = max(1, int(height))
+    # Leave the last column empty. Filling it makes Windows wrap the line and scroll.
+    usable = max(1, width - 1)
+    clipped: List[str] = []
+    for line in lines[:height]:
+        clipped.append(_clip_display(line, usable) + "\033[K")
+    while len(clipped) < height:
+        clipped.append("\033[K")
+    if height == 1:
+        frame = clipped[0]
+    else:
+        frame = "\n".join(clipped[:-1]) + "\n" + clipped[-1]
+    # 2026 brackets are synchronized updates: the top of the screen is not painted mid-write.
+    sys.stdout.write(f"\033[?2026h\033[?7l\033[H{frame}\033[?2026l")
+    sys.stdout.flush()
+
+
 class EqualizerVisualizer:
     """Renders high-resolution animated equalizers and studio meters."""
 
@@ -1950,10 +2177,10 @@ class EqualizerVisualizer:
         lines.append(f"{border_col}╰────────────────────────╯{NC}")
         return lines
 
-    def render_horizontal_pitch_bar(self, pitch_pct: int, width: int = 36) -> str:
+    def render_horizontal_pitch_bar(self, pitch_pct: int, width: int = 36, max_cols: Optional[int] = None) -> str:
         """Renders responsive horizontal DJ pitch bar with slider knob and center mark."""
         p = max(-20, min(20, int(pitch_pct)))
-        w = max(18, width)
+        w = max(12, width)
         norm = (p - (-20)) / 40.0
         knob_pos = int(round(norm * (w - 1)))
         center_pos = w // 2
@@ -1986,7 +2213,40 @@ class EqualizerVisualizer:
         speed = 1.0 + (p / 100.0)
         status_tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({speed:.2f}x){NC}"
 
-        return f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} [{fader_track}] {DIM}+20%{NC}  {status_tag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
+        hint = f"  {DIM}[+/-: 1% • 0: Reset]{NC}"
+        prefix = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} ["
+        suffix = f"] {DIM}+20%{NC}  {status_tag}{hint}"
+        if max_cols:
+            if _display_width(prefix) + w + _display_width(suffix) > max_cols:
+                hint = ""
+                suffix = f"] {DIM}+20%{NC}  {status_tag}"
+            if _display_width(prefix) + w + _display_width(suffix) > max_cols:
+                status_tag = f"{BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
+                suffix = f"] {DIM}+20%{NC}  {status_tag}"
+            avail = max_cols - _display_width(prefix) - _display_width(suffix)
+            if avail < w:
+                w = max(8, avail)
+                knob_pos = int(round(norm * (w - 1))) if w > 1 else 0
+                center_pos = w // 2
+                chars = []
+                for i in range(w):
+                    if i == knob_pos:
+                        if p == 0:
+                            chars.append(f"{BOLD}{COLOR_TRAFFIC_GREEN}●{NC}")
+                        elif p > 0:
+                            chars.append(f"{BOLD}{COLOR_TRAFFIC_AMBER}●{NC}")
+                        else:
+                            chars.append(f"{BOLD}{COLOR_INDIGO_BLUE}●{NC}")
+                    elif i == center_pos:
+                        chars.append(f"{COLOR_TRAFFIC_GREEN}┼{NC}")
+                    elif knob_pos < center_pos and knob_pos < i < center_pos:
+                        chars.append(f"{COLOR_INDIGO_BLUE}━{NC}")
+                    elif center_pos < knob_pos and center_pos < i <= knob_pos:
+                        chars.append(f"{COLOR_TRAFFIC_AMBER}━{NC}")
+                    else:
+                        chars.append(f"{DIM}─{NC}")
+                fader_track = "".join(chars)
+        return f"{prefix}{fader_track}{suffix}"
 
     def render(self, status: Dict[str, Any], width: int = 80, height: int = 7) -> List[str]:
         levels = np.array(status.get("levels", [0.0]*16))
@@ -2007,7 +2267,8 @@ class EqualizerVisualizer:
         else:
             eq_lines = self.render_stereo_eq(levels_l, levels_r, peaks, width=width, height=height)
 
-        if width >= 98:
+        # The side fader needs ~120 columns. Below that it wraps and the console scrolls.
+        if width >= 122:
             fader_lines = self.render_vertical_pitch_fader(pitch_pct, total_lines=len(eq_lines))
             combined = []
             for eq_l, fd_l in zip(eq_lines, fader_lines):
@@ -2250,8 +2511,13 @@ class TerminalPlayerUI:
             except Exception:
                 pass
 
-        sys.stdout.write("\033[?1049h\033[?25l\033[2J\033[H")
+        # Enable Windows VT mode before the alternate screen, or the home/clear
+        # sequences are ignored and every frame is appended to the scrollback.
+        console_state = _win_console_begin()
+        sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[2J\033[H")
         sys.stdout.flush()
+        if console_state:
+            _win_console_fit_buffer()
 
         threading.Thread(target=self._input_loop, daemon=True).start()
 
@@ -2270,8 +2536,9 @@ class TerminalPlayerUI:
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
                 except Exception:
                     pass
-            sys.stdout.write("\033[?25h\033[?1049l")
+            sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
             sys.stdout.flush()
+            _win_console_end(console_state)
 
     def _input_loop(self):
         if not sys.stdin.isatty():
@@ -2498,22 +2765,28 @@ class TerminalPlayerUI:
         self.selected_row = max(0, min(total - 1, self.selected_row + delta))
 
     def _draw_frame(self):
-        term_width, term_height = shutil.get_terminal_size((80, 24))
+        term_width, term_height = _win_visible_size((80, 24))
+        term_width = max(40, term_width)
+        term_height = max(8, term_height)
         status = self._get_status()
         self._sync_initial_selection(status)
         lines = []
 
-        # Widen Tracklist and Banner Box to match DJ Pitch Window right edge (column 118)
-        # When term_width >= 122: inner_w = 115 (total box width 117 from col 2 to 118)
+        # Banner box stays inside the window. A line that reaches the last column
+        # makes Windows wrap it and grow the scrollbar.
         if term_width >= 122:
             inner_w = 115
         else:
-            inner_w = max(74, term_width - 6)
-        name_len = max(30, inner_w - 23)
+            inner_w = max(20, term_width - 6)
+        name_len = max(4, min(inner_w - 23, term_width - 28))
 
         # 1. Header Banner (Dreamworlds Ultra Audio Mode)
         banner_title = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"
         banner_sub = "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition"
+        if len(banner_title) > inner_w:
+            banner_title = banner_title[:max(0, inner_w - 1)]
+        if len(banner_sub) > inner_w:
+            banner_sub = banner_sub[:max(0, inner_w - 1)]
         lines.append(f"  {BOLD}{COLOR_HOT_PURPLE}╭{'─'*inner_w}╮{NC}")
         lines.append(f"  {BOLD}{COLOR_HOT_PURPLE}│{banner_title.center(inner_w)}│{NC}")
         lines.append(f"  {BOLD}{COLOR_LILAC}│{banner_sub.center(inner_w)}│{NC}")
@@ -2551,7 +2824,7 @@ class TerminalPlayerUI:
 
         # 3b. DJ Turntable Pitch Slider Bar (moves knob visually with +/- keys)
         pitch_pct = int(status.get("pitch_percent", 0))
-        lines.append(self.visualizer.render_horizontal_pitch_bar(pitch_pct, width=bar_width))
+        lines.append(self.visualizer.render_horizontal_pitch_bar(pitch_pct, width=bar_width, max_cols=max(20, term_width - 1)))
         lines.append("")
 
         # Dynamic visualizer height based on terminal height
@@ -2581,13 +2854,14 @@ class TerminalPlayerUI:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
 
         title_txt = f"── MP MIX ARCHIVE PLAYLIST ({total_mixes} Mixes Available) "
-        dashes_cnt = max(4, inner_w - len(title_txt))
-        lines.append(f"  {BOLD}{MAGENTA}┌{title_txt}{'─'*dashes_cnt}┐{NC}")
+        lines.append(_boxed_rule("┌", title_txt, "┐", inner_w, f"{BOLD}{MAGENTA}"))
 
-        overhead_lines = len(lines) + 4
-        visible_rows = max(2, min(24, term_height - overhead_lines))
+        # Footer is the playlist rule, the status line, and the hotkey line.
+        visible_rows = max(0, term_height - len(lines) - 3)
 
-        if self.selected_row < self.scroll_offset:
+        if visible_rows <= 0:
+            self.scroll_offset = max(0, self.selected_row)
+        elif self.selected_row < self.scroll_offset:
             self.scroll_offset = self.selected_row
         elif self.selected_row >= self.scroll_offset + visible_rows:
             self.scroll_offset = self.selected_row - visible_rows + 1
@@ -2612,9 +2886,8 @@ class TerminalPlayerUI:
                 line_str = f"  │ {prefix}[{idx+1:4d}] {m_name:<{name_len}} {mix['ext']} {sz_str:>6s} │"
             lines.append(line_str)
 
-        foot_txt = "── ↑/↓: Scroll  •  Enter: Play Selection  •  T: View Tracklist  •  E: Export  •  F: File Manager  •  /: Search Mixes "
-        dashes_foot = max(4, inner_w - len(foot_txt))
-        lines.append(f"  {BOLD}{MAGENTA}└{foot_txt}{'─'*dashes_foot}┘{NC}")
+        foot_txt = "── ↑/↓: Scroll  •  Enter: Play  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search "
+        lines.append(_boxed_rule("└", foot_txt, "┘", inner_w, f"{BOLD}{MAGENTA}"))
 
         # 6. Status and Hotkey Footer
         shuf_badge = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if status.get("shuffle") else f"{DIM}OFF{NC}"
@@ -2625,15 +2898,17 @@ class TerminalPlayerUI:
         p_col = COLOR_TRAFFIC_GREEN if p_val == 0 else (COLOR_TRAFFIC_AMBER if p_val > 0 else COLOR_INDIGO_BLUE)
         p_badge = f"{p_col}{p_val:+d}% ({p_spd:.2f}x){NC}"
 
-        lines.append(f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol_str}{NC}  │  🎚 DJ Pitch: {BOLD}{p_badge}  │  🔀 Shuffle: {shuf_badge}  │  🔁 Repeat: {rep_badge}  │  🎨 Theme: {BOLD}{COLOR_HOT_PURPLE}Dreamworlds Ultra{NC}")
-        if term_width >= 115:
-            lines.append(f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] File Mgr  [e] EQ  [b/q] Exit{NC}")
-        else:
-            lines.append(f"  {DIM}[Space] Play  [+/-] Pitch ±1%  [0] Reset  [v/V] Vol  [n/p] Skip  [T] Tracklist  [E] Export  [F] File Mgr  [e] EQ  [b/q] Exit{NC}")
+        full_status = f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol_str}{NC}  │  🎚 DJ Pitch: {BOLD}{p_badge}  │  🔀 Shuffle: {shuf_badge}  │  🔁 Repeat: {rep_badge}  │  🎨 Theme: {BOLD}{COLOR_HOT_PURPLE}Dreamworlds Ultra{NC}"
+        mid_status = f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol_str}{NC}  │  Pitch: {BOLD}{p_badge}  │  Shuffle: {shuf_badge}  │  Repeat: {rep_badge}"
+        short_status = f"  Vol {vol_str}  Pitch {p_badge}  Shuf {shuf_badge}  Rep {rep_badge}"
+        lines.append(_fit_text_line([full_status, mid_status, short_status], max(20, term_width - 1)))
 
-        frame_str = "\r\n".join(f"{line}\033[K" for line in lines)
-        sys.stdout.write(f"\033[H{frame_str}\r\n\033[J")
-        sys.stdout.flush()
+        full_keys = f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}"
+        mid_keys = f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  T List  E Export  F Files  e EQ  b/q Exit{NC}"
+        short_keys = f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  b/q Exit{NC}"
+        lines.append(_fit_text_line([full_keys, mid_keys, short_keys], max(20, term_width - 1)))
+
+        _present_frame(lines, term_width, term_height)
 
 
 # ==============================================================================

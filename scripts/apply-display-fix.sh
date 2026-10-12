@@ -2,9 +2,8 @@
 set -e
 
 echo "=== 1. Restoring standard nx user in nxserver.service ==="
-sed -i 's/^#User=nx/User=nx/' /etc/systemd/system/nxserver.service
-sed -i 's/^#Group=nx/Group=nx/' /etc/systemd/system/nxserver.service
-systemctl reset-failed nxserver.service 2>/dev/null || true
+sed -i 's/^#\(User\|Group\)=nx/\1=nx/' /etc/systemd/system/nxserver.service
+systemctl reset-failed nxserver.service || true
 systemctl daemon-reload
 
 echo "=== 2. Installing SUID root environment reader ==="
@@ -14,10 +13,7 @@ chmod 4755 /var/nomachine/NX/bin/nxcat_environ
 
 echo "=== 3. Hooking nxcat_environ into nxenvironmentget.sh ==="
 if ! grep -q "nxcat_environ" /var/nomachine/NX/scripts/restricted/nxenvironmentget.sh; then
-  sed -i '/^PROCESS_ID=/a \
-if [ -x "/var/nomachine/NX/bin/nxcat_environ" ]; then\
-  exec /var/nomachine/NX/bin/nxcat_environ "$@"\
-fi' /var/nomachine/NX/scripts/restricted/nxenvironmentget.sh
+  sed -i '/^PROCESS_ID=/a if [ -x "/var/nomachine/NX/bin/nxcat_environ" ]; then\n  exec /var/nomachine/NX/bin/nxcat_environ "$@"\nfi' /var/nomachine/NX/scripts/restricted/nxenvironmentget.sh
 fi
 
 echo "=== 4. Syncing active Xauthority credentials ==="
@@ -27,7 +23,6 @@ if [ -n "$ACTIVE_AUTH" ]; then
   cp "$ACTIVE_AUTH" /var/home/mplanetarian/.Xauthority
   chmod 644 /var/home/mplanetarian/.Xauthority
   chmod 711 /var/home/mplanetarian
-  
   mkdir -p /var/NX/nx/
   cp "$ACTIVE_AUTH" /var/NX/nx/.Xauthority
   chown nx:nx /var/NX/nx/.Xauthority
@@ -35,13 +30,13 @@ if [ -n "$ACTIVE_AUTH" ]; then
 fi
 
 echo "=== 5. Restarting NoMachine server ==="
-pkill -9 -f "nxserver.bin --restart" 2>/dev/null || true
-pkill -9 -f "nxserver.bin --login" 2>/dev/null || true
+pkill -9 -f "nxserver.bin --restart" || true
+pkill -9 -f "nxserver.bin --login" || true
 systemctl restart nxserver.service
 
 echo "=== 6. Waiting for server to initialize ==="
 sleep 3
-chmod 644 /var/nomachine/NX/var/log/server.log 2>/dev/null || true
+chmod 644 /var/nomachine/NX/var/log/server.log || true
 
 echo "=== 7. Recent Server Logs ==="
 tail -n 25 /var/nomachine/NX/var/log/server.log
