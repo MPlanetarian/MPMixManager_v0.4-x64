@@ -4089,38 +4089,41 @@ view_tasks() {
         ((tasks_found++))
     fi
 
-    local webui_running=false webui_pids="" webui_port=8080
-    [ "$OS_TYPE" != "windows" ] && webui_port=42004
-    if curl -s -I --connect-timeout 1 "http://127.0.0.1:${webui_port}/" 2>/dev/null | grep -qi "HTTP/"; then
-        webui_running=true
-    elif curl -s -I --connect-timeout 1 "http://127.0.0.1:8080/" 2>/dev/null | grep -qi "HTTP/"; then
-        webui_running=true
-        webui_port=8080
-    elif curl -s -I --connect-timeout 1 "http://127.0.0.1:42004/" 2>/dev/null | grep -qi "HTTP/"; then
-        webui_running=true
-        webui_port=42004
-    fi
+local webui_running=false webui_pids="" webui_port=8080
+    for p in 8080 42004; do
+        if curl -s -I --connect-timeout 0.75 "http://127.0.0.1:${p}/" 2>/dev/null | grep -qi "HTTP/" || \
+           curl -s -I --connect-timeout 0.75 "http://localhost:${p}/" 2>/dev/null | grep -qi "HTTP/"; then
+            webui_running=true
+            webui_port=$p
+            break
+        fi
+    done
+
     if [ "$OS_TYPE" = "windows" ]; then
         if command -v netstat.exe >/dev/null 2>&1; then
-            webui_pids=$(netstat.exe -ano 2>/dev/null | grep -E ":${webui_port}\s+.*LISTENING" | awk '{print $5}' | sort -u | tr '\n' ' ')
-            [ -n "$webui_pids" ] && webui_running=true
+            local n_pids
+            n_pids=$(netstat.exe -ano 2>/dev/null | tr -d '\r' | awk -v port=":${webui_port}" '$2 ~ port && $4 == "LISTENING" {print $5}' | sort -u | tr '\n' ' ')
+            if [ -n "$n_pids" ]; then
+                webui_pids="$n_pids"
+                webui_running=true
+            fi
         fi
         if [ "$webui_running" = "false" ] && command -v tasklist.exe >/dev/null 2>&1; then
-            if tasklist.exe //FI "IMAGENAME eq open-webui.exe" 2>/dev/null | grep -qi "open-webui.exe"; then
+            if tasklist.exe //FI "WINDOWTITLE eq Open WebUI*" 2>/dev/null | grep -qi "cmd.exe\|python.exe"; then
                 webui_running=true
-                webui_pids=$(tasklist.exe //FI "IMAGENAME eq open-webui.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
             fi
         fi
     else
-        if systemctl --user is-active --quiet "open-webui.service" 2>/dev/null || pgrep -f "open-webui serve" >/dev/null 2>&1; then
+        if systemctl --user is-active --quiet "open-webui.service" 2>/dev/null || pgrep -f "open-webui" >/dev/null 2>&1; then
             webui_running=true
-            webui_pids=$(pgrep -f "open-webui serve" 2>/dev/null | tr '\n' ' ')
+            webui_pids=$(pgrep -f "open-webui" 2>/dev/null | tr '\n' ' ')
         fi
     fi
+
     if [ "$webui_running" = "true" ]; then
         local webui_pid_str=""
         [ -n "$webui_pids" ] && webui_pid_str=", PID: ${webui_pids% }"
-        echo -e "  [${GREEN}RUNNING${NC}] Open WebUI Server (http://127.0.0.1:${webui_port}${webui_pid_str})"
+        echo -e "  [${GREEN}RUNNING${NC}] Open WebUI Server (http://localhost:${webui_port}${webui_pid_str})"
         ((tasks_found++))
     fi
     
