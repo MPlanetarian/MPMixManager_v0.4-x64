@@ -776,6 +776,13 @@ class AudioEngine:
 
         self.sf_file: Optional[sf.SoundFile] = None
         self.stream: Optional[sd.OutputStream] = None
+        self.output_rate = 44100
+        self.output_device_name = ""
+        self.stream_error: Optional[str] = None
+        self._sf_lock = threading.Lock()
+        self._sf_refs = 0
+        self._sf_retired: List[Any] = []
+        self._next_stream_retry = 0.0
 
         # Equalizer Analysis State (16 Logarithmic Frequency Bands)
         self.num_bands = 16
@@ -796,7 +803,7 @@ class AudioEngine:
         self.pending_seek_sec: Optional[float] = None
 
         # Initialize continuous audio stream
-        self._init_stream()
+        self._ensure_stream()
 
     def set_pitch(self, pitch_pct: int):
         """Set DJ pitch with hard limit of ±20% (-20 to +20)."""
@@ -811,17 +818,180 @@ class AudioEngine:
         """Instantly reset DJ pitch to 0.0% center position."""
         self.set_pitch(0)
 
-    def _init_stream(self):
+    def _stream_alive(self) -> bool:
+        stream = self.stream
+        if stream is None:
+            return False
         try:
-            self.stream = sd.OutputStream(
-                samplerate=44100,
-                channels=2,
-                blocksize=1024,
-                callback=self._audio_callback
-            )
-            self.stream.start()
+            return bool(stream.active)
+        except Exception:
+            return False
+
+    def _close_stream(self):
+        stream = self.stream
+        self.stream = None
+        if stream is None:
+            return
+        try:
+            stream.abort()
+        except Exception:
+            try:
+                stream.stop()
+            except Exception:
+                pass
+        try:
+            stream.close()
         except Exception:
             pass
+
+    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+        """Output openings to try. Linux keeps the original 44.1 kHz default first."""
+        attempts: List[Tuple[Optional[int], int, Any]] = []
+        seen = set()
+
+        def add(device: Optional[int], rate: int, extra: Any):
+            if not rate or rate <= 0:
+                return
+            key = (None if device is None else int(device), int(rate), extra is not None)
+            if key in seen:
+                return
+            seen.add(key)
+            attempts.append((None if device is None else int(device), int(rate), extra))
+
+        if sd is None:
+            return attempts
+
+        if sys.platform == "win32":
+            # WASAPI shared mode must use the endpoint's mix rate. MME often
+            # reports 44100 on HDMI devices whose mixer is actually 48000, and
+            # a failed open used to be swallowed so the UI said "playing".
+            try:
+                for host in sd.query_hostapis():
+                    if "WASAPI" not in str(host.get("name", "")).upper():
+                        continue
+                    dev = host.get("default_output_device", -1)
+                    if dev is None or int(dev) < 0:
+                        continue
+                    info = sd.query_devices(int(dev))
+                    extra = sd.WasapiSettings(exclusive=False, auto_convert=True)
+                    native = int(info.get("default_samplerate") or 48000)
+                    add(int(dev), native, extra)
+                    add(int(dev), 48000, extra)
+                    add(int(dev), 44100, extra)
+            except Exception:
+                pass
+            try:
+                info = sd.query_devices(kind="output")
+                add(None, int(info.get("default_samplerate") or 44100), None)
+            except Exception:
+                pass
+            add(None, 48000, None)
+            add(None, 44100, None)
+        else:
+            add(None, 44100, None)
+            try:
+                info = sd.query_devices(kind="output")
+                add(None, int(info.get("default_samplerate") or 44100), None)
+            except Exception:
+                pass
+            add(None, 48000, None)
+        return attempts
+
+    def _open_output_stream(self) -> bool:
+        if sd is None:
+            self.stream_error = "sounddevice is not installed"
+            return False
+        errors = []
+        for device, rate, extra in self._stream_attempts():
+            stream = None
+            try:
+                kwargs = dict(
+                    samplerate=rate,
+                    channels=2,
+                    dtype="float32",
+                    callback=self._audio_callback,
+                    blocksize=0 if extra is not None else 1024,
+                )
+                if extra is not None:
+                    kwargs["latency"] = "high"
+                    kwargs["extra_settings"] = extra
+                if device is not None:
+                    kwargs["device"] = device
+                stream = sd.OutputStream(**kwargs)
+                stream.start()
+                new_rate = int(round(float(stream.samplerate)))
+                if new_rate != self.output_rate:
+                    self.resampler.reset()
+                self.output_rate = new_rate or rate
+                self.stream = stream
+                self.stream_error = None
+                try:
+                    dev_idx = stream.device
+                    if isinstance(dev_idx, (list, tuple)):
+                        dev_idx = dev_idx[-1]
+                    self.output_device_name = str(sd.query_devices(dev_idx)["name"])
+                except Exception:
+                    self.output_device_name = "default"
+                return True
+            except Exception as exc:
+                errors.append(f"{device}@{rate}: {exc}")
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+        self.stream = None
+        self.stream_error = "; ".join(errors)[-400:] if errors else "no output device"
+        return False
+
+    def _ensure_stream(self) -> bool:
+        if self._stream_alive():
+            return True
+        now = time.time()
+        if now < self._next_stream_retry:
+            return False
+        self._close_stream()
+        ok = self._open_output_stream()
+        if not ok:
+            self._next_stream_retry = time.time() + 1.5
+        return ok
+
+    def _acquire_sf(self):
+        with self._sf_lock:
+            sf_ref = self.sf_file
+            if sf_ref is not None:
+                self._sf_refs += 1
+            return sf_ref
+
+    def _release_sf(self):
+        with self._sf_lock:
+            if self._sf_refs > 0:
+                self._sf_refs -= 1
+            if self._sf_refs == 0 and self._sf_retired:
+                closing = self._sf_retired
+                self._sf_retired = []
+            else:
+                closing = []
+        for old in closing:
+            try:
+                old.close()
+            except Exception:
+                pass
+
+    def _retire_sf(self, old_sf):
+        if old_sf is None:
+            return
+        with self._sf_lock:
+            if self._sf_refs == 0:
+                closing = [old_sf]
+            else:
+                self._sf_retired.append(old_sf)
+                closing = []
+        for old in closing:
+            try:
+                old.close()
+            except Exception:
+                pass
 
     def load_track(self, index: int, start_playing: bool = True) -> bool:
         if not self.playlist or index < 0 or index >= len(self.playlist):
@@ -849,17 +1019,14 @@ class AudioEngine:
                     idx = np.array([min(len(freqs) - 1, max(0, int(low / (self.sample_rate / 2) * len(freqs))))])
                 self.band_indices.append(idx)
 
-            # Atomically swap active soundfile
-            old_sf = self.sf_file
-            self.sf_file = new_sf
-            if old_sf:
-                try:
-                    old_sf.close()
-                except Exception:
-                    pass
+            # Swap the active file without closing it under the audio callback.
+            # Closing libsndfile from the PortAudio thread aborts the stream on Windows.
+            with self._sf_lock:
+                old_sf = self.sf_file
+                self.sf_file = new_sf
+            self._retire_sf(old_sf)
 
-            if self.stream is None:
-                self._init_stream()
+            self._ensure_stream()
 
             if start_playing:
                 self.state = "playing"
@@ -882,63 +1049,94 @@ class AudioEngine:
             pass
 
     def _audio_callback(self, outdata, frames, time_info, status):
-        sf_ref = self.sf_file
-        if sf_ref is None or self.state != "playing":
-            outdata.fill(0)
-            return
-
-        if self.pending_seek_sec is not None:
-            seek_val = self.pending_seek_sec
-            self.pending_seek_sec = None
+        # An exception escaping this callback makes PortAudio abort the stream.
+        # The daemon used to stay "playing" forever after that, with no audio.
+        try:
+            self._render_audio(outdata, frames)
+        except Exception as exc:
+            self.stream_error = str(exc)
             try:
-                target_frame = int(seek_val * self.sample_rate)
-                sf_ref.seek(target_frame)
-                self.position_sec = seek_val
-                self.resampler.reset()
+                outdata.fill(0)
             except Exception:
                 pass
 
-        speed_ratio = (float(self.sample_rate) / 44100.0) * self.pitch_factor
-
-        def reader(n):
-            try:
-                return sf_ref.read(n, dtype='float32')
-            except Exception:
-                return np.zeros((0, self.channels), dtype=np.float32)
-
-        data = self.resampler.process(reader, frames, speed_ratio)
-        read_frames = len(data)
-        if read_frames == 0 or (np.all(data == 0) and hasattr(sf_ref, "tell") and sf_ref.tell() >= sf_ref.frames):
-            outdata.fill(0)
-            self.track_ended = True
-            return
-
+    def _render_audio(self, outdata, frames):
+        sf_ref = self._acquire_sf()
         try:
-            self.position_sec = min(self.duration_sec, float(sf_ref.tell()) / float(self.sample_rate))
-        except Exception:
-            self.position_sec += float(read_frames * self.pitch_factor) / 44100.0
+            if sf_ref is None or self.state != "playing":
+                outdata.fill(0)
+                return
 
-        effective_vol = 0.0 if self.muted else self.volume
+            if self.pending_seek_sec is not None:
+                seek_val = self.pending_seek_sec
+                self.pending_seek_sec = None
+                try:
+                    target_frame = int(seek_val * self.sample_rate)
+                    sf_ref.seek(max(0, min(target_frame, max(0, sf_ref.frames - 1))))
+                    self.position_sec = seek_val
+                    self.resampler.reset()
+                except Exception:
+                    pass
 
-        if data.ndim == 1:
-            stereo_data = np.column_stack((data, data))
-            mono_data = data
-        elif data.shape[1] >= 2:
-            stereo_data = data[:, :2]
-            mono_data = np.mean(stereo_data, axis=1)
-        else:
-            stereo_data = np.column_stack((data[:, 0], data[:, 0]))
-            mono_data = data[:, 0]
+            out_rate = float(self.output_rate or 44100)
+            speed_ratio = (float(self.sample_rate) / out_rate) * self.pitch_factor
 
-        if effective_vol != 1.0:
-            stereo_data *= effective_vol
+            def reader(n):
+                try:
+                    return sf_ref.read(n, dtype='float32')
+                except Exception:
+                    return np.zeros((0, 2), dtype=np.float32)
 
-        outdata[:read_frames] = stereo_data
-        if read_frames < frames:
-            outdata[read_frames:].fill(0)
-            self.track_ended = True
+            data = self.resampler.process(reader, frames, speed_ratio)
+            read_frames = len(data)
 
-        self._compute_fft_spectrum(stereo_data, mono_data)
+            try:
+                told = int(sf_ref.tell())
+                at_end = told >= int(sf_ref.frames)
+                self.position_sec = min(self.duration_sec, float(told) / float(self.sample_rate))
+            except Exception:
+                at_end = False
+                self.position_sec += float(max(read_frames, 0) * self.pitch_factor) / out_rate
+
+            if read_frames <= 0:
+                outdata.fill(0)
+                if at_end:
+                    self.track_ended = True
+                return
+
+            effective_vol = 0.0 if self.muted else self.volume
+
+            if data.ndim == 1:
+                stereo_data = np.column_stack((data, data))
+                mono_data = data
+            elif data.shape[1] >= 2:
+                stereo_data = data[:, :2]
+                mono_data = np.mean(stereo_data, axis=1)
+            else:
+                stereo_data = np.column_stack((data[:, 0], data[:, 0]))
+                mono_data = data[:, 0]
+
+            if effective_vol != 1.0:
+                stereo_data = np.ascontiguousarray(stereo_data * np.float32(effective_vol))
+
+            ncopy = min(read_frames, frames, len(stereo_data))
+            # The resampler zero-pads the final block, so EOF is silence at the file end,
+            # not a short read.
+            if at_end and np.all(stereo_data[:ncopy] == 0):
+                outdata.fill(0)
+                self.track_ended = True
+                return
+
+            outdata[:ncopy] = stereo_data[:ncopy]
+            if ncopy < frames:
+                outdata[ncopy:].fill(0)
+                if at_end:
+                    self.track_ended = True
+
+            self._compute_fft_spectrum(stereo_data[:ncopy], mono_data[:ncopy])
+        finally:
+            if sf_ref is not None:
+                self._release_sf()
 
     def _compute_fft_spectrum(self, stereo_data: np.ndarray, mono_data: np.ndarray):
         try:
@@ -1016,6 +1214,7 @@ class AudioEngine:
             self.load_track(self.current_index, start_playing=True)
         else:
             self.state = "playing"
+            self._ensure_stream()
 
     def pause(self):
         self.state = "paused"
@@ -1128,6 +1327,9 @@ class AudioEngine:
             "shuffle": bool(self.shuffle),
             "repeat": str(self.repeat_mode),
             "sample_rate": int(self.sample_rate),
+            "output_rate": int(self.output_rate or 0),
+            "output_device": str(self.output_device_name or ""),
+            "audio_error": str(self.stream_error or ""),
             "channels": int(self.channels),
             "mini_eq": str(self.get_mini_visualizer()),
             "levels": [round(float(x), 3) for x in self.smoothed_levels],
@@ -1372,17 +1574,21 @@ def is_player_daemon_running() -> bool:
             pid = int(PID_FILE.read_text().strip())
             if sys.platform == "win32":
                 import ctypes
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+                kernel32.OpenProcess.restype = ctypes.c_void_p
+                kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+                kernel32.GetExitCodeProcess.restype = ctypes.c_int
+                kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+                kernel32.CloseHandle.restype = ctypes.c_int
                 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                SYNCHRONIZE = 0x00100000
-                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid)
+                handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
                 if handle:
                     exit_code = ctypes.c_ulong()
-                    if ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
-                        ctypes.windll.kernel32.CloseHandle(handle)
-                        if exit_code.value == 259:  # STILL_ACTIVE
-                            return True
-                    else:
-                        ctypes.windll.kernel32.CloseHandle(handle)
+                    got_code = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+                    kernel32.CloseHandle(handle)
+                    if got_code and exit_code.value == 259:  # STILL_ACTIVE
+                        return True
                 try:
                     PID_FILE.unlink()
                 except OSError:
@@ -2746,6 +2952,8 @@ def main():
     # Daemon mode (runs headlessly in background)
     try:
         while True:
+            if engine.state == "playing":
+                engine._ensure_stream()
             engine.check_track_end()
             time.sleep(0.5)
     except (KeyboardInterrupt, SystemExit):

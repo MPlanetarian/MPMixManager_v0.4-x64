@@ -4,65 +4,36 @@
 .DESCRIPTION
     Launches Mix Archive Manager within Git Bash, MSYS2, or WSL2.
 #>
+
 $ErrorActionPreference = "Stop"
+$Dir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+if (-not $Dir) { $Dir = (Get-Location).Path }
+Set-Location $Dir
+$UnixDir = $Dir.Replace('\', '/')
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-if (-not $ScriptDir) {
-    $ScriptDir = (Get-Location).Path
-}
-Set-Location $ScriptDir
-$UnixScriptDir = $ScriptDir.Replace('\', '/')
+# Detect Bash: Git/MSYS2 paths first, then PATH (excluding WindowsApps)
+$Bash = @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "C:\msys64\usr\bin\bash.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $Bash) { $Bash = (Get-Command bash.exe -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch 'WindowsApps' } | Select-Object -First 1).Source }
 
-$GitBashPaths = @(
-    "$env:ProgramFiles\Git\bin\bash.exe",
-    "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
-    "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe",
-    "C:\msys64\usr\bin\bash.exe"
-)
-
-$FoundBash = $null
-foreach ($Path in $GitBashPaths) {
-    if (Test-Path $Path) {
-        $FoundBash = $Path
-        break
-    }
-}
-
-if (-not $FoundBash) {
-    $AllBash = Get-Command bash.exe -All -ErrorAction SilentlyContinue
-    foreach ($cmd in $AllBash) {
-        if ($cmd.Source -notmatch 'WindowsApps') {
-            $FoundBash = $cmd.Source
-            break
-        }
-    }
-}
-
+# Setup Environment: Python PATH & Encoding
 $env:PYTHONIOENCODING = "utf-8"
-if (Test-Path "$env:LOCALAPPDATA\Programs\Python\Python312") {
-    $env:PATH = "$env:LOCALAPPDATA\Programs\Python\Python312;$env:LOCALAPPDATA\Programs\Python\Python312\Scripts;$env:PATH"
-}
-if (Test-Path "$env:ProgramFiles\Python312") {
-    $env:PATH = "$env:ProgramFiles\Python312;$env:ProgramFiles\Python312\Scripts;$env:PATH"
-}
+$PyPaths = @("$env:LOCALAPPDATA\Programs\Python\Python312", "$env:ProgramFiles\Python312")
+foreach ($P in $PyPaths) { if (Test-Path $P) { $env:PATH = "$P;$P\Scripts;$env:PATH" } }
 
 try {
-    if ($FoundBash) {
-        & $FoundBash "$UnixScriptDir/Mix_Archive_Manager.sh" @args
+    if ($Bash) {
+        & $Bash "$UnixDir/Mix_Archive_Manager.sh" @args
     } elseif (Get-Command wsl.exe -ErrorAction SilentlyContinue) {
-        $WslDir = (wsl.exe wslpath -a $UnixScriptDir).Trim()
+        $WslDir = (wsl.exe wslpath -a $UnixDir).Trim()
         & wsl.exe bash -c "cd '$WslDir' && ./Mix_Archive_Manager.sh"
     } else {
         Write-Host "==============================================================================" -ForegroundColor Red
         Write-Host "[ERROR] No compatible Bash environment found!" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Mix Archive Manager requires a Bash shell on Windows 10 or 11." -ForegroundColor Yellow
         Write-Host "Please install Git for Windows: https://git-scm.com/download/win" -ForegroundColor Cyan
         Write-Host "==============================================================================" -ForegroundColor Red
         Read-Host "Press [Enter] to exit..."
     }
 } catch {
-    Write-Host ""
-    Write-Host "[ERROR] An error occurred while launching MP Mix Manager: $_" -ForegroundColor Red
+    Write-Host "[ERROR] $_" -ForegroundColor Red
     Read-Host "Press [Enter] to exit..."
 }
