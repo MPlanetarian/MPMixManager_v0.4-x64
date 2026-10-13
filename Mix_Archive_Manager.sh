@@ -139,8 +139,39 @@ if ! command -v pkill >/dev/null 2>&1; then
     export -f pkill 2>/dev/null || true
 fi
 
+# Visible window from the Windows cursor hider (srWindow). Only while
+# that process is alive, so a leftover file cannot resize a mintty session.
+_win_console_size() {
+    local _rows_var="$1"
+    local _cols_var="$2"
+    local pid="${_WIN_CURSOR_HIDER_PID:-}"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    local f="${HOME}/.config/mix-manager/console_size"
+    [ -f "$f" ] || return 1
+    local r="" c=""
+    IFS=$' \t' read -r r c < "$f" || return 1
+    [[ "$r" =~ ^[0-9]+$ ]] && [[ "$c" =~ ^[0-9]+$ ]] || return 1
+    [ "$r" -ge 1 ] && [ "$c" -ge 1 ] || return 1
+    printf -v "$_rows_var" '%s' "$r"
+    printf -v "$_cols_var" '%s' "$c"
+    return 0
+}
+
 update_terminal_geometry() {
     local force="${1:-0}"
+    local win_l="" win_c=""
+    # manager.bat's console: trust the visible window, never stty.
+    # Do not copy this into LINES/COLUMNS. That would look like a second
+    # resize on the next poll.
+    if _win_console_size win_l win_c; then
+        if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ] || [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
+            _TERM_LINES="$win_l"
+            _TERM_COLS="$win_c"
+            _TERM_RESIZED=0
+            return 0
+        fi
+        return 1
+    fi
     if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
         local new_l="" new_c=""
         # checkwinsize updates LINES/COLUMNS on SIGWINCH. Prefer those
@@ -368,7 +399,14 @@ play_sound_effect() {
 _SEEN_LINES="${LINES:-}"
 _SEEN_COLS="${COLUMNS:-}"
 _resize_pending() {
-    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "${LINES:-}" != "$_SEEN_LINES" ] || [ "${COLUMNS:-}" != "$_SEEN_COLS" ]; then
+    local win_l="" win_c=""
+    local file_changed=0
+    if _win_console_size win_l win_c; then
+        if [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
+            file_changed=1
+        fi
+    fi
+    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "$file_changed" -eq 1 ] || [ "${LINES:-}" != "$_SEEN_LINES" ] || [ "${COLUMNS:-}" != "$_SEEN_COLS" ]; then
         _TERM_RESIZED=0
         _SEEN_LINES="${LINES:-}"
         _SEEN_COLS="${COLUMNS:-}"
@@ -413,7 +451,10 @@ read_nav_key() {
             _emit_key "RESIZE"
             return 0
         fi
-        IFS= read -rsn1 -t 0.25 _k
+        # 0.05s is the longest a window drag can go unnoticed. A timed-out
+        # read is a tick, not a redraw: the menu paints only when the
+        # size or the selection actually changed.
+        IFS= read -rsn1 -t 0.05 _k
         read_rc=$?
         if [ "$read_rc" -ne 0 ]; then
             if _resize_pending; then
@@ -618,8 +659,13 @@ _start_win_cursor_hider() {
     else
         return 0
     fi
+    # Drop a previous session's size so mintty cannot inherit it if this
+    # process exits immediately (CONOUT$ is not the mintty window).
+    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
+    rm -f "${HOME}/.config/mix-manager/console_size" 2>/dev/null || true
+    MP_WIN_SIZE_FILE="${HOME}/.config/mix-manager/console_size" \
     "$py" -u - >/dev/null 2>&1 <<'PY' &
-import ctypes, sys, time
+import ctypes, os, sys, time
 k = ctypes.WinDLL("kernel32", use_last_error=True)
 k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
 k.CreateFileW.restype = ctypes.c_void_p
@@ -627,20 +673,76 @@ k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.GetConsoleCursorInfo.restype = ctypes.c_int
 k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.SetConsoleCursorInfo.restype = ctypes.c_int
+k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.GetConsoleScreenBufferInfo.restype = ctypes.c_int
 GENERIC_RW = 0x80000000 | 0x40000000
 h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
 invalid = ctypes.c_void_p(-1).value
 if not h or h == invalid:
     sys.exit(0)
 
+class COORD(ctypes.Structure):
+    _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+class SMALL_RECT(ctypes.Structure):
+    _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short),
+                ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+class CSBI(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", COORD),
+        ("dwCursorPosition", COORD),
+        ("wAttributes", ctypes.c_ushort),
+        ("srWindow", SMALL_RECT),
+        ("dwMaximumWindowSize", COORD),
+    ]
+
 class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
 
+def _native_path(p):
+    # Bash hands over /c/Users/... . Win32 Python does not open that.
+    if os.name != "nt" or not p:
+        return p
+    if len(p) >= 4 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
+        return p[1].upper() + ":" + p[2:].replace("/", "\\")
+    if p.startswith("/cygdrive/") and len(p) > 11 and p[10].isalpha() and p[11] == "/":
+        return p[10].upper() + ":" + p[11:].replace("/", "\\")
+    return p
+
 info = CCI()
+csbi = CSBI()
+size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
+# A padded struct would publish a garbage window and the menu would jump.
+if ctypes.sizeof(csbi) != 22:
+    size_path = ""
+last = None
+
+def publish():
+    global last
+    if not size_path:
+        return
+    if not k.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
+        return
+    rows = int(csbi.srWindow.Bottom) - int(csbi.srWindow.Top) + 1
+    cols = int(csbi.srWindow.Right) - int(csbi.srWindow.Left) + 1
+    if rows < 1 or cols < 1 or (rows, cols) == last:
+        return
+    try:
+        tmp = "%s.%d" % (size_path, os.getpid())
+        with open(tmp, "w", encoding="ascii", newline="\n") as fh:
+            fh.write("%d %d\n" % (rows, cols))
+        os.replace(tmp, size_path)
+    except OSError:
+        return
+    last = (rows, cols)
+
+publish()
 while True:
     if k.GetConsoleCursorInfo(h, ctypes.byref(info)) and info.bVisible:
         info.bVisible = 0
         k.SetConsoleCursorInfo(h, ctypes.byref(info))
+    publish()
     time.sleep(0.04)
 PY
     _WIN_CURSOR_HIDER_PID=$!
@@ -703,7 +805,8 @@ run_interactive_submenu() {
         fi
         if [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header >/dev/null 2>&1; then
             update_terminal_geometry 0
-            menu_header="$(render_main_header "$(( _TERM_COLS - 4 ))")"
+            render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null
+            menu_header="${_RENDERED_MAIN_HEADER:-}"
         fi
         [ -n "$menu_header" ] && echo -e "$menu_header"
         if get_mp_audio_player_track_info 2>/dev/null; then
@@ -761,7 +864,8 @@ run_interactive_submenu() {
             cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"
         fi
         if [ -z "$menu_title" ] && command -v render_main_header >/dev/null 2>&1; then
-            menu_header="$(render_main_header "$box_w")"
+            render_main_header "$box_w" >/dev/null
+            menu_header="${_RENDERED_MAIN_HEADER:-}"
         fi
         if [ -n "$menu_header" ]; then
             local exp_hdr=""
@@ -803,12 +907,23 @@ run_interactive_submenu() {
     local typed_buffer=""
     local view_top=0
     local last_term_lines="$_TERM_LINES"
-    local tick_count=0
+    local _MENU_FRAME_FRESH=0
+    local _LAST_MENU_TICK_S="${SECONDS:-0}"
 
     while true; do
         update_terminal_geometry 0
         local cur_box_w
         _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"
+        # A drag wakes this loop about 20 times a second. Rebuild only
+        # when the size changed, the selection changed, or a second has
+        # passed. An idle wake just keeps the caret hidden.
+        local _draw=1
+        if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then
+            _draw=0
+        fi
+        if [ "$_draw" -eq 0 ]; then
+            printf '\033[?25l\033[?12l\033[?7l'
+        else
         if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then
             box_w="$cur_box_w"
             last_term_lines="$_TERM_LINES"
@@ -990,10 +1105,17 @@ run_interactive_submenu() {
         if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then
             run_deferred_startup
         fi
-        
+        _MENU_FRAME_FRESH=1
+        fi
+
         local key_action=""
         read_nav_key key_action
-        
+        # Any real key must redraw so the highlight moves. A timed-out
+        # tick redraws at most once a second (player banner and uptime).
+        if [ "$key_action" != "TICK" ]; then
+            _MENU_FRAME_FRESH=0
+        fi
+
         case "$key_action" in
             TOGGLE_FULLSCREEN)
                 toggle_manager_fullscreen
@@ -1014,20 +1136,19 @@ run_interactive_submenu() {
                 continue
                 ;;
             TICK)
-                ((tick_count++))
-                if [ $((tick_count % 4)) -eq 0 ]; then
+                # The key wait is 0.05s, so a tick counter would refresh
+                # the header five times a second. Gate on the clock instead.
+                local _now_s="${SECONDS:-0}"
+                if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then
+                    _LAST_MENU_TICK_S="$_now_s"
                     update_terminal_geometry 0
                     if [ -z "$menu_title" ]; then
-                        local _sig_before _sig_after
-                        header_cache_signature _sig_before
                         load_header_cache 2>/dev/null || true
-                        header_cache_signature _sig_after
-                        if [ "$_sig_before" != "$_sig_after" ]; then
-                            build_header_block
-                        fi
+                        build_header_block
                         maybe_spawn_header_refresh
                         _maybe_refresh_perf_cache
                     fi
+                    _MENU_FRAME_FRESH=0
                 fi
                 continue
                 ;;
@@ -9625,9 +9746,10 @@ _CACHED_PERF_DISPLAY=""
 get_system_perf_stats() {
     local now="${EPOCHSECONDS:-0}"
     [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    # render_main_header runs in a command substitution, so the in-memory
-    # cache above never survives. A file cache keeps a zoom from running
-    # df on the key path. While a menu is open, never block on df.
+    # A file cache keeps a zoom or a window drag from running df on the
+    # key path. While a menu is open, never block on df. The in-memory
+    # copy is filled here so an in-process header can use it after
+    # redirecting this function's stdout.
     local _perf_dir="${HOME}/.config/mix-manager"
     local _perf_file="${_perf_dir}/perf_display.cache"
     local _perf_stamp="${_perf_dir}/perf_display.stamp"
@@ -9645,6 +9767,7 @@ get_system_perf_stats() {
             local _perf_cached=""
             IFS= read -r _perf_cached < "$_perf_file" || true
             if [ -n "$_perf_cached" ]; then
+                _CACHED_PERF_DISPLAY="$_perf_cached"
                 printf '%b\n' "$_perf_cached"
                 return 0
             fi
@@ -12253,9 +12376,16 @@ get_manager_uptime() {
     fi
 
     local audio_st
-    audio_st=$(get_audio_volume_and_mute)
+    # wpctl and pactl are absent on Windows, so the probe always prints
+    # Active, but the subshell itself is the slow part of a resize.
+    if [ "${OS_TYPE:-}" = "windows" ]; then
+        audio_st="Active"
+    else
+        audio_st=$(get_audio_volume_and_mute)
+    fi
 
-    echo -e "  ${BOLD}${CYAN}⏱ Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
+    printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
+    printf '%s\n' "$_MANAGER_UPTIME_LINE"
 }
 
 detect_currently_playing_mix() {
@@ -14835,9 +14965,8 @@ render_main_header() {
     fi
     hdr+="  ${os_badge}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${os_updates}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} ${shell_info}\n"
     [ -n "${_CACHED_CLOUD_STATUS:-}" ] && hdr+="  ${_CACHED_CLOUD_STATUS}\n"
-    local sys_perf
-    sys_perf=$(get_system_perf_stats)
-    [ -n "$sys_perf" ] && hdr+="${sys_perf}\n"
+    get_system_perf_stats >/dev/null
+    [ -n "${_CACHED_PERF_DISPLAY:-}" ] && hdr+="${_CACHED_PERF_DISPLAY}\n"
     [ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ] && hdr+="${_CACHED_AUDIO_IFACE_DISPLAY}\n"
 
     local h_dash
@@ -14864,14 +14993,37 @@ render_main_header() {
             hdr+="  ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}\n"
         fi
         hdr+="\n"
-        hdr+="$(show_stats)\n\n"
-        hdr+="  $(get_manager_uptime)\n"
+        # Same bytes show_stats prints on the fast path, without forking
+        # this script. A fork here is most of the old resize lag.
+        local stats_block=""
+        if [ -z "${_CACHED_STATS_CORE:-}" ]; then
+            load_header_cache 2>/dev/null || true
+        fi
+        if [ -z "${_CACHED_STATS_CORE:-}" ]; then
+            _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}\n  ${DIM}⚡ Loading archive statistics in background...${NC}"
+        fi
+        printf -v stats_block '%b\n' "$_CACHED_STATS_CORE"
+        if [ -n "${_CACHED_NOW_PLAYING:-}" ]; then
+            stats_block+="${_CACHED_NOW_PLAYING}"$'\n'
+        fi
+        local stats_rule=""
+        printf -v stats_rule '%b' "${BLUE}===================================${NC}"
+        stats_block+="$stats_rule"
+        hdr+="${stats_block}"$'\n\n'
+        get_manager_uptime >/dev/null
+        hdr+="  ${_MANAGER_UPTIME_LINE}"$'\n'
     else
         hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
-        hdr+="  $(get_manager_uptime)\n"
+        get_manager_uptime >/dev/null
+        hdr+="  ${_MANAGER_UPTIME_LINE}"$'\n'
     fi
 
-    echo -e "$hdr"
+    # Drop one trailing newline so callers match a command substitution.
+    _RENDERED_MAIN_HEADER="$hdr"
+    if [ -n "$_RENDERED_MAIN_HEADER" ] && [ "${_RENDERED_MAIN_HEADER: -1}" = $'\n' ]; then
+        _RENDERED_MAIN_HEADER="${_RENDERED_MAIN_HEADER%$'\n'}"
+    fi
+    printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 
 # Forks of this process are expensive once every function is defined.
