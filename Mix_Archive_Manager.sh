@@ -844,6 +844,22 @@ PY
     _WIN_CURSOR_HIDER_PID=$!
 }
 
+_stop_win_cursor_hider() {
+    local pid="${_WIN_CURSOR_HIDER_PID:-}"
+    _WIN_CURSOR_HIDER_PID=""
+    if [ -n "$pid" ]; then
+        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local _win_pid
+            _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}')
+            if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F >/dev/null 2>&1 || true
+            fi
+        fi
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+}
+
+
 # Interactive Submenu Runner
 run_interactive_submenu() {
     local menu_title="$1"
