@@ -9,6 +9,9 @@ if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
     done
 fi
 
+# SET SCRIPTS DIR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Enable terminal window size tracking and resize signal handling
 shopt -s checkwinsize 2>/dev/null || true
 export PYTHONIOENCODING="utf-8"
