@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # KDE Connect Remote Command: Stop WAN2GP AI Video Server
-# Mix Archive Manager -> Menu 56 -> Option 3:
+# MP Mix Archive Manager -> Menu 56 -> Option 3:
 # (3) Stop Running WAN2GP Server
 # ==============================================================================
 export DISPLAY="${DISPLAY:-:0}"

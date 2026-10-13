@@ -2,7 +2,7 @@
 """
 scripts/get_alarm_clock_status.py
 Inspects MPlanetarians Alarm Clock configuration, timers, state, and Steam integration,
-providing formatted status banners for the Mix Archive Manager main dashboard.
+providing formatted status banners for the MP Mix Archive Manager main dashboard.
 """
 
 import os

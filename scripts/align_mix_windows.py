@@ -3,13 +3,13 @@
 scripts/align_mix_windows.py - Cross-Platform Window Alignment for Mix Manager
 Positions windows according to active monitor configuration:
 - Multi-Display (> 1 displays active):
-  * Mix Archive Manager window is placed on the PRIMARY display (Main Screen) in windowed mode (not full screen).
+  * MP Mix Archive Manager window is placed on the PRIMARY display (Main Screen) in windowed mode (not full screen).
   * Strawberry Audio Player and Cover Art Viewer are placed ONLY on the SECONDARY display
     side-by-side with zero overlap: Cover Art (square on left) and Strawberry (player on right).
   * Any tracklist console window is minimized on multi-display so the primary display
-    remains dedicated to the Mix Archive Manager.
+    remains dedicated to the MP Mix Archive Manager.
 - Single-Display (<= 1 display active):
-  * Mix Archive Manager window is displayed in windowed mode (not full screen).
+  * MP Mix Archive Manager window is displayed in windowed mode (not full screen).
 """
 
 import sys
@@ -23,8 +23,8 @@ import re
 import json
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Mix Archive Manager Window & Display Aligner")
-    parser.add_argument("--mgr-pid", type=int, default=0, help="PID of Mix Archive Manager process")
+    parser = argparse.ArgumentParser(description="MP Mix Archive Manager Window & Display Aligner")
+    parser.add_argument("--mgr-pid", type=int, default=0, help="PID of MP Mix Archive Manager process")
     parser.add_argument("--parent-pid", type=int, default=0, help="Parent/terminal PID of Manager")
     parser.add_argument("--expect-audacious", action="store_true", help="Wait for Audacious window to appear")
     parser.add_argument("--expect-strawberry", action="store_true", help="Wait for Strawberry window to appear (legacy)")
@@ -220,7 +220,7 @@ def align_kwin(timeout_seconds=8.0, mgr_pid=0, parent_pid=0, expect_strawberry=F
         var rClass = (w.resourceClass || '').toLowerCase();
         var dName = (w.desktopFileName || '').toLowerCase();
 
-        // 1. Manager Window (Konsole / terminal running Mix Archive Manager)
+        // 1. Manager Window (Konsole / terminal running MP Mix Archive Manager)
         if (!mgrWin) {{
             if ((mgrAncestorPids && mgrAncestorPids.indexOf(w.pid) !== -1) ||
                 (mgrPid > 0 && w.pid === mgrPid) ||

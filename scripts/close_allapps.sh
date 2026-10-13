@@ -26,7 +26,7 @@ if command -v wmctrl >/dev/null 2>&1; then
                 break
             fi
         done
-        if [ "$is_protected" = true ] || [[ "$win_title" == *"Mix Archive Manager"* ]]; then
+        if [ "$is_protected" = true ] || [[ "$win_title" == *"MP Mix Archive Manager"* ]]; then
             echo "Skipping protected Manager window: $win_title"
             continue
         fi
@@ -53,4 +53,4 @@ for app in "${GUI_APPS[@]}"; do
     pkill -f "$app" 2>/dev/null || true
 done
 
-echo "All desktop application windows closed (Mix Archive Manager preserved)."
+echo "All desktop application windows closed (MP Mix Archive Manager preserved)."

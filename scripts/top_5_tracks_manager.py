@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/top_5_tracks_manager.py - Mix Archive Manager: Top 5 Tracks Suite & Traktor Dispatch
+scripts/top_5_tracks_manager.py - MP Mix Archive Manager: Top 5 Tracks Suite & Traktor Dispatch
 Features:
 1. Parse master_tracklists.html across all mix archives.
 2. Select & manage user's Top 5 Tracks of all time.

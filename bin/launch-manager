@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Helper: launch-manager
-# Purpose: Launch Mix Archive Manager cleanly in a dedicated Konsole window
+# Purpose: Launch MP Mix Archive Manager cleanly in a dedicated Konsole window
 # ==============================================================================
 # Resolve symlinks so CODEBASE_DIR is accurate regardless of invocation path (e.g. ~/.local/bin)
 _RESOLVED_SRC="${BASH_SOURCE[0]}"
@@ -33,4 +33,4 @@ if [ ! -x "$LAUNCHER" ]; then
     LAUNCHER="$CODEBASE_DIR/Mix_Archive_Manager.sh"
 fi
 
-exec /usr/bin/konsole --fullscreen --separate --workdir "$CODEBASE_DIR" -p tabtitle="Mix Archive Manager" -e "$LAUNCHER" "$@"
+exec /usr/bin/konsole --fullscreen --separate --workdir "$CODEBASE_DIR" -p tabtitle="MP Mix Archive Manager" -e "$LAUNCHER" "$@"

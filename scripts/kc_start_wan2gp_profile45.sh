@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # KDE Connect Remote Command: Start WAN2GP AI Video Server (Profile 4.5)
-# Mix Archive Manager -> Menu 56 -> Option 2:
+# MP Mix Archive Manager -> Menu 56 -> Option 2:
 # (2) Start in Profile 4.5 (Low VRAM / 14B Models Offload) [New Tab/Window]
 # ==============================================================================
 export DISPLAY="${DISPLAY:-:0}"

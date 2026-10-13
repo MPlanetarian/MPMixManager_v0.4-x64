@@ -3,7 +3,7 @@
 # Script: switch-to-plasma-x11.sh
 # Location: /home/mplanetarian/Documents/BASH_SCRIPTS/switch-to-plasma-x11.sh
 # Purpose: Revert desktop to Plasma X11 session (enables 4-screen Defasten video
-#          installation, hardware Konsole tabs, and Mix Archive Manager).
+#          installation, hardware Konsole tabs, and MP Mix Archive Manager).
 # ==============================================================================
 
 set -e
@@ -50,7 +50,7 @@ echo -e "${BOLD}${BLUE}[2/2] Ready to return to Plasma X11!${NC}"
 echo -e "      ${YELLOW}When you log in to X11:${NC}"
 echo -e "      • ${GREEN}Standard multi-monitor desktop layout restored${NC}"
 echo -e "      • ${GREEN}Defasten 4-Screen video installation will resume automatically${NC}"
-echo -e "      • ${GREEN}Hardware Konsole tabs & Mix Archive Manager will launch on login${NC}"
+echo -e "      • ${GREEN}Hardware Konsole tabs & MP Mix Archive Manager will launch on login${NC}"
 echo ""
 
 read -r -p "Log out now to enter Plasma X11? [Y/n]: " response

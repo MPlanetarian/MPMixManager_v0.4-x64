@@ -1,6 +1,6 @@
 # Installing Mix Archive Manager on Bazzite Linux (From Scratch)
 
-This document provides an exhaustive, step-by-step guide to installing and configuring the **Mix Archive Manager (`MP_Mix_Manager_v0.3`)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
+This document provides an exhaustive, step-by-step guide to installing and configuring the **MP Mix Archive Manager (`MP_Mix_Manager_v0.3`)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
 
 ---
 
@@ -50,7 +50,7 @@ source ~/.bashrc
 
 ## 3. Step 2: Install CLI Dependencies via Homebrew
 
-Mix Archive Manager requires high-performance audio, video, and system monitoring CLI tools. Run:
+MP Mix Archive Manager requires high-performance audio, video, and system monitoring CLI tools. Run:
 
 ```bash
 brew install \
@@ -95,7 +95,7 @@ flatpak install -y flathub org.audacityteam.Audacity
 
 ## 5. Step 4: Python Environment & Vision AI Dependencies
 
-Mix Archive Manager utilizes Python 3 for Traktor history XML parsing, YouTube video generation, file transfer monitoring, and YOLOv8 object detection.
+MP Mix Archive Manager utilizes Python 3 for Traktor history XML parsing, YouTube video generation, file transfer monitoring, and YOLOv8 object detection.
 
 Install required Python dependencies:
 
@@ -219,7 +219,7 @@ sudo chmod 0440 /etc/sudoers.d/reboot
 
 ## 10. Step 9: Launching & Verification
 
-You can now launch the Mix Archive Manager in three ways:
+You can now launch the MP Mix Archive Manager in three ways:
 
 ### Method A: From Terminal Anywhere
 ```bash
@@ -235,8 +235,8 @@ cd ~/MP_Mix_Manager_v0.3
 ```
 
 ### Method C: Graphical Desktop / Application Menu
-- Click the **Mix Archive Manager** icon on your Desktop.
-- Or open Application Launcher -> **Multimedia** -> **Mix Archive Manager**.
+- Click the **MP Mix Archive Manager** icon on your Desktop.
+- Or open Application Launcher -> **Multimedia** -> **MP Mix Archive Manager**.
 
 ---
 

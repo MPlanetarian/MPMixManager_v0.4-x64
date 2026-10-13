@@ -69,7 +69,7 @@ An enterprise-grade workstation orchestration console and media management suite
 ## 🌌 Spotlight: MPlanetarian Dreamworlds & TUI Navigation
 
 > [!IMPORTANT]
-> **Experience the new default aesthetic and seamless keyboard control!** Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a modern **interactive TUI menu system** with arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
+> **Experience the new default aesthetic and seamless keyboard control!** MP Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a modern **interactive TUI menu system** with arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
 
 ```mermaid
 flowchart TD
@@ -132,7 +132,7 @@ flowchart LR
 ## 📱 Spotlight: DJ Booth & Studio Mobile Web Companion
 
 > [!IMPORTANT]
-> **Control your workstation from your phone or tablet in the DJ booth!** Mix Archive Manager includes **mix_web_companion.py** (Option 28.5 or `mix_web_companion.sh`), a zero-dependency local HTTP server running on port **`8888`** designed specifically for smartphones, tablets, and touchscreens.
+> **Control your workstation from your phone or tablet in the DJ booth!** MP Mix Archive Manager includes **mix_web_companion.py** (Option 28.5 or `mix_web_companion.sh`), a zero-dependency local HTTP server running on port **`8888`** designed specifically for smartphones, tablets, and touchscreens.
 
 ```mermaid
 flowchart TD
@@ -282,7 +282,7 @@ flowchart TD
 ## ✂️ Spotlight: Auto-Split DJ Mixes & Multi-Part Spek Spectrograms
 
 > [!TIP]
-> **Recorded a 4-hour live stream with 4 different DJ sets?** When converting large audio files, Mix Archive Manager automatically prompts you: *"Would you like to split the audio file?"*. It slices the audio into equal or custom parts, saves the split files into the **exact same directory**, and offers to generate **individual 1080p Spek spectrograms** for every split part!
+> **Recorded a 4-hour live stream with 4 different DJ sets?** When converting large audio files, MP Mix Archive Manager automatically prompts you: *"Would you like to split the audio file?"*. It slices the audio into equal or custom parts, saves the split files into the **exact same directory**, and offers to generate **individual 1080p Spek spectrograms** for every split part!
 
 ```mermaid
 flowchart LR
@@ -307,7 +307,7 @@ flowchart LR
 ## ⏰ Spotlight: MPlanetarians Alarm Clock (Wake Up Edition)
 
 > [!IMPORTANT]
-> **Tired of boring buzzer alarms?** Mix Archive Manager includes **MPlanetarians Alarm Clock (Wake Up Edition)** — an invigorating morning wake-up system that blasts a random mix from your local FLAC archive through Strawberry or cliamp, unmuting and ramping volume up over 3 minutes. It tracks your mouse to detect when you're truly awake, opens your default web browser on your secondary right-hand monitor, and queries your Steam library to offer **3 random video games to play for breakfast**! *(Linux Only Support at the Moment)*.
+> **Tired of boring buzzer alarms?** MP Mix Archive Manager includes **MPlanetarians Alarm Clock (Wake Up Edition)** — an invigorating morning wake-up system that blasts a random mix from your local FLAC archive through Strawberry or cliamp, unmuting and ramping volume up over 3 minutes. It tracks your mouse to detect when you're truly awake, opens your default web browser on your secondary right-hand monitor, and queries your Steam library to offer **3 random video games to play for breakfast**! *(Linux Only Support at the Moment)*.
 
 ```mermaid
 flowchart TD
@@ -330,7 +330,7 @@ flowchart TD
 - 🖥️ **Smart Dual-Screen Browser Placement**: Automatically calculates your monitor coordinates and opens your morning browser window on the display directly to the right of your primary screen.
 - ☀️ **Morning Screen & Daily Brief**: Features an animated clock, daily weather forecast, rain alerts, exercise routine, healthy breakfast ideas, system hardware vitals, manual page of the day, and internet word/phrase of the day.
 - 🎨 **4 Elegant Color Themes**: Midnight Ink (navy and silver), Warm Brass (amber lamp-light), Forest Hour (deep green and gold), and Porcelain (warm grey and rose).
-- 📊 **Main Page Live Status Banner**: The Mix Archive Manager main dashboard directly displays your alarm arm state, next alarm countdown, active sound target, Steam library readiness, and morning wake-up action at a glance.
+- 📊 **Main Page Live Status Banner**: The MP Mix Archive Manager main dashboard directly displays your alarm arm state, next alarm countdown, active sound target, Steam library readiness, and morning wake-up action at a glance.
 - 🐧 **Linux-Native System Integration**: Powered by systemd user timers, PipeWire `wpctl`, `xdotool`, and Steam Linux desktop protocols.
 
 ---
@@ -476,7 +476,7 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
 ### 3. Microsoft Windows 10 & 11
 
 #### Prerequisites
-Mix Archive Manager runs natively on Windows using **Git Bash** or **WSL2**:
+MP Mix Archive Manager runs natively on Windows using **Git Bash** or **WSL2**:
 - **Git for Windows (Recommended)**: Download from [https://git-scm.com/download/win](https://git-scm.com/download/win).
 - **Windows Terminal**: Built-in on Windows 11; available via Microsoft Store on Windows 10.
 
@@ -570,7 +570,7 @@ chmod +x manager_freebsd.sh install.sh
 
 ## 💻 Command Line Interface & Direct Shortcuts
 
-Mix Archive Manager supports dozens of direct CLI arguments, sub-commands, and desktop shortcuts:
+MP Mix Archive Manager supports dozens of direct CLI arguments, sub-commands, and desktop shortcuts:
 
 ```bash
 # General Management & Updates
@@ -772,7 +772,7 @@ MP_Mix_Manager_v0.3/
 
 ## ⚙️ Configuration Guide (`config.env`)
 
-Mix Archive Manager automatically reads `config.env` from the project directory or `~/.config/mix-manager/config.env`. Copy `config.env.example` to `config.env` to customize settings:
+MP Mix Archive Manager automatically reads `config.env` from the project directory or `~/.config/mix-manager/config.env`. Copy `config.env.example` to `config.env` to customize settings:
 
 ```bash
 # Target storage path for music and mix archives
@@ -825,7 +825,7 @@ PLANETS_ENABLED="true"
 
 ## 🧪 Automated Test Suite & Quality Assurance
 
-Mix Archive Manager includes an automated test harness ensuring shell script validity, Python syntax compilation, configuration integrity, and root/scripts directory synchronization:
+MP Mix Archive Manager includes an automated test harness ensuring shell script validity, Python syntax compilation, configuration integrity, and root/scripts directory synchronization:
 
 ```bash
 # Run the complete test suite
@@ -843,7 +843,7 @@ Mix Archive Manager includes an automated test harness ensuring shell script val
 
 ## 📜 License
 
-Mix Archive Manager is licensed under the **[MIT License](LICENSE)**.
+MP Mix Archive Manager is licensed under the **[MIT License](LICENSE)**.
 
 ---
 *Created with ❤️ by **MPlanetarian** for audio producers, DJs, and media creators worldwide.*

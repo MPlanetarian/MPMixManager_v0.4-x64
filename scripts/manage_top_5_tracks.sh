@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/manage_top_5_tracks.sh
-# Mix Archive Manager: Listen to Your Top 5 Tracks Right Now (Special Option)
+# MP Mix Archive Manager: Listen to Your Top 5 Tracks Right Now (Special Option)
 # Traktor Database Search, Remote Import (SMB, NFS, Mac), Playlists & Joined Mix
 # ==============================================================================
 

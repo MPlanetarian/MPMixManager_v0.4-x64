@@ -11,7 +11,7 @@
 
 ## 📌 Executive Summary
 
-This document serves as the comprehensive, immutable architectural history and development ledger of all engineering sessions, features, bug fixes, refactorings, and integrations executed by **Gemini (Antigravity CLI)** for the **Stream of Frequency Mix Archive Manager** (`MP_Mix_Manager_v0.3`).
+This document serves as the comprehensive, immutable architectural history and development ledger of all engineering sessions, features, bug fixes, refactorings, and integrations executed by **Gemini (Antigravity CLI)** for the **Stream of Frequency MP Mix Archive Manager** (`MP_Mix_Manager_v0.3`).
 
 What began on September 13, 2026, as a collection of scattered shell utilities across `/var/home/mplanetarian/Documents/BASH_SCRIPTS/` and archive storage volumes has been transformed into an enterprise-grade, modular, cross-platform media production and workstation orchestration console comprising:
 - **75 Master Operations** categorized across **7 logical operational domains**.
@@ -49,10 +49,10 @@ What began on September 13, 2026, as a collection of scattered shell utilities a
   5. Clarified and configured bundled retro music player `cliamp` to run with zero external installation dependencies.
   6. Established standard Git workflow with author metadata `MPlanetarian <mathewkjohn2026@gmail.com>`.
 - **Git Commits**:
-  - `40687c9` — *Initial release: Stream of Frequency Mix Archive Manager v0.1 (Bazzite Linux)*
+  - `40687c9` — *Initial release: Stream of Frequency MP Mix Archive Manager v0.1 (Bazzite Linux)*
   - `12b110c` — *docs: update clone URL with official GitHub repo path*
   - `612b1e0` — *docs: clarify that cliamp is bundled and requires no separate installation*
-  - `0c497f0` — *ui: update top banner title to Mix Archive Manager (MP_Mix_Manager_v0.1)*
+  - `0c497f0` — *ui: update top banner title to MP Mix Archive Manager (MP_Mix_Manager_v0.1)*
 
 ---
 
@@ -247,7 +247,7 @@ What began on September 13, 2026, as a collection of scattered shell utilities a
 
 ```
 ========================================================================================================
-                          STREAM OF FREQUENCY - MIX ARCHIVE MANAGER v0.2                                
+                          STREAM OF FREQUENCY - MP MIX ARCHIVE MANAGER v0.2                                
 ========================================================================================================
 ```
 
@@ -352,7 +352,7 @@ What began on September 13, 2026, as a collection of scattered shell utilities a
 | **72** | `view_documentation` | Read Official Documentation (`README.md` & `INSTALL_BAZZITE.md`) |
 | **73** | `check_for_updates` | Check for Upstream Git Updates & Pull Latest Revisions |
 | **74** | `reboot_system` | Safe System Reboot (With Confirmation Safeguard) |
-| **75** | `exit_manager` | Exit Mix Archive Manager Workspace |
+| **75** | `exit_manager` | Exit MP Mix Archive Manager Workspace |
 
 ---
 
@@ -393,7 +393,7 @@ What began on September 13, 2026, as a collection of scattered shell utilities a
 
 #### Session 4: Support for Multiple Mix Archive Storage Locations (Option 13)
 - **Primary Request**:
-  - Update Mix Archive Manager to support multiple Mix Archive Folder Storage Locations.
+  - Update MP Mix Archive Manager to support multiple Mix Archive Folder Storage Locations.
   - Secondary archive storage configured at: `/run/media/mplanetarian/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS/`.
   - Allow user configuration of multiple mix archive storage locations under Option 13 (alongside the Main Mix Archive Folder).
   - Update all other scripts across the manager suite to discover, aggregate, inspect, and process mixes across all configured locations.

@@ -61,6 +61,6 @@ if __name__ == "__main__":
     count = generate_playlists()
     if "--quiet" not in sys.argv:
         try:
-            os.system(f'notify-send -a "Mix Archive Manager" "NFT Videos Playlist Updated" "Generated playlist with {count} videos in {DESKTOP_DIR}." 2>/dev/null')
+            os.system(f'notify-send -a "MP Mix Archive Manager" "NFT Videos Playlist Updated" "Generated playlist with {count} videos in {DESKTOP_DIR}." 2>/dev/null')
         except:
             pass

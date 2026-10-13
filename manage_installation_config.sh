@@ -63,7 +63,7 @@ compute_sha256() {
 migrate_installation_path() {
     clear 2>/dev/null || true
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}           Migrate Mix Archive Manager Installation Path              ${NC}"
+    echo -e "${BOLD}${MAGENTA}           Migrate MP Mix Archive Manager Installation Path              ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
     echo -e "  Current Installation Path: ${BOLD}${GREEN}${SCRIPT_DIR}${NC}"
     
@@ -436,7 +436,7 @@ import_config_bundle() {
     tar -xzf "$target_bundle" -C "$temp_extract"
     
     if [ ! -f "$temp_extract/manifest.json" ] && [ ! -f "$temp_extract/config.env" ]; then
-        echo -e "${RED}Error: Archive does not contain Mix Archive Manager configuration files!${NC}"
+        echo -e "${RED}Error: Archive does not contain MP Mix Archive Manager configuration files!${NC}"
         rm -rf "$temp_extract"
         press_enter
         return

@@ -24,10 +24,10 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
 unset _RESOLVED_SRC _RESOLVED_DIR
 
-echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-echo -e "${BOLD}${MAGENTA}        Mix Archive Manager Installer (MP_Mix_Manager_v0.3)           ${NC}"
-echo -e "${BOLD}${MAGENTA}          Cross-Platform: Linux • macOS • Windows 10 & 11             ${NC}"
-echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
+echo -e "${BOLD}${MAGENTA}        MP Mix Archive Manager Installer (MP_Mix_Manager_v0.3.6 Beta)           ${NC}"
+echo -e "${BOLD}${MAGENTA}          Cross-Platform: Linux • macOS • Windows 10 & 11                       ${NC}"
+echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
 echo ""
 
 # 1. Detect Host Environment
@@ -293,10 +293,10 @@ fi
 
 echo ""
 echo -e "${BOLD}${GREEN}======================================================================${NC}"
-echo -e "${BOLD}${GREEN}              MIX ARCHIVE MANAGER INSTALLATION COMPLETE!              ${NC}"
+echo -e "${BOLD}${GREEN}              MP MIX ARCHIVE MANAGER INSTALLATION COMPLETE!              ${NC}"
 echo -e "${BOLD}${GREEN}======================================================================${NC}"
 echo ""
-echo -e "You can launch Mix Archive Manager:"
+echo -e "You can launch MP Mix Archive Manager:"
 if [ "$HOST_OS" = "macos" ]; then
     echo -e "  1. Double-click:                  ${BOLD}${CYAN}~/Desktop/Mix Archive Manager.command${NC}"
     echo -e "  2. Terminal command:              ${BOLD}${CYAN}manager${NC} or ${BOLD}${CYAN}~/manager.sh${NC}"
@@ -308,6 +308,6 @@ elif [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
 else
     echo -e "  1. Run from anywhere in terminal: ${BOLD}${CYAN}manager${NC} or ${BOLD}${CYAN}~/manager.sh${NC}"
     echo -e "  2. Launch directly from source:   ${BOLD}${CYAN}cd $SCRIPT_DIR && ./Mix_Archive_Manager.sh${NC}"
-    echo -e "  3. Open from Desktop or Menu:     ${BOLD}${CYAN}Mix Archive Manager${NC}"
+    echo -e "  3. Open from Desktop or Menu:     ${BOLD}${CYAN}MP Mix Archive Manager${NC}"
 fi
 echo ""

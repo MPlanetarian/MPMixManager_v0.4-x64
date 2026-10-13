@@ -55,7 +55,7 @@ fi
 
 cat << EOF
 ${BOLD}${MAGENTA}===================================================================================${NC}
-${BOLD}${MAGENTA}                     Mix Archive Manager (MP_Mix_Manager_v${VERSION})                     ${NC}
+${BOLD}${MAGENTA}                     MP Mix Archive Manager (MP_Mix_Manager_v${VERSION})                     ${NC}
 ${BOLD}${MAGENTA}===================================================================================${NC}
 ${DIM}Comprehensive DJ Mix Ingestion, Transcoding, Playback, Video & Archive Suite${NC}
 

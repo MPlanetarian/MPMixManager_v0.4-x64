@@ -4,7 +4,7 @@
 
 echo "Closing all open application windows..."
 
-# Find Mix Archive Manager PIDs and their parent terminal PIDs to protect them
+# Find MP Mix Archive Manager PIDs and their parent terminal PIDs to protect them
 PROTECTED_PIDS=()
 for mpid in $(pgrep -f "Mix_Archive_Manager.sh" 2>/dev/null); do
     p=$mpid
@@ -23,7 +23,7 @@ if command -v wmctrl >/dev/null 2>&1; then
             continue
         fi
 
-        # Protect any window belonging to Mix Archive Manager
+        # Protect any window belonging to MP Mix Archive Manager
         is_protected=false
         for pp in "${PROTECTED_PIDS[@]}"; do
             if [ "$win_pid" = "$pp" ]; then
@@ -60,4 +60,4 @@ for app in "${GUI_APPS[@]}"; do
     pkill -f "$app" 2>/dev/null || true
 done
 
-echo "All desktop application windows closed (Mix Archive Manager preserved)."
+echo "All desktop application windows closed (MP Mix Archive Manager preserved)."

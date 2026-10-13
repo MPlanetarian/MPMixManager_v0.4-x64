@@ -191,8 +191,8 @@ def apply_motd(limit=3):
         
     # 2. Add / update hook in ~/.bashrc.d or ~/.bashrc if desired
     bashrc = Path.home() / ".bashrc"
-    hook_tag = "# >>> Mix Archive Manager Dynamic MOTD >>>"
-    hook_end = "# <<< Mix Archive Manager Dynamic MOTD <<<"
+    hook_tag = "# >>> MP Mix Archive Manager Dynamic MOTD >>>"
+    hook_end = "# <<< MP Mix Archive Manager Dynamic MOTD <<<"
     hook_code = f"""{hook_tag}
 if [ -f "$HOME/.config/mix-manager/motd" ] && [ -t 1 ]; then
     cat "$HOME/.config/mix-manager/motd"

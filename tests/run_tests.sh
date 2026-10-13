@@ -35,7 +35,7 @@ report_skip() {
 }
 
 echo -e "\n${BOLD}${GREEN}======================================================================${NC}"
-echo -e "${BOLD}${GREEN}   MP MIX ARCHIVE MANAGER v0.3 — AUTOMATED TEST SUITE                 ${NC}"
+echo -e "${BOLD}${GREEN}   MP MIX ARCHIVE MANAGER — AUTOMATED TEST SUITE                 ${NC}"
 echo -e "${BOLD}${GREEN}======================================================================${NC}\n"
 
 # ------------------------------------------------------------------------------

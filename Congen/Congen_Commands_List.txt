@@ -13,7 +13,7 @@
 ────────────────────────────────────────────────────────────────────────────────
   Command Name : Open_Mix_Archive_Manager
   Script Path  : /home/mplanetarian/Documents/BASH_SCRIPTS/manager.sh
-  Summary      : Opens the Mix Archive Manager
+  Summary      : Opens the MP Mix Archive Manager
   Added        : 2026-09-19 23:34:38
 ────────────────────────────────────────────────────────────────────────────────
 

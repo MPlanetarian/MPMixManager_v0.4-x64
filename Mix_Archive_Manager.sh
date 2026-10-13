@@ -1664,7 +1664,7 @@ exit_mix_manager() {
     kill $(jobs -p) 2>/dev/null || true
     printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
-    echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
+    echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
@@ -2166,7 +2166,7 @@ find_mix_tracklist() {
         echo ""
         echo "To auto-generate complete tracklists from your Traktor"
         echo "history or audio metadata, launch Option 16 in the"
-        echo "Mix Archive Manager."
+        echo "MP Mix Archive Manager."
         echo "=================================================="
     } > "$tmp_tl" 2>/dev/null
     if [ -f "$tmp_tl" ]; then
@@ -5380,7 +5380,7 @@ close_all_desktop_apps() {
     done
 
     echo -e "${GREEN}✓ Closed $closed_count application window(s).${NC}"
-    echo -e "${GREEN}✓ Active Mix Archive Manager kept open and protected.${NC}"
+    echo -e "${GREEN}✓ Active MP Mix Archive Manager kept open and protected.${NC}"
     press_enter
 }
 
@@ -7674,7 +7674,7 @@ generate_traktor_playlist_from_history() {
         echo -e "  • ${BOLD}Platform:${NC}           $(uname -s)"
         echo -e "  • ${BOLD}Notice:${NC}             Traktor Pro does not run on Linux natively."
         echo -e "                          This feature is exclusively supported on ${BOLD}${GREEN}macOS${NC}."
-        echo -e "  • ${BOLD}Remote Access:${NC}      To generate Traktor playlists, execute Mix Archive Manager"
+        echo -e "  • ${BOLD}Remote Access:${NC}      To generate Traktor playlists, execute MP Mix Archive Manager"
         echo -e "                          directly on your macOS workstation."
         echo -e "${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}\n"
         press_enter
@@ -15177,7 +15177,7 @@ render_main_header() {
     local h_eq
     printf -v h_eq '%*s' "$cur_box_w" ''
     h_eq="${h_eq// /=}"
-    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3.6 Beta)"
+    local title_text="MP Mix Archive Manager (v0.3.6 Beta)"
     local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
     [ "$title_pad" -lt 0 ] && title_pad=0
     local title_sp

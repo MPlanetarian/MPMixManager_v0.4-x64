@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the **Mix Archive Manager** project will be documented in this file.
+All notable changes to the **MP Mix Archive Manager** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -139,10 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-09-24
 
 - **Congen (KDE Connect Commands Generator) Full Integration**:
-  - Fully integrated Congen (`Congen/`) into the Mix Archive Manager codebase with executable launchers in root (`congen`, `congen.sh`), `scripts/`, and `bin/`.
+  - Fully integrated Congen (`Congen/`) into the MP Mix Archive Manager codebase with executable launchers in root (`congen`, `congen.sh`), `scripts/`, and `bin/`.
   - Added Congen management to Section 3 Option 26 (**Network Services, Congen & Internet Control**) providing direct access to KDE Connect command generation, inventory inspection, remote task scheduling, audit logging, audio alert daemon (`.congen_alert_daemon.sh`), and template imports (`CONGEN_IMPORT/`).
   - Added direct CLI shortcuts: `mix-archive-manager congen`, `./Mix_Archive_Manager.sh --congen`, and main menu shortcut `congen` / `kdeconnect`.
-  - Documented mobile remote execution commands for Mix Archive Manager, Strawberry player, and studio workflows across the application manuals and GitHub README.
+  - Documented mobile remote execution commands for MP Mix Archive Manager, Strawberry player, and studio workflows across the application manuals and GitHub README.
 
 - **MPlanetarians Alarm Clock (Wake Up Edition) Integration & Live Dashboard Status**:
   - Fully integrated `mplanetarians-alarm-clock/` into the manager codebase with executable launchers in root, `bin/`, and `scripts/`.

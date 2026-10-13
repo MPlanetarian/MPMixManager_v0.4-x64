@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # MP_Mix_Manager_v0.3 - macOS Double-Clickable Launcher
-# Double-click this script in Finder to run Mix Archive Manager in Terminal.app
+# Double-click this script in Finder to run MP Mix Archive Manager in Terminal.app
 # ==============================================================================
 _RESOLVED_SRC="${BASH_SOURCE[0]}"
 while [ -h "$_RESOLVED_SRC" ]; do

@@ -14,7 +14,7 @@ while true; do
             open_writers=$(lsof +D "$TARGET_DIR" 2>/dev/null | grep -E "REG.*w" | wc -l)
             if [ "$part_count" -eq 0 ] && [ "$open_writers" -eq 0 ]; then
                 "$HOME/.local/bin/update-nft-playlist"
-                notify-send -u normal -a "Mix Archive Manager" "NFT Videos Transfer Complete" "Finished copying NFT_VIDEOS to DATA. Desktop playlist is fully updated." 2>/dev/null
+                notify-send -u normal -a "MP Mix Archive Manager" "NFT Videos Transfer Complete" "Finished copying NFT_VIDEOS to DATA. Desktop playlist is fully updated." 2>/dev/null
                 break
             fi
         fi

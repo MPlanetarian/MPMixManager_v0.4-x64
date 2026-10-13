@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Mix Archive Manager
+Name=MP Mix Archive Manager
 GenericName=Music Archive Manager
-Comment=Launch Stream of Frequency Mix Archive Manager in Konsole
+Comment=Launch MP Mix Archive Manager in Konsole
 Exec=/var/home/mplanetarian/.local/bin/launch-manager
 Icon=utilities-terminal
 Terminal=false

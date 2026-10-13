@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-MP Mix Manager v0.3 - YouTube Shorts Promotional Video Generator (1080x1920 Vertical)
+MP Mix Manager v0.3.6 Beta - YouTube Shorts Promotional Video Generator (1080x1920 Vertical)
 Generates an eye-catching 42-second YouTube Shorts / Reels video promoting the new
-v0.3.5 features of MP Mix Archive Manager with Dreamworlds neon aesthetics,
+v0.3.6 Beta features of MP Mix Archive Manager with Dreamworlds neon aesthetics,
 hardware-accelerated NVENC encoding, and lossless audio synchronization.
 """
 
@@ -445,7 +445,7 @@ def main():
         t0 = time.time()
         print("\n======================================================================")
         print("  🎥 YOUTUBE SHORTS PROMO GENERATOR (1080x1920 VERTICAL)")
-        print("  MPlanetarian Dreamworlds Edition • MP Mix Archive Manager v0.3.5")
+        print("  MPlanetarian Dreamworlds Edition • MP Mix Archive Manager v0.3.6 Beta")
         print("======================================================================\n")
 
         print("[•] Step 1: Generating high-resolution vertical Dreamworlds slide graphics...")

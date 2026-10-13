@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# MP_Mix_Manager_v0.3 - System Updater
-# Purpose: Check for and install latest version of Mix Archive Manager
+# MP_Mix_Archive_Manager - System Updater
+# Purpose: Check for and install latest version of MP Mix Archive Manager
 # Usage:
 #   mix-archive-manager update          (Checks and installs latest version)
 #   mix-archive-manager update --check  (Checks for updates without installing)
@@ -59,9 +59,9 @@ if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ] || [ "${1:-}" = "version" ]
         COMMIT_DATE=$(git -C "$CODEBASE_DIR" log -1 --format=%cd --date=short 2>/dev/null || echo "")
     fi
     if [ -n "$COMMIT_DATE" ]; then
-        echo -e "Mix Archive Manager ${BOLD}v${CURRENT_VER}${NC} (${CYAN}${COMMIT_HASH}${NC}, ${COMMIT_DATE})"
+        echo -e "MP Mix Archive Manager ${BOLD}v${CURRENT_VER}${NC} (${CYAN}${COMMIT_HASH}${NC}, ${COMMIT_DATE})"
     else
-        echo -e "Mix Archive Manager ${BOLD}v${CURRENT_VER}${NC} (${CYAN}${COMMIT_HASH}${NC})"
+        echo -e "MP Mix Archive Manager ${BOLD}v${CURRENT_VER}${NC} (${CYAN}${COMMIT_HASH}${NC})"
     fi
     exit 0
 fi
@@ -70,7 +70,7 @@ fi
 # 2. Help Flag
 # ------------------------------------------------------------------------------
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
-    echo -e "${BOLD}Mix Archive Manager - System Updater${NC}"
+    echo -e "${BOLD}MP Mix Archive Manager - System Updater${NC}"
     echo -e "Usage:"
     echo -e "  mix-archive-manager update           Check for and install the latest version"
     echo -e "  mix-archive-manager update --check   Check for available updates without installing"
@@ -94,7 +94,7 @@ done
 # 3. Banner
 # ------------------------------------------------------------------------------
 echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-echo -e "${BOLD}${MAGENTA}                 Mix Archive Manager - System Updater                 ${NC}"
+echo -e "${BOLD}${MAGENTA}                 MP Mix Archive Manager - System Updater                 ${NC}"
 echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
 echo -e "  Current Installed Version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
 echo -e "  Codebase Directory:        ${CYAN}${CODEBASE_DIR}${NC}"
@@ -102,13 +102,13 @@ echo -e "  Codebase Directory:        ${CYAN}${CODEBASE_DIR}${NC}"
 # Check git availability
 if ! command -v git >/dev/null 2>&1; then
     echo -e "${YELLOW}Warning: 'git' command not found. Cannot verify remote repository updates.${NC}"
-    echo -e "Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
+    echo -e "MP Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
     exit 0
 fi
 
 if [ ! -d "$CODEBASE_DIR/.git" ] && ! git -C "$CODEBASE_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo -e "${YELLOW}Notice: ${CODEBASE_DIR} is not a git repository.${NC}"
-    echo -e "Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
+    echo -e "MP Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
     exit 0
 fi
 
@@ -133,7 +133,7 @@ fi
 
 if [ "$FETCH_OK" -eq 0 ]; then
     echo -e "\n${YELLOW}Notice: Unable to connect to remote repository (offline or remote unreachable).${NC}"
-    echo -e "Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
+    echo -e "MP Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
     exit 0
 fi
 
@@ -145,7 +145,7 @@ fi
 
 if ! git rev-parse "$UPSTREAM" >/dev/null 2>&1; then
     echo -e "\n${YELLOW}Notice: No remote tracking branch found for origin.${NC}"
-    echo -e "Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
+    echo -e "MP Mix Archive Manager is running version: ${BOLD}${GREEN}v${CURRENT_VER}${NC}"
     exit 0
 fi
 
@@ -165,7 +165,7 @@ fi
 # 5. Up To Date Condition
 # ------------------------------------------------------------------------------
 if [ "$BEHIND_COUNT" -eq 0 ] && [ "$FORCE_UPDATE" -eq 0 ]; then
-    echo -e "\n${BOLD}${GREEN}✓ Mix Archive Manager is running the latest version: v${CURRENT_VER}${NC}"
+    echo -e "\n${BOLD}${GREEN}✓ MP Mix Archive Manager is running the latest version: v${CURRENT_VER}${NC}"
     if [ "$AHEAD_COUNT" -gt 0 ]; then
         echo -e "  ${DIM}(Local development branch is ahead of remote by ${AHEAD_COUNT} commit(s))${NC}"
     fi
@@ -177,7 +177,7 @@ fi
 # 6. Update Available
 # ------------------------------------------------------------------------------
 TARGET_VER="${REMOTE_VER:-latest}"
-echo -e "\n${BOLD}${CYAN}★ A new version of Mix Archive Manager is available: v${TARGET_VER}${NC}"
+echo -e "\n${BOLD}${CYAN}★ A new version of MP Mix Archive Manager is available: v${TARGET_VER}${NC}"
 echo -e "  Remote commits available: ${BOLD}${YELLOW}${BEHIND_COUNT}${NC}"
 echo -e "\n${DIM}Incoming commits:${NC}"
 git log --oneline -n "$BEHIND_COUNT" "$UPSTREAM"
@@ -247,6 +247,6 @@ NEW_VER="$(get_current_version)"
 NEW_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
 echo -e "\n${GREEN}======================================================================${NC}"
-echo -e "${BOLD}${GREEN}✓ Mix Archive Manager successfully updated to v${NEW_VER}!${NC}"
+echo -e "${BOLD}${GREEN}✓ MP Mix Archive Manager successfully updated to v${NEW_VER}!${NC}"
 echo -e "  Installed Commit: ${CYAN}${NEW_COMMIT}${NC} (${DIM}$(git log -1 --format=%cd --date=short 2>/dev/null || echo '')${NC})"
 echo -e "${GREEN}======================================================================${NC}"
