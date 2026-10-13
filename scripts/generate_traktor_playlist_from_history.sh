@@ -6,45 +6,22 @@
 
 set -eo pipefail 2>/dev/null || true
 
-_RESOLVED_SRC="${BASH_SOURCE[0]}"
-while [ -h "$_RESOLVED_SRC" ]; do
-    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
-    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-unset _RESOLVED_SRC _RESOLVED_DIR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+PYTHON_CMD=$(command -v python3 || command -v python || echo "/usr/bin/python3 /usr/local/bin/python3 /opt/homebrew/bin/python3" | tr ' ' '\n' | head -n1)
 
-# Locate python3 executable
-PYTHON_CMD="python3"
-if ! command -v python3 >/dev/null 2>&1; then
-    if command -v python >/dev/null 2>&1; then
-        PYTHON_CMD="python"
-    elif [ -x "/usr/bin/python3" ]; then
-        PYTHON_CMD="/usr/bin/python3"
-    elif [ -x "/usr/local/bin/python3" ]; then
-        PYTHON_CMD="/usr/local/bin/python3"
-    elif [ -x "/opt/homebrew/bin/python3" ]; then
-        PYTHON_CMD="/opt/homebrew/bin/python3"
-    else
-        echo "Error: Python 3 is required but was not found in PATH." >&2
-        exit 1
-    fi
-fi
-
-# Locate generate_traktor_playlist_from_history.py
 GEN_PY="$SCRIPT_DIR/generate_traktor_playlist_from_history.py"
 if [ ! -f "$GEN_PY" ]; then
-    if [ -f "$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.py" ]; then
-        GEN_PY="$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.py"
-    elif [ -f "$PWD/scripts/generate_traktor_playlist_from_history.py" ]; then
-        GEN_PY="$PWD/scripts/generate_traktor_playlist_from_history.py"
-    elif [ -f "$PWD/generate_traktor_playlist_from_history.py" ]; then
-        GEN_PY="$PWD/generate_traktor_playlist_from_history.py"
-    else
-        echo "Error: generate_traktor_playlist_from_history.py not found in $SCRIPT_DIR or subdirectories." >&2
-        exit 1
-    fi
+    for dir in "$SCRIPT_DIR/scripts" "$PWD/scripts" "$PWD"; do
+        if [ -f "$dir/generate_traktor_playlist_from_history.py" ]; then
+            GEN_PY="$dir/generate_traktor_playlist_from_history.py"
+            break
+        fi
+    done
 fi
 
-exec "$PYTHON_CMD" "$GEN_PY" "$@"
+if [ ! -f "$GEN_PY" ]; then
+    echo "Error: generate_traktor_playlist_from_history.py not found in $SCRIPT_DIR or subdirectories." >&2
+    exit 1
+fi
+
+exec "$PYTHON_CMD" "$GEN_PY" "$@" # 50 to 27
