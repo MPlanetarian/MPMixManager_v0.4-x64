@@ -11996,7 +11996,7 @@ get_manager_uptime() {
     local audio_st
     audio_st=$(get_audio_volume_and_mute)
 
-    echo -e "  ${BOLD}${CYAN}⏱ Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
+    echo -e "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
 }
 
 detect_currently_playing_mix() {

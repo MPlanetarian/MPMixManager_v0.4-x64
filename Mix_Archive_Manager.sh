@@ -12620,7 +12620,7 @@ get_manager_uptime() {
         audio_st=$(get_audio_volume_and_mute)
     fi
 
-    printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
+    printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
     printf '%s\n' "$_MANAGER_UPTIME_LINE"
 }
 
