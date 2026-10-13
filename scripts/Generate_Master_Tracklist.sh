@@ -14,11 +14,7 @@ PARENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source config.env if present
 for cfg in "$SCRIPT_DIR/config.env" "$PARENT_DIR/config.env" "$PWD/config.env" "${MIX_ARCHIVE_DIR:-}/config.env"; do
-    if [ -f "$cfg" ]; then
-        # shellcheck source=/dev/null
-        source "$cfg"
-        break
-    fi
+    [ -f "$cfg" ] && source "$cfg" && break
 done
 
 clear
@@ -29,10 +25,7 @@ echo -e "${YELLOW}Parsing tracklist files across all archives and building HTML.
 
 py_script=""
 for cand in "$SCRIPT_DIR/generate_master_tracklist.py" "$SCRIPT_DIR/scripts/generate_master_tracklist.py" "$PARENT_DIR/generate_master_tracklist.py" "$PARENT_DIR/scripts/generate_master_tracklist.py" "$PWD/generate_master_tracklist.py"; do
-    if [ -f "$cand" ]; then
-        py_script="$cand"
-        break
-    fi
+    [ -f "$cand" ] && py_script="$cand" && break
 done
 
 if [ -n "$py_script" ]; then
@@ -53,12 +46,8 @@ if [ $STATUS -eq 0 ]; then
     echo -e "Saved to: ${CYAN}${out_file}${NC}"
     
     # Sync to external archive and codebase directories if different
-    if [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR" ] && [ "$out_file" != "${MIX_ARCHIVE_DIR%/}/master_tracklists.html" ]; then
-        cp -p "$out_file" "${MIX_ARCHIVE_DIR%/}/master_tracklists.html" 2>/dev/null || true
-    fi
-    if [ -d "$PARENT_DIR" ] && [ "$out_file" != "$PARENT_DIR/master_tracklists.html" ]; then
-        cp -p "$out_file" "$PARENT_DIR/master_tracklists.html" 2>/dev/null || true
-    fi
+    [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR" ] && [ "$out_file" != "${MIX_ARCHIVE_DIR%/}/master_tracklists.html" ] && cp -p "$out_file" "${MIX_ARCHIVE_DIR%/}/master_tracklists.html" 2>/dev/null || true
+    [ -d "$PARENT_DIR" ] && [ "$out_file" != "$PARENT_DIR/master_tracklists.html" ] && cp -p "$out_file" "$PARENT_DIR/master_tracklists.html" 2>/dev/null || true
     echo -e "Open directly with: ${YELLOW}xdg-open '${out_file}'${NC}"
 else
     echo -e "${BOLD}${RED}Failed to generate Master Tracklist HTML.${NC}"

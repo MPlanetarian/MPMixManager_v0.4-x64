@@ -75,23 +75,35 @@ if ! command -v pgrep >/dev/null 2>&1; then
         done
         [ -z "$pattern" ] && return 1
 
+        # One process snapshot serves every probe in this shell for 2s.
+        # The header used to scan the process list once per player.
+        local now_s="${SECONDS:-0}"
+        if [ $((now_s - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
+            _PGREP_SNAP_AT="$now_s"
+            _PGREP_SNAP_PS="$(ps -ef 2>/dev/null || true)"
+            _PGREP_SNAP_TASK=""
+            if command -v tasklist.exe >/dev/null 2>&1; then
+                _PGREP_SNAP_TASK="$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null || true)"
+            fi
+        fi
+
         local matches=""
         if [ "$flag_i" = true ]; then
-            matches=$(ps -ef 2>/dev/null | grep -iE -- "$pattern" | grep -v "grep" || true)
+            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -iE -- "$pattern" | grep -v "grep" || true)
         else
-            matches=$(ps -ef 2>/dev/null | grep -E -- "$pattern" | grep -v "grep" || true)
+            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
         fi
 
         if [ -n "$matches" ]; then
-            echo "$matches" | awk '{print $2}'
+            printf '%s\n' "$matches" | awk '{print $2}'
             return 0
         fi
 
-        if command -v tasklist.exe >/dev/null 2>&1; then
+        if [ -n "${_PGREP_SNAP_TASK:-}" ]; then
             local win_matches
-            win_matches=$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null | grep -iE -- "$pattern" || true)
+            win_matches=$(printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" || true)
             if [ -n "$win_matches" ]; then
-                echo "$win_matches" | cut -d',' -f2 | tr -d '"'
+                printf '%s\n' "$win_matches" | cut -d',' -f2 | tr -d '"'
                 return 0
             fi
         fi
@@ -588,10 +600,16 @@ highlight_menu_line() {
 # then leaves it blinking in the header. CONOUT$ is the screen buffer even
 # when this helper's own stdout is discarded.
 _start_win_cursor_hider() {
-    [ "${OS_TYPE:-}" != "windows" ] && return 0
     if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then
         return 0
     fi
+    local _os="${OS_TYPE:-}"
+    if [ -z "$_os" ]; then
+        case "$(uname -s 2>/dev/null)" in
+            CYGWIN*|MINGW*|MSYS*) _os="windows" ;;
+        esac
+    fi
+    [ "$_os" != "windows" ] && return 0
     local py=""
     if command -v python3 >/dev/null 2>&1; then
         py="python3"
@@ -1223,13 +1241,23 @@ exit_mix_manager() {
 trap 'exit_mix_manager' INT
 trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
+# Fork the caret hider while this process is still small. A fork after
+# every function is loaded is a large MSYS copy and lands before the
+# first frame.
+if [ -t 1 ]; then
+    _start_win_cursor_hider
+fi
+
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
  printf '\033]0;%s\007' "MP Mix Archive Manager [${APP_VERSION}]" 2>/dev/null || true
 # Resolve symlinks so SCRIPT_DIR correctly points to codebase directory
 _RESOLVED_SRC="${BASH_SOURCE[0]}"
 _RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-command -v cygpath >/dev/null 2>&1 && _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
+# cygpath is slow. Git Bash already hands us a POSIX path.
+if command -v cygpath >/dev/null 2>&1 && [[ "$_RESOLVED_SRC" =~ ^[A-Za-z]: ]]; then
+    _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
+fi
 while [ -h "$_RESOLVED_SRC" ]; do
     _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
     _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
@@ -1957,7 +1985,7 @@ open_startup_mix_spek() {
         return 0
     fi
 
-    if ! is_internet_connected && is_remote_or_cloud_path "$selected_mix"; then
+    if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then
         return 0
     fi
 
@@ -2337,12 +2365,13 @@ save_header_cache() {
         printf '_CACHED_OS_UPDATE_STATUS=%q\n' "${_CACHED_OS_UPDATE_STATUS:-}"
         printf '_CACHED_INTERNET_STATUS=%q\n' "${_CACHED_INTERNET_STATUS:-online}"
         printf '_CACHED_TOP_5_BADGE=%q\n' "${_CACHED_TOP_5_BADGE:-}"
+        printf '_CACHED_NOW_PLAYING=%q\n' "${_CACHED_NOW_PLAYING:-}"
     } > "$c_tmp" 2>/dev/null && mv -f "$c_tmp" "$c_file" 2>/dev/null || rm -f "$c_tmp" 2>/dev/null || true
 }
 
 # Signature of everything the header displays from cache (used to detect async refreshes)
 header_cache_signature() {
-    printf -v "$1" '%s' "${_CACHED_STATS_CORE:-}|${_CACHED_CLOUD_STATUS:-}|${_CACHED_WEATHER_DISPLAY:-}|${_CACHED_PLANETS_DISPLAY:-}|${_CACHED_AUDIO_IFACE_DISPLAY:-}|${_CACHED_ALARM_CLOCK_STATUS:-}|${_CACHED_OS_UPDATE_STATUS:-}|${_CACHED_INTERNET_STATUS:-}|${_CACHED_TOP_5_BADGE:-}"
+    printf -v "$1" '%s' "${_CACHED_STATS_CORE:-}|${_CACHED_CLOUD_STATUS:-}|${_CACHED_WEATHER_DISPLAY:-}|${_CACHED_PLANETS_DISPLAY:-}|${_CACHED_AUDIO_IFACE_DISPLAY:-}|${_CACHED_ALARM_CLOCK_STATUS:-}|${_CACHED_OS_UPDATE_STATUS:-}|${_CACHED_INTERNET_STATUS:-}|${_CACHED_TOP_5_BADGE:-}|${_CACHED_NOW_PLAYING:-}"
 }
 
 refresh_header_cache_worker() {
@@ -2359,6 +2388,7 @@ refresh_header_cache_worker() {
     fi
     [ -d "$lock_dir" ] || mkdir -p "$lock_dir" 2>/dev/null || true
     echo "$now" > "$lock_file" 2>/dev/null || true
+    ensure_playlists_generated_dirs --all
 
     # Reset freshness timers so each collector really re-runs inside this background worker
     _LAST_CLOUD_CHECK=0 _LAST_WEATHER_CHECK=0 _LAST_PLANETS_CHECK=0 _LAST_AUDIO_IFACE_CHECK=0
@@ -2555,7 +2585,7 @@ get_all_mix_archive_dirs() {
         if [[ ! "$clean_p" =~ ^[a-zA-Z]:/$ && "$clean_p" != "/" ]]; then
             clean_p="${clean_p%/}"
         fi
-        if is_internet_connected || ! is_remote_or_cloud_path "$clean_p"; then
+        if ! is_remote_or_cloud_path "$clean_p" || is_internet_connected; then
             dirs+=("$clean_p")
             seen+=("$clean_p")
         fi
@@ -2580,7 +2610,7 @@ get_all_mix_archive_dirs() {
                 if [[ ! "$clean_d" =~ ^[a-zA-Z]:/$ && "$clean_d" != "/" ]]; then
                     clean_d="${clean_d%/}"
                 fi
-                if ! is_internet_connected && is_remote_or_cloud_path "$clean_d"; then
+                if is_remote_or_cloud_path "$clean_d" && ! is_internet_connected; then
                     continue
                 fi
                 if [[ ! " ${seen[*]} " =~ " ${clean_d} " ]]; then
@@ -2687,7 +2717,7 @@ get_all_wav_archive_dirs() {
 }
 
 # Determine target working archive directory
-if is_mix_archive_configured && ! { ! is_internet_connected && is_remote_or_cloud_path "$MIX_ARCHIVE_DIR"; } && [ -d "$MIX_ARCHIVE_DIR" ]; then
+if is_mix_archive_configured && { ! is_remote_or_cloud_path "$MIX_ARCHIVE_DIR" || is_internet_connected; } && [ -d "$MIX_ARCHIVE_DIR" ]; then
     cd "$MIX_ARCHIVE_DIR" || exit 1
 else
     # Fallback to Application Root Folder 'MIX_ARCHIVE'
@@ -2701,7 +2731,7 @@ else
 fi
 
 # Resolve relative storage paths to active archive folder
-if [ -n "${MIX_ARCHIVE_DIR:-}" ] && ! { ! is_internet_connected && is_remote_or_cloud_path "$MIX_ARCHIVE_DIR"; } && [ -d "$MIX_ARCHIVE_DIR" ]; then
+if [ -n "${MIX_ARCHIVE_DIR:-}" ] && { ! is_remote_or_cloud_path "$MIX_ARCHIVE_DIR" || is_internet_connected; } && [ -d "$MIX_ARCHIVE_DIR" ]; then
     if ! is_remote_or_cloud_path "$MIX_ARCHIVE_DIR"; then
         [ -d "$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS" ] || mkdir -p "$MIX_ARCHIVE_DIR"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
     fi
@@ -2735,7 +2765,19 @@ fi
 
 # Ensure PLAYLISTS_GENERATED exists in application root and all configured mix archive folders
 ensure_playlists_generated_dirs() {
+    local mode="${1:-}"
     [ -d "$SCRIPT_DIR/PLAYLISTS_GENERATED" ] || mkdir -p "$SCRIPT_DIR/PLAYLISTS_GENERATED" 2>/dev/null || true
+    if [ "$mode" != "--all" ]; then
+        # Google Drive and other extra archives are created by the
+        # background header worker. Statting them here holds the menu.
+        local primary="${MIX_ARCHIVE_DIR:-}"
+        primary="${primary//\\//}"
+        primary="${primary%/}"
+        if [ -n "$primary" ] && ! is_remote_or_cloud_path "$primary" && [ -d "$primary" ]; then
+            [ -d "$primary/PLAYLISTS_GENERATED" ] || mkdir -p "$primary/PLAYLISTS_GENERATED" 2>/dev/null || true
+        fi
+        return 0
+    fi
     local all_arch_dirs=()
     while IFS= read -r adir; do
         [ -n "$adir" ] && all_arch_dirs+=("$adir")
@@ -3711,15 +3753,10 @@ show_stats() {
             load_header_cache 2>/dev/null || true
         fi
         if [ -n "$_CACHED_STATS_CORE" ]; then
-            if [ $((now - _LAST_STATS_CHECK)) -ge 60 ]; then
-                _LAST_STATS_CHECK="$now"
-                (refresh_header_cache_worker >/dev/null 2>&1 &)
-            fi
             echo -e "$_CACHED_STATS_CORE"
         else
             _LAST_STATS_CHECK="$now"
             _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}\n  ${DIM}⚡ Loading archive statistics in background...${NC}"
-            (refresh_header_cache_worker >/dev/null 2>&1 &)
             echo -e "$_CACHED_STATS_CORE"
         fi
     else
@@ -3881,7 +3918,17 @@ PY
         echo -e "$_CACHED_STATS_CORE"
     fi
 
-    # 5. Live Player Status & Audio Specifications
+    # Audacious, Strawberry, and cliamp probes walk the Windows process
+    # list. That belongs in the header worker, not the first frame.
+    if [ "$force" = "--force" ] || [ "$force" = "-f" ]; then
+        _CACHED_NOW_PLAYING="$(refresh_now_playing_lines 2>/dev/null || true)"
+        save_header_cache 2>/dev/null || true
+    fi
+    [ -n "${_CACHED_NOW_PLAYING:-}" ] && printf '%s\n' "$_CACHED_NOW_PLAYING"
+    echo -e "${BLUE}===================================${NC}"
+}
+
+refresh_now_playing_lines() {
     if get_audacious_track_info 2>/dev/null; then
         local st_badge
         case "$AUDACIOUS_STATE" in
@@ -3944,7 +3991,6 @@ PY
             [ -n "$audio_spec" ] && echo -e "  Audio Specifications:                     ${BOLD}${GREEN}${audio_spec}${NC}"
         fi
     fi
-    echo -e "${BLUE}===================================${NC}"
 }
 
 press_enter() {
@@ -8324,7 +8370,7 @@ collect_converted_mix_dirs() {
     add_converted_dir() {
         cand="$1"
         [ -n "$cand" ] || return 0
-        if ! is_internet_connected && is_remote_or_cloud_path "$cand"; then
+        if is_remote_or_cloud_path "$cand" && ! is_internet_connected; then
             return 0
         fi
         [ -d "$cand" ] || return 0
@@ -8368,7 +8414,7 @@ select_startup_mix() {
     local list d f found_any=0
     list="$(mktemp "${TMPDIR:-/tmp}/sof_startup_XXXXXX")"
     while IFS= read -r d; do
-        if ! is_internet_connected && is_remote_or_cloud_path "$d"; then
+        if is_remote_or_cloud_path "$d" && ! is_internet_connected; then
             continue
         fi
         [ -d "$d" ] || continue
@@ -8672,7 +8718,7 @@ execute_startup_autoplay() {
         return 0
     fi
 
-    if ! is_internet_connected && is_remote_or_cloud_path "$selected_mix"; then
+    if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then
         STARTUP_AUTOPLAY_NOTICE="Latest mix is on cloud storage (offline, playback skipped)"
         return 0
     fi
