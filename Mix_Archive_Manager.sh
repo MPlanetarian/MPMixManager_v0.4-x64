@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 
 # Auto-upgrade to modern Bash on macOS if running under ancient system Bash 3.2
-if [ "$(uname -s)" = "Darwin" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-    if [ -x "/opt/homebrew/bin/bash" ]; then
-        exec /opt/homebrew/bin/bash "$0" "$@"
-    elif [ -x "/usr/local/bin/bash" ]; then
-        exec /usr/local/bin/bash "$0" "$@"
-    fi
+if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
+    for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        if [[ -x "$bash" ]]; then
+            exec "$bash" "$0" "$@"
+        fi
+    done
 fi
+
+# SET SCRIPTS DIR
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Enable terminal window size tracking and resize signal handling
 shopt -s checkwinsize 2>/dev/null || true
@@ -16,10 +19,8 @@ export PYTHONUTF8=1
 
 # Normalize HOME on Windows / Git Bash if needed
 if command -v cygpath >/dev/null 2>&1; then
-    if [ -n "$USERPROFILE" ] && { [ -z "$HOME" ] || [ ! -d "$HOME" ] || [ "$HOME" = "/home/$USER" ]; }; then
-        _WIN_HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"
-        [ -n "$_WIN_HOME" ] && [ -d "$_WIN_HOME" ] && export HOME="$_WIN_HOME"
-        unset _WIN_HOME
+    if [ -z "$HOME" ] || [ ! -d "$HOME" ] || [ "$HOME" = "/home/$USER" ]; then
+        export HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"
     fi
 fi
 
@@ -32,51 +33,28 @@ for _py_cand in \
     "/c/Program Files/Python311"; do
     _py_u="$_py_cand"
     command -v cygpath >/dev/null 2>&1 && _py_u="$(cygpath -u "$_py_cand" 2>/dev/null || echo "$_py_cand")"
-    if [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ]; then
-        export PATH="$_py_u:$_py_u/Scripts:$PATH"
-        break
-    fi
+    [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ] && { export PATH="$_py_u:$_py_u/Scripts:$PATH"; break; }
 done
 unset _py_cand _py_u
 
 _TERM_LINES=""
 _TERM_COLS=""
 _TERM_RESIZED=1
-# Set while an interactive menu owns the screen. Font zoom must not
-# reveal the caret or turn autowrap back on during that time.
 _MENU_CURSOR_LOCK=0
+
 _on_winch() {
     _TERM_RESIZED=1
-    # Ctrl+/- in mintty and Windows Terminal changes the font, which
-    # shows the caret again and can turn autowrap back on. Re-hide
-    # before any redraw so the caret cannot walk the right margin.
     if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
         printf '\033[?25l\033[?12l\033[?7l' 2>/dev/null || true
     fi
 }
 trap '_on_winch' WINCH
 
-# Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
 if ! command -v pgrep >/dev/null 2>&1; then
     pgrep() {
-        local flag_f=false
-        local flag_x=false
-        local flag_i=false
-        local pattern=""
-        while [ $# -gt 0 ]; do
-            case "$1" in
-                -f) flag_f=true; shift ;;
-                -x) flag_x=true; shift ;;
-                -i) flag_i=true; shift ;;
-                -a|-fa|-l) shift ;;
-                -*) shift ;;
-                *) pattern="$1"; shift ;;
-            esac
-        done
+        local pattern="$1"
         [ -z "$pattern" ] && return 1
 
-        # One process snapshot serves every probe in this shell for 2s.
-        # The header used to scan the process list once per player.
         local now_s="${SECONDS:-0}"
         if [ $((now_s - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
             _PGREP_SNAP_AT="$now_s"
@@ -87,12 +65,8 @@ if ! command -v pgrep >/dev/null 2>&1; then
             fi
         fi
 
-        local matches=""
-        if [ "$flag_i" = true ]; then
-            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -iE -- "$pattern" | grep -v "grep" || true)
-        else
-            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
-        fi
+        local matches
+        matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
 
         if [ -n "$matches" ]; then
             printf '%s\n' "$matches" | awk '{print $2}'
@@ -118,23 +92,16 @@ if ! command -v pkill >/dev/null 2>&1; then
         local pattern=""
         while [ $# -gt 0 ]; do
             case "$1" in
-                -9|-KILL) sig="KILL"; shift ;;
-                -15|-TERM) sig="TERM"; shift ;;
-                -f|-i|-x) shift ;;
-                -*) shift ;;
-                *) pattern="$1"; shift ;;
+                -9|-KILL) sig="KILL" ;;
+                -15|-TERM) sig="TERM" ;;
+                -f|-i|-x) ;;
+                -*) ;;
+                *) pattern="$1" ;;
             esac
+            shift
         done
         [ -z "$pattern" ] && return 1
-        local pids
-        pids=$(pgrep -f "$pattern" 2>/dev/null || true)
-        if [ -n "$pids" ]; then
-            for pid in $pids; do
-                kill -$sig "$pid" 2>/dev/null || true
-            done
-            return 0
-        fi
-        return 1
+        pgrep -f "$pattern" | xargs -I{} kill -$sig {} 2>/dev/null || true
     }
     export -f pkill 2>/dev/null || true
 fi
@@ -160,9 +127,7 @@ _win_console_size() {
 update_terminal_geometry() {
     local force="${1:-0}"
     local win_l="" win_c=""
-    # manager.bat's console: trust the visible window, never stty.
-    # Do not copy this into LINES/COLUMNS. That would look like a second
-    # resize on the next poll.
+
     if _win_console_size win_l win_c; then
         if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ] || [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
             _TERM_LINES="$win_l"
@@ -172,41 +137,34 @@ update_terminal_geometry() {
         fi
         return 1
     fi
+
     if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
-        local new_l="" new_c=""
-        # checkwinsize updates LINES/COLUMNS on SIGWINCH. Prefer those
-        # over `stty size`: spawning stty on every zoom makes mintty
-        # show the caret and blocks the key loop.
-        if [ -n "${LINES:-}" ] && [ -n "${COLUMNS:-}" ]; then
-            new_l="$LINES"
-            new_c="$COLUMNS"
-        fi
+        local new_l="${LINES:-}" new_c="${COLUMNS:-}"
         local need_stty=0
-        if [ -z "$new_l" ] || [ -z "$new_c" ]; then
-            need_stty=1
-        elif [ "$force" -eq 1 ] && [ "$new_l" = "${_TERM_LINES:-}" ] && [ "$new_c" = "${_TERM_COLS:-}" ]; then
+
+        if [ -z "$new_l" ] || [ -z "$new_c" ] || [ "$force" -eq 1 ] && [ "$new_l" = "${_TERM_LINES:-}" ] && [ "$new_c" = "${_TERM_COLS:-}" ]; then
             need_stty=1
         fi
+
         if [ "$need_stty" -eq 1 ]; then
-            local sz=""
+            local sz
             if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
                 read -r new_l new_c <<< "$sz"
-            elif [ -z "$new_l" ] || [ -z "$new_c" ]; then
+            else
                 new_l=$(tput lines 2>/dev/null || echo 40)
                 new_c=$(tput cols 2>/dev/null || echo 100)
             fi
         fi
-        # A zoom can legitimately make the window smaller than 40x15.
-        # Pretending it is still 40x100 draws past the edge, scrolls,
-        # and leaves the caret on the right margin.
-        if ! [[ "${new_l:-}" =~ ^[0-9]+$ ]] || [ "$new_l" -lt 1 ]; then
+
+        if ! [[ "$new_l" =~ ^[0-9]+$ ]] || [ "$new_l" -lt 1 ]; then
             new_l="${_TERM_LINES:-40}"
             [[ "$new_l" =~ ^[0-9]+$ ]] && [ "$new_l" -ge 1 ] || new_l=40
         fi
-        if ! [[ "${new_c:-}" =~ ^[0-9]+$ ]] || [ "$new_c" -lt 1 ]; then
+        if ! [[ "$new_c" =~ ^[0-9]+$ ]] || [ "$new_c" -lt 1 ]; then
             new_c="${_TERM_COLS:-100}"
             [[ "$new_c" =~ ^[0-9]+$ ]] && [ "$new_c" -ge 1 ] || new_c=100
         fi
+
         _TERM_LINES="$new_l"
         _TERM_COLS="$new_c"
         _TERM_RESIZED=0
@@ -360,59 +318,212 @@ set_theme_colors() {
 
 # UI Sound Effects player
 play_sound_effect() {
-    local sound_type="${1:-storage}"
-    local sound_file=""
+    local sound_type="${1:-storage}" sound_file=""
     
-    if [ "$sound_type" = "dreamworlds" ] || [ "$sound_type" = "theme" ]; then
-        for cand in \
-            "/usr/share/sounds/Oxygen-Sys-Special.ogg" \
-            "/usr/share/sounds/oxygen/stereo/dialog-special.ogg" \
-            "/usr/share/sounds/ocean/stereo/theme-demo.oga" \
-            "/usr/share/sounds/ocean/stereo/desktop-login.oga" \
-            "/usr/share/sounds/freedesktop/stereo/service-login.oga"; do
-            if [ -f "$cand" ]; then sound_file="$cand"; break; fi
+    if [[ "$sound_type" == "dreamworlds" || "$sound_type" == "theme" ]]; then
+        for cand in "/usr/share/sounds/Oxygen-Sys-Special.ogg" "/usr/share/sounds/oxygen/stereo/dialog-special.ogg" "/usr/share/sounds/ocean/stereo/theme-demo.oga" "/usr/share/sounds/ocean/stereo/desktop-login.oga" "/usr/share/sounds/freedesktop/stereo/service-login.oga"; do
+            if [[ -f "$cand" ]]; then sound_file="$cand"; break; fi
         done
-    elif [ "$sound_type" = "storage" ]; then
-        for cand in \
-            "/usr/share/sounds/ocean/stereo/device-added.oga" \
-            "/usr/share/sounds/freedesktop/stereo/device-added.oga" \
-            "/usr/share/sounds/Oxygen-Sys-App-Positive.ogg" \
-            "/usr/share/sounds/ocean/stereo/completion-success.oga"; do
-            if [ -f "$cand" ]; then sound_file="$cand"; break; fi
+    elif [[ "$sound_type" == "storage" ]]; then
+        for cand in "/usr/share/sounds/ocean/stereo/device-added.oga" "/usr/share/sounds/freedesktop/stereo/device-added.oga" "/usr/share/sounds/Oxygen-Sys-App-Positive.ogg" "/usr/share/sounds/ocean/stereo/completion-success.oga"; do
+            if [[ -f "$cand" ]]; then sound_file="$cand"; break; fi
         done
     fi
     
-    if [ -n "$sound_file" ]; then
-        if command -v pw-play >/dev/null 2>&1; then
-            pw-play "$sound_file" >/dev/null 2>&1 &
-        elif command -v paplay >/dev/null 2>&1; then
-            paplay "$sound_file" >/dev/null 2>&1 &
-        elif command -v canberra-gtk-play >/dev/null 2>&1; then
-            canberra-gtk-play -f "$sound_file" >/dev/null 2>&1 &
-        elif command -v aplay >/dev/null 2>&1; then
-            aplay -q "$sound_file" >/dev/null 2>&1 &
-        fi
+    if [[ -n "$sound_file" ]]; then
+        for player in pw-play paplay canberra-gtk-play aplay; do
+            if command -v "$player" >/dev/null 2>&1; then
+                "$player" "$sound_file" >/dev/null 2>&1 & break
+            fi
+        done
     fi
 }
 
 # Returns 0 exactly once per real terminal resize (WINCH or a change in bash's LINES/COLUMNS)
-_SEEN_LINES="${LINES:-}"
-_SEEN_COLS="${COLUMNS:-}"
 _resize_pending() {
-    local win_l="" win_c=""
-    local file_changed=0
+    local win_l win_c
     if _win_console_size win_l win_c; then
-        if [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
-            file_changed=1
+        if [[ "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" || "${LINES:-}" != "$_SEEN_LINES" || "${COLUMNS:-}" != "$_SEEN_COLS" ]]; then
+            _TERM_RESIZED=0
+            _SEEN_LINES="${LINES:-}"
+            _SEEN_COLS="${COLUMNS:-}"
+            return 0
         fi
     fi
-    if [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "$file_changed" -eq 1 ] || [ "${LINES:-}" != "$_SEEN_LINES" ] || [ "${COLUMNS:-}" != "$_SEEN_COLS" ]; then
-        _TERM_RESIZED=0
-        _SEEN_LINES="${LINES:-}"
-        _SEEN_COLS="${COLUMNS:-}"
+    return 1
+}
+
+# Bytes pushed back while discarding a held arrow. Bash 5.3 cannot ungetc.
+# A queued newline stands for Enter: `read -n1` stores that as an empty string.
+_nav_pending=""
+
+# manager.bat attaches Git Bash to the Windows console (/dev/consN).
+# manager.sh is mintty (/dev/ptyN). Cached so a key repeat does not fork.
+_NAV_WIN_CON=""
+_nav_mark_console() {
+    [ -n "${_NAV_WIN_CON:-}" ] && return 0
+    case "$(tty 2>/dev/null)" in
+        /dev/cons*) _NAV_WIN_CON=1 ;;
+        *) _NAV_WIN_CON=0 ;;
+    esac
+}
+
+# Copy one queued or already-buffered character into the named variable.
+# Do not use `read -t 0` here. On the Windows console that poll drops the
+# byte it notices, so the ESC of a Down arrow disappears and the final B
+# is read later as Back. A byte that is already waiting is returned at
+# once. An empty buffer comes back in a few milliseconds, before the
+# keyboard has repeated, so a key that is still held is left for the
+# real read.
+_nav_take_ready() {
+    local _dest="$1"
+    local _ch=""
+    _nav_mark_console
+    if [ -n "$_nav_pending" ]; then
+        printf -v "$_dest" '%s' "${_nav_pending:0:1}"
+        _nav_pending="${_nav_pending:1}"
         return 0
     fi
+    if IFS= read -rsn1 -t 0.01 _ch; then
+        # A successful read that stores nothing is the same shape as Enter.
+        # Do not turn it into a newline: the menu would leave the screen.
+        if [ -z "$_ch" ]; then
+            printf -v "$_dest" '%s' ""
+            return 2
+        fi
+        printf -v "$_dest" '%s' "$_ch"
+        return 0
+    fi
+    printf -v "$_dest" '%s' ""
     return 1
+}
+
+# Set when an arrow was just handled. manager.bat's console then delivers
+# a leftover A/B or a null read; those must not become text or Enter.
+_NAV_ARROW_AT=""
+
+# Copy one queued or already-buffered character into the named variable.
+# Do not use `read -t 0` here. On the Windows console that poll drops the
+# byte it notices, so the ESC of a Down arrow disappears and the final B
+# is read later as Back. A byte that is already waiting is returned at
+# once. An empty buffer comes back in a few milliseconds, before the
+# keyboard has repeated, so a key that is still held is left for the
+# real read.
+_nav_take_ready() {
+    local _dest="$1" _ch
+    _nav_mark_console
+    if [ -n "$_nav_pending" ]; then
+        _nav_pending="${_nav_pending:1}"
+    elif IFS= read -rsn1 -t 0.01 _ch; then
+        [ -z "$_ch" ] && return 2
+    else
+        return 1
+    fi
+    printf -v "$_dest" '%s' "$_ch"
+}
+
+_nav_push_front() {
+    _nav_pending="${1}${_nav_pending}"
+}
+
+# Timed read used by the menu. Queued bytes are returned before stdin.
+# The status of a real read is preserved so a timeout stays a tick and
+# end-of-file does not.
+_nav_pull() {
+    local _to="$1"
+    local _dest="$2"
+    if [ -n "$_nav_pending" ]; then
+        printf -v "$_dest" '%s' "${_nav_pending:0:1}"
+        _nav_pending="${_nav_pending:1}"
+        return 0
+    fi
+    local _ch="" _rc=0
+    IFS= read -rsn1 -t "$_to" _ch
+    _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+        printf -v "$_dest" '%s' "$_ch"
+        return 0
+    fi
+    printf -v "$_dest" '%s' ""
+    return "$_rc"
+}
+
+# Drop up/down repeats that arrived while the menu was painting.
+# Replaying that backlog is what keeps the highlight moving after the
+# key is released. A repeat that is not buffered yet is left alone, so
+# holding the key still advances on the keyboard's own repeat.
+_discard_buffered_vertical_arrows() {
+    local guard=0
+    local b1="" b2="" b3="" b4=""
+    local seq="" cur="" steps=0 discard_it=0
+    local ready_rc=0 empties=0
+
+    while [ "$guard" -lt 200 ]; do
+        guard=$((guard + 1))
+        b1=""
+        _nav_take_ready b1
+        ready_rc=$?
+        if [ "$ready_rc" -eq 2 ]; then
+            if [ "${_NAV_WIN_CON:-0}" -ne 1 ]; then
+                _nav_pending=$'\n'"${_nav_pending}"
+                return 0
+            fi
+            empties=$((empties + 1))
+            [ "$empties" -ge 2 ] && return 0
+            continue
+        fi
+        [ "$ready_rc" -eq 0 ] || return 0
+        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ]]; then
+            continue
+        fi
+        if [[ "$b1" != $'\e' ]]; then
+            _nav_push_front "$b1"
+            return 0
+        fi
+        if ! _nav_take_ready b2 || [[ "$b2" != "[" && "$b2" != "O" ]]; then
+            _nav_push_front "${b1}${b2:-}"
+            return 0
+        fi
+        if [[ "$b2" == "[" ]]; then
+            if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then
+                if [[ "$b3" == "[" ]]; then
+                    if ! _nav_take_ready b4 || [[ "$b4" != "A" && "$b4" != "B" ]]; then
+                        _nav_push_front "${b1}${b2}${b3}${b4:-}"
+                        return 0
+                    fi
+                    discard_it=1
+                else
+                    seq="${b1}${b2}${b3}"
+                    while [ "$steps" -lt 16 ]; do
+                        steps=$((steps + 1))
+                        cur=""
+                        if ! _nav_take_ready cur; then
+                            _nav_push_front "$seq"
+                            return 0
+                        fi
+                        seq+="$cur"
+                        if [[ "$cur" == "A" || "$cur" == "B" ]]; then
+                            discard_it=1
+                            break
+                        fi
+                        if [[ "$cur" =~ [A-Za-z~] ]]; then
+                            _nav_push_front "$seq"
+                            return 0
+                        fi
+                    done
+                    if [ "$discard_it" -ne 1 ]; then
+                        _nav_push_front "$seq"
+                        return 0
+                    fi
+                fi
+            fi
+        elif [[ "$b2" == "O" ]]; then
+            if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then
+                _nav_push_front "${b1}${b2}${b3:-}"
+                return 0
+            fi
+        fi
+    done
 }
 
 # Key reader for interactive navigation
@@ -428,51 +539,31 @@ read_nav_key() {
         return 0
     }
 
-    # Zoom sends SIGWINCH while arrows may already be buffered.
-    # Deliver a waiting key first so the resize cannot swallow it.
-    # Bash 5.3 `read -t 0` only polls: success means "readable" and it
-    # does not store the byte. An empty poll must not become Enter.
-    local read_rc=1
-    local have_key=0
-    local _poll=""
-    IFS= read -rsn1 -t 0 _poll
+    _nav_mark_console
+    local read_rc=0
+    _nav_pull 0.05 _k
     read_rc=$?
-    if [ "$read_rc" -eq 0 ] && [ -n "$_poll" ]; then
-        _k="$_poll"
-        have_key=1
-    elif [ "$read_rc" -eq 0 ]; then
-        if IFS= read -rsn1 -t 0.05 _k; then
-            have_key=1
-        fi
-    fi
-    if [ "$have_key" -eq 0 ]; then
+    if [ "$read_rc" -ne 0 ]; then
         _k=""
         if _resize_pending; then
             _emit_key "RESIZE"
             return 0
         fi
-        # 0.05s is the longest a window drag can go unnoticed. A timed-out
-        # read is a tick, not a redraw: the menu paints only when the
-        # size or the selection actually changed.
-        IFS= read -rsn1 -t 0.05 _k
-        read_rc=$?
-        if [ "$read_rc" -ne 0 ]; then
-            if _resize_pending; then
-                _emit_key "RESIZE"
-                return 0
-            fi
-            if [ "$read_rc" -gt 128 ]; then
-                _emit_key "TICK"
-                return 0
-            fi
-            if [ -n "$_out_var" ]; then
-                printf -v "$_out_var" "%s" ""
-            fi
-            return 1
+        if [ "$read_rc" -gt 128 ]; then
+            _emit_key "TICK"
+            return 0
         fi
+        if [ -n "$_out_var" ]; then
+            printf -v "$_out_var" "%s" ""
+        fi
+        return 1
     fi
 
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
+        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && _nav_just_arrowed; then
+            _emit_key "TICK"
+            return 0
+        fi
         _emit_key "ENTER"
     elif [[ "$_k" == " " ]]; then
         _emit_key "SPACE"
@@ -480,10 +571,10 @@ read_nav_key() {
         _emit_key "BACKSPACE"
     elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then
         local c2=""
-        if IFS= read -rsn1 -t 0.02 c2; then
+        if _nav_pull 0.02 c2; then
             if [[ "$c2" == "[" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.02 c3; then
+                if _nav_pull 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -493,7 +584,7 @@ read_nav_key() {
                         "F") _emit_key "END" ;;
                         "[")
                             local c4=""
-                            if IFS= read -rsn1 -t 0.02 c4; then
+                            if _nav_pull 0.02 c4; then
                                 case "$c4" in
                                     "A") _emit_key "UP" ;;
                                     "B") _emit_key "DOWN" ;;
@@ -505,7 +596,7 @@ read_nav_key() {
                             ;;
                         [0-9])
                             local c4=""
-                            if IFS= read -rsn1 -t 0.02 c4; then
+                            if _nav_pull 0.02 c4; then
                                 case "${c3}${c4}" in
                                     "5~") _emit_key "PAGE_UP" ;;
                                     "6~") _emit_key "PAGE_DOWN" ;;
@@ -515,13 +606,13 @@ read_nav_key() {
                                     "3~") _emit_key "DELETE" ;;
                                     "23"|"24")
                                         local c5=""
-                                        IFS= read -rsn1 -t 0.02 c5
+                                        _nav_pull 0.02 c5 || true
                                         _emit_key "TOGGLE_FULLSCREEN"
                                         ;;
                                     *)
                                         local cur="${c4}"
                                         while [[ ! "$cur" =~ [A-Za-z~] ]]; do
-                                            IFS= read -rsn1 -t 0.02 cur || break
+                                            _nav_pull 0.02 cur || break
                                         done
                                         case "$cur" in
                                             "A") _emit_key "UP" ;;
@@ -543,7 +634,7 @@ read_nav_key() {
                 fi
             elif [[ "$c2" == "O" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.02 c3; then
+                if _nav_pull 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -659,12 +750,15 @@ _start_win_cursor_hider() {
     else
         return 0
     fi
-    # Drop a previous session's size so mintty cannot inherit it if this
-    # process exits immediately (CONOUT$ is not the mintty window).
-    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
-    rm -f "${HOME}/.config/mix-manager/console_size" 2>/dev/null || true
-    MP_WIN_SIZE_FILE="${HOME}/.config/mix-manager/console_size" \
-    "$py" -u - >/dev/null 2>&1 <<'PY' &
+
+    local conf_dir="${HOME}/.config/mix-manager"
+    mkdir -p "$conf_dir" 2>/dev/null || true
+    rm -f "$conf_dir/console_size" 2>/dev/null || true
+    local hider_py="$conf_dir/win_cursor_hider.py"
+
+    # Write the helper script to disk once to prevent heredoc buffer leaks in Git Bash
+    if [ ! -f "$hider_py" ]; then
+        cat <<'PY' > "$hider_py"
 import ctypes, os, sys, time
 k = ctypes.WinDLL("kernel32", use_last_error=True)
 k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
@@ -701,7 +795,6 @@ class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
 
 def _native_path(p):
-    # Bash hands over /c/Users/... . Win32 Python does not open that.
     if os.name != "nt" or not p:
         return p
     if len(p) >= 4 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
@@ -713,7 +806,6 @@ def _native_path(p):
 info = CCI()
 csbi = CSBI()
 size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
-# A padded struct would publish a garbage window and the menu would jump.
 if ctypes.sizeof(csbi) != 22:
     size_path = ""
 last = None
@@ -745,6 +837,10 @@ while True:
     publish()
     time.sleep(0.04)
 PY
+    fi
+
+    MP_WIN_SIZE_FILE="$conf_dir/console_size" \
+    "$py" -u "$hider_py" >/dev/null 2>&1 &
     _WIN_CURSOR_HIDER_PID=$!
 }
 
@@ -752,10 +848,17 @@ _stop_win_cursor_hider() {
     local pid="${_WIN_CURSOR_HIDER_PID:-}"
     _WIN_CURSOR_HIDER_PID=""
     if [ -n "$pid" ]; then
+        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local _win_pid
+            _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}')
+            if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F >/dev/null 2>&1 || true
+            fi
+        fi
         kill -9 "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
     fi
 }
+
 
 # Interactive Submenu Runner
 run_interactive_submenu() {
@@ -845,6 +948,7 @@ run_interactive_submenu() {
 
     local header_count=0
     local cached_header_block=""
+    local cached_header_lines=0
     local overhead=4
 
     build_header_block() {
@@ -884,9 +988,78 @@ run_interactive_submenu() {
         overhead=5 # prompt help line (1), top scroll (1), bottom scroll (1), bottom divider (1), selection status (1)
         [ -n "$menu_title" ] && overhead=$((overhead + 3)) # top box border, title line, bottom box border
         overhead=$((overhead + header_count))
+        # Help line is always present. The title box is three lines and is
+        # not included in header_count. This is the row count of the block.
+        cached_header_lines=$header_count
+        [ -n "$menu_title" ] && cached_header_lines=$((cached_header_lines + 3))
+        cached_header_lines=$((cached_header_lines + 1))
     }
 
     build_header_block
+
+    # Status line shared by the full frame and the one-row selection paint.
+    _compose_menu_status() {
+        local _out="$1"
+        local cur_key="" cur_lbl="" cur_ext=""
+        local line=""
+        IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
+        if [ -n "$typed_buffer" ]; then
+            if [ -n "$menu_title" ]; then
+                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
+            else
+                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
+            fi
+        else
+            if [ -n "$menu_title" ]; then
+                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
+            else
+                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
+            fi
+        fi
+        printf -v "$_out" '%s' "$line"
+    }
+
+    _menu_line_plain() {
+        local idx="$1"
+        local _out="$2"
+        local o_key="" o_label="" o_extra=""
+        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
+        local key_formatted=""
+        printf -v key_formatted "[%2s]" "$o_key"
+        local extra_display=""
+        [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
+        printf -v "$_out" '%s' "     ${BOLD}${CYAN}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
+    }
+
+    # Repaint the previous row, the new row, and the status line.
+    # Returns 1 when the window must scroll, so the caller rebuilds the frame.
+    _menu_fast_paint_selection() {
+        local old_idx="$1"
+        [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
+        # A cursor address past the visible window scrolls the Windows
+        # console and the menu appears to vanish. Fall back to a full paint.
+        [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
+        [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1
+        [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
+        [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
+        [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
+        [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1
+        [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1
+        local plain="" sel="" status=""
+        local o_key="" o_label="" o_extra=""
+        _menu_line_plain "$old_idx" plain
+        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"
+        highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"
+        _compose_menu_status status
+        # No DEC 2026 and no trailing newline. A newline on the last painted
+        # row would scroll the window. Bash flushes this before the next read.
+        printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b' "${_menu_item_row[$old_idx]}" "$plain"
+        printf '\033[0m\033[%s;1H%b' "${_menu_item_row[$cur_idx]}" "$sel"
+        printf '\033[0m\033[%s;1H%b\r\033[?25l' "${_menu_status_row}" "$status"
+        return 0
+    }
 
     cleanup_submenu_screen() {
         _MENU_CURSOR_LOCK=0
@@ -909,6 +1082,10 @@ run_interactive_submenu() {
     local last_term_lines="$_TERM_LINES"
     local _MENU_FRAME_FRESH=0
     local _LAST_MENU_TICK_S="${SECONDS:-0}"
+    local -a _menu_item_row=()
+    local _menu_status_row=0
+    local _menu_fast_ok=0
+    local _ARROW_HOLD=0
 
     while true; do
         update_terminal_geometry 0
@@ -1021,6 +1198,11 @@ run_interactive_submenu() {
         local frame_buf="$cached_header_block"
         [ -n "$player_banner" ] && frame_buf+="$player_banner"
 
+        # First item row: header, then the player banner, then the top scroller.
+        _menu_item_row=()
+        _menu_fast_ok=0
+        local _menu_row=$(( cached_header_lines + banner_lines + 2 ))
+
         # Scroll indicator top
         if [ "$view_top" -gt 0 ]; then
             frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"
@@ -1031,6 +1213,8 @@ run_interactive_submenu() {
         # Render visible items
         local idx
         for (( idx=view_top; idx<=view_end; idx++ )); do
+            _menu_item_row[$idx]=$_menu_row
+            _menu_row=$((_menu_row + 1))
             IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
             if [ "$o_key" = "SECTION" ]; then
                 local sec_rem=$(( inner_w - ${#o_label} - 8 ))
@@ -1060,6 +1244,9 @@ run_interactive_submenu() {
                 frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"
             fi
         done
+        # Bottom scroller, divider, then the status line.
+        _menu_status_row=$((_menu_row + 2))
+        _menu_fast_ok=1
 
         # Scroll indicator bottom
         local remaining_below=$(( total_opts - 1 - view_end ))
@@ -1070,20 +1257,9 @@ run_interactive_submenu() {
         fi
 
         frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
-        IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
-        if [ -n "$typed_buffer" ]; then
-            if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
-            else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
-            fi
-        else
-            if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
-            else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
-            fi
-        fi
+        local _status_line=""
+        _compose_menu_status _status_line
+        frame_buf+="$_status_line"
         
         # Draw only when the screen changed. Never park the caret on the
         # right edge: after Ctrl+/- mintty shows it there and it tracks
@@ -1106,6 +1282,13 @@ run_interactive_submenu() {
             run_deferred_startup
         fi
         _MENU_FRAME_FRESH=1
+        fi
+
+        # The paint above is slower than key repeat. Drop the up/down
+        # sequences already waiting so releasing the key stops the highlight.
+        if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then
+            _discard_buffered_vertical_arrows
+            _ARROW_HOLD=0
         fi
 
         local key_action=""
@@ -1183,6 +1366,7 @@ run_interactive_submenu() {
                 [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset >/dev/null 2>&1 &
                 ;;
             UP)
+                local old_idx="$cur_idx"
                 local hops=0
                 while [ "$hops" -lt "$total_opts" ]; do
                     cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts ))
@@ -1191,6 +1375,11 @@ run_interactive_submenu() {
                     ((hops++))
                 done
                 typed_buffer=""
+                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
+                    _MENU_FRAME_FRESH=1
+                fi
+                _ARROW_HOLD=1
+                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
                 ;;
             PAGE_UP)
                 local hops=0
@@ -1205,6 +1394,7 @@ run_interactive_submenu() {
                 typed_buffer=""
                 ;;
             DOWN)
+                local old_idx="$cur_idx"
                 local hops=0
                 while [ "$hops" -lt "$total_opts" ]; do
                     cur_idx=$(( (cur_idx + 1) % total_opts ))
@@ -1213,6 +1403,11 @@ run_interactive_submenu() {
                     ((hops++))
                 done
                 typed_buffer=""
+                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
+                    _MENU_FRAME_FRESH=1
+                fi
+                _ARROW_HOLD=1
+                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
                 ;;
             PAGE_DOWN)
                 local hops=0
@@ -1266,6 +1461,12 @@ run_interactive_submenu() {
                 ;;
             CHAR:*)
                 local ch="${key_action#CHAR:}"
+                # manager.bat's console can deliver the arrow's final A or B
+                # again. B is also Back, so it was leaving the menu and the
+                # main loop reported an invalid option. mintty does not.
+                if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then
+                    continue
+                fi
                 if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then
                     local has_exact_p=0
                     for opt_entry in "${_opts_ref[@]}"; do
@@ -1459,58 +1660,15 @@ exit_mix_manager() {
     _MENU_CURSOR_LOCK=0
     _stop_win_cursor_hider
     _stop_mp_audio_daemon
+    # Terminate all spawned subshells, background workers, and jobs
+    kill $(jobs -p) 2>/dev/null || true
     printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
-_on_manager_close_signal() {
-    if [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ]; then
-        exit_mix_manager
-    fi
-    _MENU_CURSOR_LOCK=0
-    _stop_win_cursor_hider
-    printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
-    exit 0
-}
-trap 'exit_mix_manager' INT
-trap '_on_manager_close_signal' HUP TERM
-trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ] && _stop_mp_audio_daemon; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
-
-MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
- APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
- printf '\033]0;%s\007' "MP Mix Archive Manager [${APP_VERSION}]" 2>/dev/null || true
-# Resolve symlinks so SCRIPT_DIR correctly points to codebase directory
-_RESOLVED_SRC="${BASH_SOURCE[0]}"
-_RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-# cygpath is slow. Git Bash already hands us a POSIX path.
-if command -v cygpath >/dev/null 2>&1 && [[ "$_RESOLVED_SRC" =~ ^[A-Za-z]: ]]; then
-    _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-fi
-while [ -h "$_RESOLVED_SRC" ]; do
-    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
-    _RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-    command -v cygpath >/dev/null 2>&1 && _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-if [ ! -d "$SCRIPT_DIR/scripts" ]; then
-    for _c in \
-        "$PWD" \
-        "$HOME/Downloads/MP_Mix_Manager_v0.3" \
-        "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3" \
-        "/var/home/mplanetarian/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.1"; do
-        if [ -d "$_c/scripts" ]; then
-            SCRIPT_DIR="$_c"
-            break
-        fi
-    done
-fi
-unset _RESOLVED_SRC _RESOLVED_DIR _c
+#!/bin/bash
 
 # Ensure Windows Python and WinGet binaries take precedence over Microsoft Store dummy stubs
 if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
@@ -1534,8 +1692,6 @@ if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
         fi
     fi
 fi
-
-export PATH="$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:$PATH"
 
 # OS Platform Detection (Linux, macOS, Windows 10/11, FreeBSD)
 OS_TYPE="linux"
@@ -1561,46 +1717,21 @@ case "$(uname -s)" in
         ;;
 esac
 
-# Auto-upgrade to modern Homebrew Bash on macOS if running under ancient Bash 3.2
-if [ "$OS_TYPE" = "macos" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-    if [ -x "/opt/homebrew/bin/bash" ]; then
-        exec /opt/homebrew/bin/bash "$0" "$@"
-    elif [ -x "/usr/local/bin/bash" ]; then
-        exec /usr/local/bin/bash "$0" "$@"
-    fi
-fi
+    # Cross-Platform Open Path (File/Directory opener for Linux, macOS, and Windows)
+    open_path() {
+        local target="$1"
+        [ -z "$target" ] && return 0
 
-# Fork the caret hider while this process is still small. A fork after
-# every function is loaded is a large MSYS copy and lands before the
-# first frame.
-if [ -t 1 ]; then
-    _start_win_cursor_hider
-fi
-
-# Cross-Platform Open Path (File/Directory opener for Linux, macOS, and Windows)
-open_path() {
-    local target="$1"
-    [ -z "$target" ] && return 0
-    if [ "$OS_TYPE" = "macos" ]; then
-        open "$target" >/dev/null 2>&1 &
-    elif [ "$OS_TYPE" = "windows" ]; then
-        if command -v cygpath >/dev/null 2>&1; then
-            local win_p
-            win_p="$(cygpath -w "$target" 2>/dev/null || echo "$target")"
-            cmd.exe /c start "" "$win_p" >/dev/null 2>&1 &
-        else
-            explorer.exe "$target" >/dev/null 2>&1 &
-        fi
-    elif [ "$OS_TYPE" = "wsl" ]; then
-        if command -v wslview >/dev/null 2>&1; then
-            wslview "$target" >/dev/null 2>&1 &
-        elif command -v explorer.exe >/dev/null 2>&1; then
+        if [ "$OS_TYPE" = "macos" ]; then
+            open "$target" >/dev/null 2>&1 &
+        elif [ "$OS_TYPE" = "windows" ]; then
+            cmd.exe /c start "" "$(cygpath -w "$target" 2>/dev/null || echo "$target")" >/dev/null 2>&1 &
+        elif [ "$OS_TYPE" = "wsl" ]; then
             explorer.exe "$(wslpath -w "$target" 2>/dev/null || echo "$target")" >/dev/null 2>&1 &
+        elif command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$target" >/dev/null 2>&1 &
         fi
-    elif command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$target" >/dev/null 2>&1 &
-    fi
-}
+    }
 
 # Ensure KWin rules for Borderless & Keep-Above Windows exist on Bazzite / KDE Plasma
 ensure_bazzite_borderless_kwin_rule() {
@@ -1691,18 +1822,17 @@ if os.path.exists('/usr/bin/qdbus'):
     fi
 }
 
+# Function: get_connected_displays_count
+# Description: Returns the count of connected displays.
+# Usage: get_connected_displays_count
 get_connected_displays_count() {
     if command -v kscreen-doctor >/dev/null 2>&1; then
-        local cnt
-        cnt=$(kscreen-doctor -o 2>/dev/null | grep -c "Output: ")
-        [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && echo "$cnt" && return 0
+        kscreen-doctor -o 2>/dev/null | grep -c "Output: " || echo 1
+    elif command -v xrandr >/dev/null 2>&1; then
+        xrandr --listmonitors 2>/dev/null | awk '/Monitors:/{print $2}' || echo 1
+    else
+        echo 1
     fi
-    if command -v xrandr >/dev/null 2>&1; then
-        local cnt
-        cnt=$(xrandr --listmonitors 2>/dev/null | awk '/Monitors:/{print $2}')
-        [ -n "$cnt" ] && [ "$cnt" -gt 0 ] && echo "$cnt" && return 0
-    fi
-    echo 1
 }
 
 _IS_FULLSCREEN=0
@@ -1712,11 +1842,9 @@ toggle_manager_fullscreen() {
     app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
     if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then
         _IS_FULLSCREEN=0
-        # Restore windowed mode (DEC/xterm unmaximize and un-fullscreen)
         printf '\033[10;0t\033[9;0t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
     else
         _IS_FULLSCREEN=1
-        # Set fullscreen / maximized mode (DEC/xterm fullscreen and maximize)
         printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
     fi
 }
@@ -15049,7 +15177,7 @@ render_main_header() {
     local h_eq
     printf -v h_eq '%*s' "$cur_box_w" ''
     h_eq="${h_eq// /=}"
-    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3)"
+    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3.6 Beta)"
     local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
     [ "$title_pad" -lt 0 ] && title_pad=0
     local title_sp
@@ -15455,8 +15583,16 @@ while true; do
             manage_desktop_shortcuts
             ;;
         *)
-            echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"
-            sleep 2
+            # Arrow debris from the Windows console (A, B, [A, [B) is not a
+            # menu choice. Redrawing is enough; the error and the pause made
+            # the whole menu blink away.
+            case "$choice" in
+                ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;;
+                *)
+                    echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"
+                    sleep 2
+                    ;;
+            esac
             ;;
     esac
 done
