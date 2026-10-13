@@ -750,12 +750,15 @@ _start_win_cursor_hider() {
     else
         return 0
     fi
-    # Drop a previous session's size so mintty cannot inherit it if this
-    # process exits immediately (CONOUT$ is not the mintty window).
-    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
-    rm -f "${HOME}/.config/mix-manager/console_size" 2>/dev/null || true
-    MP_WIN_SIZE_FILE="${HOME}/.config/mix-manager/console_size" \
-    "$py" -u - >/dev/null 2>&1 <<'PY' &
+
+    local conf_dir="${HOME}/.config/mix-manager"
+    mkdir -p "$conf_dir" 2>/dev/null || true
+    rm -f "$conf_dir/console_size" 2>/dev/null || true
+    local hider_py="$conf_dir/win_cursor_hider.py"
+
+    # Write the helper script to disk once to prevent heredoc buffer leaks in Git Bash
+    if [ ! -f "$hider_py" ]; then
+        cat <<'PY' > "$hider_py"
 import ctypes, os, sys, time
 k = ctypes.WinDLL("kernel32", use_last_error=True)
 k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
@@ -792,7 +795,6 @@ class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
 
 def _native_path(p):
-    # Bash hands over /c/Users/... . Win32 Python does not open that.
     if os.name != "nt" or not p:
         return p
     if len(p) >= 4 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
@@ -804,7 +806,6 @@ def _native_path(p):
 info = CCI()
 csbi = CSBI()
 size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
-# A padded struct would publish a garbage window and the menu would jump.
 if ctypes.sizeof(csbi) != 22:
     size_path = ""
 last = None
@@ -836,22 +837,11 @@ while True:
     publish()
     time.sleep(0.04)
 PY
-    _WIN_CURSOR_HIDER_PID=$!
-}
-
-_stop_win_cursor_hider() {
-    local pid="${_WIN_CURSOR_HIDER_PID:-}"
-    _WIN_CURSOR_HIDER_PID=""
-    if [ -n "$pid" ]; then
-        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-            local _win_pid
-            _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}')
-            if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then
-                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F >/dev/null 2>&1 || true
-            fi
-        fi
-        kill -9 "$pid" 2>/dev/null || true
     fi
+
+    MP_WIN_SIZE_FILE="$conf_dir/console_size" \
+    "$py" -u "$hider_py" >/dev/null 2>&1 &
+    _WIN_CURSOR_HIDER_PID=$!
 }
 
 # Interactive Submenu Runner
