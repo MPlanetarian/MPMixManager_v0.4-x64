@@ -376,26 +376,16 @@ _nav_mark_console() {
 # keyboard has repeated, so a key that is still held is left for the
 # real read.
 _nav_take_ready() {
-    local _dest="$1"
-    local _ch=""
+    local _dest="$1" _ch
     _nav_mark_console
     if [ -n "$_nav_pending" ]; then
-        printf -v "$_dest" '%s' "${_nav_pending:0:1}"
         _nav_pending="${_nav_pending:1}"
-        return 0
+    elif IFS= read -rsn1 -t 0.01 _ch; then
+        [ -z "$_ch" ] && return 2
+    else
+        return 1
     fi
-    if IFS= read -rsn1 -t 0.01 _ch; then
-        # A successful read that stores nothing is the same shape as Enter.
-        # Do not turn it into a newline: the menu would leave the screen.
-        if [ -z "$_ch" ]; then
-            printf -v "$_dest" '%s' ""
-            return 2
-        fi
-        printf -v "$_dest" '%s' "$_ch"
-        return 0
-    fi
-    printf -v "$_dest" '%s' ""
-    return 1
+    printf -v "$_dest" '%s' "$_ch"
 }
 
 # Set when an arrow was just handled. manager.bat's console then delivers
