@@ -445,13 +445,38 @@ _nav_take_ready() {
     fi
     _ch=""
     if IFS= read -rsn1 -t 0.001 _ch; then
-        # Enter is a successful read of the delimiter and stores nothing.
-        [ -z "$_ch" ] && _ch=$'\n'
+        # A Windows-console key-up is a successful read that stores nothing,
+        # the same shape as Enter. Do not turn it into a newline: the menu
+        # would treat it as Enter and leave the screen.
+        if [ -z "$_ch" ]; then
+            printf -v "$_dest" '%s' ""
+            return 2
+        fi
         printf -v "$_dest" '%s' "$_ch"
         return 0
     fi
     printf -v "$_dest" '%s' ""
     return 1
+}
+
+# Set when an arrow was just handled. manager.bat's console then delivers
+# a leftover A/B or a null read; those must not become text or Enter.
+_NAV_ARROW_AT=""
+
+_nav_just_arrowed() {
+    [ -n "${_NAV_ARROW_AT:-}" ] || return 1
+    local now="${EPOCHREALTIME:-0}"
+    local at="${_NAV_ARROW_AT}"
+    local ns="${now%%.*}" nf="${now#*.}"
+    local as="${at%%.*}" af="${at#*.}"
+    nf="${nf:0:3}"
+    af="${af:0:3}"
+    while [ "${#nf}" -lt 3 ]; do nf="${nf}0"; done
+    while [ "${#af}" -lt 3 ]; do af="${af}0"; done
+    [[ "$ns" =~ ^[0-9]+$ && "$as" =~ ^[0-9]+$ ]] || return 1
+    local now_ms=$((10#$ns * 1000 + 10#$nf))
+    local at_ms=$((10#$as * 1000 + 10#$af))
+    [ $((now_ms - at_ms)) -lt 80 ]
 }
 
 _nav_push_front() {
@@ -488,10 +513,25 @@ _discard_buffered_vertical_arrows() {
     local guard=0
     local b1="" b2="" b3="" b4=""
     local seq="" cur="" steps=0 discard_it=0
+    local ready_rc=0 empties=0
     while [ "$guard" -lt 200 ]; do
         guard=$((guard + 1))
         b1=""
-        _nav_take_ready b1 || return 0
+        _nav_take_ready b1
+        ready_rc=$?
+        if [ "$ready_rc" -eq 2 ]; then
+            # Null key-up. Keep looking once for a trailing A/B, then stop
+            # so a console that always looks readable cannot spin.
+            empties=$((empties + 1))
+            [ "$empties" -ge 2 ] && return 0
+            continue
+        fi
+        [ "$ready_rc" -eq 0 ] || return 0
+        # The console attached by manager.bat can follow ESC [ A/B with the
+        # final letter again. That letter is Up/Down, not typed text.
+        if [[ "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ]]; then
+            continue
+        fi
         if [[ "$b1" != $'\e' ]]; then
             _nav_push_front "$b1"
             return 0
@@ -633,6 +673,12 @@ read_nav_key() {
     fi
 
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
+        # A null read in the moment after an arrow is not the user pressing
+        # Enter. Counting it as Enter leaves the menu.
+        if _nav_just_arrowed; then
+            _emit_key "TICK"
+            return 0
+        fi
         _emit_key "ENTER"
     elif [[ "$_k" == " " ]]; then
         _emit_key "SPACE"
@@ -1093,6 +1139,12 @@ run_interactive_submenu() {
     _menu_fast_paint_selection() {
         local old_idx="$1"
         [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
+        # A cursor address past the visible window scrolls the Windows
+        # console and the menu appears to vanish. Fall back to a full paint.
+        [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
+        [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1
         [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
         [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
         [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
@@ -1430,6 +1482,7 @@ run_interactive_submenu() {
                     _MENU_FRAME_FRESH=1
                 fi
                 _ARROW_HOLD=1
+                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
                 ;;
             PAGE_UP)
                 local hops=0
@@ -1457,6 +1510,7 @@ run_interactive_submenu() {
                     _MENU_FRAME_FRESH=1
                 fi
                 _ARROW_HOLD=1
+                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
                 ;;
             PAGE_DOWN)
                 local hops=0
@@ -1510,6 +1564,12 @@ run_interactive_submenu() {
                 ;;
             CHAR:*)
                 local ch="${key_action#CHAR:}"
+                # manager.bat's console repeats the arrow's final A or B as a
+                # typed letter. B is also Back, so it was leaving the menu
+                # and the main loop reported an invalid option.
+                if [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then
+                    continue
+                fi
                 if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then
                     local has_exact_p=0
                     for opt_entry in "${_opts_ref[@]}"; do
@@ -15699,8 +15759,16 @@ while true; do
             manage_desktop_shortcuts
             ;;
         *)
-            echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"
-            sleep 2
+            # Arrow debris from the Windows console (A, B, [A, [B) is not a
+            # menu choice. Redrawing is enough; the error and the pause made
+            # the whole menu blink away.
+            case "$choice" in
+                ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;;
+                *)
+                    echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"
+                    sleep 2
+                    ;;
+            esac
             ;;
     esac
 done
