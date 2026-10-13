@@ -1357,18 +1357,126 @@ save_theme() {
 
 load_theme
 
+# Set once the interactive manager is on screen. One-shot queries such as
+# --track must not stop a daemon that belongs to another session.
+_STOP_AUDIO_ON_EXIT=0
+_MP_AUDIO_DAEMON_STOPPED=0
+
+# The playback daemon is not a child of this shell, so closing the
+# manager used to leave the mix playing. Ask it to exit, then force it
+# closed if it is still running.
+_mp_player_pid_alive() {
+    local pid="$1"
+    local comm=""
+    if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        comm=$(ps -W 2>/dev/null | awk -v pid="$pid" '$4 == pid {print $NF; found=1; exit} END {exit !found}') || return 1
+    else
+        kill -0 "$pid" 2>/dev/null || return 1
+        return 0
+    fi
+    case "$comm" in
+        *[Pp]ython*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_stop_mp_audio_daemon() {
+    [ "${_MP_AUDIO_DAEMON_STOPPED:-0}" -eq 1 ] && return 0
+    _MP_AUDIO_DAEMON_STOPPED=1
+    # Startup autoplay is a background job. Stop it first so it cannot
+    # launch the player after this function has already looked.
+    if [ -n "${_AUTOPLAY_PID:-}" ]; then
+        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local _ap_win=""
+            _ap_win=$(ps -W 2>/dev/null | awk -v pid="$_AUTOPLAY_PID" '$1 == pid {print $4; exit}')
+            if [[ "$_ap_win" =~ ^[0-9]+$ ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_ap_win" /T /F >/dev/null 2>&1 || true
+            else
+                kill "$_AUTOPLAY_PID" 2>/dev/null || true
+            fi
+        else
+            kill "$_AUTOPLAY_PID" 2>/dev/null || true
+        fi
+        _AUTOPLAY_PID=""
+    fi
+    local pid_file="${HOME}/.config/mix-manager/mp_player.pid"
+    local port_file="${HOME}/.config/mix-manager/mp_audio_player.port"
+    local state_file="${HOME}/.config/mix-manager/mp_player_state.json"
+    [ -f "$pid_file" ] || return 0
+    local pid=""
+    IFS= read -r pid < "$pid_file" 2>/dev/null || true
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+    if ! _mp_player_pid_alive "$pid"; then
+        rm -f "$pid_file" "$port_file" 2>/dev/null || true
+        printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
+        return 0
+    fi
+
+    local port=""
+    [ -f "$port_file" ] && IFS= read -r port < "$port_file" 2>/dev/null || true
+    if [[ "$port" =~ ^[0-9]+$ ]]; then
+        local py=""
+        if command -v python3 >/dev/null 2>&1; then
+            py="python3"
+        elif command -v python >/dev/null 2>&1; then
+            py="python"
+        fi
+        if [ -n "$py" ]; then
+            MP_STOP_PORT="$port" "$py" - >/dev/null 2>&1 << 'PY' || true
+import os, socket
+try:
+    port = int(os.environ.get("MP_STOP_PORT", "0"))
+    sock = socket.create_connection(("127.0.0.1", port), 1.0)
+    sock.settimeout(1.0)
+    sock.sendall(b'{"cmd":"stop"}')
+    try:
+        sock.recv(4096)
+    except Exception:
+        pass
+    sock.close()
+except Exception:
+    raise SystemExit(1)
+PY
+        fi
+    fi
+
+    if _mp_player_pid_alive "$pid"; then
+        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            MSYS_NO_PATHCONV=1 taskkill.exe /PID "$pid" /F >/dev/null 2>&1 || true
+        else
+            kill "$pid" 2>/dev/null || true
+        fi
+    fi
+    if ! _mp_player_pid_alive "$pid"; then
+        rm -f "$pid_file" "$port_file" 2>/dev/null || true
+        printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
+    fi
+}
+
 # Ctrl+C at the main menu exits. Monitors that catch INT restore this afterwards.
 exit_mix_manager() {
+    _STOP_AUDIO_ON_EXIT=1
     _MENU_CURSOR_LOCK=0
     _stop_win_cursor_hider
+    _stop_mp_audio_daemon
     printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
     echo ""
     exit 0
 }
+_on_manager_close_signal() {
+    if [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ]; then
+        exit_mix_manager
+    fi
+    _MENU_CURSOR_LOCK=0
+    _stop_win_cursor_hider
+    printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
+    exit 0
+}
 trap 'exit_mix_manager' INT
-trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
+trap '_on_manager_close_signal' HUP TERM
+trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ] && _stop_mp_audio_daemon; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
@@ -15034,6 +15142,7 @@ run_deferred_startup() {
     ensure_manager_windowed
     if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
         (execute_startup_autoplay >/dev/null 2>&1 &)
+        _AUTOPLAY_PID=$!
     fi
     _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
     (refresh_header_cache_worker --force >/dev/null 2>&1 &)
@@ -15048,6 +15157,9 @@ run_deferred_startup() {
     fi
 }
 
+# From here, leaving the manager (menu exit or the window closing)
+# also stops the background player.
+_STOP_AUDIO_ON_EXIT=1
 while true; do
     update_terminal_geometry 0
     _set_menu_box_width box_w "${_TERM_COLS:-80}"

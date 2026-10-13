@@ -2915,6 +2915,40 @@ class TerminalPlayerUI:
 # MAIN ENTRYPOINT & CLI DISPATCHER
 # ==============================================================================
 
+def _spawn_player_daemon(file_path: str) -> None:
+    """Start the headless player and record its pid before it imports audio."""
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--daemon", file_path],
+        start_new_session=True,
+    )
+    try:
+        PID_FILE.write_text(str(proc.pid))
+    except OSError:
+        pass
+
+
+def _install_windows_console_close():
+    """Exit when this console is closed so playback cannot outlive it."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handler_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_uint)
+
+    def _on_console_ctrl(ctrl_type):
+        # CTRL_CLOSE_EVENT=2, CTRL_LOGOFF_EVENT=5, CTRL_SHUTDOWN_EVENT=6.
+        # Leave Ctrl+C for Python.
+        if ctrl_type in (2, 5, 6):
+            os._exit(0)
+        return 0
+
+    global _WIN_CONSOLE_CLOSE_HANDLER
+    _WIN_CONSOLE_CLOSE_HANDLER = handler_type(_on_console_ctrl)
+    kernel32.SetConsoleCtrlHandler.argtypes = [handler_type, ctypes.c_int]
+    kernel32.SetConsoleCtrlHandler.restype = ctypes.c_int
+    kernel32.SetConsoleCtrlHandler(_WIN_CONSOLE_CLOSE_HANDLER, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description="MP Audio Player - High Resolution Playback & Custom Animated Equalizer")
     parser.add_argument("file", nargs="?", help="Audio file path to play immediately")
@@ -3044,7 +3078,7 @@ def main():
                 send_ipc_command("play", file=latest["path"])
                 sys.exit(0)
             else:
-                subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--daemon", latest["path"]], start_new_session=True)
+                _spawn_player_daemon(latest["path"])
                 sys.exit(0)
         sys.exit(1)
 
@@ -3056,7 +3090,7 @@ def main():
             scanner = MixArchiveScanner(base_dir)
             latest = scanner.get_latest_mix()
             if latest:
-                subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--daemon", latest["path"]], start_new_session=True)
+                _spawn_player_daemon(latest["path"])
             sys.exit(0)
 
     elif args.pause:
@@ -3075,7 +3109,7 @@ def main():
                 latest = scanner.get_latest_mix()
                 file_to_play = latest["path"] if latest else ""
             if file_to_play:
-                subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--daemon", file_to_play], start_new_session=True)
+                _spawn_player_daemon(file_to_play)
             sys.exit(0)
 
     elif args.stop:
@@ -3173,10 +3207,7 @@ def main():
                 initial_file = latest["path"] if latest else mixes[0]["path"]
 
             if initial_file:
-                subprocess.Popen(
-                    [sys.executable, str(Path(__file__).resolve()), "--daemon", initial_file],
-                    start_new_session=True
-                )
+                _spawn_player_daemon(initial_file)
                 for _ in range(30):
                     time.sleep(0.04)
                     if is_player_daemon_running() and (SOCKET_PATH.exists() or PORT_FILE.exists() or STATE_FILE.exists()):
@@ -3189,6 +3220,14 @@ def main():
         sys.exit(0)
 
     # Local Audio Engine Initialization (Daemon or Non-interactive CLI)
+    # Record the pid before the archive scan. Playback starts only after
+    # that scan, and closing the manager during it must still find us.
+    if args.daemon:
+        try:
+            PID_FILE.write_text(str(os.getpid()))
+        except OSError:
+            pass
+        _install_windows_console_close()
     scanner = MixArchiveScanner(base_dir)
     mixes = scanner.get_mixes()
 
@@ -3213,6 +3252,12 @@ def main():
 
     if not mixes:
         print(f"{RED}No audio mixes found in any configured archive directory.{NC}", file=sys.stderr)
+        if args.daemon:
+            try:
+                if PID_FILE.exists() and PID_FILE.read_text().strip() == str(os.getpid()):
+                    PID_FILE.unlink()
+            except OSError:
+                pass
         sys.exit(1)
 
     engine = AudioEngine(mixes)
