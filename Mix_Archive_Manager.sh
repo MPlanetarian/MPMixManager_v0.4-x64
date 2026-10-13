@@ -656,6 +656,7 @@ read_nav_key() {
     fi
 }
 
+
 # Highlight a menu item line with modern desktop window manager text-selection styling.
 # Color order: Pink -> Cyan -> Orange -> Grey (repeating in order).
 # Efficient in-memory formatting with zero subprocess forks.
