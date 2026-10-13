@@ -942,8 +942,14 @@ _stop_win_cursor_hider() {
     local pid="${_WIN_CURSOR_HIDER_PID:-}"
     _WIN_CURSOR_HIDER_PID=""
     if [ -n "$pid" ]; then
+        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local _win_pid
+            _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}')
+            if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F >/dev/null 2>&1 || true
+            fi
+        fi
         kill -9 "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
     fi
 }
 
@@ -1747,6 +1753,8 @@ exit_mix_manager() {
     _MENU_CURSOR_LOCK=0
     _stop_win_cursor_hider
     _stop_mp_audio_daemon
+    # Terminate all spawned subshells, background workers, and jobs
+    kill $(jobs -p) 2>/dev/null || true
     printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the Mix Archive Manager.${NC}"
@@ -1754,17 +1762,13 @@ exit_mix_manager() {
     exit 0
 }
 _on_manager_close_signal() {
-    if [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ]; then
-        exit_mix_manager
-    fi
-    _MENU_CURSOR_LOCK=0
-    _stop_win_cursor_hider
-    printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
-    exit 0
+    _STOP_AUDIO_ON_EXIT=1
+    exit_mix_manager
 }
+
 trap 'exit_mix_manager' INT
 trap '_on_manager_close_signal' HUP TERM
-trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ] && _stop_mp_audio_daemon; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
+trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ] && _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
