@@ -728,6 +728,7 @@ run_interactive_submenu() {
             echo -e "  ${BOLD}${CYAN}${o_key})${NC} ${o_label} ${DIM}${o_extra}${NC}"
         done
         echo ""
+        run_deferred_startup
         read -r -p "Enter choice: " REPLY
         return 0
     fi
@@ -736,6 +737,8 @@ run_interactive_submenu() {
     local box_w
     _set_menu_box_width box_w "${_TERM_COLS:-80}"
     _CURRENT_BOX_W="$box_w"
+    # Reuse a stale disk line. df runs from the menu ticker, not here.
+    _MENU_CURSOR_LOCK=1
 
     local header_count=0
     local cached_header_block=""
@@ -981,6 +984,11 @@ run_interactive_submenu() {
             printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"
         else
             printf '\033[?25l\033[?12l\033[?7l'
+        fi
+        # First frame is already on screen. Fork autoplay and the header
+        # refresh now, not before the paint.
+        if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then
+            run_deferred_startup
         fi
         
         local key_action=""
@@ -1241,13 +1249,6 @@ exit_mix_manager() {
 trap 'exit_mix_manager' INT
 trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
-# Fork the caret hider while this process is still small. A fork after
-# every function is loaded is a large MSYS copy and lands before the
-# first frame.
-if [ -t 1 ]; then
-    _start_win_cursor_hider
-fi
-
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
  printf '\033]0;%s\007' "MP Mix Archive Manager [${APP_VERSION}]" 2>/dev/null || true
@@ -1338,6 +1339,13 @@ if [ "$OS_TYPE" = "macos" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
     elif [ -x "/usr/local/bin/bash" ]; then
         exec /usr/local/bin/bash "$0" "$@"
     fi
+fi
+
+# Fork the caret hider while this process is still small. A fork after
+# every function is loaded is a large MSYS copy and lands before the
+# first frame.
+if [ -t 1 ]; then
+    _start_win_cursor_hider
 fi
 
 # Cross-Platform Open Path (File/Directory opener for Linux, macOS, and Windows)
@@ -2388,7 +2396,6 @@ refresh_header_cache_worker() {
     fi
     [ -d "$lock_dir" ] || mkdir -p "$lock_dir" 2>/dev/null || true
     echo "$now" > "$lock_file" 2>/dev/null || true
-    ensure_playlists_generated_dirs --all
 
     # Reset freshness timers so each collector really re-runs inside this background worker
     _LAST_CLOUD_CHECK=0 _LAST_WEATHER_CHECK=0 _LAST_PLANETS_CHECK=0 _LAST_AUDIO_IFACE_CHECK=0
@@ -2398,12 +2405,15 @@ refresh_header_cache_worker() {
     get_os_badge >/dev/null 2>&1 || true
     get_os_update_status >/dev/null 2>&1 || true
     save_header_cache 2>/dev/null || true   # publish the quick items first
+    _CACHED_NOW_PLAYING="$(refresh_now_playing_lines 2>/dev/null || true)"
+    save_header_cache 2>/dev/null || true
     get_active_audio_interface_display >/dev/null 2>&1 || true
     get_alarm_clock_status_display >/dev/null 2>&1 || true
     get_top_5_status_badge >/dev/null 2>&1 || true
     get_current_weather >/dev/null 2>&1 || true
     get_planets_above_horizon >/dev/null 2>&1 || true
     save_header_cache 2>/dev/null || true
+    ensure_playlists_generated_dirs --all
     show_stats --force >/dev/null 2>&1 || true   # slowest (archive scan); also saves cache + cloud badge
     get_cloud_backup_badge >/dev/null 2>&1 || true
     save_header_cache 2>/dev/null || true
@@ -14864,28 +14874,29 @@ render_main_header() {
     echo -e "$hdr"
 }
 
-while true; do
-    if [ "$STARTUP_AUTOPLAY_EXECUTED" -eq 0 ]; then
-        STARTUP_AUTOPLAY_EXECUTED=1
-        ensure_manager_windowed
-        if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
-            (execute_startup_autoplay >/dev/null 2>&1 &)
-        else
-            (check_and_show_currently_playing_mix >/dev/null 2>&1 &)
-        fi
-        _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
-        (refresh_header_cache_worker --force >/dev/null 2>&1 &)
+# Forks of this process are expensive once every function is defined.
+# Paint the menu first, then start autoplay and the header refresh.
+run_deferred_startup() {
+    [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0
+    STARTUP_AUTOPLAY_EXECUTED=1
+    ensure_manager_windowed
+    if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
+        (execute_startup_autoplay >/dev/null 2>&1 &)
+    fi
+    _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
+    (refresh_header_cache_worker --force >/dev/null 2>&1 &)
 
-        # Ensure DJ mix scheduler daemon is active if pending scheduled mixes exist
-        if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then
-            if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then
-                python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon >/dev/null 2>&1 &
-            elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then
-                "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon >/dev/null 2>&1 &
-            fi
+    # Ensure DJ mix scheduler daemon is active if pending scheduled mixes exist
+    if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then
+        if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then
+            python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon >/dev/null 2>&1 &
+        elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then
+            "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon >/dev/null 2>&1 &
         fi
     fi
+}
 
+while true; do
     update_terminal_geometry 0
     _set_menu_box_width box_w "${_TERM_COLS:-80}"
     # Header is rendered by run_interactive_submenu (build_header_block) from cached values
@@ -14936,6 +14947,7 @@ while true; do
     )
 
     if [ -n "$CLI_INITIAL_ACTION" ]; then
+        run_deferred_startup
         choice="$CLI_INITIAL_ACTION"
         CLI_INITIAL_ACTION=""
     else
