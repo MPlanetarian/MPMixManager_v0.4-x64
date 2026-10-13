@@ -1,6 +1,6 @@
-# MP Mix Manager v0.3.5 by Dreamworlds Productions (MPlanetarian)
+# MP Mix Manager v0.3.6 Beta by Dreamworlds Productions (MPlanetarian)
 
-> 📅 **Last Updated:** October 9, 2026 • **Latest Release:** `v0.3.5 Stable`
+> 📅 **Last Updated:** October 9, 2026 • **Latest Release:** `v0.3.6 Beta`
 
 [![Last Updated](https://img.shields.io/badge/Last%20Updated-October%209%2C%202026-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/Version-0.3.5%20Stable-f72585.svg)](VERSION)
