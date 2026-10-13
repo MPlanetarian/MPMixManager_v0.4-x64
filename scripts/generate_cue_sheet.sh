@@ -4,15 +4,15 @@
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARENT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
 PY_SCRIPT="$SCRIPT_DIR/generate_cue_sheet.py"
-[ ! -f "$PY_SCRIPT" ] && PY_SCRIPT="$PARENT_DIR/scripts/generate_cue_sheet.py"
-[ ! -f "$PY_SCRIPT" ] && PY_SCRIPT="$SCRIPT_DIR/scripts/generate_cue_sheet.py"
 
-if [ -f "$PY_SCRIPT" ]; then
-    exec python3 "$PY_SCRIPT" "$@"
-else
+if [ ! -f "$PY_SCRIPT" ]; then
+    PY_SCRIPT="$SCRIPT_DIR/scripts/generate_cue_sheet.py"
+fi
+
+if [ ! -f "$PY_SCRIPT" ]; then
     echo "Error: generate_cue_sheet.py not found."
     exit 1
 fi
+
+exec python3 "$PY_SCRIPT" "$@"
