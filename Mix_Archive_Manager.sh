@@ -42,8 +42,17 @@ unset _py_cand _py_u
 _TERM_LINES=""
 _TERM_COLS=""
 _TERM_RESIZED=1
+# Set while an interactive menu owns the screen. Font zoom must not
+# reveal the caret or turn autowrap back on during that time.
+_MENU_CURSOR_LOCK=0
 _on_winch() {
     _TERM_RESIZED=1
+    # Ctrl+/- in mintty and Windows Terminal changes the font, which
+    # shows the caret again and can turn autowrap back on. Re-hide
+    # before any redraw so the caret cannot walk the right margin.
+    if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
+        printf '\033[?25l\033[?12l\033[?7l' 2>/dev/null || true
+    fi
 }
 trap '_on_winch' WINCH
 
@@ -121,22 +130,66 @@ fi
 update_terminal_geometry() {
     local force="${1:-0}"
     if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
-        _TERM_RESIZED=0
-        local sz=""
-        if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
-            read -r _TERM_LINES _TERM_COLS <<< "$sz"
-        elif [ -n "${LINES:-}" ] && [ -n "${COLUMNS:-}" ]; then
-            _TERM_LINES="$LINES"
-            _TERM_COLS="$COLUMNS"
-        else
-            _TERM_LINES=$(tput lines 2>/dev/null || echo 40)
-            _TERM_COLS=$(tput cols 2>/dev/null || echo 100)
+        local new_l="" new_c=""
+        # checkwinsize updates LINES/COLUMNS on SIGWINCH. Prefer those
+        # over `stty size`: spawning stty on every zoom makes mintty
+        # show the caret and blocks the key loop.
+        if [ -n "${LINES:-}" ] && [ -n "${COLUMNS:-}" ]; then
+            new_l="$LINES"
+            new_c="$COLUMNS"
         fi
-        [ -z "$_TERM_LINES" ] || [ "$_TERM_LINES" -lt 15 ] && _TERM_LINES=40
-        [ -z "$_TERM_COLS" ] || [ "$_TERM_COLS" -lt 40 ] && _TERM_COLS=100
+        local need_stty=0
+        if [ -z "$new_l" ] || [ -z "$new_c" ]; then
+            need_stty=1
+        elif [ "$force" -eq 1 ] && [ "$new_l" = "${_TERM_LINES:-}" ] && [ "$new_c" = "${_TERM_COLS:-}" ]; then
+            need_stty=1
+        fi
+        if [ "$need_stty" -eq 1 ]; then
+            local sz=""
+            if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
+                read -r new_l new_c <<< "$sz"
+            elif [ -z "$new_l" ] || [ -z "$new_c" ]; then
+                new_l=$(tput lines 2>/dev/null || echo 40)
+                new_c=$(tput cols 2>/dev/null || echo 100)
+            fi
+        fi
+        # A zoom can legitimately make the window smaller than 40x15.
+        # Pretending it is still 40x100 draws past the edge, scrolls,
+        # and leaves the caret on the right margin.
+        if ! [[ "${new_l:-}" =~ ^[0-9]+$ ]] || [ "$new_l" -lt 1 ]; then
+            new_l="${_TERM_LINES:-40}"
+            [[ "$new_l" =~ ^[0-9]+$ ]] && [ "$new_l" -ge 1 ] || new_l=40
+        fi
+        if ! [[ "${new_c:-}" =~ ^[0-9]+$ ]] || [ "$new_c" -lt 1 ]; then
+            new_c="${_TERM_COLS:-100}"
+            [[ "$new_c" =~ ^[0-9]+$ ]] && [ "$new_c" -ge 1 ] || new_c=100
+        fi
+        _TERM_LINES="$new_l"
+        _TERM_COLS="$new_c"
+        _TERM_RESIZED=0
         return 0
     fi
     return 1
+}
+
+# Menu width that always fits the visible window. Borders are drawn
+# with two leading spaces, so the box stays four columns inside the
+# terminal. A 74-column floor overflows a zoomed-in window, wraps,
+# and walks the caret down the right edge as the selection moves.
+_set_menu_box_width() {
+    local _dest="$1"
+    local _cols="${2:-${_TERM_COLS:-80}}"
+    [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80
+    [ "$_cols" -lt 1 ] && _cols=1
+    local _w
+    if [ "$_cols" -ge 8 ]; then
+        _w=$(( _cols - 4 ))
+    elif [ "$_cols" -ge 3 ]; then
+        _w=$(( _cols - 2 ))
+    else
+        _w=1
+    fi
+    printf -v "$_dest" '%s' "$_w"
 }
 
 # Colors for terminal styling & Theme Engine
@@ -325,30 +378,45 @@ read_nav_key() {
         return 0
     }
 
-    if _resize_pending; then
-        _emit_key "RESIZE"
-        return 0
+    # Zoom sends SIGWINCH while arrows may already be buffered.
+    # Deliver a waiting key first so the resize cannot swallow it.
+    # Bash 5.3 `read -t 0` only polls: success means "readable" and it
+    # does not store the byte. An empty poll must not become Enter.
+    local read_rc=1
+    local have_key=0
+    local _poll=""
+    IFS= read -rsn1 -t 0 _poll
+    read_rc=$?
+    if [ "$read_rc" -eq 0 ] && [ -n "$_poll" ]; then
+        _k="$_poll"
+        have_key=1
+    elif [ "$read_rc" -eq 0 ]; then
+        if IFS= read -rsn1 -t 0.05 _k; then
+            have_key=1
+        fi
     fi
-
-    IFS= read -rsn1 -t 0.25 _k
-    local read_rc=$?
-
-    if [ "$read_rc" -gt 128 ]; then
+    if [ "$have_key" -eq 0 ]; then
+        _k=""
         if _resize_pending; then
             _emit_key "RESIZE"
             return 0
         fi
-        _emit_key "TICK"
-        return 0
-    elif [ "$read_rc" -ne 0 ]; then
-        if _resize_pending; then
-            _emit_key "RESIZE"
-            return 0
+        IFS= read -rsn1 -t 0.25 _k
+        read_rc=$?
+        if [ "$read_rc" -ne 0 ]; then
+            if _resize_pending; then
+                _emit_key "RESIZE"
+                return 0
+            fi
+            if [ "$read_rc" -gt 128 ]; then
+                _emit_key "TICK"
+                return 0
+            fi
+            if [ -n "$_out_var" ]; then
+                printf -v "$_out_var" "%s" ""
+            fi
+            return 1
         fi
-        if [ -n "$_out_var" ]; then
-            printf -v "$_out_var" "%s" ""
-        fi
-        return 1
     fi
 
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
@@ -647,8 +715,8 @@ run_interactive_submenu() {
     fi
 
     update_terminal_geometry 0
-    local box_w=$(( _TERM_COLS - 4 ))
-    [ "$box_w" -lt 74 ] && box_w=74
+    local box_w
+    _set_menu_box_width box_w "${_TERM_COLS:-80}"
     _CURRENT_BOX_W="$box_w"
 
     local header_count=0
@@ -696,6 +764,7 @@ run_interactive_submenu() {
     build_header_block
 
     cleanup_submenu_screen() {
+        _MENU_CURSOR_LOCK=0
         _stop_win_cursor_hider
         # Restore wrap, blinking, and the caret for the next prompt.
         printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
@@ -703,6 +772,9 @@ run_interactive_submenu() {
 
     # Hide the caret, stop it blinking, and stop long header lines from wrapping
     # onto the next row. Wrapping is what walks the caret through the header.
+    # The lock makes a Ctrl+/- zoom re-apply this from the WINCH trap
+    # before the menu redraws.
+    _MENU_CURSOR_LOCK=1
     _start_win_cursor_hider
     printf '\033[?25l\033[?12l\033[?7l'
     local _last_menu_frame=""
@@ -714,8 +786,8 @@ run_interactive_submenu() {
 
     while true; do
         update_terminal_geometry 0
-        local cur_box_w=$(( _TERM_COLS - 4 ))
-        [ "$cur_box_w" -lt 74 ] && cur_box_w=74
+        local cur_box_w
+        _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"
         if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then
             box_w="$cur_box_w"
             last_term_lines="$_TERM_LINES"
@@ -741,7 +813,7 @@ run_interactive_submenu() {
             fi
 
             local rem_dashes=$(( inner_w - 22 ))
-            [ "$rem_dashes" -lt 10 ] && rem_dashes=10
+            [ "$rem_dashes" -lt 0 ] && rem_dashes=0
             local p_top_dashes
             printf -v p_top_dashes '%*s' "$rem_dashes" ''
             p_top_dashes="${p_top_dashes// /─}"
@@ -750,7 +822,8 @@ run_interactive_submenu() {
 
             local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"
             local max_t_len=$(( text_w - ${#pos_pct_str} - 16 ))
-            [ "$max_t_len" -lt 25 ] && max_t_len=25
+            [ "$max_t_len" -lt 4 ] && max_t_len=4
+            [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"
             local disp_title="$MP_PLAYER_TITLE"
             if [ ${#disp_title} -gt "$max_t_len" ]; then
                 disp_title="${disp_title:0:$((max_t_len - 3))}..."
@@ -779,9 +852,11 @@ run_interactive_submenu() {
 
         # Compute maximum visible options with safe headroom
         local effective_overhead=$(( overhead + banner_lines ))
-        local max_visible=$(( _TERM_LINES - effective_overhead - 2 ))
-        if [ "$max_visible" -lt 4 ]; then
-            max_visible=4
+        # Keep one row unused. A frame that fills the last row scrolls
+        # mintty after a font zoom and pins the caret to the right edge.
+        local max_visible=$(( _TERM_LINES - effective_overhead - 1 ))
+        if [ "$max_visible" -lt 1 ]; then
+            max_visible=1
         fi
 
         if [ "$max_visible" -ge "$total_opts" ]; then
@@ -874,12 +949,20 @@ run_interactive_submenu() {
             fi
         fi
         
-        # Draw only when the screen changed. An unchanged tick must not move the caret.
-        # The final CUP parks it on the last cell, then the caret is hidden again.
-        # Hide is repeated after synchronized output so that mode cannot turn it back on.
+        # Draw only when the screen changed. Never park the caret on the
+        # right edge: after Ctrl+/- mintty shows it there and it tracks
+        # the selection. Do not use DEC 2026 here. Mintty treats ?2026h
+        # as a timed screen suspend, so the menu freezes while the caret
+        # still moves. Re-hide on an unchanged tick too, because a font
+        # zoom reveals the caret without changing the frame.
         if [ "$frame_buf" != "$_last_menu_frame" ]; then
             _last_menu_frame="$frame_buf"
-            printf '\033[?25l\033[?12l\033[?7l\033[?2026h\033[H%b\033[J\033[%d;%dH\033[?2026l\033[?25l' "$frame_buf" "${_TERM_LINES:-1}" "${_TERM_COLS:-1}"
+            # \r leaves the caret on column 1. A font zoom reveals it,
+            # and parking on the last column is what draws it down the
+            # right edge while the selection moves.
+            printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"
+        else
+            printf '\033[?25l\033[?12l\033[?7l'
         fi
         
         local key_action=""
@@ -888,27 +971,26 @@ run_interactive_submenu() {
         case "$key_action" in
             TOGGLE_FULLSCREEN)
                 toggle_manager_fullscreen
-                update_terminal_geometry 1
-                box_w=$(( _TERM_COLS - 4 ))
-                [ "$box_w" -lt 74 ] && box_w=74
-                last_term_lines="$_TERM_LINES"
-                _CURRENT_BOX_W="$box_w"
-                build_header_block
+                _TERM_RESIZED=1
+                last_term_lines=0
+                _last_menu_frame=""
+                printf '\033[?25l\033[?12l\033[?7l'
                 continue
                 ;;
             RESIZE)
+                # One cheap geometry pass. The loop top rebuilds the
+                # header once for the new size. Rebuilding here as well
+                # ran df and dropped the next arrow key.
                 update_terminal_geometry 1
-                box_w=$(( _TERM_COLS - 4 ))
-                [ "$box_w" -lt 74 ] && box_w=74
-                last_term_lines="$_TERM_LINES"
-                _CURRENT_BOX_W="$box_w"
-                build_header_block
+                last_term_lines=0
+                _last_menu_frame=""
+                printf '\033[?25l\033[?12l\033[?7l'
                 continue
                 ;;
             TICK)
                 ((tick_count++))
                 if [ $((tick_count % 4)) -eq 0 ]; then
-                    update_terminal_geometry 1
+                    update_terminal_geometry 0
                     if [ -z "$menu_title" ]; then
                         local _sig_before _sig_after
                         header_cache_signature _sig_before
@@ -918,6 +1000,7 @@ run_interactive_submenu() {
                             build_header_block
                         fi
                         maybe_spawn_header_refresh
+                        _maybe_refresh_perf_cache
                     fi
                 fi
                 continue
@@ -1048,6 +1131,7 @@ run_interactive_submenu() {
                     if [ "$has_exact_p" -eq 0 ]; then
                         cleanup_submenu_screen
                         manage_mp_audio_player
+                        _MENU_CURSOR_LOCK=1
                         _start_win_cursor_hider
                         printf '\033[?25l\033[?12l\033[?7l'
                         clear
@@ -1128,6 +1212,7 @@ load_theme
 
 # Ctrl+C at the main menu exits. Monitors that catch INT restore this afterwards.
 exit_mix_manager() {
+    _MENU_CURSOR_LOCK=0
     _stop_win_cursor_hider
     printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
@@ -1136,7 +1221,7 @@ exit_mix_manager() {
     exit 0
 }
 trap 'exit_mix_manager' INT
-trap '_stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
+trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
 
 MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
  APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
@@ -9484,6 +9569,34 @@ _CACHED_PERF_DISPLAY=""
 get_system_perf_stats() {
     local now="${EPOCHSECONDS:-0}"
     [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    # render_main_header runs in a command substitution, so the in-memory
+    # cache above never survives. A file cache keeps a zoom from running
+    # df on the key path. While a menu is open, never block on df.
+    local _perf_dir="${HOME}/.config/mix-manager"
+    local _perf_file="${_perf_dir}/perf_display.cache"
+    local _perf_stamp="${_perf_dir}/perf_display.stamp"
+    local _perf_last=0
+    if [ -f "$_perf_stamp" ]; then
+        read -r _perf_last < "$_perf_stamp" 2>/dev/null || _perf_last=0
+    fi
+    [[ "${_perf_last:-}" =~ ^[0-9]+$ ]] || _perf_last=0
+    local _perf_fresh=0
+    if [ -f "$_perf_file" ] && [ $((now - _perf_last)) -lt 30 ]; then
+        _perf_fresh=1
+    fi
+    if [ "$_perf_fresh" -eq 1 ] || [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
+        if [ -f "$_perf_file" ]; then
+            local _perf_cached=""
+            IFS= read -r _perf_cached < "$_perf_file" || true
+            if [ -n "$_perf_cached" ]; then
+                printf '%b\n' "$_perf_cached"
+                return 0
+            fi
+        fi
+        if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
+            return 0
+        fi
+    fi
     if [ $((now - _LAST_PERF_CHECK)) -lt 5 ] && [ -n "$_CACHED_PERF_DISPLAY" ]; then
         echo -e "$_CACHED_PERF_DISPLAY"
         return 0
@@ -9552,7 +9665,31 @@ get_system_perf_stats() {
     fi
 
     _CACHED_PERF_DISPLAY="  ${BOLD}${CYAN}⚡ CPU Load:${NC} ${cpu_info}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🧠 RAM:${NC} ${ram_info}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}💾 Mix Drive Free:${NC} ${disk_info}"
+    mkdir -p "$_perf_dir" 2>/dev/null || true
+    local _perf_tmp="${_perf_file}.$$"
+    printf '%s\n' "$_CACHED_PERF_DISPLAY" > "$_perf_tmp" 2>/dev/null && mv -f "$_perf_tmp" "$_perf_file" 2>/dev/null || rm -f "$_perf_tmp" 2>/dev/null || true
+    printf '%s\n' "$now" > "$_perf_stamp" 2>/dev/null || true
     echo -e "$_CACHED_PERF_DISPLAY"
+}
+
+# Refresh the disk line off the menu key path. The worker writes the
+# same cache file get_system_perf_stats reads, so a zoom stays instant.
+_maybe_refresh_perf_cache() {
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    local stamp="${HOME}/.config/mix-manager/perf_display.stamp"
+    local last=0
+    [ -f "$stamp" ] && { read -r last < "$stamp" 2>/dev/null || last=0; }
+    [[ "$last" =~ ^[0-9]+$ ]] || last=0
+    [ $((now - last)) -lt 30 ] && return 0
+    if [ -n "${_PERF_REFRESH_PID:-}" ] && kill -0 "$_PERF_REFRESH_PID" 2>/dev/null; then
+        return 0
+    fi
+    (
+        _MENU_CURSOR_LOCK=0
+        get_system_perf_stats >/dev/null 2>&1 || true
+    ) &
+    _PERF_REFRESH_PID=$!
 }
 
 _LAST_AUDIO_IFACE_CHECK=0
@@ -12055,7 +12192,7 @@ get_manager_uptime() {
         else
             sys_up="${s_hours}h ${s_mins}m"
         fi
-    elif command -v uptime >/dev/null 2>&1; then
+    elif [ "${OS_TYPE:-}" != "windows" ] && command -v uptime >/dev/null 2>&1; then
         sys_up=$(uptime | sed 's/.*up \([^,]*\), .*/\1/' | xargs)
     fi
 
@@ -14602,8 +14739,16 @@ manage_settings_and_system() {
 # ==============================================================================
 
 render_main_header() {
-    local cur_box_w="${1:-$(( _TERM_COLS - 4 ))}"
-    [ "$cur_box_w" -lt 74 ] && cur_box_w=74
+    local cur_box_w="${1:-}"
+    local _hdr_cap=""
+    _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"
+    if [ -z "$cur_box_w" ]; then
+        cur_box_w="$_hdr_cap"
+    fi
+    # Never widen the header past the window. The old 74-column floor
+    # wrapped after a font zoom and dragged the caret down the margin.
+    [ "$cur_box_w" -gt "$_hdr_cap" ] && cur_box_w="$_hdr_cap"
+    [ "$cur_box_w" -lt 1 ] && cur_box_w=1
 
     local hdr=""
 
@@ -14696,8 +14841,7 @@ while true; do
     fi
 
     update_terminal_geometry 0
-    box_w=$(( _TERM_COLS - 4 ))
-    [ "$box_w" -lt 74 ] && box_w=74
+    _set_menu_box_width box_w "${_TERM_COLS:-80}"
     # Header is rendered by run_interactive_submenu (build_header_block) from cached values
     main_header=""
 
