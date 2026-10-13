@@ -15177,7 +15177,7 @@ render_main_header() {
     local h_eq
     printf -v h_eq '%*s' "$cur_box_w" ''
     h_eq="${h_eq// /=}"
-    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3.6)"
+    local title_text="Mix Archive Manager (MP_Mix_Manager_v0.3.6 Beta)"
     local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
     [ "$title_pad" -lt 0 ] && title_pad=0
     local title_sp
