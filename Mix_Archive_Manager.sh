@@ -1761,48 +1761,7 @@ exit_mix_manager() {
     echo ""
     exit 0
 }
-_on_manager_close_signal() {
-    _STOP_AUDIO_ON_EXIT=1
-    exit_mix_manager
-}
-
-trap 'exit_mix_manager' INT
-trap '_on_manager_close_signal' HUP TERM
-trap '_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; [ "${_STOP_AUDIO_ON_EXIT:-0}" -eq 1 ] && _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true; printf "\033[?7h\033[?12h\033[?25h\033[?2026l" 2>/dev/null || true' EXIT
-
-MANAGER_START_EPOCH="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"
- APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"
- printf '\033]0;%s\007' "MP Mix Archive Manager [${APP_VERSION}]" 2>/dev/null || true
-# Resolve symlinks so SCRIPT_DIR correctly points to codebase directory
-_RESOLVED_SRC="${BASH_SOURCE[0]}"
-_RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-# cygpath is slow. Git Bash already hands us a POSIX path.
-if command -v cygpath >/dev/null 2>&1 && [[ "$_RESOLVED_SRC" =~ ^[A-Za-z]: ]]; then
-    _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-fi
-while [ -h "$_RESOLVED_SRC" ]; do
-    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
-    _RESOLVED_SRC="${_RESOLVED_SRC//\\//}"
-    command -v cygpath >/dev/null 2>&1 && _RESOLVED_SRC="$(cygpath -u "$_RESOLVED_SRC" 2>/dev/null || echo "$_RESOLVED_SRC")"
-    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
-done
-SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
-if [ ! -d "$SCRIPT_DIR/scripts" ]; then
-    for _c in \
-        "$PWD" \
-        "$HOME/Downloads/MP_Mix_Manager_v0.3" \
-        "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3" \
-        "/var/home/mplanetarian/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.1"; do
-        if [ -d "$_c/scripts" ]; then
-            SCRIPT_DIR="$_c"
-            break
-        fi
-    done
-fi
-unset _RESOLVED_SRC _RESOLVED_DIR _c
+#!/bin/bash
 
 # Ensure Windows Python and WinGet binaries take precedence over Microsoft Store dummy stubs
 if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
@@ -1827,8 +1786,6 @@ if [[ "$(uname -s)" =~ (MINGW|MSYS|CYGWIN) ]]; then
     fi
 fi
 
-export PATH="$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:$PATH"
-
 # OS Platform Detection (Linux, macOS, Windows 10/11, FreeBSD)
 OS_TYPE="linux"
 case "$(uname -s)" in
@@ -1852,22 +1809,6 @@ case "$(uname -s)" in
         OS_TYPE="linux"
         ;;
 esac
-
-# Auto-upgrade to modern Homebrew Bash on macOS if running under ancient Bash 3.2
-if [ "$OS_TYPE" = "macos" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-    if [ -x "/opt/homebrew/bin/bash" ]; then
-        exec /opt/homebrew/bin/bash "$0" "$@"
-    elif [ -x "/usr/local/bin/bash" ]; then
-        exec /usr/local/bin/bash "$0" "$@"
-    fi
-fi
-
-# Fork the caret hider while this process is still small. A fork after
-# every function is loaded is a large MSYS copy and lands before the
-# first frame.
-if [ -t 1 ]; then
-    _start_win_cursor_hider
-fi
 
 # Cross-Platform Open Path (File/Directory opener for Linux, macOS, and Windows)
 open_path() {
