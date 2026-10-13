@@ -582,7 +582,7 @@ def main():
 </head>
 <body>
     <div class="container">
-        <h1>MPlanetarian - Stream of Frequency Tracklistings</h1>
+        <h1>MP Mix Archive Manager Tracklistings</h1>
 
         <div class="stats-box">
             <div class="stat-item">

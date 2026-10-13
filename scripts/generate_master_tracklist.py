@@ -154,7 +154,7 @@ def main():
 <html>
 <head>
     <meta charset="utf-8">
-    <title>MPlanetarian - Stream of Frequency Tracklistings</title>
+    <title>MP Mix Archive Manager Tracklistings</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #e0e0e0; line-height: 1.6; margin: 0; padding: 40px 20px; }}
         .container {{ max-width: 900px; margin: 0 auto; }}
@@ -173,7 +173,7 @@ def main():
 </head>
 <body>
     <div class="container">
-        <h1>MPlanetarian - Stream of Frequency Tracklistings</h1>
+        <h1>MP Mix Archive Manager Tracklistings</h1>
         <div class="stats-box">
             <div class="stat-item">
                 <div class="stat-val">{total_mixes}</div>

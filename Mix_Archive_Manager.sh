@@ -415,6 +415,160 @@ _resize_pending() {
     return 1
 }
 
+# Bytes pushed back while discarding a held arrow. Bash 5.3 cannot ungetc.
+# A queued newline stands for Enter: `read -n1` stores that as an empty string.
+_nav_pending=""
+
+# Copy one queued or already-buffered character into the named variable.
+# `read -t 0` only reports that stdin is readable. It does not consume.
+# The following 1ms read consumes a byte that is already waiting and
+# returns at once. An empty buffer returns immediately, so the next
+# repeat of a key that is still held is left for the real read.
+_nav_take_ready() {
+    local _dest="$1"
+    local _ch=""
+    if [ -n "$_nav_pending" ]; then
+        printf -v "$_dest" '%s' "${_nav_pending:0:1}"
+        _nav_pending="${_nav_pending:1}"
+        return 0
+    fi
+    local _prc=1
+    IFS= read -rsn1 -t 0 _ch
+    _prc=$?
+    if [ "$_prc" -ne 0 ]; then
+        printf -v "$_dest" '%s' ""
+        return 1
+    fi
+    if [ -n "$_ch" ]; then
+        printf -v "$_dest" '%s' "$_ch"
+        return 0
+    fi
+    _ch=""
+    if IFS= read -rsn1 -t 0.001 _ch; then
+        # Enter is a successful read of the delimiter and stores nothing.
+        [ -z "$_ch" ] && _ch=$'\n'
+        printf -v "$_dest" '%s' "$_ch"
+        return 0
+    fi
+    printf -v "$_dest" '%s' ""
+    return 1
+}
+
+_nav_push_front() {
+    _nav_pending="${1}${_nav_pending}"
+}
+
+# Timed read used by the menu. Queued bytes are returned before stdin.
+# The status of a real read is preserved so a timeout stays a tick and
+# end-of-file does not.
+_nav_pull() {
+    local _to="$1"
+    local _dest="$2"
+    if [ -n "$_nav_pending" ]; then
+        printf -v "$_dest" '%s' "${_nav_pending:0:1}"
+        _nav_pending="${_nav_pending:1}"
+        return 0
+    fi
+    local _ch="" _rc=0
+    IFS= read -rsn1 -t "$_to" _ch
+    _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+        printf -v "$_dest" '%s' "$_ch"
+        return 0
+    fi
+    printf -v "$_dest" '%s' ""
+    return "$_rc"
+}
+
+# Drop up/down repeats that arrived while the menu was painting.
+# Replaying that backlog is what keeps the highlight moving after the
+# key is released. A repeat that is not buffered yet is left alone, so
+# holding the key still advances on the keyboard's own repeat.
+_discard_buffered_vertical_arrows() {
+    local guard=0
+    local b1="" b2="" b3="" b4=""
+    local seq="" cur="" steps=0 discard_it=0
+    while [ "$guard" -lt 200 ]; do
+        guard=$((guard + 1))
+        b1=""
+        _nav_take_ready b1 || return 0
+        if [[ "$b1" != $'\e' ]]; then
+            _nav_push_front "$b1"
+            return 0
+        fi
+        b2=""
+        if ! _nav_take_ready b2; then
+            _nav_push_front "$b1"
+            return 0
+        fi
+        if [[ "$b2" == "[" ]]; then
+            b3=""
+            if ! _nav_take_ready b3; then
+                _nav_push_front "${b1}${b2}"
+                return 0
+            fi
+            case "$b3" in
+                A|B) ;;
+                "[")
+                    b4=""
+                    if ! _nav_take_ready b4; then
+                        _nav_push_front "${b1}${b2}${b3}"
+                        return 0
+                    fi
+                    if [[ "$b4" != "A" && "$b4" != "B" ]]; then
+                        _nav_push_front "${b1}${b2}${b3}${b4}"
+                        return 0
+                    fi
+                    ;;
+                [0-9])
+                    seq="${b1}${b2}${b3}"
+                    cur=""
+                    steps=0
+                    discard_it=0
+                    while [ "$steps" -lt 16 ]; do
+                        steps=$((steps + 1))
+                        cur=""
+                        if ! _nav_take_ready cur; then
+                            _nav_push_front "$seq"
+                            return 0
+                        fi
+                        seq+="$cur"
+                        if [[ "$cur" == "A" || "$cur" == "B" ]]; then
+                            discard_it=1
+                            break
+                        fi
+                        if [[ "$cur" =~ [A-Za-z~] ]]; then
+                            _nav_push_front "$seq"
+                            return 0
+                        fi
+                    done
+                    if [ "$discard_it" -ne 1 ]; then
+                        _nav_push_front "$seq"
+                        return 0
+                    fi
+                    ;;
+                *)
+                    _nav_push_front "${b1}${b2}${b3}"
+                    return 0
+                    ;;
+            esac
+        elif [[ "$b2" == "O" ]]; then
+            b3=""
+            if ! _nav_take_ready b3; then
+                _nav_push_front "${b1}${b2}"
+                return 0
+            fi
+            if [[ "$b3" != "A" && "$b3" != "B" ]]; then
+                _nav_push_front "${b1}${b2}${b3}"
+                return 0
+            fi
+        else
+            _nav_push_front "${b1}${b2}"
+            return 0
+        fi
+    done
+}
+
 # Key reader for interactive navigation
 read_nav_key() {
     local _out_var="$1"
@@ -434,15 +588,21 @@ read_nav_key() {
     # does not store the byte. An empty poll must not become Enter.
     local read_rc=1
     local have_key=0
-    local _poll=""
-    IFS= read -rsn1 -t 0 _poll
-    read_rc=$?
-    if [ "$read_rc" -eq 0 ] && [ -n "$_poll" ]; then
-        _k="$_poll"
-        have_key=1
-    elif [ "$read_rc" -eq 0 ]; then
-        if IFS= read -rsn1 -t 0.05 _k; then
+    if [ -n "$_nav_pending" ]; then
+        if _nav_pull 0.05 _k; then
             have_key=1
+        fi
+    else
+        local _poll=""
+        IFS= read -rsn1 -t 0 _poll
+        read_rc=$?
+        if [ "$read_rc" -eq 0 ] && [ -n "$_poll" ]; then
+            _k="$_poll"
+            have_key=1
+        elif [ "$read_rc" -eq 0 ]; then
+            if _nav_pull 0.05 _k; then
+                have_key=1
+            fi
         fi
     fi
     if [ "$have_key" -eq 0 ]; then
@@ -454,7 +614,7 @@ read_nav_key() {
         # 0.05s is the longest a window drag can go unnoticed. A timed-out
         # read is a tick, not a redraw: the menu paints only when the
         # size or the selection actually changed.
-        IFS= read -rsn1 -t 0.05 _k
+        _nav_pull 0.05 _k
         read_rc=$?
         if [ "$read_rc" -ne 0 ]; then
             if _resize_pending; then
@@ -480,10 +640,10 @@ read_nav_key() {
         _emit_key "BACKSPACE"
     elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then
         local c2=""
-        if IFS= read -rsn1 -t 0.02 c2; then
+        if _nav_pull 0.02 c2; then
             if [[ "$c2" == "[" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.02 c3; then
+                if _nav_pull 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -493,7 +653,7 @@ read_nav_key() {
                         "F") _emit_key "END" ;;
                         "[")
                             local c4=""
-                            if IFS= read -rsn1 -t 0.02 c4; then
+                            if _nav_pull 0.02 c4; then
                                 case "$c4" in
                                     "A") _emit_key "UP" ;;
                                     "B") _emit_key "DOWN" ;;
@@ -505,7 +665,7 @@ read_nav_key() {
                             ;;
                         [0-9])
                             local c4=""
-                            if IFS= read -rsn1 -t 0.02 c4; then
+                            if _nav_pull 0.02 c4; then
                                 case "${c3}${c4}" in
                                     "5~") _emit_key "PAGE_UP" ;;
                                     "6~") _emit_key "PAGE_DOWN" ;;
@@ -515,13 +675,13 @@ read_nav_key() {
                                     "3~") _emit_key "DELETE" ;;
                                     "23"|"24")
                                         local c5=""
-                                        IFS= read -rsn1 -t 0.02 c5
+                                        _nav_pull 0.02 c5 || true
                                         _emit_key "TOGGLE_FULLSCREEN"
                                         ;;
                                     *)
                                         local cur="${c4}"
                                         while [[ ! "$cur" =~ [A-Za-z~] ]]; do
-                                            IFS= read -rsn1 -t 0.02 cur || break
+                                            _nav_pull 0.02 cur || break
                                         done
                                         case "$cur" in
                                             "A") _emit_key "UP" ;;
@@ -543,7 +703,7 @@ read_nav_key() {
                 fi
             elif [[ "$c2" == "O" ]]; then
                 local c3=""
-                if IFS= read -rsn1 -t 0.02 c3; then
+                if _nav_pull 0.02 c3; then
                     case "$c3" in
                         "A") _emit_key "UP" ;;
                         "B") _emit_key "DOWN" ;;
@@ -845,6 +1005,7 @@ run_interactive_submenu() {
 
     local header_count=0
     local cached_header_block=""
+    local cached_header_lines=0
     local overhead=4
 
     build_header_block() {
@@ -884,9 +1045,72 @@ run_interactive_submenu() {
         overhead=5 # prompt help line (1), top scroll (1), bottom scroll (1), bottom divider (1), selection status (1)
         [ -n "$menu_title" ] && overhead=$((overhead + 3)) # top box border, title line, bottom box border
         overhead=$((overhead + header_count))
+        # Help line is always present. The title box is three lines and is
+        # not included in header_count. This is the row count of the block.
+        cached_header_lines=$header_count
+        [ -n "$menu_title" ] && cached_header_lines=$((cached_header_lines + 3))
+        cached_header_lines=$((cached_header_lines + 1))
     }
 
     build_header_block
+
+    # Status line shared by the full frame and the one-row selection paint.
+    _compose_menu_status() {
+        local _out="$1"
+        local cur_key="" cur_lbl="" cur_ext=""
+        local line=""
+        IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
+        if [ -n "$typed_buffer" ]; then
+            if [ -n "$menu_title" ]; then
+                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
+            else
+                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
+            fi
+        else
+            if [ -n "$menu_title" ]; then
+                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
+            else
+                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
+            fi
+        fi
+        printf -v "$_out" '%s' "$line"
+    }
+
+    _menu_line_plain() {
+        local idx="$1"
+        local _out="$2"
+        local o_key="" o_label="" o_extra=""
+        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
+        local key_formatted=""
+        printf -v key_formatted "[%2s]" "$o_key"
+        local extra_display=""
+        [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
+        printf -v "$_out" '%s' "     ${BOLD}${CYAN}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
+    }
+
+    # Repaint the previous row, the new row, and the status line.
+    # Returns 1 when the window must scroll, so the caller rebuilds the frame.
+    _menu_fast_paint_selection() {
+        local old_idx="$1"
+        [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
+        [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
+        [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
+        [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
+        [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1
+        [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1
+        local plain="" sel="" status=""
+        local o_key="" o_label="" o_extra=""
+        _menu_line_plain "$old_idx" plain
+        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"
+        highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"
+        _compose_menu_status status
+        # No DEC 2026 and no trailing newline. A newline on the last painted
+        # row would scroll the window. Bash flushes this before the next read.
+        printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b' "${_menu_item_row[$old_idx]}" "$plain"
+        printf '\033[0m\033[%s;1H%b' "${_menu_item_row[$cur_idx]}" "$sel"
+        printf '\033[0m\033[%s;1H%b\r\033[?25l' "${_menu_status_row}" "$status"
+        return 0
+    }
 
     cleanup_submenu_screen() {
         _MENU_CURSOR_LOCK=0
@@ -909,6 +1133,10 @@ run_interactive_submenu() {
     local last_term_lines="$_TERM_LINES"
     local _MENU_FRAME_FRESH=0
     local _LAST_MENU_TICK_S="${SECONDS:-0}"
+    local -a _menu_item_row=()
+    local _menu_status_row=0
+    local _menu_fast_ok=0
+    local _ARROW_HOLD=0
 
     while true; do
         update_terminal_geometry 0
@@ -1021,6 +1249,11 @@ run_interactive_submenu() {
         local frame_buf="$cached_header_block"
         [ -n "$player_banner" ] && frame_buf+="$player_banner"
 
+        # First item row: header, then the player banner, then the top scroller.
+        _menu_item_row=()
+        _menu_fast_ok=0
+        local _menu_row=$(( cached_header_lines + banner_lines + 2 ))
+
         # Scroll indicator top
         if [ "$view_top" -gt 0 ]; then
             frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"
@@ -1031,6 +1264,8 @@ run_interactive_submenu() {
         # Render visible items
         local idx
         for (( idx=view_top; idx<=view_end; idx++ )); do
+            _menu_item_row[$idx]=$_menu_row
+            _menu_row=$((_menu_row + 1))
             IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
             if [ "$o_key" = "SECTION" ]; then
                 local sec_rem=$(( inner_w - ${#o_label} - 8 ))
@@ -1060,6 +1295,9 @@ run_interactive_submenu() {
                 frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"
             fi
         done
+        # Bottom scroller, divider, then the status line.
+        _menu_status_row=$((_menu_row + 2))
+        _menu_fast_ok=1
 
         # Scroll indicator bottom
         local remaining_below=$(( total_opts - 1 - view_end ))
@@ -1070,20 +1308,9 @@ run_interactive_submenu() {
         fi
 
         frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
-        IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
-        if [ -n "$typed_buffer" ]; then
-            if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
-            else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
-            fi
-        else
-            if [ -n "$menu_title" ]; then
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
-            else
-                frame_buf+="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
-            fi
-        fi
+        local _status_line=""
+        _compose_menu_status _status_line
+        frame_buf+="$_status_line"
         
         # Draw only when the screen changed. Never park the caret on the
         # right edge: after Ctrl+/- mintty shows it there and it tracks
@@ -1106,6 +1333,13 @@ run_interactive_submenu() {
             run_deferred_startup
         fi
         _MENU_FRAME_FRESH=1
+        fi
+
+        # The paint above is slower than key repeat. Drop the up/down
+        # sequences already waiting so releasing the key stops the highlight.
+        if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then
+            _discard_buffered_vertical_arrows
+            _ARROW_HOLD=0
         fi
 
         local key_action=""
@@ -1183,6 +1417,7 @@ run_interactive_submenu() {
                 [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset >/dev/null 2>&1 &
                 ;;
             UP)
+                local old_idx="$cur_idx"
                 local hops=0
                 while [ "$hops" -lt "$total_opts" ]; do
                     cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts ))
@@ -1191,6 +1426,10 @@ run_interactive_submenu() {
                     ((hops++))
                 done
                 typed_buffer=""
+                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
+                    _MENU_FRAME_FRESH=1
+                fi
+                _ARROW_HOLD=1
                 ;;
             PAGE_UP)
                 local hops=0
@@ -1205,6 +1444,7 @@ run_interactive_submenu() {
                 typed_buffer=""
                 ;;
             DOWN)
+                local old_idx="$cur_idx"
                 local hops=0
                 while [ "$hops" -lt "$total_opts" ]; do
                     cur_idx=$(( (cur_idx + 1) % total_opts ))
@@ -1213,6 +1453,10 @@ run_interactive_submenu() {
                     ((hops++))
                 done
                 typed_buffer=""
+                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
+                    _MENU_FRAME_FRESH=1
+                fi
+                _ARROW_HOLD=1
                 ;;
             PAGE_DOWN)
                 local hops=0
