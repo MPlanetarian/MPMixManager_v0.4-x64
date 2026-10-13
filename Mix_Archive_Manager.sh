@@ -419,35 +419,36 @@ _resize_pending() {
 # A queued newline stands for Enter: `read -n1` stores that as an empty string.
 _nav_pending=""
 
+# manager.bat attaches Git Bash to the Windows console (/dev/consN).
+# manager.sh is mintty (/dev/ptyN). Cached so a key repeat does not fork.
+_NAV_WIN_CON=""
+_nav_mark_console() {
+    [ -n "${_NAV_WIN_CON:-}" ] && return 0
+    case "$(tty 2>/dev/null)" in
+        /dev/cons*) _NAV_WIN_CON=1 ;;
+        *) _NAV_WIN_CON=0 ;;
+    esac
+}
+
 # Copy one queued or already-buffered character into the named variable.
-# `read -t 0` only reports that stdin is readable. It does not consume.
-# The following 1ms read consumes a byte that is already waiting and
-# returns at once. An empty buffer returns immediately, so the next
-# repeat of a key that is still held is left for the real read.
+# Do not use `read -t 0` here. On the Windows console that poll drops the
+# byte it notices, so the ESC of a Down arrow disappears and the final B
+# is read later as Back. A byte that is already waiting is returned at
+# once. An empty buffer comes back in a few milliseconds, before the
+# keyboard has repeated, so a key that is still held is left for the
+# real read.
 _nav_take_ready() {
     local _dest="$1"
     local _ch=""
+    _nav_mark_console
     if [ -n "$_nav_pending" ]; then
         printf -v "$_dest" '%s' "${_nav_pending:0:1}"
         _nav_pending="${_nav_pending:1}"
         return 0
     fi
-    local _prc=1
-    IFS= read -rsn1 -t 0 _ch
-    _prc=$?
-    if [ "$_prc" -ne 0 ]; then
-        printf -v "$_dest" '%s' ""
-        return 1
-    fi
-    if [ -n "$_ch" ]; then
-        printf -v "$_dest" '%s' "$_ch"
-        return 0
-    fi
-    _ch=""
-    if IFS= read -rsn1 -t 0.001 _ch; then
-        # A Windows-console key-up is a successful read that stores nothing,
-        # the same shape as Enter. Do not turn it into a newline: the menu
-        # would treat it as Enter and leave the screen.
+    if IFS= read -rsn1 -t 0.01 _ch; then
+        # A successful read that stores nothing is the same shape as Enter.
+        # Do not turn it into a newline: the menu would leave the screen.
         if [ -z "$_ch" ]; then
             printf -v "$_dest" '%s' ""
             return 2
@@ -476,7 +477,7 @@ _nav_just_arrowed() {
     [[ "$ns" =~ ^[0-9]+$ && "$as" =~ ^[0-9]+$ ]] || return 1
     local now_ms=$((10#$ns * 1000 + 10#$nf))
     local at_ms=$((10#$as * 1000 + 10#$af))
-    [ $((now_ms - at_ms)) -lt 80 ]
+    [ $((now_ms - at_ms)) -lt 200 ]
 }
 
 _nav_push_front() {
@@ -520,16 +521,22 @@ _discard_buffered_vertical_arrows() {
         _nav_take_ready b1
         ready_rc=$?
         if [ "$ready_rc" -eq 2 ]; then
-            # Null key-up. Keep looking once for a trailing A/B, then stop
-            # so a console that always looks readable cannot spin.
+            if [ "${_NAV_WIN_CON:-0}" -ne 1 ]; then
+                # read -n1 stores Enter as an empty string. Keep it.
+                _nav_pending=$'\n'"${_nav_pending}"
+                return 0
+            fi
+            # On the Windows console a key-up has this same shape. Drop one,
+            # look once more for a trailing A/B, then stop so a console that
+            # always looks readable cannot spin.
             empties=$((empties + 1))
             [ "$empties" -ge 2 ] && return 0
             continue
         fi
         [ "$ready_rc" -eq 0 ] || return 0
-        # The console attached by manager.bat can follow ESC [ A/B with the
-        # final letter again. That letter is Up/Down, not typed text.
-        if [[ "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ]]; then
+        # manager.bat's console can follow ESC [ A/B with that letter again.
+        # B is also Back. mintty does not do this, so leave a real B alone.
+        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ]]; then
             continue
         fi
         if [[ "$b1" != $'\e' ]]; then
@@ -622,30 +629,14 @@ read_nav_key() {
         return 0
     }
 
-    # Zoom sends SIGWINCH while arrows may already be buffered.
-    # Deliver a waiting key first so the resize cannot swallow it.
-    # Bash 5.3 `read -t 0` only polls: success means "readable" and it
-    # does not store the byte. An empty poll must not become Enter.
-    local read_rc=1
-    local have_key=0
-    if [ -n "$_nav_pending" ]; then
-        if _nav_pull 0.05 _k; then
-            have_key=1
-        fi
-    else
-        local _poll=""
-        IFS= read -rsn1 -t 0 _poll
-        read_rc=$?
-        if [ "$read_rc" -eq 0 ] && [ -n "$_poll" ]; then
-            _k="$_poll"
-            have_key=1
-        elif [ "$read_rc" -eq 0 ]; then
-            if _nav_pull 0.05 _k; then
-                have_key=1
-            fi
-        fi
-    fi
-    if [ "$have_key" -eq 0 ]; then
+    # A waiting byte comes back at once. Do not poll with `read -t 0`.
+    # On the Windows console that poll drops the byte, so the ESC of a
+    # Down arrow disappears and the leftover B leaves the menu.
+    _nav_mark_console
+    local read_rc=0
+    _nav_pull 0.05 _k
+    read_rc=$?
+    if [ "$read_rc" -ne 0 ]; then
         _k=""
         if _resize_pending; then
             _emit_key "RESIZE"
@@ -654,28 +645,21 @@ read_nav_key() {
         # 0.05s is the longest a window drag can go unnoticed. A timed-out
         # read is a tick, not a redraw: the menu paints only when the
         # size or the selection actually changed.
-        _nav_pull 0.05 _k
-        read_rc=$?
-        if [ "$read_rc" -ne 0 ]; then
-            if _resize_pending; then
-                _emit_key "RESIZE"
-                return 0
-            fi
-            if [ "$read_rc" -gt 128 ]; then
-                _emit_key "TICK"
-                return 0
-            fi
-            if [ -n "$_out_var" ]; then
-                printf -v "$_out_var" "%s" ""
-            fi
-            return 1
+        if [ "$read_rc" -gt 128 ]; then
+            _emit_key "TICK"
+            return 0
         fi
+        if [ -n "$_out_var" ]; then
+            printf -v "$_out_var" "%s" ""
+        fi
+        return 1
     fi
 
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
         # A null read in the moment after an arrow is not the user pressing
-        # Enter. Counting it as Enter leaves the menu.
-        if _nav_just_arrowed; then
+        # Enter. Counting it as Enter leaves the menu. mintty does not
+        # produce that null, so a real Enter there still selects.
+        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && _nav_just_arrowed; then
             _emit_key "TICK"
             return 0
         fi
@@ -1564,10 +1548,10 @@ run_interactive_submenu() {
                 ;;
             CHAR:*)
                 local ch="${key_action#CHAR:}"
-                # manager.bat's console repeats the arrow's final A or B as a
-                # typed letter. B is also Back, so it was leaving the menu
-                # and the main loop reported an invalid option.
-                if [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then
+                # manager.bat's console can deliver the arrow's final A or B
+                # again. B is also Back, so it was leaving the menu and the
+                # main loop reported an invalid option. mintty does not.
+                if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then
                     continue
                 fi
                 if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then
