@@ -50,11 +50,14 @@ _on_winch() {
 }
 trap '_on_winch' WINCH
 
+# Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
 if ! command -v pgrep >/dev/null 2>&1; then
     pgrep() {
+        local flag_i=false
         local pattern="$1"
         [ -z "$pattern" ] && return 1
 
+        # One process snapshot serves every probe in this shell for 2s.
         local now_s="${SECONDS:-0}"
         if [ $((now_s - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
             _PGREP_SNAP_AT="$now_s"
@@ -66,7 +69,11 @@ if ! command -v pgrep >/dev/null 2>&1; then
         fi
 
         local matches
-        matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
+        if [ "$flag_i" = true ]; then
+            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -iE -- "$pattern" | grep -v "grep" || true)
+        else
+            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
+        fi
 
         if [ -n "$matches" ]; then
             printf '%s\n' "$matches" | awk '{print $2}'

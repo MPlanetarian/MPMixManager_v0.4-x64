@@ -131,13 +131,11 @@ PID_FILE = CONFIG_DIR / "mp_player.pid"
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 
-
 def get_base_dir() -> Path:
     script_p = Path(__file__).resolve()
     if script_p.parent.name == "scripts":
         return script_p.parent.parent
     return script_p.parent
-
 
 def parse_env_file(filepath: Path) -> Dict[str, str]:
     env = {}
@@ -156,7 +154,6 @@ def parse_env_file(filepath: Path) -> Dict[str, str]:
     except Exception:
         pass
     return env
-
 
 def format_seconds(seconds: float) -> str:
     if seconds < 0 or math.isnan(seconds):
@@ -559,7 +556,6 @@ def choose_export_m3u_gui() -> Optional[str]:
 
     return None
 
-
 # ==============================================================================
 # ARCHIVE MIX SCANNER
 # ==============================================================================
@@ -686,7 +682,6 @@ class MixArchiveScanner:
     def get_latest_mix(self) -> Optional[Dict[str, Any]]:
         return self.mixes[0] if self.mixes else None
 
-
 # ==============================================================================
 # AUDIO PLAYBACK ENGINE & REAL-TIME SPECTRUM ANALYZER
 # ==============================================================================
@@ -748,7 +743,6 @@ class AudioResampler:
             self.in_pos -= discard
 
         return out
-
 
 class AudioEngine:
     """High-performance audio streaming engine with FFT spectrum extraction and DJ pitch control."""
@@ -1341,7 +1335,6 @@ class AudioEngine:
             "pid": int(os.getpid())
         }
 
-
 # ==============================================================================
 # IPC SERVER & STATE DAEMON
 # ==============================================================================
@@ -1534,7 +1527,6 @@ class PlayerIPCServer:
                 pass
             time.sleep(0.04)
 
-
 # ==============================================================================
 # IPC CLIENT (Used by CLI commands and Mix_Archive_Manager.sh)
 # ==============================================================================
@@ -1567,7 +1559,6 @@ def send_ipc_command(cmd: str, **kwargs) -> Optional[Dict[str, Any]]:
         except Exception:
             time.sleep(0.05)
     return None
-
 
 def is_player_daemon_running() -> bool:
     if PID_FILE.exists():
@@ -1646,15 +1637,12 @@ def is_player_daemon_running() -> bool:
                 pass
     return False
 
-
-
 # ==============================================================================
 # ANIMATED EQUALIZER & VISUALIZERS (TUI RENDERER)
 # ==============================================================================
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _WIN_CONSOLE = None
-
 
 def _char_display_width(ch: str) -> int:
     """Column width of one character. Emoji are 2 cells; box drawing stays 1."""
@@ -1696,7 +1684,6 @@ def _clip_display(text: str, max_cols: int) -> str:
     if i < n:
         out.append("\033[0m")
     return "".join(out)
-
 
 def _boxed_rule(left: str, text: str, right: str, inner: int, color: str) -> str:
     """One box edge that is exactly `inner` columns between the corners."""
@@ -1749,7 +1736,6 @@ def _win_console_begin():
         return state
     except Exception:
         return None
-
 
 def _win_console_fit_buffer():
     """Make the screen buffer match the visible window so the scrollbar cannot grow."""
@@ -2926,7 +2912,6 @@ def _spawn_player_daemon(file_path: str) -> None:
     except OSError:
         pass
 
-
 def _install_windows_console_close():
     """Exit when this console is closed so playback cannot outlive it."""
     if sys.platform != "win32":
@@ -3301,8 +3286,6 @@ def main():
         except OSError:
             pass
         sys.exit(0)
-
-
 
 if __name__ == "__main__":
     main()
