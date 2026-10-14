@@ -53,40 +53,20 @@ trap '_on_winch' WINCH
 # Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
 if ! command -v pgrep >/dev/null 2>&1; then
     pgrep() {
-        local flag_i=false
         local pattern="$1"
         [ -z "$pattern" ] && return 1
-
-        # One process snapshot serves every probe in this shell for 2s.
-        local now_s="${SECONDS:-0}"
-        if [ $((now_s - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
-            _PGREP_SNAP_AT="$now_s"
-            _PGREP_SNAP_PS="$(ps -ef 2>/dev/null || true)"
-            _PGREP_SNAP_TASK=""
-            if command -v tasklist.exe >/dev/null 2>&1; then
-                _PGREP_SNAP_TASK="$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null || true)"
-            fi
+        if [ $((SECONDS - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
+            _PGREP_SNAP_AT="$SECONDS"
+            _PGREP_SNAP_PS=$(ps -ef 2>/dev/null || true)
+            _PGREP_SNAP_TASK=$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null || true)
         fi
-
-        local matches
-        if [ "$flag_i" = true ]; then
-            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -iE -- "$pattern" | grep -v "grep" || true)
-        else
-            matches=$(printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" || true)
-        fi
-
-        if [ -n "$matches" ]; then
-            printf '%s\n' "$matches" | awk '{print $2}'
+        if printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" > /dev/null; then
+            printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" | awk '{print $2}'
             return 0
         fi
-
-        if [ -n "${_PGREP_SNAP_TASK:-}" ]; then
-            local win_matches
-            win_matches=$(printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" || true)
-            if [ -n "$win_matches" ]; then
-                printf '%s\n' "$win_matches" | cut -d',' -f2 | tr -d '"'
-                return 0
-            fi
+        if printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" > /dev/null; then
+            printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" | cut -d',' -f2 | tr -d '"'
+            return 0
         fi
         return 1
     }
@@ -136,7 +116,7 @@ update_terminal_geometry() {
     local win_l="" win_c=""
 
     if _win_console_size win_l win_c; then
-        if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ] || [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
+        if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
             _TERM_LINES="$win_l"
             _TERM_COLS="$win_c"
             _TERM_RESIZED=0
@@ -163,17 +143,8 @@ update_terminal_geometry() {
             fi
         fi
 
-        if ! [[ "$new_l" =~ ^[0-9]+$ ]] || [ "$new_l" -lt 1 ]; then
-            new_l="${_TERM_LINES:-40}"
-            [[ "$new_l" =~ ^[0-9]+$ ]] && [ "$new_l" -ge 1 ] || new_l=40
-        fi
-        if ! [[ "$new_c" =~ ^[0-9]+$ ]] || [ "$new_c" -lt 1 ]; then
-            new_c="${_TERM_COLS:-100}"
-            [[ "$new_c" =~ ^[0-9]+$ ]] && [ "$new_c" -ge 1 ] || new_c=100
-        fi
-
-        _TERM_LINES="$new_l"
-        _TERM_COLS="$new_c"
+        _TERM_LINES="${new_l:-${_TERM_LINES:-40}}"
+        _TERM_COLS="${new_c:-${_TERM_COLS:-100}}"
         _TERM_RESIZED=0
         return 0
     fi
