@@ -1496,6 +1496,7 @@ _stop_mp_audio_daemon() {
         fi
         _AUTOPLAY_PID=""
     fi
+
     local pid_file="${HOME}/.config/mix-manager/mp_player.pid"
     local port_file="${HOME}/.config/mix-manager/mp_audio_player.port"
     local state_file="${HOME}/.config/mix-manager/mp_player_state.json"
@@ -1787,37 +1788,14 @@ open_cover_art_window() {
     # 1. Linux & FreeBSD
     if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then
         ensure_bazzite_borderless_kwin_rule
-        if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "org.kde.gwenview"; then
-            nohup flatpak run org.kde.gwenview "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        elif command -v gwenview >/dev/null 2>&1; then
-            nohup gwenview "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        elif command -v loupe >/dev/null 2>&1; then
-            nohup loupe "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        elif command -v eog >/dev/null 2>&1; then
-            nohup eog "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        elif command -v feh >/dev/null 2>&1; then
-            nohup feh --title "$cover_title" --geometry 700x700 "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        elif command -v xdg-open >/dev/null 2>&1; then
-            nohup xdg-open "$target" >/dev/null 2>&1 &
-            disown 2>/dev/null || true
-            align_mix_windows_on_screen --expect-cover
-            return 0
-        fi
+        for viewer in flatpak run org.kde.gwenview gwenview loupe eog feh xdg-open; do
+            if command -v "$viewer" >/dev/null 2>&1; then
+                nohup "$viewer" "$target" >/dev/null 2>&1 &
+                disown 2>/dev/null || true
+                align_mix_windows_on_screen --expect-cover
+                return 0
+            fi
+        done
     fi
 
     # 2. macOS
@@ -1832,12 +1810,12 @@ open_cover_art_window() {
         cmd.exe /c start "" "$target" >/dev/null 2>&1 &
         return 0
     elif [ "$OS_TYPE" = "wsl" ]; then
-        if command -v wslview >/dev/null 2>&1; then
-            wslview "$target" >/dev/null 2>&1 &
-        elif command -v explorer.exe >/dev/null 2>&1; then
-            explorer.exe "$(wslpath -w "$target" 2>/dev/null || echo "$target")" >/dev/null 2>&1 &
-        fi
-        return 0
+        for viewer in wslview explorer.exe; do
+            if command -v "$viewer" >/dev/null 2>&1; then
+                "$viewer" "$(wslpath -w "$target" 2>/dev/null || echo "$target")" >/dev/null 2>&1 &
+                return 0
+            fi
+        done
     fi
 
     open_path "$target"
