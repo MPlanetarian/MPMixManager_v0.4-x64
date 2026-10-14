@@ -2423,40 +2423,18 @@ header_cache_signature() {
 }
 
 refresh_header_cache_worker() {
-    # Do the real collection work here in the background, but at most once per 30s
     local lock_dir="$HOME/.config/mix-manager"
     local lock_file="$lock_dir/.header_refresh_stamp"
     local now="${EPOCHSECONDS:-0}"
     [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ "${1:-}" != "--force" ] && [ -f "$lock_file" ]; then
-        local last=0
-        read -r last < "$lock_file" 2>/dev/null || last=0
-        [[ "$last" =~ ^[0-9]+$ ]] || last=0
-        [ $((now - last)) -lt 30 ] && return 0
-    fi
-    [ -d "$lock_dir" ] || mkdir -p "$lock_dir" 2>/dev/null || true
-    echo "$now" > "$lock_file" 2>/dev/null || true
+    [ -f "$lock_file" ] && [ $((now - $(cat "$lock_file"))) -lt 30 ] && return 0
+    mkdir -p "$lock_dir" 2>/dev/null
+    echo "$now" > "$lock_file"
 
-    # Reset freshness timers so each collector really re-runs inside this background worker
     _LAST_CLOUD_CHECK=0 _LAST_WEATHER_CHECK=0 _LAST_PLANETS_CHECK=0 _LAST_AUDIO_IFACE_CHECK=0
     _LAST_OS_UPDATE_CHECK=0 _LAST_INTERNET_CHECK=0 _LAST_ALARM_STATUS_CHECK=0 _LAST_TOP_5_CHECK=0
 
-    is_internet_connected >/dev/null 2>&1 || true
-    get_os_badge >/dev/null 2>&1 || true
-    get_os_update_status >/dev/null 2>&1 || true
-    save_header_cache 2>/dev/null || true   # publish the quick items first
-    _CACHED_NOW_PLAYING="$(refresh_now_playing_lines 2>/dev/null || true)"
-    save_header_cache 2>/dev/null || true
-    get_active_audio_interface_display >/dev/null 2>&1 || true
-    get_alarm_clock_status_display >/dev/null 2>&1 || true
-    get_top_5_status_badge >/dev/null 2>&1 || true
-    get_current_weather >/dev/null 2>&1 || true
-    get_planets_above_horizon >/dev/null 2>&1 || true
-    save_header_cache 2>/dev/null || true
-    ensure_playlists_generated_dirs --all
-    show_stats --force >/dev/null 2>&1 || true   # slowest (archive scan); also saves cache + cloud badge
-    get_cloud_backup_badge >/dev/null 2>&1 || true
-    save_header_cache 2>/dev/null || true
+    (is_internet_connected; get_os_badge; get_os_update_status; save_header_cache; refresh_now_playing_lines; save_header_cache; get_active_audio_interface_display; get_alarm_clock_status_display; get_top_5_status_badge; get_current_weather; get_planets_above_horizon; save_header_cache; ensure_playlists_generated_dirs --all; show_stats --force; get_cloud_backup_badge; save_header_cache) 2>/dev/null
 }
 
 # Called from the interactive menu loop (main shell) so timers persist, unlike $(...) renders.
@@ -2472,43 +2450,25 @@ maybe_spawn_header_refresh() {
 
 load_header_cache
 
+# Global cache for archive directories
+declare -A _CACHED_ARCHIVE_DIRS
+
+# Function to check internet connection
 is_internet_connected() {
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    local now=${EPOCHSECONDS:-0}
+    if [ "$now" -eq 0 ]; then
+        now=$(date +%s 2>/dev/null || echo 0)
+    fi
     if [ $((now - _LAST_INTERNET_CHECK)) -lt 30 ] && [ -n "$_CACHED_INTERNET_STATUS" ]; then
         [ "$_CACHED_INTERNET_STATUS" = "online" ]
         return $?
     fi
 
     _LAST_INTERNET_CHECK="$now"
-
-    # Fast path: curl HTTP probe to 1.1.1.1 (connect-timeout 250ms)
-    if command -v curl >/dev/null 2>&1; then
-        if curl -s -I --connect-timeout 0.25 http://1.1.1.1 >/dev/null 2>&1; then
-            _CACHED_INTERNET_STATUS="online"
-            return 0
-        fi
-    fi
-
-    # Quick check for default route (if no default route, definitely offline)
-    if command -v ip >/dev/null 2>&1; then
-        if ! ip route 2>/dev/null | grep -q "^default"; then
-            _CACHED_INTERNET_STATUS="offline"
-            return 1
-        fi
-    fi
-
-    # Fast TCP probe to public DNS (no DNS lookup required)
-    if timeout 0.35 bash -c 'cat < /dev/null > /dev/tcp/1.1.1.1/53' 2>/dev/null || \
-       timeout 0.35 bash -c 'cat < /dev/null > /dev/tcp/8.8.8.8/53' 2>/dev/null; then
-        _CACHED_INTERNET_STATUS="online"
-        return 0
-    fi
-
-    _CACHED_INTERNET_STATUS="offline"
-    return 1
+    curl -s -I --connect-timeout 0.25 http://1.1.1.1 >/dev/null 2>&1 && _CACHED_INTERNET_STATUS="online" || _CACHED_INTERNET_STATUS="offline"
 }
 
+# Function to check if a path is a remote or cloud path
 is_remote_or_cloud_path() {
     local p="$1"
     [ -z "$p" ] && return 1
@@ -2531,104 +2491,15 @@ is_remote_or_cloud_path() {
     return 1
 }
 
-# Global in-memory caches for archive discovery
-_CACHED_ALL_MIX_ARCHIVE_DIRS=()
-_CACHED_ALL_FLAC_OUTPUT_DIRS=()
-_CACHED_ALL_WAV_ARCHIVE_DIRS=()
-
-clear_archive_dir_cache() {
-    _CACHED_ALL_MIX_ARCHIVE_DIRS=()
-    _CACHED_ALL_FLAC_OUTPUT_DIRS=()
-    _CACHED_ALL_WAV_ARCHIVE_DIRS=()
-}
-
-# Helper: Parse EXTRA_MIX_ARCHIVE_DIRS preserving Windows drive letters (e.g. G:/, B:/)
-parse_extra_mix_archive_dirs() {
-    local raw="$1"
-    local -a parsed=()
-    [ -z "$raw" ] && return 0
-    raw="${raw#"${raw%%[![:space:]]*}"}"
-    raw="${raw%"${raw##*[![:space:]]}"}"
-    [ -z "$raw" ] && return 0
-
-    if [[ "$raw" == *";"* || "$raw" == *","* || "$raw" == *$'\n'* ]]; then
-        local IFS_BACK="$IFS"
-        IFS=';,'$'\n'
-        for item in $raw; do
-            IFS="$IFS_BACK"
-            item="${item#"${item%%[![:space:]]*}"}"
-            item="${item%"${item##*[![:space:]]}"}"
-            item="${item%\"}"
-            item="${item#\"}"
-            item="${item%\'}"
-            item="${item#\'}"
-            [ -n "$item" ] && parsed+=("$item")
-            IFS=';,'$'\n'
-        done
-        IFS="$IFS_BACK"
-    elif [[ "$raw" =~ :[a-zA-Z]: ]]; then
-        local fixed_raw
-        fixed_raw="$(printf '%s' "$raw" | sed -E 's/:([a-zA-Z]:)/;\1/g')"
-        local IFS_BACK="$IFS"
-        IFS=';'
-        for item in $fixed_raw; do
-            IFS="$IFS_BACK"
-            item="${item#"${item%%[![:space:]]*}"}"
-            item="${item%"${item##*[![:space:]]}"}"
-            item="${item%\"}"
-            item="${item#\"}"
-            item="${item%\'}"
-            item="${item#\'}"
-            [ -n "$item" ] && parsed+=("$item")
-            IFS=';'
-        done
-        IFS="$IFS_BACK"
-    elif [[ ! "$raw" =~ ^[a-zA-Z]: && "$raw" == *":"* ]]; then
-        local IFS_BACK="$IFS"
-        IFS=':'
-        for item in $raw; do
-            IFS="$IFS_BACK"
-            item="${item#"${item%%[![:space:]]*}"}"
-            item="${item%"${item##*[![:space:]]}"}"
-            item="${item%\"}"
-            item="${item#\"}"
-            item="${item%\'}"
-            item="${item#\'}"
-            [ -n "$item" ] && parsed+=("$item")
-            IFS=':'
-        done
-        IFS="$IFS_BACK"
-    else
-        local item="$raw"
-        item="${item#"${item%%[![:space:]]*}"}"
-        item="${item%"${item##*[![:space:]]}"}"
-        item="${item%\"}"
-        item="${item#\"}"
-        item="${item%\'}"
-        item="${item#\'}"
-        [ -n "$item" ] && parsed+=("$item")
-    fi
-
-    for p in "${parsed[@]}"; do
-        p="${p//\\//}"
-        if [[ ! "$p" =~ ^[a-zA-Z]:/$ && "$p" != "/" ]]; then
-            p="${p%/}"
-        fi
-        [ -n "$p" ] && printf '%s\n' "$p"
-    done
-}
-
-# Helper: Get all configured mix archive directories
+# Function to get all mix archive directories
 get_all_mix_archive_dirs() {
-    if [ "${1:-}" != "--refresh" ] && [ ${#_CACHED_ALL_MIX_ARCHIVE_DIRS[@]} -gt 0 ]; then
-        printf '%s\n' "${_CACHED_ALL_MIX_ARCHIVE_DIRS[@]}"
+    local key="all_mix_archive_dirs"
+    if [[ -n "${_CACHED_ARCHIVE_DIRS[$key]}" ]]; then
+        printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"
         return 0
     fi
 
     local dirs=()
-    local seen=()
-
-    # Primary archive directory
     local primary="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"
     if [ -n "$primary" ]; then
         local clean_p="${primary//\\//}"
@@ -2637,43 +2508,39 @@ get_all_mix_archive_dirs() {
         fi
         if ! is_remote_or_cloud_path "$clean_p" || is_internet_connected; then
             dirs+=("$clean_p")
-            seen+=("$clean_p")
         fi
     fi
 
-    # Extra archive directories (semicolon, comma, newline, or non-drive colon separated)
     local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
     if [ -n "$raw_extras" ]; then
-        local -a extra_parsed=()
-        while IFS= read -r line || [ -n "$line" ]; do
-            line="${line%$'\r'}"
-            [ -n "$line" ] && extra_parsed+=("$line")
-        done < <(parse_extra_mix_archive_dirs "$raw_extras")
-
-        for d in "${extra_parsed[@]}"; do
-            if [[ "$d" =~ ^~(/.*)?$ ]]; then
-                d="${HOME}${d:1}"
-            fi
-            d="${d//\\//}"
-            if [ -n "$d" ]; then
-                local clean_d="$d"
+        local IFS_BACK="$IFS"
+        IFS=';,'$'\n'
+        for item in $raw_extras; do
+            IFS="$IFS_BACK"
+            item="${item#"${item%%[![:space:]]*}"}"
+            item="${item%"${item##*[![:space:]]}"}"
+            item="${item%\"}"
+            item="${item#\"}"
+            item="${item%\'}"
+            item="${item#\'}"
+            if [ -n "$item" ]; then
+                local clean_d="$item"
                 if [[ ! "$clean_d" =~ ^[a-zA-Z]:/$ && "$clean_d" != "/" ]]; then
                     clean_d="${clean_d%/}"
                 fi
                 if is_remote_or_cloud_path "$clean_d" && ! is_internet_connected; then
                     continue
                 fi
-                if [[ ! " ${seen[*]} " =~ " ${clean_d} " ]]; then
-                    seen+=("$clean_d")
-                    dirs+=("$clean_d")
-                fi
+                dirs+=("$clean_d")
             fi
         done
+        IFS="$IFS_BACK"
     fi
 
-    _CACHED_ALL_MIX_ARCHIVE_DIRS=("${dirs[@]}")
-    printf '%s\n' "${dirs[@]}"
+    _CACHED_ARCHIVE_DIRS[$key]=$(IFS=$'\n'; echo "${dirs[*]}")
+    printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"
 }
+
 
 # Helper: Get all FLAC output directories across all configured archives
 get_all_flac_output_dirs() {
