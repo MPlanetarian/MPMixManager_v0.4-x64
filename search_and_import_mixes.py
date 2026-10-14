@@ -40,6 +40,11 @@ DEFAULT_AUDIO_EXTS = ['.wav', '.flac', '.aif', '.aiff', '.m4a', '.mp3']
 # Known SMB Sources (from existing environment)
 DEFAULT_SMB_SOURCES = [
     {
+        "name": "STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026 NEW",
+        "url": "smb://192.168.1.138/mplanetarian/Documents/TRAKTOR_RECORDINGS/",
+        "rclone_path": ':smb,host="192.168.1.138",user="mplanetarian",pass="Bl5Ejf6SBQivAUu_JvImDn__AKLASZcq":mplanetarian/Documents/TRAKTOR_RECORDINGS/'
+    },
+    {
         "name": "STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026",
         "url": "smb://192.168.1.138/mplanetarian/.../STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026/",
         "rclone_path": ':smb,host="192.168.1.138",user="mplanetarian",pass="Bl5Ejf6SBQivAUu_JvImDn__AKLASZcq":mplanetarian/Documents/MPlanetarian/M_PRODUCTION/STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026/'

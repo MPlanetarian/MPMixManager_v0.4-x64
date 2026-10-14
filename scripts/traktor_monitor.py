@@ -56,6 +56,7 @@ SETTINGS_CANDIDATES = [
 ]
 
 RECORDING_DIRS = [
+    Path.home() / "Documents/MPlanetarian/Documents/TRAKTOR_RECORDINGS/",
     Path.home() / "Documents/MPlanetarian/M_PRODUCTION/STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026",
     Path.home() / "Music/Traktor/Recordings",
     Path.home() / "Documents/Native Instruments/Traktor 3.11.1/Recordings",

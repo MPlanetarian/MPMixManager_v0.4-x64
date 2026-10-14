@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
 """
-MP_Mix_Manager_v0.3 - Universal Mix Search & Importer
+MP_Mix_Manager_v0.3 - Universal Mix Search & Importer (Optimized)
 Search and ingest mixes from local drives, removable media (USB/SSD), and SMB network shares.
-Features:
-  - Auto-discovery of local mounted volumes, external drives, and common music directories
-  - Built-in & custom SMB share support (via rclone and direct CIFS mounts)
-  - Intelligent filtering by audio extension and minimum file size (default: >= 100 MB for full mixes)
-  - Duplicate detection against active Mix Archive, Converted WAVs, and FLAC outputs
-  - Live progress display with transfer speed and ETA
-  - Detailed audit logging in IMPORT_LOGS/
-  - Optional automatic trigger of FLAC conversion post-import
 """
 
 import os
@@ -37,8 +29,13 @@ NC = "\033[0m"
 # Audio extensions to look for
 DEFAULT_AUDIO_EXTS = ['.wav', '.flac', '.aif', '.aiff', '.m4a', '.mp3']
 
-# Known SMB Sources (from existing environment)
+# Known SMB Sources
 DEFAULT_SMB_SOURCES = [
+    {
+        "name": "STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026 NEW",
+        "url": "smb://192.168.1.138/mplanetarian/Documents/TRAKTOR_RECORDINGS/",
+        "rclone_path": ':smb,host="192.168.1.138",user="mplanetarian",pass="Bl5Ejf6SBQivAUu_JvImDn__AKLASZcq":mplanetarian/Documents/TRAKTOR_RECORDINGS/'
+    },
     {
         "name": "STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026",
         "url": "smb://192.168.1.138/mplanetarian/.../STREAM_OF_FREQUENCY_RECORDINGS_TRAKTOR_2026/",
@@ -54,21 +51,25 @@ DEFAULT_SMB_SOURCES = [
 def load_config_env():
     """Load settings from config.env if present."""
     script_dir = Path(__file__).resolve().parent
-    config_file = script_dir / "config.env"
+    candidates = [
+        script_dir / "config.env",
+        script_dir.parent / "config.env",
+        Path.cwd() / "config.env"
+    ]
     env_vars = {}
-    if config_file.is_file():
-        try:
-            with open(config_file, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, val = line.split("=", 1)
-                    key = key.strip()
-                    val = val.strip().strip('"').strip("'")
-                    env_vars[key] = val
-        except Exception:
-            pass
+    for config_file in candidates:
+        if config_file.is_file():
+            try:
+                with open(config_file, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        key, val = line.split("=", 1)
+                        env_vars[key.strip()] = val.strip().strip('"').strip("'")
+                break
+            except Exception:
+                pass
     return env_vars
 
 def get_destination_dir(env_vars):
@@ -78,7 +79,6 @@ def get_destination_dir(env_vars):
     if os.environ.get("MIX_ARCHIVE_DIR") and os.path.isdir(os.environ["MIX_ARCHIVE_DIR"]):
         return os.environ["MIX_ARCHIVE_DIR"]
     
-    # Common default paths
     user = os.environ.get("USER", "mplanetarian")
     candidates = [
         f"/run/media/{user}/WD BLACK B/MIX_ARCHIVE",
@@ -107,7 +107,6 @@ def normalize_mix_key(name):
         if clean.endswith(ext):
             clean = clean[:-len(ext)]
             break
-    # Remove common Traktor date/time suffixes like _2026-09-08_12h16m09 or _03h02m02
     clean = re.sub(r'_\d{4}-\d{2}-\d{2}_\d{1,2}h\d{2}m\d{2}(?:_\d{1,2}h\d{2}m\d{2})*', '', clean)
     clean = re.sub(r'_\d{1,2}h\d{2}m\d{2}', '', clean)
     clean = re.sub(r'[\s_\-]+', ' ', clean).strip()
@@ -124,7 +123,8 @@ def get_existing_archive_keys(dest_dir):
         os.path.join(dest_dir, "FLAC_CONVERTED_OUTPUTS"),
         "/run/media/mplanetarian/VROC/M_PRODUCTION/STREAM_OF_FREQUENCY/CONVERTED_WAV_FILES_MOVED"
     ]
-    env_vars = load_config()
+    
+    env_vars = load_config_env()
     extra_env = os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or env_vars.get("EXTRA_MIX_ARCHIVE_DIRS")
     if extra_env:
         raw_extra = extra_env.strip()
@@ -146,6 +146,7 @@ def get_existing_archive_keys(dest_dir):
             subdirs_to_check.append(os.path.join(ed, "FLAC_CONVERTED_OUTPUTS"))
             subdirs_to_check.append(os.path.join(ed, "CONVERTED_WAV_FILES"))
     
+    valid_exts = tuple(DEFAULT_AUDIO_EXTS)
     for sdir in subdirs_to_check:
         if not os.path.isdir(sdir):
             continue
@@ -153,7 +154,7 @@ def get_existing_archive_keys(dest_dir):
             for entry in os.scandir(sdir):
                 if entry.is_file():
                     lower = entry.name.lower()
-                    if any(lower.endswith(ext) for ext in DEFAULT_AUDIO_EXTS):
+                    if lower.endswith(valid_exts):
                         base = os.path.splitext(entry.name)[0].lower()
                         existing_bases.add(base)
                         norm_key = normalize_mix_key(entry.name)
@@ -180,7 +181,6 @@ def detect_local_drives():
     
     seen_paths = set()
     
-    # 1. Scan filesystem mounts
     for base in scan_bases:
         if os.path.isdir(base):
             try:
@@ -203,7 +203,6 @@ def detect_local_drives():
             except Exception:
                 pass
                 
-    # 2. Add user home media folders if they exist
     home = Path.home()
     user_folders = [
         ("User Music Library", home / "Music"),
@@ -231,29 +230,33 @@ def detect_local_drives():
     return drives
 
 def scan_local_path(target_path, min_size_mb, exts, existing_bases, existing_keys, max_depth=5):
-    """Recursively scan a local path for audio files meeting criteria."""
+    """Recursively scan a local path with pruned branches for audio files."""
     candidates = []
     target_path = Path(target_path)
     min_bytes = min_size_mb * 1024 * 1024
+    valid_exts = tuple(ext.lower() for ext in exts)
     
     print(f"{CYAN}Scanning directory: {target_path} (Min size: {min_size_mb} MB)...{NC}")
     
+    ignored_dirs = {
+        'System Volume Information', 'node_modules', '__pycache__', 
+        '.Trash', '.Trash-1000', '.cache', '.local', '.var'
+    }
+    
     for root, dirs, files in os.walk(str(target_path)):
-        # Calculate current depth relative to target_path
         rel = os.path.relpath(root, str(target_path))
         depth = 0 if rel == '.' else len(Path(rel).parts)
         if depth >= max_depth:
-            dirs.clear()  # Do not recurse further
+            dirs.clear()
             continue
             
-        # Skip hidden and system directories
-        dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('$') and d not in ('System Volume Information', 'node_modules', '__pycache__')]
+        dirs[:] = [d for d in dirs if not d.startswith('.') and not d.startswith('$') and d not in ignored_dirs]
         
         for f in files:
             if f.startswith('.'):
                 continue
             lower_name = f.lower()
-            if any(lower_name.endswith(ext) for ext in exts):
+            if lower_name.endswith(valid_exts):
                 full_path = os.path.join(root, f)
                 try:
                     stat = os.stat(full_path)
@@ -261,7 +264,6 @@ def scan_local_path(target_path, min_size_mb, exts, existing_bases, existing_key
                     if size >= min_bytes:
                         base = os.path.splitext(f)[0].lower()
                         norm = normalize_mix_key(f)
-                        
                         is_existing = (base in existing_bases) or (norm in existing_keys)
                         
                         candidates.append({
@@ -279,19 +281,25 @@ def scan_local_path(target_path, min_size_mb, exts, existing_bases, existing_key
     return candidates
 
 def scan_smb_rclone(smb_source, min_size_mb, exts, existing_bases, existing_keys):
-    """Scan an SMB source using rclone lsf."""
+    """Scan SMB source using optimized rclone lsf parameters."""
     candidates = []
     min_bytes = min_size_mb * 1024 * 1024
     rpath = smb_source["rclone_path"]
     
     print(f"{CYAN}Scanning SMB share: {smb_source['name']}...{NC}")
     
+    # Filter on remote end where possible to reduce SMB directory roundtrips
+    ext_pattern = "{" + ",".join(ext.lstrip('.') for ext in exts) + "}"
     cmd = [
         "rclone", "lsf", "--csv", "--files-only", "--recursive",
-        "--format", "sp", rpath
+        "--format", "sp",
+        "--min-size", f"{min_size_mb}M",
+        "--include", f"*.{ext_pattern}",
+        "--buffer-size", "32M",
+        rpath
     ]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     except Exception as e:
         print(f"{RED}Error communicating with SMB share: {e}{NC}")
         return []
@@ -300,8 +308,8 @@ def scan_smb_rclone(smb_source, min_size_mb, exts, existing_bases, existing_keys
         print(f"{RED}rclone error on {smb_source['name']}: {res.stderr.strip()}{NC}")
         return []
         
-    lines = res.stdout.strip().split("\n")
-    for line in lines:
+    valid_exts = tuple(ext.lower() for ext in exts)
+    for line in res.stdout.strip().splitlines():
         if not line or "," not in line:
             continue
         parts = line.split(",", 1)
@@ -313,7 +321,7 @@ def scan_smb_rclone(smb_source, min_size_mb, exts, existing_bases, existing_keys
             
         fname = os.path.basename(rel_path)
         lower_name = fname.lower()
-        if any(lower_name.endswith(ext) for ext in exts) and size >= min_bytes:
+        if lower_name.endswith(valid_exts) and size >= min_bytes:
             base = os.path.splitext(fname)[0].lower()
             norm = normalize_mix_key(fname)
             is_existing = (base in existing_bases) or (norm in existing_keys)
@@ -335,12 +343,8 @@ def scan_smb_rclone(smb_source, min_size_mb, exts, existing_bases, existing_keys
 def print_progress_bar(transferred, total, speed, eta_seconds):
     """Render a clean ANSI in-place progress bar."""
     width = 30
-    if total > 0:
-        pct = min(100.0, (transferred / total) * 100.0)
-        filled = int(round(width * (transferred / float(total))))
-    else:
-        pct = 0.0
-        filled = 0
+    pct = min(100.0, (transferred / total) * 100.0) if total > 0 else 0.0
+    filled = int(round(width * (transferred / float(total)))) if total > 0 else 0
     bar = '=' * filled + '-' * (width - filled)
     
     eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}" if eta_seconds >= 0 else "--:--"
@@ -350,27 +354,44 @@ def print_progress_bar(transferred, total, speed, eta_seconds):
     sys.stdout.flush()
 
 def copy_local_file_with_progress(src, dst):
-    """Copy a local file with real-time speed, bytes, and ETA display."""
+    """Copy a local file with 8MB chunks and throttled UI updates for high I/O throughput."""
     total_size = os.path.getsize(src)
-    chunk_size = 1024 * 1024  # 1MB
+    chunk_size = 8 * 1024 * 1024  # 8MB chunk buffer
     transferred = 0
     start_time = time.time()
+    last_update = 0
     
     with open(src, 'rb') as fsrc, open(dst, 'wb') as fdst:
-        while True:
-            chunk = fsrc.read(chunk_size)
-            if not chunk:
-                break
-            fdst.write(chunk)
-            transferred += len(chunk)
-            elapsed = time.time() - start_time
-            speed = transferred / elapsed if elapsed > 0.05 else 0
-            remaining = (total_size - transferred) / speed if speed > 0 else 0
-            print_progress_bar(transferred, total_size, speed, remaining)
+        # Check if os.sendfile is available on Linux for kernel zero-copy
+        use_sendfile = hasattr(os, "sendfile") and os.name == 'posix'
+        
+        while transferred < total_size:
+            if use_sendfile:
+                try:
+                    count = os.sendfile(fdst.fileno(), fsrc.fileno(), transferred, chunk_size)
+                    if count == 0:
+                        break
+                    transferred += count
+                except OSError:
+                    use_sendfile = False
+                    continue
+            else:
+                chunk = fsrc.read(chunk_size)
+                if not chunk:
+                    break
+                fdst.write(chunk)
+                transferred += len(chunk)
+            
+            now = time.time()
+            if now - last_update >= 0.1 or transferred == total_size:
+                elapsed = now - start_time
+                speed = transferred / elapsed if elapsed > 0.05 else 0
+                remaining = (total_size - transferred) / speed if speed > 0 else 0
+                print_progress_bar(transferred, total_size, speed, remaining)
+                last_update = now
             
     print_progress_bar(total_size, total_size, total_size / max(0.01, time.time() - start_time), 0)
     print("")
-    # Preserve metadata and timestamp
     shutil.copystat(src, dst)
 
 def log_import_job(log_file, lines):
@@ -382,11 +403,13 @@ def log_import_job(log_file, lines):
 def run_flac_conversion_if_requested(dest_dir):
     """Prompt or automatically trigger Make_SOF_FLAC_CONVERSION.sh."""
     script_dir = Path(__file__).resolve().parent
-    conv_script = script_dir / "Make_SOF_FLAC_CONVERSION.sh"
-    if not conv_script.is_file():
-        conv_script = script_dir / "scripts" / "Make_SOF_FLAC_CONVERSION.sh"
-        
-    if conv_script.is_file():
+    candidates = [
+        script_dir / "Make_SOF_FLAC_CONVERSION.sh",
+        script_dir / "scripts" / "Make_SOF_FLAC_CONVERSION.sh",
+        script_dir.parent / "Make_SOF_FLAC_CONVERSION.sh"
+    ]
+    conv_script = next((c for c in candidates if c.is_file()), None)
+    if conv_script:
         print(f"\n{BOLD}{YELLOW}Launching FLAC Conversion Process ({conv_script.name})...{NC}\n")
         subprocess.run(["bash", str(conv_script)], cwd=str(dest_dir))
     else:
@@ -406,7 +429,6 @@ def interactive_ui():
         print(f"{BOLD}{MAGENTA}       Universal Mix Search & Importer (Local Drives & SMB)           {NC}")
         print(f"{BOLD}{MAGENTA}======================================================================{NC}")
         
-        # Display Destination Archive Info
         dest_free = shutil.disk_usage(dest_dir).free if os.path.isdir(dest_dir) else 0
         print(f"  Destination Archive: {GREEN}{dest_dir}{NC}")
         print(f"  Archive Free Space:  {YELLOW}{human_size(dest_free)}{NC}")
@@ -414,7 +436,6 @@ def interactive_ui():
         print(f"  Audio Formats:       {CYAN}{', '.join(selected_exts)}{NC}")
         print(f"{BOLD}{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
         
-        # Discover Local Drives
         local_drives = detect_local_drives()
         print(f"{BOLD}Detected Local & Removable Storage:{NC}")
         for idx, drive in enumerate(local_drives, start=1):
@@ -445,7 +466,6 @@ def interactive_ui():
         if choice in ('0', 'q', 'exit', 'quit'):
             break
             
-        # Change size filter
         if choice == str(filter_size_opt):
             new_size = input(f"Enter new minimum file size in MB (0 for all audio files) [{min_size_mb}]: ").strip()
             if new_size.isdigit():
@@ -453,7 +473,6 @@ def interactive_ui():
             continue
             
         targets_to_scan = []
-        
         try:
             choice_num = int(choice)
         except ValueError:
@@ -490,12 +509,10 @@ def interactive_ui():
                 smb_pass = getpass.getpass("Enter Password (optional): ")
             smb_sub = input("Enter Subfolder path (optional, leave blank for root): ").strip()
             
-            # Construct rclone smb path
             auth_parts = [f'host="{smb_host}"']
             if smb_user:
                 auth_parts.append(f'user="{smb_user}"')
             if smb_pass:
-                # Obscure password via rclone obscure if available
                 try:
                     p_res = subprocess.run(["rclone", "obscure", smb_pass], capture_output=True, text=True)
                     if p_res.returncode == 0:
@@ -516,7 +533,6 @@ def interactive_ui():
             time.sleep(1)
             continue
             
-        # Index existing archive to determine duplicate status
         print(f"\n{BOLD}Indexing existing archive to identify duplicate mixes...{NC}")
         existing_bases, existing_keys = get_existing_archive_keys(dest_dir)
         print(f" -> Found {len(existing_bases)} unique mix base names in archive.\n")
@@ -535,7 +551,6 @@ def interactive_ui():
             input("Press Enter to continue...")
             continue
             
-        # Deduplicate candidates in case same file was found via multiple scan targets
         seen_cand = set()
         dedup_candidates = []
         for cand in found_candidates:
@@ -545,7 +560,6 @@ def interactive_ui():
                 dedup_candidates.append(cand)
         found_candidates = dedup_candidates
         
-        # Candidate Review and Selection Loop
         filter_query = ""
         while True:
             os.system('clear' if os.name == 'posix' else 'cls')
@@ -568,7 +582,6 @@ def interactive_ui():
             print(f"{BOLD}{' #':3} | {'Status':12} | {'File Name':<38} | {'Size':>9} | {'Source'}{NC}")
             print(f"{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
             
-            # Show top 40 if list is very large
             max_show = 35
             for idx, item in enumerate(displayed[:max_show], start=1):
                 st = f"{GREEN}[NEW]{NC}        " if not item["is_existing"] else f"{YELLOW}[ARCHIVED]{NC}   "
@@ -597,10 +610,7 @@ def interactive_ui():
                 
             if sel.startswith('/'):
                 subcmd = sel[1:].strip()
-                if subcmd == 'clear':
-                    filter_query = ""
-                else:
-                    filter_query = subcmd
+                filter_query = "" if subcmd == 'clear' else subcmd
                 continue
                 
             selected_items = []
@@ -613,7 +623,6 @@ def interactive_ui():
             elif sel == '*':
                 selected_items = list(displayed)
             else:
-                # Parse indices
                 try:
                     for part in sel.split(','):
                         part = part.strip()
@@ -636,7 +645,6 @@ def interactive_ui():
                 time.sleep(1)
                 continue
                 
-            # Pre-flight disk space calculation
             total_import_bytes = sum(c["size"] for c in selected_items)
             free_archive_space = shutil.disk_usage(dest_dir).free
             
@@ -655,7 +663,6 @@ def interactive_ui():
             if confirm and confirm not in ('y', 'yes'):
                 continue
                 
-            # Perform Import
             print(f"\n{BOLD}{GREEN}Starting Import Process...{NC}\n")
             today_str = datetime.date.today().strftime('%Y-%m-%d')
             log_dir = os.path.join(dest_dir, "IMPORT_LOGS")
@@ -671,7 +678,6 @@ def interactive_ui():
                 "=================================================="
             ]
             
-            # Group items by type
             local_items = [c for c in selected_items if c["source_type"] == "local"]
             smb_items = [c for c in selected_items if c["source_type"] == "smb"]
             
@@ -690,16 +696,15 @@ def interactive_ui():
                     print(f"{RED}Error copying file: {e}{NC}")
                     log_entries.append(f"FAILED (LOCAL): {src_path} - Error: {e}")
                     
-            # 2. Process SMB Files (batch via rclone)
+            # 2. Process SMB Files (batch via optimized multi-threaded rclone)
             if smb_items:
-                # Group by rclone remote
                 by_remote = {}
                 for s_item in smb_items:
                     rem = s_item["rclone_remote"]
                     by_remote.setdefault(rem, []).append(s_item)
                     
                 for rem, items in by_remote.items():
-                    print(f"\nImporting {len(items)} file(s) from SMB share via rclone...")
+                    print(f"\nImporting {len(items)} file(s) from SMB share via high-performance rclone...")
                     import tempfile
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tf:
                         temp_list_path = tf.name
@@ -709,9 +714,15 @@ def interactive_ui():
                     cmd = [
                         "rclone", "copy", rem, dest_dir,
                         "--files-from-raw", temp_list_path,
+                        "--transfers", "4",
+                        "--checkers", "8",
+                        "--multi-thread-cutoff", "64M",
+                        "--multi-thread-streams", "4",
+                        "--buffer-size", "64M",
                         "--progress",
+                        "--stats", "1s",
                         "--log-file", log_file,
-                        "--log-level", "INFO"
+                        "--log-level", "NOTICE"
                     ]
                     try:
                         res = subprocess.run(cmd)
@@ -754,7 +765,6 @@ def interactive_ui():
             print(f"\n{BOLD}{GREEN}Import Complete!{NC}")
             print("\n".join(summary))
             
-            # Check if any WAV was imported and prompt for conversion
             has_wav = any(c["filename"].lower().endswith(".wav") for c in selected_items)
             if has_wav and success_count > 0:
                 print(f"\n{BOLD}{YELLOW}New WAV mixes have been imported into the archive.{NC}")
