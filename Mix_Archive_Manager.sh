@@ -12744,629 +12744,309 @@ get_planets_above_horizon() {
     fi
 }
 
+#!/usr/bin/env bash
+
+# Universal script/python dispatcher helper
+_run_tool() {
+    local target="$1"; shift
+    for prefix in "$SCRIPT_DIR/scripts" "$SCRIPT_DIR" "$PWD/scripts" "$PWD"; do
+        [ -x "$prefix/$target" ] && exec "$prefix/$target" "$@"
+        [ -f "$prefix/$target" ] && exec bash "$prefix/$target" "$@"
+        [ -f "$prefix/${target%.*}.py" ] && command -v python3 >/dev/null 2>&1 && exec python3 "$prefix/${target%.*}.py" "$@"
+    done
+    echo -e "${RED:-}Error: $target not found!${NC:-}"
+    read -r -p "Press Enter to continue..."
+}
+
 manage_weather_menu() {
-    while true; do
+    local w_sh="$SCRIPT_DIR/scripts/get_weather.sh"
+    [ ! -f "$w_sh" ] && w_sh="$PWD/scripts/get_weather.sh"
+    local p_py="$SCRIPT_DIR/scripts/get_planets.py"
+    [ ! -f "$p_py" ] && p_py="$PWD/scripts/get_planets.py"
+
+    while :; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}        METEOROLOGICAL & PLANETARY EPHEMERIS SETTINGS                 ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        local w_badge="${RED}DISABLED${NC}"
-        [ "${WEATHER_ENABLED:-true}" = "true" ] && w_badge="${GREEN}ENABLED${NC}"
-        local p_badge="${RED}DISABLED${NC}"
-        [ "${PLANETS_ENABLED:-true}" = "true" ] && p_badge="${GREEN}ENABLED${NC}"
+        printf "%b\n" "${BOLD}${MAGENTA}======================================================================${NC}" \
+                      "${BOLD}${MAGENTA}        METEOROLOGICAL & PLANETARY EPHEMERIS SETTINGS                 ${NC}" \
+                      "${BOLD}${MAGENTA}======================================================================${NC}\n"
 
-        echo -e "  • ${BOLD}Weather Banner Display:${NC}   ${w_badge}"
-        echo -e "  • ${BOLD}Planets Banner Display:${NC}   ${p_badge}"
-        echo -e "  • ${BOLD}Configured Location:${NC}      ${BOLD}${CYAN}${WEATHER_LOCATION:-Not Set}${NC}"
+        local w_st="DISABLED" p_st="DISABLED"
+        [ "${WEATHER_ENABLED:-true}" = "true" ] && w_st="ENABLED"
+        [ "${PLANETS_ENABLED:-true}" = "true" ] && p_st="ENABLED"
 
-        local weather_sh="$SCRIPT_DIR/scripts/get_weather.sh"
-        [ ! -f "$weather_sh" ] && weather_sh="$PWD/scripts/get_weather.sh"
-        if [ -x "$weather_sh" ]; then
-            local current_w
-            current_w=$("$weather_sh" get 2>/dev/null)
-            if [ -n "$current_w" ]; then
-                echo -e "  • ${BOLD}Current Conditions:${NC}       ${WHITE}${current_w}${NC}"
-            fi
+        local w_badge="${!w_st:+${GREEN}${w_st}${NC}}"
+        [ "$w_st" = "DISABLED" ] && w_badge="${RED}DISABLED${NC}"
+        local p_badge="${!p_st:+${GREEN}${p_st}${NC}}"
+        [ "$p_st" = "DISABLED" ] && p_badge="${RED}DISABLED${NC}"
+
+        printf "%b Weather Banner Display:   %b\n" "${BOLD}" "$w_badge"
+        printf "%b Planets Banner Display:   %b\n" "${BOLD}" "$p_badge"
+        printf "%b Configured Location:      %b%b%b\n" "${BOLD}" "${CYAN}" "${WEATHER_LOCATION:-Not Set}" "${NC}"
+
+        if [ -x "$w_sh" ]; then
+            local cw; cw=$("$w_sh" get 2>/dev/null)
+            [ -n "$cw" ] && printf "%b Current Conditions:       %b%s%b\n" "${BOLD}" "${WHITE}" "$cw" "${NC}"
         fi
 
-        local planets_py="$SCRIPT_DIR/scripts/get_planets.py"
-        [ ! -f "$planets_py" ] && planets_py="$PWD/scripts/get_planets.py"
-        if [ -f "$planets_py" ] && command -v python3 >/dev/null 2>&1; then
-            local current_p
-            current_p=$(python3 "$planets_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null)
-            if [ -n "$current_p" ]; then
-                echo -e "  • ${BOLD}Planets Above Horizon:${NC}    ${current_p#*Planets: }"
-            fi
+        if [ -f "$p_py" ] && command -v python3 >/dev/null 2>&1; then
+            local cp; cp=$(python3 "$p_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null)
+            [ -n "$cp" ] && printf "%b Planets Above Horizon:    %s\n" "${BOLD}" "${cp#*Planets: }"
         fi
 
-        echo -e "  • ${BOLD}Config File:${NC}              ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
+        printf "%b Config File:              %b%s/config.env%b\n\n" "${BOLD}" "${DIM}" "$SCRIPT_DIR" "${NC}"
+        printf "%bSelect an option:%b\n" "${BOLD}" "${NC}"
+        printf "  %b%b 1)%b Toggle Weather Display (%b)\n" "${BOLD}" "${CYAN}" "${NC}" "$w_badge"
+        printf "  %b%b 2)%b Toggle Planets Above Horizon Display (%b)\n" "${BOLD}" "${CYAN}" "${NC}" "$p_badge"
+        printf "  %b%b 3)%b Change / Update Observer Location (%b%s%b)\n" "${BOLD}" "${CYAN}" "${NC}" "${BOLD}" "${WEATHER_LOCATION:-Swansea, UK}" "${NC}"
+        printf "  %b%b 4)%b Force Refresh Weather Now (Fetch live meteorological data)\n" "${BOLD}" "${CYAN}" "${NC}"
+        printf "  %b%b 5)%b View Full Planetary Ephemeris (All 7 Planets Altitude & Compass Heading)\n" "${BOLD}" "${CYAN}" "${NC}"
+        printf "  %b%b 6)%b Remove / Clear Location (Disables weather display)\n" "${BOLD}" "${CYAN}" "${NC}"
+        printf "  %b%b 0)%b Return to Previous Menu\n\n" "${BOLD}" "${CYAN}" "${NC}"
 
-        echo -e "${BOLD}Select an option:${NC}"
-        echo -e "  ${BOLD}${CYAN} 1)${NC} Toggle Weather Display (${w_badge})"
-        echo -e "  ${BOLD}${CYAN} 2)${NC} Toggle Planets Above Horizon Display (${p_badge})"
-        echo -e "  ${BOLD}${CYAN} 3)${NC} Change / Update Observer Location (${BOLD}${WEATHER_LOCATION:-Swansea, UK}${NC})"
-        echo -e "  ${BOLD}${CYAN} 4)${NC} Force Refresh Weather Now (Fetch live meteorological data)"
-        echo -e "  ${BOLD}${CYAN} 5)${NC} View Full Planetary Ephemeris (All 7 Planets Altitude & Compass Heading)"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Remove / Clear Location (Disables weather display)"
-        echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Previous Menu\n"
-        read -r -p "Enter choice [0-6]: " w_choice
-
-        case "$w_choice" in
+        read -r -p "Enter choice [0-6]: " ch
+        case "$ch" in
             1)
-                if [ "${WEATHER_ENABLED:-true}" = "true" ]; then
-                    WEATHER_ENABLED="false"
-                else
-                    WEATHER_ENABLED="true"
-                fi
+                [ "${WEATHER_ENABLED:-true}" = "true" ] && WEATHER_ENABLED="false" || WEATHER_ENABLED="true"
                 save_config_setting "WEATHER_ENABLED" "$WEATHER_ENABLED"
-                echo -e "\n${GREEN}✓ Weather display set to '${WEATHER_ENABLED}' and saved to config.env!${NC}"
-                sleep 1
-                ;;
+                echo -e "\n${GREEN}✓ Weather display set to '$WEATHER_ENABLED'!${NC}"; sleep 1 ;;
             2)
-                if [ "${PLANETS_ENABLED:-true}" = "true" ]; then
-                    PLANETS_ENABLED="false"
-                else
-                    PLANETS_ENABLED="true"
-                fi
+                [ "${PLANETS_ENABLED:-true}" = "true" ] && PLANETS_ENABLED="false" || PLANETS_ENABLED="true"
                 save_config_setting "PLANETS_ENABLED" "$PLANETS_ENABLED"
-                echo -e "\n${GREEN}✓ Planets display set to '${PLANETS_ENABLED}' and saved to config.env!${NC}"
-                sleep 1
-                ;;
+                echo -e "\n${GREEN}✓ Planets display set to '$PLANETS_ENABLED'!${NC}"; sleep 1 ;;
             3)
-                echo ""
-                echo -e "Current Location: ${CYAN}${WEATHER_LOCATION:-Swansea, UK}${NC}"
-                read -r -p "Enter new location (e.g. 'Swansea, UK', 'London, UK', 'Cardiff, UK'): " new_loc
-                if [ -n "$new_loc" ]; then
-                    WEATHER_LOCATION="$new_loc"
-                    WEATHER_ENABLED="true"
-                    save_config_setting "WEATHER_LOCATION" "$WEATHER_LOCATION"
+                echo -e "\nCurrent Location: ${CYAN}${WEATHER_LOCATION:-Swansea, UK}${NC}"
+                read -r -p "Enter new location: " nl
+                if [ -n "$nl" ]; then
+                    WEATHER_LOCATION="$nl"; WEATHER_ENABLED="true"
+                    save_config_setting "WEATHER_LOCATION" "$nl"
                     save_config_setting "WEATHER_ENABLED" "true"
-                    [ -x "$weather_sh" ] && "$weather_sh" clear >/dev/null 2>&1 || true
-                    echo -e "\n${GREEN}✓ Observer location updated to '${WEATHER_LOCATION}'!${NC}"
-                    sleep 1
-                fi
-                ;;
+                    [ -x "$w_sh" ] && "$w_sh" clear >/dev/null 2>&1
+                    echo -e "\n${GREEN}✓ Observer location updated to '$nl'!${NC}"; sleep 1
+                fi ;;
             4)
-                echo ""
-                if [ -x "$weather_sh" ]; then
-                    "$weather_sh" refresh
-                fi
-                sleep 1.2
-                ;;
+                echo ""; [ -x "$w_sh" ] && "$w_sh" refresh; sleep 1.2 ;;
             5)
                 echo ""
-                if [ -f "$planets_py" ] && command -v python3 >/dev/null 2>&1; then
-                    python3 "$planets_py" --all --location "${WEATHER_LOCATION:-Swansea, UK}"
-                fi
-                echo ""
-                read -r -p "Press Enter to return to settings..."
-                ;;
+                [ -f "$p_py" ] && python3 "$p_py" --all --location "${WEATHER_LOCATION:-Swansea, UK}"
+                read -r -p $'\nPress Enter to return to settings...' ;;
             6)
-                WEATHER_LOCATION=""
-                WEATHER_ENABLED="false"
+                WEATHER_LOCATION=""; WEATHER_ENABLED="false"
                 save_config_setting "WEATHER_LOCATION" ""
                 save_config_setting "WEATHER_ENABLED" "false"
-                [ -x "$weather_sh" ] && "$weather_sh" clear >/dev/null 2>&1 || true
-                echo -e "\n${YELLOW}✓ Observer location cleared and weather display disabled.${NC}"
-                sleep 1.2
-                ;;
-            0|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid choice!${NC}"
-                sleep 1
-                ;;
+                [ -x "$w_sh" ] && "$w_sh" clear >/dev/null 2>&1
+                echo -e "\n${YELLOW}✓ Observer location cleared.${NC}"; sleep 1.2 ;;
+            0|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1 ;;
         esac
     done
 }
 
-manage_video_dispatcher() {
-    local video_sh="$SCRIPT_DIR/scripts/launch_specific_video.sh"
-    [ ! -f "$video_sh" ] && video_sh="$PWD/scripts/launch_specific_video.sh"
-    if [ -x "$video_sh" ]; then
-        "$video_sh"
-    elif [ -f "$video_sh" ]; then
-        bash "$video_sh"
-    else
-        launch_vlc
-    fi
-}
+manage_video_dispatcher()          { _run_tool "launch_specific_video.sh" || launch_vlc; }
+manage_publishing_schedule()      { _run_tool "publish_calendar_scheduler.sh"; }
+manage_playlists_menu()            { _run_tool "manage_playlists.sh"; }
+inspect_audio_studio_menu()        { _run_tool "inspect_audio_studio.sh"; }
+generate_ppm_cover_menu()          { _run_tool "generate_ppm_cover.sh"; }
+manage_sync_video_companion_menu() { _run_tool "sync_video_companion.sh"; }
+manage_system_motd_menu()          { _run_tool "update_system_motd.sh"; }
+manage_cloud_backup_suite()        { _run_tool "backup_mix_archive.sh"; }
 
 shop_for_new_music_menu() {
-    local shop_sh="$SCRIPT_DIR/scripts/shop_music.sh"
-    [ ! -f "$shop_sh" ] && shop_sh="$PWD/scripts/shop_music.sh"
-    if [ -x "$shop_sh" ]; then
-        "$shop_sh"
-    elif [ -f "$shop_sh" ]; then
-        bash "$shop_sh"
+    for s in "$SCRIPT_DIR/scripts/shop_music.sh" "$PWD/scripts/shop_music.sh"; do
+        [ -x "$s" ] && { "$s"; return; }
+        [ -f "$s" ] && { bash "$s"; return; }
+    done
+    local urls=("https://www.beatport.com" "https://music.apple.com" "https://bandcamp.com")
+    if command -v flatpak >/dev/null 2>&1 && flatpak info com.google.Chrome >/dev/null 2>&1; then
+        flatpak run com.google.Chrome "${urls[@]}" >/dev/null 2>&1 &
     else
-        if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "com.google.Chrome"; then
-            flatpak run com.google.Chrome "https://www.beatport.com" "https://music.apple.com" "https://bandcamp.com" >/dev/null 2>&1 &
-        else
-            xdg-open "https://www.beatport.com" >/dev/null 2>&1 &
-            sleep 0.2
-            xdg-open "https://music.apple.com" >/dev/null 2>&1 &
-            sleep 0.2
-            xdg-open "https://bandcamp.com" >/dev/null 2>&1 &
-        fi
-    fi
-}
-
-manage_publishing_schedule() {
-    echo -e "\n${BOLD}${BLUE}=== MIX PUBLISHING SCHEDULE & MULTI-PLATFORM SYNDICATION ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/publish_calendar_scheduler.sh" ]; then
-        "$SCRIPT_DIR/publish_calendar_scheduler.sh"
-    elif [ -x "./publish_calendar_scheduler.sh" ]; then
-        ./publish_calendar_scheduler.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/publish_calendar_scheduler.py" ]; then
-        python3 "$SCRIPT_DIR/publish_calendar_scheduler.py"
-    else
-        echo -e "${RED}Error: publish_calendar_scheduler.sh not found!${NC}"
-        press_enter
-    fi
-}
-
-manage_playlists_menu() {
-    echo -e "\n${BOLD}${BLUE}=== CUSTOM MIX PLAYLISTS SUITE (.M3U / .M3U8 / .XSPF) ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/manage_playlists.sh" ]; then
-        "$SCRIPT_DIR/manage_playlists.sh"
-    elif [ -x "./manage_playlists.sh" ]; then
-        ./manage_playlists.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/manage_playlists.py" ]; then
-        python3 "$SCRIPT_DIR/manage_playlists.py"
-    else
-        echo -e "${RED}Error: manage_playlists.sh not found!${NC}"
-        press_enter
-    fi
-}
-
-inspect_audio_studio_menu() {
-    echo -e "\n${BOLD}${BLUE}=== STUDIO HARDWARE & SOFTWARE INSPECTOR ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/inspect_audio_studio.sh" ]; then
-        "$SCRIPT_DIR/inspect_audio_studio.sh"
-    elif [ -x "./inspect_audio_studio.sh" ]; then
-        ./inspect_audio_studio.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/inspect_audio_studio.py" ]; then
-        python3 "$SCRIPT_DIR/inspect_audio_studio.py"
-    else
-        echo -e "${RED}Error: inspect_audio_studio.sh not found!${NC}"
-        press_enter
-    fi
-}
-
-generate_ppm_cover_menu() {
-    echo -e "\n${BOLD}${BLUE}=== PROCEDURAL GRADIENT .PPM COVER ART GENERATOR ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/generate_ppm_cover.sh" ]; then
-        "$SCRIPT_DIR/generate_ppm_cover.sh"
-    elif [ -x "./generate_ppm_cover.sh" ]; then
-        ./generate_ppm_cover.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/generate_ppm_cover.py" ]; then
-        python3 "$SCRIPT_DIR/generate_ppm_cover.py"
-    else
-        echo -e "${RED}Error: generate_ppm_cover.sh not found!${NC}"
-        press_enter
-    fi
-}
-
-manage_sync_video_companion_menu() {
-    echo -e "\n${BOLD}${BLUE}=== SYNCHRONIZED MIX-VIDEO COMPANION DAEMON ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/sync_video_companion.sh" ]; then
-        "$SCRIPT_DIR/sync_video_companion.sh"
-    elif [ -x "./sync_video_companion.sh" ]; then
-        ./sync_video_companion.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/sync_video_companion.py" ]; then
-        python3 "$SCRIPT_DIR/sync_video_companion.py"
-    else
-        echo -e "${RED}Error: sync_video_companion.sh not found!${NC}"
-        press_enter
-    fi
-}
-
-manage_system_motd_menu() {
-    echo -e "\n${BOLD}${BLUE}=== DYNAMIC SYSTEM MOTD BANNER MANAGER ===${NC}\n"
-    if [ -x "$SCRIPT_DIR/update_system_motd.sh" ]; then
-        "$SCRIPT_DIR/update_system_motd.sh"
-    elif [ -x "./update_system_motd.sh" ]; then
-        ./update_system_motd.sh
-    elif command -v python3 >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/manage_motd.py" ]; then
-        python3 "$SCRIPT_DIR/manage_motd.py"
-    else
-        echo -e "${RED}Error: update_system_motd.sh not found!${NC}"
-        press_enter
+        for u in "${urls[@]}"; do xdg-open "$u" >/dev/null 2>&1 & sleep 0.2; done
     fi
 }
 
 _CACHED_OS_BADGE=""
-
 get_os_badge() {
-    if [ -n "$_CACHED_OS_BADGE" ]; then
-        echo -e "$_CACHED_OS_BADGE"
-        return 0
-    fi
-    if [ "$OS_TYPE" = "macos" ]; then
-        local mac_ver
-        mac_ver=$(sw_vers -productVersion 2>/dev/null || uname -r)
-        _CACHED_OS_BADGE="${BOLD}${CYAN}🍏 macOS:${NC} ${mac_ver} ($(uname -m))"
-    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-        local win_ver=""
-        if [[ "$(uname -s)" =~ MINGW.*NT-([0-9.]+) ]] || [[ "$(uname -s)" =~ CYGWIN.*NT-([0-9.]+) ]] || [[ "$(uname -s)" =~ MSYS.*NT-([0-9.]+) ]]; then
-            win_ver="${BASH_REMATCH[1]}"
-        elif [ -n "${WSL_DISTRO_NAME:-}" ]; then
-            win_ver="$(uname -r 2>/dev/null)"
-        fi
-        [ -z "$win_ver" ] && win_ver="$(uname -r 2>/dev/null || echo '10/11')"
-        if [ "$OS_TYPE" = "wsl" ]; then
-            _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows (WSL2):${NC} ${win_ver}"
-        else
-            _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows:${NC} ${win_ver}"
-        fi
-    elif [ "$OS_TYPE" = "freebsd" ]; then
-        local fbsd_ver
-        fbsd_ver=$(uname -r)
-        _CACHED_OS_BADGE="${BOLD}${RED}😈 FreeBSD:${NC} ${fbsd_ver} ($(uname -m))"
-    else
-        local distro_name=""
-        local distro_ver=""
-        if [ -f /etc/os-release ]; then
-            distro_name=$(grep -E '^NAME=' /etc/os-release 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')
-            distro_ver=$(grep -E '^VERSION=' /etc/os-release 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')
-        fi
-        if [ -n "$distro_name" ]; then
-            if echo "$distro_name" | grep -qi "linux"; then
-                _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} ${distro_ver} (${BOLD}$(uname -r)${NC})"
-            else
-                _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} ${distro_name} Linux ${distro_ver} (${BOLD}$(uname -r)${NC})"
+    [ -n "$_CACHED_OS_BADGE" ] && { echo -e "$_CACHED_OS_BADGE"; return 0; }
+    local m; m="$(uname -m)" r; r="$(uname -r)"
+    case "$OS_TYPE" in
+        macos)   _CACHED_OS_BADGE="${BOLD}${CYAN}🍏 macOS:${NC} $(sw_vers -productVersion 2>/dev/null || echo "$r") ($m)" ;;
+        freebsd) _CACHED_OS_BADGE="${BOLD}${RED}😈 FreeBSD:${NC} $r ($m)" ;;
+        windows|wsl)
+            local wv="$r" s; s="$(uname -s)"
+            [[ "$s" =~ NT-([0-9.]+) ]] && wv="${BASH_REMATCH[1]}"
+            [ "$OS_TYPE" = "wsl" ] && _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows (WSL2):${NC} $wv" \
+                                   || _CACHED_OS_BADGE="${BOLD}${CYAN}🪟 Windows:${NC} $wv" ;;
+        *)
+            local d="" v=""
+            if [ -f /etc/os-release ]; then
+                while IFS='=' read -r k val; do
+                    val="${val%\"}"; val="${val#\"}"
+                    [ "$k" = "NAME" ] && d="$val"
+                    [ "$k" = "VERSION" ] && v="$val"
+                done < /etc/os-release
             fi
-        else
-            _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 Kernel:${NC} $(uname -r)"
-        fi
-    fi
+            if [ -n "$d" ]; then
+                [[ "${d,,}" =~ linux ]] && _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} $d $v (${BOLD}$r${NC})" \
+                                        || _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 OS:${NC} $d Linux $v (${BOLD}$r${NC})"
+            else
+                _CACHED_OS_BADGE="${BOLD}${CYAN}🐧 Kernel:${NC} $r"
+            fi ;;
+    esac
     echo -e "$_CACHED_OS_BADGE"
 }
 
 _LAST_OS_UPDATE_CHECK=0
 _CACHED_OS_UPDATE_STATUS=""
-
 get_os_update_status() {
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_OS_UPDATE_CHECK)) -lt 60 ] && [ -n "$_CACHED_OS_UPDATE_STATUS" ]; then
-        echo -e "$_CACHED_OS_UPDATE_STATUS"
-        return 0
-    fi
+    local now; printf -v now '%(%s)T' -1 2>/dev/null || now=$(date +%s 2>/dev/null || echo 0)
+    [ $((now - _LAST_OS_UPDATE_CHECK)) -lt 60 ] && [ -n "$_CACHED_OS_UPDATE_STATUS" ] && { echo -e "$_CACHED_OS_UPDATE_STATUS"; return 0; }
 
     local status=""
-    if [ "$OS_TYPE" = "macos" ]; then
-        local count=0
-        if [ -f /Library/Preferences/com.apple.SoftwareUpdate.plist ]; then
-            count=$(defaults read /Library/Preferences/com.apple.SoftwareUpdate.plist RecommendedUpdates 2>/dev/null | grep -c "Identifier =" 2>/dev/null || true)
-            count="${count:-0}"
-            if [ "$count" -eq 0 ]; then
-                local last_avail
-                last_avail=$(defaults read /Library/Preferences/com.apple.SoftwareUpdate.plist LastUpdatesAvailable 2>/dev/null || echo 0)
-                [[ "$last_avail" =~ ^[0-9]+$ ]] && count="$last_avail"
+    case "$OS_TYPE" in
+        macos)
+            local count=0 plist="/Library/Preferences/com.apple.SoftwareUpdate.plist"
+            if [ -f "$plist" ]; then
+                count=$(defaults read "$plist" RecommendedUpdates 2>/dev/null | grep -c "Identifier =" 2>/dev/null || echo 0)
+                [ "$count" -eq 0 ] && count=$(defaults read "$plist" LastUpdatesAvailable 2>/dev/null || echo 0)
             fi
-        fi
-        if [ "$count" -gt 0 ]; then
-            status="${YELLOW}${count} pending${NC}"
-        else
-            status="${GREEN}Up to date${NC}"
-        fi
-    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-        local win_reboot=""
-        if command -v reg.exe >/dev/null 2>&1; then
-            if reg.exe query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired" >/dev/null 2>&1; then
-                win_reboot="1"
-            fi
-        fi
-        if [ -n "$win_reboot" ]; then
-            status="${YELLOW}Restart pending${NC}"
-        else
-            status="${GREEN}Up to date${NC}"
-        fi
-    elif [ "$OS_TYPE" = "freebsd" ]; then
-        status="${GREEN}Up to date${NC}"
-    else
-        # Linux (Bazzite / Silverblue / Fedora / Ubuntu / Debian / Arch)
-        local ostree_staged=""
-        if command -v rpm-ostree >/dev/null 2>&1; then
-            if rpm-ostree status 2>/dev/null | grep -E -qi "(staged|upgrade available|staged: yes)"; then
-                ostree_staged="1"
-            fi
-        fi
-        if [ -n "$ostree_staged" ]; then
-            status="${YELLOW}1 staged (reboot)${NC}"
-        elif [ -f /var/run/reboot-required ]; then
-            status="${YELLOW}Reboot required${NC}"
-        elif [ -f /var/lib/update-notifier/updates-available ]; then
-            local u_count
-            u_count=$(grep -E "^[0-9]+ updates can be applied" /var/lib/update-notifier/updates-available 2>/dev/null | awk '{print $1}')
-            if [ -n "$u_count" ] && [ "$u_count" -gt 0 ]; then
-                status="${YELLOW}${u_count} pending${NC}"
+            [[ "$count" =~ ^[1-9] ]] && status="${YELLOW}${count} pending${NC}" || status="${GREEN}Up to date${NC}" ;;
+        windows|wsl)
+            command -v reg.exe >/dev/null 2>&1 && reg.exe query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired" >/dev/null 2>&1 \
+                && status="${YELLOW}Restart pending${NC}" || status="${GREEN}Up to date${NC}" ;;
+        freebsd) status="${GREEN}Up to date${NC}" ;;
+        *)
+            if command -v rpm-ostree >/dev/null 2>&1 && rpm-ostree status 2>/dev/null | grep -E -qi "(staged|upgrade available|staged: yes)"; then
+                status="${YELLOW}1 staged (reboot)${NC}"
+            elif [ -f /var/run/reboot-required ]; then
+                status="${YELLOW}Reboot required${NC}"
+            elif [ -f /var/lib/update-notifier/updates-available ]; then
+                local uc; uc=$(awk '/updates can be applied/{print $1}' /var/lib/update-notifier/updates-available 2>/dev/null)
+                [ -n "$uc" ] && [ "$uc" -gt 0 ] && status="${YELLOW}${uc} pending${NC}" || status="${GREEN}Up to date${NC}"
             else
-                status="${GREEN}Up to date${NC}"
-            fi
-        else
-            if is_internet_connected; then
-                status="${GREEN}Up to date${NC}"
-            else
-                status="${GREEN}Up to date${NC} ${DIM}(Offline)${NC}"
-            fi
-        fi
-    fi
+                is_internet_connected && status="${GREEN}Up to date${NC}" || status="${GREEN}Up to date${NC} ${DIM}(Offline)${NC}"
+            fi ;;
+    esac
 
-    _LAST_OS_UPDATE_CHECK="$now"
-    _CACHED_OS_UPDATE_STATUS="$status"
+    _LAST_OS_UPDATE_CHECK="$now"; _CACHED_OS_UPDATE_STATUS="$status"
     echo -e "$status"
 }
 
 _LAST_CLOUD_CHECK=0
 _CACHED_CLOUD_STATUS=""
-
 get_cloud_backup_badge() {
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_CLOUD_CHECK)) -lt 30 ] && [ -n "$_CACHED_CLOUD_STATUS" ]; then
-        echo -e "$_CACHED_CLOUD_STATUS"
-        return 0
-    fi
+    local now; printf -v now '%(%s)T' -1 2>/dev/null || now=$(date +%s 2>/dev/null || echo 0)
+    [ $((now - _LAST_CLOUD_CHECK)) -lt 30 ] && [ -n "$_CACHED_CLOUD_STATUS" ] && { echo -e "$_CACHED_CLOUD_STATUS"; return 0; }
 
     if ! is_internet_connected; then
         _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup:${NC} ${BOLD}${YELLOW}Offline (No Internet Connection)${NC}  ${BOLD}${BLUE}│${NC}  ${DIM}Cloud sync paused (Option 9 when online)${NC}"
         _LAST_CLOUD_CHECK="$now"
-        echo -e "$_CACHED_CLOUD_STATUS"
-        return 0
+        echo -e "$_CACHED_CLOUD_STATUS"; return 0
     fi
 
-    local state_file="$HOME/.config/mix-manager/cloud_backup_state.json"
-    local backup_time=0
-    local backup_date=""
-    local backup_provider=""
-
-    if [ -f "$state_file" ]; then
-        backup_time=$(grep -o '"timestamp": [0-9]*' "$state_file" 2>/dev/null | head -1 | awk '{print $2}')
-        backup_date=$(grep -o '"date": "[^"]*"' "$state_file" 2>/dev/null | head -1 | cut -d'"' -f4)
-        backup_provider=$(grep -o '"provider": "[^"]*"' "$state_file" 2>/dev/null | head -1 | cut -d'"' -f4)
+    local sf="$HOME/.config/mix-manager/cloud_backup_state.json" btime=0 bdate="" bprov=""
+    if [ -f "$sf" ]; then
+        btime=$(grep -o '"timestamp": [0-9]*' "$sf" 2>/dev/null | head -1 | cut -d' ' -f2)
+        bdate=$(grep -o '"date": "[^"]*"' "$sf" 2>/dev/null | head -1 | cut -d'"' -f4)
+        bprov=$(grep -o '"provider": "[^"]*"' "$sf" 2>/dev/null | head -1 | cut -d'"' -f4)
     fi
 
-    if [ -z "$backup_date" ]; then
-        local latest_log=""
-        if [ -d "$SCRIPT_DIR/BACKUP_LOGS" ] || { [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "${MIX_ARCHIVE_DIR:-}/BACKUP_LOGS" ]; }; then
-            latest_log=$(ls -t "$SCRIPT_DIR/BACKUP_LOGS"/backup_*.log "${MIX_ARCHIVE_DIR:-}/BACKUP_LOGS"/backup_*.log 2>/dev/null | head -1)
-        fi
-        if [ -n "$latest_log" ] && [ -f "$latest_log" ]; then
-            backup_time=$(stat -c %Y "$latest_log" 2>/dev/null || stat -f %m "$latest_log" 2>/dev/null || echo 0)
-            backup_date=$(date -d "@$backup_time" "+%Y-%m-%d %H:%M" 2>/dev/null || date -r "$backup_time" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "Recently")
-            if [[ "$latest_log" =~ backup_([a-z0-9]+)_ ]]; then
-                backup_provider="${BASH_REMATCH[1]^^}"
-            fi
+    if [ -z "$bdate" ]; then
+        local llog
+        llog=$(ls -t {"$SCRIPT_DIR","${MIX_ARCHIVE_DIR:-}"}/BACKUP_LOGS/backup_*.log 2>/dev/null | head -1)
+        if [ -n "$llog" ] && [ -f "$llog" ]; then
+            btime=$(stat -c %Y "$llog" 2>/dev/null || stat -f %m "$llog" 2>/dev/null || echo 0)
+            printf -v bdate '%(%Y-%m-%d %H:%M)T' "$btime" 2>/dev/null || bdate="Recently"
+            [[ "$llog" =~ backup_([a-z0-9]+)_ ]] && bprov="${BASH_REMATCH[1]^^}"
         fi
     fi
+    [ -z "$bprov" ] && bprov="Google Drive"
 
-    if [ -z "$backup_provider" ]; then
-        backup_provider="Google Drive"
-    fi
-
-    if [ -z "$backup_date" ] || [ "${backup_time:-0}" -eq 0 ]; then
+    if [ -z "$bdate" ] || [ "${btime:-0}" -eq 0 ]; then
         _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup:${NC} ${BOLD}${YELLOW}No backup recorded${NC} ${DIM}(Option 9 to sync)${NC}"
-        _LAST_CLOUD_CHECK="$now"
-        echo -e "$_CACHED_CLOUD_STATUS"
-        return 0
+        _LAST_CLOUD_CHECK="$now"; echo -e "$_CACHED_CLOUD_STATUS"; return 0
     fi
 
-    local pending_count=0
-    local all_fdirs=()
+    local fdirs=()
     while IFS= read -r fd; do
-        [ -n "$fd" ] && [ -d "$fd" ] || continue
-        # Exclude remote cloud mounts (like Google Drive) from being counted as pending backup targets
-        case "$fd" in
-            *GoogleDrive*|*google-drive*|*rclone*) continue ;;
-        esac
-        all_fdirs+=("$fd")
+        [ -d "$fd" ] || continue
+        case "${fd,,}" in *googledrive*|*google-drive*|*rclone*) continue ;; esac
+        fdirs+=("$fd")
     done < <(get_all_flac_output_dirs 2>/dev/null)
 
-    if [ ${#all_fdirs[@]} -gt 0 ]; then
-        local f_str
-        f_str="$(printf "%s\n" "${all_fdirs[@]}")"
-        pending_count=$(python3 - "$backup_time" "$f_str" << 'PY' 2>/dev/null || echo 0
+    local pending=0
+    if [ ${#fdirs[@]} -gt 0 ]; then
+        pending=$(python3 - "$btime" "$(printf "%s\n" "${fdirs[@]}")" << 'PY' 2>/dev/null || echo 0
 import os, sys
 try:
-    btime = float(sys.argv[1])
-    dirs = [d for d in sys.argv[2].splitlines() if d and os.path.isdir(d)]
-    pending = 0
-    for d in dirs:
-        with os.scandir(d) as it:
-            for entry in it:
-                if entry.name.lower().endswith('.flac') and entry.is_file():
-                    if entry.stat().st_mtime > btime:
-                        pending += 1
-    print(pending)
-except Exception:
-    print(0)
+    bt, dirs = float(sys.argv[1]), [d for d in sys.argv[2].splitlines() if os.path.isdir(d)]
+    print(sum(1 for d in dirs for e in os.scandir(d) if e.name.lower().endswith('.flac') and e.is_file() and e.stat().st_mtime > bt))
+except Exception: print(0)
 PY
 )
     fi
 
-    if [ "$pending_count" -eq 0 ]; then
-        _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${backup_provider}):${NC} ${BOLD}${GREEN}Up-to-date${NC} ${DIM}(Last: ${backup_date})${NC}  ${BOLD}${BLUE}│${NC}  ${BOLD}${GREEN}0 pending${NC}"
-    else
-        _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${backup_provider}):${NC} ${BOLD}${YELLOW}${pending_count} mix(es) pending sync${NC}  ${BOLD}${BLUE}│${NC}  ${DIM}Last: ${backup_date}${NC}"
-    fi
+    [ "$pending" -eq 0 ] \
+        && _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${bprov}):${NC} ${BOLD}${GREEN}Up-to-date${NC} ${DIM}(Last: ${bdate})${NC}  ${BOLD}${BLUE}│${NC}  ${BOLD}${GREEN}0 pending${NC}" \
+        || _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${bprov}):${NC} ${BOLD}${YELLOW}${pending} mix(es) pending sync${NC}  ${BOLD}${BLUE}│${NC}  ${DIM}Last: ${bdate}${NC}"
 
-    _LAST_CLOUD_CHECK="$now"
-    echo -e "$_CACHED_CLOUD_STATUS"
+    _LAST_CLOUD_CHECK="$now"; echo -e "$_CACHED_CLOUD_STATUS"
 }
 
-# Direct CLI invocation support for manager update & version commands
-if [ "$1" = "update" ] || [ "$1" = "--update" ]; then
-    shift
-    run_sub_script "update_manager.sh" "$@"
-    exit $?
-elif [ "$1" = "version" ] || [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-    shift
-    run_sub_script "update_manager.sh" --version "$@"
-    exit $?
-# Direct CLI invocation support for WAN2GP server management (e.g. Menu 56 options)
-elif [ "$1" = "--wan2gp-start-4.5" ] || [ "$1" = "--wan2gp-p45" ] || { [ "$1" = "56" ] && [ "$2" = "2" ]; }; then
-    wgp_pids=$(pgrep -f "python.*wgp\.py" | tr '\n' ' ')
-    if [ -n "$wgp_pids" ]; then
-        echo -e "\n${YELLOW}WAN2GP is already running (PID: ${wgp_pids% }). Stop or restart it first.${NC}"
-        exit 0
-    fi
-    echo -e "\n${YELLOW}Launching WAN2GP in Profile 4.5...${NC}"
-    launch_wan2gp_terminal "4.5"
-    exit 0
-elif [ "$1" = "--wan2gp-start" ] || [ "$1" = "--wan2gp" ]; then
-    profile="${2:-4.5}"
-    wgp_pids=$(pgrep -f "python.*wgp\.py" | tr '\n' ' ')
-    if [ -n "$wgp_pids" ]; then
-        echo -e "\n${YELLOW}WAN2GP is already running (PID: ${wgp_pids% }). Stop or restart it first.${NC}"
-        exit 0
-    fi
-    echo -e "\n${YELLOW}Launching WAN2GP in Profile $profile...${NC}"
-    launch_wan2gp_terminal "$profile"
-    exit 0
-elif [ "$1" = "--wan2gp-stop" ] || { [ "$1" = "56" ] && [ "$2" = "3" ]; }; then
-    echo -e "\n${YELLOW}Stopping WAN2GP...${NC}"
-    run_sub_script "wan2gp.sh" stop
-    exit 0
-elif [ "$1" = "--tts" ] || [ "$1" = "--wan2gp-tts" ] || { [ "$1" = "56" ] && [ "$2" = "25" ]; }; then
-    shift
-    [ "${1:-}" = "25" ] && shift
-    run_wan2gp_tts_batch "$@"
-    exit 0
-elif [ "$1" = "--split-flac" ] || [ "$1" = "--flac-split" ]; then
-    shift
-    split_flac_audio "$@"
-    exit 0
-elif [ "$1" = "--split-video" ] || [ "$1" = "--split-mp4" ] || [ "$1" = "--video-split" ]; then
-    shift
-    split_video_clip "$@"
-    exit 0
-elif [ "$1" = "--cut-video" ]; then
-    shift
-    cut_video_clip "$@"
-    exit 0
-elif [ "$1" = "--beszel" ] || [ "$1" = "--beszel-menu" ]; then
-    shift
-    manage_beszel "$@"
-    exit 0
-elif [ "$1" = "--beszel-start" ] || [ "$1" = "--beszel-start-both" ] || { [ "$1" = "57" ] && [ "$2" = "1" ]; }; then
-    run_sub_script "beszel.sh" start
-    exit 0
-elif [ "$1" = "--beszel-hub" ] || [ "$1" = "--beszel-start-hub" ] || { [ "$1" = "57" ] && [ "$2" = "2" ]; }; then
-    run_sub_script "beszel.sh" start-hub
-    exit 0
-elif [ "$1" = "--beszel-agent" ] || [ "$1" = "--beszel-start-agent" ] || { [ "$1" = "57" ] && [ "$2" = "3" ]; }; then
-    run_sub_script "beszel.sh" start-agent
-    exit 0
-elif [ "$1" = "--beszel-dashboard" ] || [ "$1" = "--beszel-web" ] || { [ "$1" = "57" ] && [ "$2" = "4" ]; }; then
-    run_sub_script "beszel.sh" dashboard
-    exit 0
-elif [ "$1" = "--beszel-stop" ] || { [ "$1" = "57" ] && [ "$2" = "5" ]; }; then
-    run_sub_script "beszel.sh" stop
-    exit 0
-elif [ "$1" = "--beszel-status" ] || { [ "$1" = "57" ] && [ "$2" = "status" ]; }; then
-    run_sub_script "beszel.sh" status
-    exit 0
-elif [ "$1" = "57" ] && [ -z "$2" ]; then
-    manage_beszel
-    exit 0
-elif [ "$1" = "--ollama" ] || [ "$1" = "--ollama-menu" ]; then
-    shift
-    manage_ollama "$@"
-    exit 0
-elif [ "$1" = "--ollama-serve" ] || [ "$1" = "--ollama-start" ] || [ "$1" = "--ollama-bg" ] || { [ "$1" = "58" ] && [ "$2" = "1" ]; }; then
-    run_sub_script "manage_ollama.sh" start
-    exit 0
-elif [ "$1" = "--ollama-window" ] || [ "$1" = "--ollama-term" ] || { [ "$1" = "58" ] && [ "$2" = "2" ]; }; then
-    run_sub_script "manage_ollama.sh" start-window
-    exit 0
-elif [ "$1" = "--ollama-stop" ] || { [ "$1" = "58" ] && [ "$2" = "3" ]; }; then
-    run_sub_script "manage_ollama.sh" stop
-    exit 0
-elif [ "$1" = "--ollama-restart" ] || { [ "$1" = "58" ] && [ "$2" = "4" ]; }; then
-    run_sub_script "manage_ollama.sh" restart
-    exit 0
-elif [ "$1" = "--ollama-chat" ] || { [ "$1" = "58" ] && [ "$2" = "5" ]; }; then
-    shift 2 2>/dev/null || shift 1
-    run_sub_script "manage_ollama.sh" chat "$@"
-    exit 0
-elif [ "$1" = "--ollama-logs" ] || { [ "$1" = "58" ] && [ "$2" = "6" ]; }; then
-    run_sub_script "manage_ollama.sh" logs
-    exit 0
-elif [ "$1" = "--ollama-status" ] || { [ "$1" = "58" ] && [ "$2" = "status" ]; }; then
-    run_sub_script "manage_ollama.sh" status
-    exit 0
-elif [ "$1" = "58" ] && [ -z "$2" ]; then
-    manage_ollama
-    exit 0
-elif [ "$1" = "--open-webui" ] || [ "$1" = "--webui" ] || [ "$1" = "webui" ] || [ "$1" = "open-webui" ] || [ "$1" = "--openwebui" ]; then
-    shift
-    run_sub_script "manage_open_webui.sh" "$@"
-    exit 0
-elif [ "$1" = "--harmony" ] || [ "$1" = "--mp-harmony" ] || [ "$1" = "harmony" ] || [ "$1" = "mp-harmony" ] || [ "$1" = "--harmony-agent" ]; then
-    shift
-    run_sub_script "manage_harmony_agent.sh" "$@"
-    exit 0
-elif [ "$1" = "--harmony-voice" ] || [ "$1" = "--voice-talk" ] || [ "$1" = "voice-talk" ] || [ "$1" = "--harmony-voice-chat" ]; then
-    run_sub_script "manage_harmony_agent.sh" voice
-    exit 0
-elif [ "$1" = "--dsh-mobile" ] || [ "$1" = "--dsh" ] || [ "$1" = "--dsh-start" ] || { [ "$1" = "59" ] && [ "$2" = "1" ]; }; then
-    run_sub_script "dsh_mobile.sh" start
-    exit 0
-elif [ "$1" = "--dsh-bg" ] || { [ "$1" = "59" ] && [ "$2" = "2" ]; }; then
-    run_sub_script "dsh_mobile.sh" start-bg
-    exit 0
-elif [ "$1" = "--dsh-web" ] || [ "$1" = "--dsh-browser" ] || { [ "$1" = "59" ] && [ "$2" = "3" ]; }; then
-    run_sub_script "dsh_mobile.sh" web
-    exit 0
-elif [ "$1" = "--dsh-stop" ] || { [ "$1" = "59" ] && [ "$2" = "4" ]; }; then
-    run_sub_script "dsh_mobile.sh" stop
-    exit 0
-elif [ "$1" = "--dsh-restart" ] || { [ "$1" = "59" ] && [ "$2" = "5" ]; }; then
-    run_sub_script "dsh_mobile.sh" restart
-    exit 0
-elif [ "$1" = "--dsh-logs" ] || { [ "$1" = "59" ] && [ "$2" = "6" ]; }; then
-    run_sub_script "dsh_mobile.sh" logs
-    exit 0
-elif [ "$1" = "--dsh-status" ] || { [ "$1" = "59" ] && [ "$2" = "status" ]; }; then
-    run_sub_script "dsh_mobile.sh" status
-    exit 0
-elif [ "$1" = "--dsh-menu" ] || { [ "$1" = "59" ] && [ -z "$2" ]; }; then
-    manage_dsh_mobile
-    exit 0
-elif [ "$1" = "--backup" ] || [ "$1" = "--cloud-backup" ] || { [ "$1" = "9" ] && [ -z "${2:-}" ]; }; then
-    shift || true
-    run_sub_script "backup_mix_archive.sh" "$@"
-    exit 0
-elif [ "$1" = "--alarm" ] || [ "$1" = "--alarm-clock" ] || [ "$1" = "alarm" ] || [ "$1" = "alarm-clock" ] || { [ "$1" = "18" ] && [ -n "${2:-}" ]; }; then
-    shift || true
-    if [ -x "$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh" ]; then
-        exec "$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh" "$@"
-    elif [ -x "$SCRIPT_DIR/alarm.sh" ]; then
-        exec "$SCRIPT_DIR/alarm.sh" "$@"
-    else
-        exec ./alarm.sh "$@"
-    fi
-elif [ "$1" = "--congen" ] || [ "$1" = "congen" ] || [ "$1" = "kdeconnect" ] || [ "$1" = "--kdeconnect" ]; then
-    shift || true
-    if [ -x "$SCRIPT_DIR/Congen/Congen" ]; then
-        exec "$SCRIPT_DIR/Congen/Congen" "$@"
-    elif [ -x "$SCRIPT_DIR/congen" ]; then
-        exec "$SCRIPT_DIR/congen" "$@"
-    else
-        exec ./congen "$@"
-    fi
-fi
-
-manage_cloud_backup_suite() {
-    run_sub_script "backup_mix_archive.sh"
-}
+# High-speed CLI Option Router
+case "$1" in
+    update|--update)            shift; run_sub_script "update_manager.sh" "$@"; exit $? ;;
+    version|--version|-v)       shift; run_sub_script "update_manager.sh" --version "$@"; exit $? ;;
+    --wan2gp-start-4.5|--wan2gp-p45)
+        pgrep -f "python.*wgp\.py" >/dev/null && { echo -e "\n${YELLOW}WAN2GP already running.${NC}"; exit 0; }
+        launch_wan2gp_terminal "4.5"; exit 0 ;;
+    --wan2gp-start|--wan2gp)
+        pgrep -f "python.*wgp\.py" >/dev/null && { echo -e "\n${YELLOW}WAN2GP already running.${NC}"; exit 0; }
+        launch_wan2gp_terminal "${2:-4.5}"; exit 0 ;;
+    --wan2gp-stop)              run_sub_script "wan2gp.sh" stop; exit 0 ;;
+    --tts|--wan2gp-tts)         shift; [ "${1:-}" = "25" ] && shift; run_wan2gp_tts_batch "$@"; exit 0 ;;
+    --split-flac|--flac-split)  shift; split_flac_audio "$@"; exit 0 ;;
+    --split-video|--split-mp4|--video-split) shift; split_video_clip "$@"; exit 0 ;;
+    --cut-video)                shift; cut_video_clip "$@"; exit 0 ;;
+    --beszel|--beszel-menu)     shift; manage_beszel "$@"; exit 0 ;;
+    --beszel-start|--beszel-start-both) run_sub_script "beszel.sh" start; exit 0 ;;
+    --beszel-hub|--beszel-start-hub)    run_sub_script "beszel.sh" start-hub; exit 0 ;;
+    --beszel-agent|--beszel-start-agent) run_sub_script "beszel.sh" start-agent; exit 0 ;;
+    --beszel-dashboard|--beszel-web)    run_sub_script "beszel.sh" dashboard; exit 0 ;;
+    --beszel-stop)              run_sub_script "beszel.sh" stop; exit 0 ;;
+    --beszel-status)            run_sub_script "beszel.sh" status; exit 0 ;;
+    57) [ -z "$2" ] && manage_beszel || run_sub_script "beszel.sh" "${2/1/start}"; exit 0 ;;
+    --ollama|--ollama-menu)     shift; manage_ollama "$@"; exit 0 ;;
+    --ollama-serve|--ollama-start|--ollama-bg) run_sub_script "manage_ollama.sh" start; exit 0 ;;
+    --ollama-window|--ollama-term)             run_sub_script "manage_ollama.sh" start-window; exit 0 ;;
+    --ollama-stop)              run_sub_script "manage_ollama.sh" stop; exit 0 ;;
+    --ollama-restart)           run_sub_script "manage_ollama.sh" restart; exit 0 ;;
+    --ollama-chat)              shift; run_sub_script "manage_ollama.sh" chat "$@"; exit 0 ;;
+    --ollama-logs)              run_sub_script "manage_ollama.sh" logs; exit 0 ;;
+    --ollama-status)            run_sub_script "manage_ollama.sh" status; exit 0 ;;
+    58) [ -z "$2" ] && manage_ollama || run_sub_script "manage_ollama.sh" "${2/1/start}"; exit 0 ;;
+    --open-webui|--webui|webui|open-webui|--openwebui) shift; run_sub_script "manage_open_webui.sh" "$@"; exit 0 ;;
+    --harmony|--mp-harmony|harmony|mp-harmony|--harmony-agent) shift; run_sub_script "manage_harmony_agent.sh" "$@"; exit 0 ;;
+    --harmony-voice|--voice-talk|voice-talk|--harmony-voice-chat) run_sub_script "manage_harmony_agent.sh" voice; exit 0 ;;
+    --dsh-mobile|--dsh|--dsh-start) run_sub_script "dsh_mobile.sh" start; exit 0 ;;
+    --dsh-bg)                   run_sub_script "dsh_mobile.sh" start-bg; exit 0 ;;
+    --dsh-web|--dsh-browser)    run_sub_script "dsh_mobile.sh" web; exit 0 ;;
+    --dsh-stop)                 run_sub_script "dsh_mobile.sh" stop; exit 0 ;;
+    --dsh-restart)              run_sub_script "dsh_mobile.sh" restart; exit 0 ;;
+    --dsh-logs)                 run_sub_script "dsh_mobile.sh" logs; exit 0 ;;
+    --dsh-status)               run_sub_script "dsh_mobile.sh" status; exit 0 ;;
+    --dsh-menu|59)              [ -z "$2" ] && manage_dsh_mobile || run_sub_script "dsh_mobile.sh" "$2"; exit 0 ;;
+    --backup|--cloud-backup|9)  shift || true; run_sub_script "backup_mix_archive.sh" "$@"; exit 0 ;;
+    --alarm*|alarm*|18)         shift || true; _run_tool "alarm.sh" "$@" ;;
+    --congen*|congen*|*kdeconnect*) shift || true; _run_tool "Congen" "$@" ;;
+    56)
+        case "$2" in
+            2) launch_wan2gp_terminal "4.5"; exit 0 ;;
+            3) run_sub_script "wan2gp.sh" stop; exit 0 ;;
+            25) shift 2; run_wan2gp_tts_batch "$@"; exit 0 ;;
+        esac ;;
+esac
 
 manage_integrity_and_verification() {
-    while true; do
+    while :; do
         local opts=(
             "1|Manage Audio Integrity Checksums|(SHA-256 Manifest & Verification)"
             "2|Verify FLAC Files for Integrity & Corruption|(Verify_FLAC_Files.sh)"
@@ -13377,56 +13057,22 @@ manage_integrity_and_verification() {
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "AUDIO INTEGRITY, BIT-ROT SCRUB & FLAC VERIFICATION" "" opts 0
-        local aiv_choice="$REPLY"
-        case "$aiv_choice" in
-            1)
-                manage_audio_checksums
-                ;;
-            2)
-                echo -e "\n${BOLD}${YELLOW}Starting FLAC File Integrity Scan...${NC}\n"
-                run_sub_script "Verify_FLAC_Files.sh"
-                press_enter
-                ;;
-            3)
-                if [ -f "$SCRIPT_DIR/scripts/verify_lossless_spectral.py" ]; then
-                    python3 "$SCRIPT_DIR/scripts/verify_lossless_spectral.py"
-                else
-                    echo -e "\n${RED}Error: verify_lossless_spectral.py not found!${NC}"
-                fi
-                press_enter
-                ;;
-            4)
-                echo -e "\n${BOLD}${YELLOW}Starting Non-Destructive Bit-Rot Scrub across all archives...${NC}\n"
-                run_sub_script "scrub_mix_archive.sh"
-                press_enter
-                ;;
+        case "$REPLY" in
+            1) manage_audio_checksums ;;
+            2) echo -e "\n${BOLD}${YELLOW}Starting FLAC Integrity Scan...${NC}\n"; run_sub_script "Verify_FLAC_Files.sh"; press_enter ;;
+            3) [ -f "$SCRIPT_DIR/scripts/verify_lossless_spectral.py" ] && python3 "$SCRIPT_DIR/scripts/verify_lossless_spectral.py" || echo -e "\n${RED}Error: verify_lossless_spectral.py not found!${NC}"; press_enter ;;
+            4) echo -e "\n${BOLD}${YELLOW}Starting Non-Destructive Bit-Rot Scrub...${NC}\n"; run_sub_script "scrub_mix_archive.sh"; press_enter ;;
             5)
                 echo -e "\n${BOLD}${MAGENTA}--- Automated Background Bit-Rot Scrub Timer (Systemd) ---${NC}"
                 run_sub_script "scrub_mix_archive.sh" --timer-status
-                local t_opts=(
-                    "1|Install & Enable Weekly Scrub Timer|(Sundays 03:00 AM)"
-                    "2|Disable & Uninstall Scrub Timer|"
-                    "0|Back|(or Esc)"
-                )
+                local t_opts=("1|Install & Enable Weekly Scrub Timer|(Sundays 03:00 AM)" "2|Disable & Uninstall Scrub Timer|" "0|Back|(or Esc)")
                 run_interactive_submenu "Automated Bit-Rot Scrub Timer" "" t_opts 0
-                local t_choice="$REPLY"
-                case "$t_choice" in
-                    1) run_sub_script "scrub_mix_archive.sh" --install-timer ;;
-                    2) run_sub_script "scrub_mix_archive.sh" --uninstall-timer ;;
-                esac
-                press_enter
-                ;;
-            6)
-                run_sub_script "scrub_mix_archive.sh" --logs
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+                [ "$REPLY" = "1" ] && run_sub_script "scrub_mix_archive.sh" --install-timer
+                [ "$REPLY" = "2" ] && run_sub_script "scrub_mix_archive.sh" --uninstall-timer
+                press_enter ;;
+            6) run_sub_script "scrub_mix_archive.sh" --logs; press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
