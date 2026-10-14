@@ -1079,77 +1079,67 @@ _menu_fast_paint_selection() {
         fi
 
         # Compute maximum visible options with safe headroom
-        local effective_overhead=$(( overhead + banner_lines ))
-        # Keep one row unused. A frame that fills the last row scrolls
-        # mintty after a font zoom and pins the caret to the right edge.
-        local max_visible=$(( _TERM_LINES - effective_overhead - 1 ))
-        max_visible=$(( max_visible < 1 ? 1 : max_visible ))
+local effective_overhead=$(( overhead + banner_lines ))
+local max_visible=$(( _TERM_LINES - effective_overhead - 1 ))
+max_visible=$(( max_visible < 1 ? 1 : max_visible ))
 
-        if [ "$max_visible" -ge "$total_opts" ]; then
-            max_visible=$total_opts
-            view_top=0
-        else
-            # Adjust view_top so cur_idx is always inside [view_top, view_top + max_visible - 1]
-            view_top=$(( cur_idx < view_top ? cur_idx : view_top ))
-            view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top ))
-            # Bound checks
-            view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top ))
-            view_top=$(( view_top < 0 ? 0 : view_top ))
+if [ "$max_visible" -ge "$total_opts" ]; then
+    max_visible=$total_opts
+    view_top=0
+else
+    view_top=$(( cur_idx < view_top ? cur_idx : view_top ))
+    view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top ))
+    view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top ))
+    view_top=$(( view_top < 0 ? 0 : view_top ))
+fi
+
+local view_end=$(( view_top + max_visible - 1 ))
+[ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 ))
+
+# Build entire frame in memory
+local frame_buf="$cached_header_block"
+[ -n "$player_banner" ] && frame_buf+="$player_banner"
+
+# Scroll indicator top
+if [ "$view_top" -gt 0 ]; then
+    frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"
+else
+    frame_buf+="\033[K\n"
+fi
+
+    # Render visible items
+    local idx
+    for (( idx=view_top; idx<=view_end; idx++ )); do
+        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
+        if [ "$o_key" = "SECTION" ]; then
+            local sec_rem=$(( inner_w - ${#o_label} - 8 ))
+            [ "$sec_rem" -lt 4 ] && sec_rem=4
+            local sec_dashes
+            printf -v sec_dashes '%*s' "$sec_rem" ''
+            sec_dashes="${sec_dashes// /─}"
+            frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"
+            continue
+        elif [ "$o_key" = "SEP" ]; then
+            frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
+            continue
         fi
 
-        local view_end=$(( view_top + max_visible - 1 ))
-        [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 ))
-
-        # Build entire frame in memory to eliminate intermediate screen redraws
-        local frame_buf="$cached_header_block"
-        [ -n "$player_banner" ] && frame_buf+="$player_banner"
-
-        # First item row: header, then the player banner, then the top scroller.
-        _menu_item_row=()
-        _menu_fast_ok=0
-        local _menu_row=$(( cached_header_lines + banner_lines + 2 ))
-
-        # Scroll indicator top
-        if [ "$view_top" -gt 0 ]; then
-            frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"
+        if [ "$idx" -eq "$cur_idx" ]; then
+            local sel_color_idx="${selectable_map[$cur_idx]:-0}"
+            local h_line=""
+            highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"
+            frame_buf+="${h_line}\n"
         else
-            frame_buf+="\033[K\n"
+            local key_formatted
+            printf -v key_formatted "[%2s]" "$o_key"
+            local key_display="${BOLD}${CYAN}${key_formatted}${NC}"
+            local label_display="${o_label}"
+            local extra_display=""
+            [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
+            frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"
         fi
+    done
 
-        # Render visible items
-        local idx
-        for (( idx=view_top; idx<=view_end; idx++ )); do
-            _menu_item_row[$idx]=$_menu_row
-            _menu_row=$((_menu_row + 1))
-            IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
-            if [ "$o_key" = "SECTION" ]; then
-                local sec_rem=$(( inner_w - ${#o_label} - 8 ))
-                [ "$sec_rem" -lt 4 ] && sec_rem=4
-                local sec_dashes
-                printf -v sec_dashes '%*s' "$sec_rem" ''
-                sec_dashes="${sec_dashes// /─}"
-                frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"
-                continue
-            elif [ "$o_key" = "SEP" ]; then
-                frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
-                continue
-            fi
-            
-            if [ "$idx" -eq "$cur_idx" ]; then
-                local sel_color_idx="${selectable_map[$cur_idx]:-0}"
-                local h_line=""
-                highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"
-                frame_buf+="${h_line}\n"
-            else
-                local key_formatted
-                printf -v key_formatted "[%2s]" "$o_key"
-                local key_display="${BOLD}${CYAN}${key_formatted}${NC}"
-                local label_display="${o_label}"
-                local extra_display=""
-                [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
-                frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"
-            fi
-        done
         # Bottom scroller, divider, then the status line.
         _menu_status_row=$((_menu_row + 2))
         _menu_fast_ok=1
