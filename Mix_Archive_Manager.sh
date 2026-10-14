@@ -12237,65 +12237,63 @@ toggle_audio_mute() {
     sleep 1.2
 }
 
+#!/usr/bin/env bash
+
+# Universal script/python dispatcher helper (Fixed: removed 'exec' so TUI doesn't exit)
+_run_tool() {
+    local target="$1" p; shift
+    for p in "$SCRIPT_DIR/scripts" "$SCRIPT_DIR" "$PWD/scripts" "$PWD"; do
+        [ -x "$p/$target" ] && { "$p/$target" "$@"; return $?; }
+        [ -f "$p/$target" ] && { bash "$p/$target" "$@"; return $?; }
+        [ -f "$p/${target%.*}.py" ] && command -v python3 >/dev/null 2>&1 && { python3 "$p/${target%.*}.py" "$@"; return $?; }
+    done
+    printf '%b\n' "${RED:-}Error: $target not found!${NC:-}"
+    read -r -p "Press Enter to continue..."
+}
+
 manage_mix_scheduler() {
-    local alarm_bin="$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh"
-    [ ! -x "$alarm_bin" ] && alarm_bin="$SCRIPT_DIR/alarm.sh"
-    [ ! -x "$alarm_bin" ] && alarm_bin="./alarm.sh"
+    local alarm_bin="" p ac_choice a_time a_daily a_vol a_mus sn_min c_id th_ch wk_ch wk_url nt_ch nt_txt nt_id
+    for p in "$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh" "$SCRIPT_DIR/alarm.sh" "./alarm.sh"; do
+        [ -x "$p" ] && { alarm_bin="$p"; break; }
+    done
+
+    _run_alarm() {
+        if [ -n "$alarm_bin" ]; then "$alarm_bin" "$@"; else printf '%b\n' "${RED}Error: alarm.sh not found!${NC}"; return 1; fi
+    }
 
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}       MORNING ALARM CLOCK & DJ MIX PLAYBACK SCHEDULER SUITE          ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
         local alarm_summary
         alarm_summary=$(get_alarm_clock_status_display)
-        if [ -n "$alarm_summary" ]; then
-            echo -e "${alarm_summary}"
-            echo -e "${BOLD}${MAGENTA}----------------------------------------------------------------------${NC}"
-        fi
-        echo ""
-        echo -e "${BOLD}Select an operation:${NC}"
-        echo -e "  ${BOLD}${BLUE}─── [ MPLANETARIANS ALARM CLOCK (WAKE UP EDITION) ] ───────────${NC}"
-        echo -e "  ${BOLD}${CYAN} 1)${NC} Morning Screen & Daily Brief (${GREEN}Animated Clock, Weather, Steam Games${NC})"
-        echo -e "  ${BOLD}${CYAN} 2)${NC} Alarm Clock Interactive Menu (${GREEN}Full TUI Alarm Interface${NC})"
-        echo -e "  ${BOLD}${CYAN} 3)${NC} Set New Morning Alarm (${GREEN}Time, Daily/Once, Volume, Mix Path${NC})"
-        echo -e "  ${BOLD}${CYAN} 4)${NC} List All Saved Alarms & Timers (${GREEN}systemd user timers & status${NC})"
-        echo -e "  ${BOLD}${CYAN} 5)${NC} Silence / Stop Ringing Alarm (${GREEN}Move mouse or manual stop${NC})"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Snooze Ringing Alarm (${GREEN}Ramp volume, custom snooze minutes${NC})"
-        echo -e "  ${BOLD}${CYAN} 7)${NC} Cancel / Delete Saved Alarms (${GREEN}Cancel single alarm or all${NC})"
-        echo -e "  ${BOLD}${CYAN} 8)${NC} Toggle Alarm Clock (${GREEN}Enable / Disable all alarms${NC})"
-        echo -e "  ${BOLD}${CYAN} 9)${NC} Change Alarm Theme (${GREEN}Midnight Ink, Warm Brass, Forest Hour, Porcelain${NC})"
-        echo -e "  ${BOLD}${CYAN}10)${NC} Configure Wake-Up Action (${GREEN}Browser on right screen / Console / URL${NC})"
-        echo -e "  ${BOLD}${CYAN}11)${NC} Manage Morning Notes & Reminders (${GREEN}View / Add / Remove wake notes${NC})"
-        echo -e "  ${BOLD}${CYAN}12)${NC} Test Morning Alarm Now (${RED}Loud Playback Test, Mouse Tracking & Steam Prompt${NC})"
-        echo ""
-        echo -e "  ${BOLD}${BLUE}─── [ DJ MIX AUTOMATED PLAYBACK SCHEDULER ] ───────────────────${NC}"
-        echo -e "  ${BOLD}${CYAN}13)${NC} Schedule Single Mix / Playlist for Specific Date & Time (${GREEN}schedule_mix_playback.py${NC})"
-        echo ""
-        echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"
-        echo ""
+        printf '%b\n' \
+            "${BOLD}${MAGENTA}======================================================================${NC}" \
+            "${BOLD}${MAGENTA}       MORNING ALARM CLOCK & DJ MIX PLAYBACK SCHEDULER SUITE          ${NC}" \
+            "${BOLD}${MAGENTA}======================================================================${NC}" \
+            "${alarm_summary:+${alarm_summary}\n${BOLD}${MAGENTA}----------------------------------------------------------------------${NC}}" \
+            "\n${BOLD}Select an operation:${NC}" \
+            "  ${BOLD}${BLUE}─── [ MPLANETARIANS ALARM CLOCK (WAKE UP EDITION) ] ───────────${NC}" \
+            "  ${BOLD}${CYAN} 1)${NC} Morning Screen & Daily Brief (${GREEN}Animated Clock, Weather, Steam Games${NC})" \
+            "  ${BOLD}${CYAN} 2)${NC} Alarm Clock Interactive Menu (${GREEN}Full TUI Alarm Interface${NC})" \
+            "  ${BOLD}${CYAN} 3)${NC} Set New Morning Alarm (${GREEN}Time, Daily/Once, Volume, Mix Path${NC})" \
+            "  ${BOLD}${CYAN} 4)${NC} List All Saved Alarms & Timers (${GREEN}systemd user timers & status${NC})" \
+            "  ${BOLD}${CYAN} 5)${NC} Silence / Stop Ringing Alarm (${GREEN}Move mouse or manual stop${NC})" \
+            "  ${BOLD}${CYAN} 6)${NC} Snooze Ringing Alarm (${GREEN}Ramp volume, custom snooze minutes${NC})" \
+            "  ${BOLD}${CYAN} 7)${NC} Cancel / Delete Saved Alarms (${GREEN}Cancel single alarm or all${NC})" \
+            "  ${BOLD}${CYAN} 8)${NC} Toggle Alarm Clock (${GREEN}Enable / Disable all alarms${NC})" \
+            "  ${BOLD}${CYAN} 9)${NC} Change Alarm Theme (${GREEN}Midnight Ink, Warm Brass, Forest Hour, Porcelain${NC})" \
+            "  ${BOLD}${CYAN}10)${NC} Configure Wake-Up Action (${GREEN}Browser on right screen / Console / URL${NC})" \
+            "  ${BOLD}${CYAN}11)${NC} Manage Morning Notes & Reminders (${GREEN}View / Add / Remove wake notes${NC})" \
+            "  ${BOLD}${CYAN}12)${NC} Test Morning Alarm Now (${RED}Loud Playback Test, Mouse Tracking & Steam Prompt${NC})\n" \
+            "  ${BOLD}${BLUE}─── [ DJ MIX AUTOMATED PLAYBACK SCHEDULER ] ───────────────────${NC}" \
+            "  ${BOLD}${CYAN}13)${NC} Schedule Single Mix / Playlist for Specific Date & Time (${GREEN}schedule_mix_playback.py${NC})\n" \
+            "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu\n"
+
         read -r -p "Enter choice [0-13]: " ac_choice
         case "$ac_choice" in
-            1)
-                clear
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" brief
-                else
-                    echo -e "${RED}Error: alarm.sh not found!${NC}"
-                fi
-                press_enter
-                ;;
-            2)
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" menu
-                else
-                    echo -e "${RED}Error: alarm.sh not found!${NC}"
-                    press_enter
-                fi
-                ;;
+            1) clear; _run_alarm brief; press_enter ;;
+            2) _run_alarm menu || press_enter ;;
             3)
-                clear
-                echo -e "${BOLD}${MAGENTA}=== SET NEW MORNING ALARM ===${NC}\n"
+                clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SET NEW MORNING ALARM ===${NC}"
                 read -r -p "Enter alarm time (e.g. 07:30, 6:45am, 1930): " a_time
                 if [ -n "$a_time" ]; then
                     read -r -p "Repeat daily? [y/N]: " a_daily
@@ -12305,389 +12303,210 @@ manage_mix_scheduler() {
                     [[ "$a_daily" =~ ^[Yy] ]] && set_args+=("--daily")
                     [ -n "$a_vol" ] && set_args+=("--volume" "$a_vol")
                     [ -n "$a_mus" ] && set_args+=("--music" "$a_mus")
-                    if [ -x "$alarm_bin" ]; then
-                        "$alarm_bin" set "${set_args[@]}"
-                    fi
+                    _run_alarm set "${set_args[@]}"
                 fi
-                press_enter
-                ;;
-            4)
-                clear
-                echo -e "${BOLD}${MAGENTA}=== SAVED ALARMS & TIMERS ===${NC}\n"
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" list
-                fi
-                press_enter
-                ;;
-            5)
-                echo -e "\n${YELLOW}Silencing alarm...${NC}"
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" stop
-                fi
-                press_enter
-                ;;
-            6)
-                read -r -p "Enter snooze minutes (default 5): " sn_min
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" snooze "${sn_min:-5}"
-                fi
-                press_enter
-                ;;
+                press_enter ;;
+            4) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SAVED ALARMS & TIMERS ===${NC}"; _run_alarm list; press_enter ;;
+            5) printf '\n%b\n' "${YELLOW}Silencing alarm...${NC}"; _run_alarm stop; press_enter ;;
+            6) read -r -p "Enter snooze minutes (default 5): " sn_min; _run_alarm snooze "${sn_min:-5}"; press_enter ;;
             7)
-                clear
-                echo -e "${BOLD}${MAGENTA}=== CANCEL SAVED ALARMS ===${NC}\n"
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" list
+                clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== CANCEL SAVED ALARMS ===${NC}"
+                if _run_alarm list; then
                     echo ""
                     read -r -p "Enter Alarm ID to cancel (or 'all' to cancel all): " c_id
-                    if [ -n "$c_id" ]; then
-                        "$alarm_bin" cancel "$c_id"
-                    fi
+                    [ -n "$c_id" ] && _run_alarm cancel "$c_id"
                 fi
-                press_enter
-                ;;
+                press_enter ;;
             8)
-                if [ -x "$alarm_bin" ]; then
-                    local cur_en
-                    cur_en=$("$alarm_bin" list 2>/dev/null | grep -i "enabled" || true)
-                    if [ -n "$cur_en" ]; then
-                        "$alarm_bin" disable
-                    else
-                        "$alarm_bin" enable
-                    fi
+                if [ -n "$alarm_bin" ]; then
+                    if [[ "$("$alarm_bin" list 2>/dev/null)" == *[Ee]nabled* ]]; then "$alarm_bin" disable; else "$alarm_bin" enable; fi
                 fi
-                sleep 1.2
-                ;;
+                sleep 1.2 ;;
             9)
                 clear
-                echo -e "${BOLD}${MAGENTA}=== CHANGE ALARM CLOCK THEME ===${NC}\n"
-                echo -e "  ${BOLD}${CYAN}1)${NC} Midnight Ink (${DIM}navy and silver${NC})"
-                echo -e "  ${BOLD}${CYAN}2)${NC} Warm Brass (${DIM}amber lamp-light${NC})"
-                echo -e "  ${BOLD}${CYAN}3)${NC} Forest Hour (${DIM}deep green and gold${NC})"
-                echo -e "  ${BOLD}${CYAN}4)${NC} Porcelain (${DIM}warm grey and rose${NC})"
+                printf '%b\n' "${BOLD}${MAGENTA}=== CHANGE ALARM CLOCK THEME ===${NC}\n" \
+                    "  ${BOLD}${CYAN}1)${NC} Midnight Ink (${DIM}navy and silver${NC})" \
+                    "  ${BOLD}${CYAN}2)${NC} Warm Brass (${DIM}amber lamp-light${NC})" \
+                    "  ${BOLD}${CYAN}3)${NC} Forest Hour (${DIM}deep green and gold${NC})" \
+                    "  ${BOLD}${CYAN}4)${NC} Porcelain (${DIM}warm grey and rose${NC})"
                 read -r -p "Enter choice [1-4]: " th_ch
-                case "$th_ch" in
-                    1) "$alarm_bin" theme midnight-ink ;;
-                    2) "$alarm_bin" theme warm-brass ;;
-                    3) "$alarm_bin" theme forest-hour ;;
-                    4) "$alarm_bin" theme porcelain ;;
-                esac
-                sleep 1
-                ;;
+                local themes=("" "midnight-ink" "warm-brass" "forest-hour" "porcelain")
+                [ -n "${themes[$th_ch]:-}" ] && _run_alarm theme "${themes[$th_ch]}"
+                sleep 1 ;;
             10)
-                clear
-                echo -e "${BOLD}${MAGENTA}=== CONFIGURE WAKE-UP ACTION ===${NC}\n"
-                echo -e "Current action:"
-                "$alarm_bin" task
-                echo ""
-                echo -e "  ${BOLD}${CYAN}1)${NC} Browser on Display to the Right (Default)"
-                echo -e "  ${BOLD}${CYAN}2)${NC} Browser with Custom URL"
-                echo -e "  ${BOLD}${CYAN}3)${NC} Dedicated Console Window"
-                echo -e "  ${BOLD}${CYAN}4)${NC} Clear / None"
+                clear; printf '%b\n' "${BOLD}${MAGENTA}=== CONFIGURE WAKE-UP ACTION ===${NC}\n\nCurrent action:"
+                _run_alarm task
+                printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Browser on Display to the Right (Default)" \
+                    "  ${BOLD}${CYAN}2)${NC} Browser with Custom URL" \
+                    "  ${BOLD}${CYAN}3)${NC} Dedicated Console Window" \
+                    "  ${BOLD}${CYAN}4)${NC} Clear / None"
                 read -r -p "Enter choice [1-4]: " wk_ch
                 case "$wk_ch" in
-                    1) "$alarm_bin" task browser ;;
-                    2)
-                        read -r -p "Enter URL (e.g. https://news.ycombinator.com): " wk_url
-                        "$alarm_bin" task browser "$wk_url"
-                        ;;
-                    3) "$alarm_bin" task console ;;
-                    4) "$alarm_bin" task clear ;;
+                    1) _run_alarm task browser ;;
+                    2) read -r -p "Enter URL (e.g. https://news.ycombinator.com): " wk_url; _run_alarm task browser "$wk_url" ;;
+                    3) _run_alarm task console ;;
+                    4) _run_alarm task clear ;;
                 esac
-                sleep 1
-                ;;
+                sleep 1 ;;
             11)
-                clear
-                echo -e "${BOLD}${MAGENTA}=== MORNING WAKE-UP NOTES ===${NC}\n"
-                "$alarm_bin" note list
-                echo ""
-                echo -e "  ${BOLD}${CYAN}1)${NC} Add Note"
-                echo -e "  ${BOLD}${CYAN}2)${NC} Remove Note by ID"
-                echo -e "  ${BOLD}${CYAN}0)${NC} Done"
+                clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== MORNING WAKE-UP NOTES ===${NC}"
+                _run_alarm note list
+                printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Add Note" "  ${BOLD}${CYAN}2)${NC} Remove Note by ID" "  ${BOLD}${CYAN}0)${NC} Done"
                 read -r -p "Enter choice [0-2]: " nt_ch
                 case "$nt_ch" in
-                    1)
-                        read -r -p "Enter note text: " nt_txt
-                        [ -n "$nt_txt" ] && "$alarm_bin" note add "$nt_txt"
-                        ;;
-                    2)
-                        read -r -p "Enter note ID to remove: " nt_id
-                        [ -n "$nt_id" ] && "$alarm_bin" note rm "$nt_id"
-                        ;;
+                    1) read -r -p "Enter note text: " nt_txt; [ -n "$nt_txt" ] && _run_alarm note add "$nt_txt" ;;
+                    2) read -r -p "Enter note ID to remove: " nt_id; [ -n "$nt_id" ] && _run_alarm note rm "$nt_id" ;;
                 esac
-                sleep 1
-                ;;
+                sleep 1 ;;
             12)
                 clear
-                echo -e "${BOLD}${RED}=== TESTING MORNING ALARM (LOUD PLAYBACK & STEAM PROMPT) ===${NC}\n"
-                echo -e "${YELLOW}Starting alarm test. Press Ctrl+C or move mouse to stop.${NC}\n"
-                if [ -x "$alarm_bin" ]; then
-                    "$alarm_bin" test
-                fi
-                press_enter
-                ;;
+                printf '%b\n\n' "${BOLD}${RED}=== TESTING MORNING ALARM (LOUD PLAYBACK & STEAM PROMPT) ===${NC}" \
+                    "${YELLOW}Starting alarm test. Press Ctrl+C or move mouse to stop.${NC}"
+                _run_alarm test; press_enter ;;
             13)
-                echo -e "\n${BOLD}${BLUE}=== DJ MIX SCHEDULER (PLAYS LOUDLY VIA DEFAULT AUDIO PLAYER) ===${NC}\n"
-                local py_script="$SCRIPT_DIR/scripts/schedule_mix_playback.py"
-                [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/schedule_mix_playback.py"
-                [ ! -f "$py_script" ] && py_script="./scripts/schedule_mix_playback.py"
-                if [ -x "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then
-                    "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"
-                elif command -v python3 >/dev/null 2>&1 && [ -f "$py_script" ]; then
-                    python3 "$py_script" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"
-                else
-                    echo -e "${RED}Error: schedule_mix_playback script not found!${NC}"
-                fi
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+                printf '\n%b\n\n' "${BOLD}${BLUE}=== DJ MIX SCHEDULER (PLAYS LOUDLY VIA DEFAULT AUDIO PLAYER) ===${NC}"
+                _run_tool "schedule_mix_playback.sh" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"
+                press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]) return 0 ;;
+            *) printf '\n%b\n' "${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
 get_manager_uptime() {
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    local elapsed=$(( now - MANAGER_START_EPOCH ))
-    local m_hours=$(( elapsed / 3600 ))
-    local m_mins=$(( (elapsed % 3600) / 60 ))
-    local m_secs=$(( elapsed % 60 ))
-    local manager_up
-    if [ $m_hours -gt 0 ]; then
-        manager_up="${m_hours}h ${m_mins}m ${m_secs}s"
-    elif [ $m_mins -gt 0 ]; then
-        manager_up="${m_mins}m ${m_secs}s"
-    else
-        manager_up="${m_secs}s"
-    fi
+    local now="${EPOCHSECONDS:-$(date +%s)}"
+    local el=$(( now - MANAGER_START_EPOCH ))
+    local m_up="$((el % 60))s"
+    (( el >= 60 )) && m_up="$(((el % 3600) / 60))m $m_up"
+    (( el >= 3600 )) && m_up="$((el / 3600))h $m_up"
 
-    local sys_up=""
-    if [ -f /proc/uptime ]; then
-        local uptime_val sec
-        read -r uptime_val _ < /proc/uptime 2>/dev/null
-        sec="${uptime_val%%.*}"
-        local s_days=$(( sec / 86400 ))
-        local s_hours=$(( (sec % 86400) / 3600 ))
-        local s_mins=$(( (sec % 3600) / 60 ))
-        if [ $s_days -gt 0 ]; then
-            sys_up="${s_days}d ${s_hours}h ${s_mins}m"
-        else
-            sys_up="${s_hours}h ${s_mins}m"
-        fi
+    local sys_up="N/A"
+    if [ -r /proc/uptime ]; then
+        local up_val sec
+        read -r up_val _ < /proc/uptime
+        sec="${up_val%%.*}"
+        sys_up="$(((sec % 86400) / 3600))h $(((sec % 3600) / 60))m"
+        (( sec >= 86400 )) && sys_up="$((sec / 86400))d $sys_up"
     elif [ "${OS_TYPE:-}" != "windows" ] && command -v uptime >/dev/null 2>&1; then
-        sys_up=$(uptime | sed 's/.*up \([^,]*\), .*/\1/' | xargs)
+        sys_up=$(uptime)
+        sys_up="${sys_up#*up }"
+        sys_up="${sys_up%%,*}"
     fi
 
-    local audio_st
-    # wpctl and pactl are absent on Windows, so the probe always prints
-    # Active, but the subshell itself is the slow part of a resize.
-    if [ "${OS_TYPE:-}" = "windows" ]; then
-        audio_st="Active"
-    else
-        audio_st=$(get_audio_volume_and_mute)
-    fi
+    local audio_st="Active"
+    [ "${OS_TYPE:-}" != "windows" ] && audio_st=$(get_audio_volume_and_mute)
 
-    printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${manager_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up:-N/A}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
+    printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${m_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"
     printf '%s\n' "$_MANAGER_UPTIME_LINE"
 }
 
 detect_currently_playing_mix() {
-    # 0. Check MP Audio Player (Built-in Audiop Player)
-    if get_mp_audio_player_track_info 2>/dev/null; then
-        if [ -n "$MP_PLAYER_RAW_PATH" ] && [ -f "$MP_PLAYER_RAW_PATH" ]; then
-            echo "$MP_PLAYER_RAW_PATH"
-            return 0
-        fi
-    fi
+    get_mp_audio_player_track_info 2>/dev/null && [ -f "${MP_PLAYER_RAW_PATH:-}" ] && { printf '%s\n' "$MP_PLAYER_RAW_PATH"; return 0; }
+    get_audacious_track_info 2>/dev/null && [ -f "${AUDACIOUS_RESOLVED_PATH:-}" ] && { printf '%s\n' "$AUDACIOUS_RESOLVED_PATH"; return 0; }
+    get_strawberry_track_info 2>/dev/null && [ -f "${STRAWBERRY_RESOLVED_PATH:-}" ] && { printf '%s\n' "$STRAWBERRY_RESOLVED_PATH"; return 0; }
+    get_cliamp_track_info 2>/dev/null && [ -f "${CLIAMP_RESOLVED_PATH:-}" ] && { printf '%s\n' "$CLIAMP_RESOLVED_PATH"; return 0; }
 
-    # 1. Check Audacious (MPRIS / qdbus / dbus-send / audtool)
-    if get_audacious_track_info 2>/dev/null; then
-        if [ -n "$AUDACIOUS_RESOLVED_PATH" ] && [ -f "$AUDACIOUS_RESOLVED_PATH" ]; then
-            echo "$AUDACIOUS_RESOLVED_PATH"
-            return 0
-        fi
-    fi
-
-    # 2. Check Strawberry (MPRIS / qdbus / dbus-send)
-    if get_strawberry_track_info 2>/dev/null; then
-        if [ -n "$STRAWBERRY_RESOLVED_PATH" ] && [ -f "$STRAWBERRY_RESOLVED_PATH" ]; then
-            echo "$STRAWBERRY_RESOLVED_PATH"
-            return 0
-        fi
-    fi
-
-    # 3. Check cliamp
-    if get_cliamp_track_info 2>/dev/null; then
-        if [ -n "$CLIAMP_RESOLVED_PATH" ] && [ -f "$CLIAMP_RESOLVED_PATH" ]; then
-            echo "$CLIAMP_RESOLVED_PATH"
-            return 0
-        fi
-    fi
-
-    # 4. Check playerctl
     if command -v playerctl >/dev/null 2>&1; then
-        local p_status p_url
-        p_status=$(playerctl status 2>/dev/null | head -1)
-        if [ "$p_status" = "Playing" ] || [ "$p_status" = "Paused" ]; then
-            p_url=$(playerctl metadata xesam:url 2>/dev/null | head -1)
+        local p_st p_url p_path
+        p_st=$(playerctl status 2>/dev/null)
+        if [[ "${p_st%%$'\n'*}" =~ ^(Playing|Paused)$ ]]; then
+            p_url=$(playerctl metadata xesam:url 2>/dev/null)
+            p_url="${p_url%%$'\n'*}"
             if [[ "$p_url" == file://* ]]; then
-                local p_path="${p_url#file://}"
-                p_path=$(printf '%b' "${p_path//%/\\x}")
-                if [ -f "$p_path" ]; then
-                    echo "$p_path"
-                    return 0
-                fi
+                printf -v p_path '%b' "${p_url#file://}"
+                printf -v p_path '%b' "${p_path//%/\\x}"
+                [ -f "$p_path" ] && { printf '%s\n' "$p_path"; return 0; }
             fi
         fi
     fi
 
-    # 5. Check audacious/strawberry/vlc/mpv open file descriptors
-    local target_pids
-    target_pids=$(pgrep -i -f 'audacious|strawberry|vlc|mpv|kodi|cliamp' 2>/dev/null)
-    for pid in $target_pids; do
+    local pid fd tgt
+    for pid in $(pgrep -i -f 'audacious|strawberry|vlc|mpv|kodi|cliamp' 2>/dev/null); do
         for fd in /proc/"$pid"/fd/*; do
-            if [ -e "$fd" ]; then
-                local link_target
-                link_target=$(readlink "$fd" 2>/dev/null)
-                case "$link_target" in
-                    *.flac|*.wav|*.mp3|*.m4a|*.ogg)
-                        if [ -f "$link_target" ]; then
-                            echo "$link_target"
-                            return 0
-                        fi
-                        ;;
+            if [ -e "$fd" ] && tgt=$(readlink "$fd" 2>/dev/null); then
+                case "$tgt" in
+                    *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$tgt" ] && { printf '%s\n' "$tgt"; return 0; } ;;
                 esac
             fi
         done
     done
-
     return 1
 }
 
 auto_show_playing_mix_assets() {
-    local mix_file="$1"
-    local player_name="${2:-${DEFAULT_AUDIO_PLAYER:-audacious}}"
-    [ -z "$mix_file" ] || [ ! -f "$mix_file" ] && return 0
+    local mix_file="$1" player_name="${2:-${DEFAULT_AUDIO_PLAYER:-audacious}}"
+    [ -f "${mix_file:-}" ] || return 0
 
-    local mix_basename
-    mix_basename=$(basename "$mix_file")
-
-    # 1. Open cover art in dedicated image viewer window
-    local found_cover=""
+    local mix_base="${mix_file##*/}"
+    local found_cover found_tl audio_spec audio_out
     found_cover=$(find_mix_cover "$mix_file" 2>/dev/null)
-    if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then
-        open_cover_art_window "$found_cover"
-    fi
+    [ -f "${found_cover:-}" ] && open_cover_art_window "$found_cover" || found_cover=""
 
-    # 2. Open tracklist in dedicated console window
-    local found_tl=""
     found_tl=$(find_mix_tracklist "$mix_file" 2>/dev/null)
-    if [ -n "$found_tl" ] && [ -f "$found_tl" ]; then
-        open_tracklist_window "$found_tl"
-    fi
+    [ -f "${found_tl:-}" ] && open_tracklist_window "$found_tl" || found_tl=""
 
-    # Center and vertically align cover and tracklist on top of the manager window
-    if [ -n "$found_cover" ] || [ -n "$found_tl" ]; then
-        align_mix_windows_on_screen
-    fi
+    [[ -n "$found_cover" || -n "$found_tl" ]] && align_mix_windows_on_screen
 
-    # 3. Custom YouTube video URL on startup (only if mix audio is playing!)
     if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then
         (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" >/dev/null 2>&1 || true) &
     fi
 
     clear
-    echo -e "${BOLD}${MAGENTA}===================================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}                 🎶 NOW PLAYING MIX & ASSET DISPLAY 🎶                             ${NC}"
-    echo -e "${BOLD}${MAGENTA}===================================================================================${NC}"
-    echo -e "  • ${BOLD}Now Playing:${NC}       ${BOLD}${GREEN}${mix_basename}${NC}"
-    echo -e "  • ${BOLD}Audio Player:${NC}      ${BOLD}${CYAN}${player_name}${NC}"
-    local audio_spec
     audio_spec=$(get_playing_audio_spec_summary "$mix_file")
-    if [ -n "$audio_spec" ]; then
-        echo -e "  • ${BOLD}Audio Specs:${NC}       ${BOLD}${GREEN}${audio_spec}${NC}"
-    fi
-    local audio_out
     audio_out=$(get_active_audio_interface_display)
-    if [ -n "$audio_out" ]; then
-        echo -e "  • ${BOLD}Audio Output:${NC}     ${audio_out#  }"
-    fi
-    if [ -n "$found_cover" ]; then
-        echo -e "  • ${BOLD}Cover Art Opened:${NC}  ${YELLOW}$(basename "$found_cover")${NC} (Image Viewer Window)"
-    fi
-    if [ -n "$found_tl" ]; then
-        echo -e "  • ${BOLD}Tracklist Opened:${NC}  ${CYAN}$(basename "$found_tl")${NC} (Dedicated Text Editor Window)"
-    fi
-    echo -e "${BOLD}${MAGENTA}-----------------------------------------------------------------------------------${NC}"
+
+    printf '%b\n' \
+        "${BOLD}${MAGENTA}===================================================================================${NC}" \
+        "${BOLD}${MAGENTA}                 🎶 NOW PLAYING MIX & ASSET DISPLAY 🎶                             ${NC}" \
+        "${BOLD}${MAGENTA}===================================================================================${NC}" \
+        "\n${BOLD}Now Playing:${NC}       ${BOLD}${GREEN}${mix_base}${NC}" \
+        "\n${BOLD}Audio Player:${NC}      ${BOLD}${CYAN}${player_name}${NC}"
+    [ -n "$audio_spec" ]  && printf '%b\n' "\n${BOLD}Audio Specs:${NC}       ${BOLD}${GREEN}${audio_spec}${NC}"
+    [ -n "$audio_out" ]   && printf '%b\n' "\n${BOLD}Audio Output:${NC}     ${audio_out#  }"
+    [ -n "$found_cover" ] && printf '%b\n' "\n${BOLD}Cover Art Opened:${NC}  ${YELLOW}${found_cover##*/}${NC} (Image Viewer Window)"
+    [ -n "$found_tl" ]    && printf '%b\n' "\n${BOLD}Tracklist Opened:${NC}  ${CYAN}${found_tl##*/}${NC} (Dedicated Text Editor Window)"
+    printf '%b\n' "${BOLD}${MAGENTA}-----------------------------------------------------------------------------------${NC}"
 
     if [ -n "$found_tl" ]; then
-        echo -e "\n${BOLD}${CYAN}=== TRACKLIST PREVIEW: $(basename "$found_tl") ===${NC}\n"
-        head -n 25 "$found_tl"
-        local total_lines
-        total_lines=$(wc -l < "$found_tl" 2>/dev/null || echo "0")
-        if [ "$total_lines" -gt 25 ]; then
-            echo -e "  ${DIM}...and $((total_lines - 25)) more tracks (Also opened in full text editor window)${NC}"
-        fi
+        printf '\n%b\n\n' "${BOLD}${CYAN}=== TRACKLIST PREVIEW: ${found_tl##*/} ===${NC}"
+        mapfile -t _tl_lines < "$found_tl"
+        local total_lines="${#_tl_lines[@]}"
+        printf '%s\n' "${_tl_lines[@]:0:25}"
+        (( total_lines > 25 )) && printf '%b\n' "  ${DIM}...and $((total_lines - 25)) more tracks (Also opened in full text editor window)${NC}"
     else
-        echo -e "\n${YELLOW}No matching tracklist text file found for: ${mix_basename}${NC}"
+        printf '\n%b\n' "${YELLOW}No matching tracklist text file found for: ${mix_base}${NC}"
     fi
 
-    echo -e "\n${BOLD}${BLUE}───────────────────────────────────────────────────────────────────────────────────${NC}"
-    echo -e "${DIM}Playback assets loaded in separate windows. Press [Enter] to continue to Main Menu...${NC}"
+    printf '\n%b\n%b\n' "${BOLD}${BLUE}───────────────────────────────────────────────────────────────────────────────────${NC}" \
+        "${DIM}Playback assets loaded in separate windows. Press [Enter] to continue to Main Menu...${NC}"
     if [ -t 0 ]; then
-        if [ -e /dev/tty ]; then
-            read -r -t 3 < /dev/tty 2>/dev/null || true
-        else
-            read -r -t 3 || true
-        fi
+        read -r -t 3 < /dev/tty 2>/dev/null || read -r -t 3 || true
     fi
 }
 
-check_and_show_currently_playing_mix() {
-    # On startup, proceed directly to the main menu window.
-    # Active playback info is displayed in the live status box by show_stats.
-    return 0
-}
+check_and_show_currently_playing_mix() { return 0; }
 
 open_video_url() {
-    local url="$1"
+    local url="${1:-}" p="${DEFAULT_VIDEO_PLAYER:-vlc}"
     [ -z "$url" ] && return 1
 
-    local player="${DEFAULT_VIDEO_PLAYER:-vlc}"
-    if [ "$player" = "vlc" ]; then
-        if command -v vlc >/dev/null 2>&1; then
-            vlc "$url" >/dev/null 2>&1 &
-            return 0
-        elif command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "org.videolan.VLC"; then
-            flatpak run org.videolan.VLC "$url" >/dev/null 2>&1 &
-            return 0
-        fi
-    elif [ "$player" = "mpv" ]; then
-        if command -v mpv >/dev/null 2>&1; then
-            mpv "$url" >/dev/null 2>&1 &
-            return 0
-        fi
+    if [[ "$p" =~ ^(vlc|mpv)$ ]] && command -v "$p" >/dev/null 2>&1; then
+        "$p" "$url" >/dev/null 2>&1 & return 0
+    fi
+    local fp_list=""
+    command -v flatpak >/dev/null 2>&1 && fp_list=$(flatpak list 2>/dev/null)
+    if [ "$p" = "vlc" ] && [[ "$fp_list" == *org.videolan.VLC* ]]; then
+        flatpak run org.videolan.VLC "$url" >/dev/null 2>&1 & return 0
     fi
 
-    # Fallback to default web browser
-    if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "com.google.Chrome"; then
+    if [[ "$fp_list" == *com.google.Chrome* ]]; then
         flatpak run com.google.Chrome "$url" >/dev/null 2>&1 &
-    elif command -v google-chrome >/dev/null 2>&1; then
-        google-chrome "$url" >/dev/null 2>&1 &
-    elif command -v firefox >/dev/null 2>&1; then
-        firefox "$url" >/dev/null 2>&1 &
-    elif command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$url" >/dev/null 2>&1 &
-    elif [ "$OS_TYPE" = "macos" ]; then
-        open "$url" >/dev/null 2>&1 &
-    elif [ "$OS_TYPE" = "windows" ]; then
-        cmd.exe /c start "" "$url" >/dev/null 2>&1 &
+    else
+        local b
+        for b in google-chrome firefox xdg-open open; do
+            command -v "$b" >/dev/null 2>&1 && { "$b" "$url" >/dev/null 2>&1 & return 0; }
+        done
+        [ "${OS_TYPE:-}" = "windows" ] && cmd.exe /c start "" "$url" >/dev/null 2>&1 &
     fi
 }
 
@@ -12695,29 +12514,25 @@ _LAST_WEATHER_CHECK=0
 _CACHED_WEATHER_DISPLAY=""
 
 get_current_weather() {
-    [ "${WEATHER_ENABLED:-true}" != "true" ] && return 0
-    [ -z "${WEATHER_LOCATION:-}" ] && return 0
-
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_WEATHER_CHECK)) -lt 60 ] && [ -n "$_CACHED_WEATHER_DISPLAY" ]; then
-        echo -e "$_CACHED_WEATHER_DISPLAY"
-        return 0
+    [[ "${WEATHER_ENABLED:-true}" != "true" || -z "${WEATHER_LOCATION:-}" ]] && return 0
+    local now="${EPOCHSECONDS:-$(date +%s)}"
+    if (( now - _LAST_WEATHER_CHECK < 60 )) && [ -n "$_CACHED_WEATHER_DISPLAY" ]; then
+        printf '%b\n' "$_CACHED_WEATHER_DISPLAY"; return 0
     fi
     _LAST_WEATHER_CHECK="$now"
 
-    local weather_sh="$SCRIPT_DIR/scripts/get_weather.sh"
-    [ ! -f "$weather_sh" ] && weather_sh="$PWD/scripts/get_weather.sh"
-    if [ -x "$weather_sh" ]; then
-        local w_data
-        w_data=$("$weather_sh" get 2>/dev/null)
+    local w_sh="$SCRIPT_DIR/scripts/get_weather.sh" w_data
+    [ -x "$w_sh" ] || w_sh="$PWD/scripts/get_weather.sh"
+    if [ -x "$w_sh" ]; then
+        w_data=$("$w_sh" get 2>/dev/null)
         if [ -n "$w_data" ]; then
             _CACHED_WEATHER_DISPLAY="  ${BOLD}${CYAN}🌤️  Weather:${NC} ${WHITE}${w_data}${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
-            echo -e "$_CACHED_WEATHER_DISPLAY"
         elif ! is_internet_connected; then
             _CACHED_WEATHER_DISPLAY="  ${BOLD}${CYAN}🌤️  Weather:${NC} ${YELLOW}Offline (No Internet Connection)${NC}  ${DIM}(${WEATHER_LOCATION})${NC}"
-            echo -e "$_CACHED_WEATHER_DISPLAY"
+        else
+            return 0
         fi
+        printf '%b\n' "$_CACHED_WEATHER_DISPLAY"
     fi
 }
 
@@ -12726,36 +12541,18 @@ _CACHED_PLANETS_DISPLAY=""
 
 get_planets_above_horizon() {
     [ "${PLANETS_ENABLED:-true}" != "true" ] && return 0
-
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_PLANETS_CHECK)) -lt 120 ] && [ -n "$_CACHED_PLANETS_DISPLAY" ]; then
-        echo -e "$_CACHED_PLANETS_DISPLAY"
-        return 0
+    local now="${EPOCHSECONDS:-$(date +%s)}"
+    if (( now - _LAST_PLANETS_CHECK < 120 )) && [ -n "$_CACHED_PLANETS_DISPLAY" ]; then
+        printf '%b\n' "$_CACHED_PLANETS_DISPLAY"; return 0
     fi
     _LAST_PLANETS_CHECK="$now"
 
-    local planets_py="$SCRIPT_DIR/scripts/get_planets.py"
-    [ ! -f "$planets_py" ] && planets_py="$PWD/scripts/get_planets.py"
-    if [ -f "$planets_py" ] && command -v python3 >/dev/null 2>&1; then
-        local loc="${WEATHER_LOCATION:-Swansea, UK}"
-        _CACHED_PLANETS_DISPLAY="$(python3 "$planets_py" --location "$loc" 2>/dev/null)"
-        [ -n "$_CACHED_PLANETS_DISPLAY" ] && echo -e "$_CACHED_PLANETS_DISPLAY"
+    local p_py="$SCRIPT_DIR/scripts/get_planets.py"
+    [ -f "$p_py" ] || p_py="$PWD/scripts/get_planets.py"
+    if [ -f "$p_py" ] && command -v python3 >/dev/null 2>&1; then
+        _CACHED_PLANETS_DISPLAY=$(python3 "$p_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null)
+        [ -n "$_CACHED_PLANETS_DISPLAY" ] && printf '%b\n' "$_CACHED_PLANETS_DISPLAY"
     fi
-}
-
-#!/usr/bin/env bash
-
-# Universal script/python dispatcher helper
-_run_tool() {
-    local target="$1"; shift
-    for prefix in "$SCRIPT_DIR/scripts" "$SCRIPT_DIR" "$PWD/scripts" "$PWD"; do
-        [ -x "$prefix/$target" ] && exec "$prefix/$target" "$@"
-        [ -f "$prefix/$target" ] && exec bash "$prefix/$target" "$@"
-        [ -f "$prefix/${target%.*}.py" ] && command -v python3 >/dev/null 2>&1 && exec python3 "$prefix/${target%.*}.py" "$@"
-    done
-    echo -e "${RED:-}Error: $target not found!${NC:-}"
-    read -r -p "Press Enter to continue..."
 }
 
 manage_weather_menu() {
