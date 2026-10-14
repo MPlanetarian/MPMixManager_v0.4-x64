@@ -865,11 +865,14 @@ if [ ! -t 0 ]; then
     read -r -p "Enter choice: " REPLY
     return 0
 fi
-
+    # Update terminal geometry to 0
+    # Set local bo_w
+    # Set Width 
     update_terminal_geometry 0
     local box_w
     _set_menu_box_width box_w "${_TERM_COLS:-80}"
     _CURRENT_BOX_W="$box_w"
+
     # Reuse a stale disk line. df runs from the menu ticker, not here.
     _MENU_CURSOR_LOCK=1
 
@@ -958,35 +961,34 @@ fi
         printf -v "$_out" '%s' "     ${BOLD}${CYAN}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
     }
 
-    # Repaint the previous row, the new row, and the status line.
-    # Returns 1 when the window must scroll, so the caller rebuilds the frame.
-    _menu_fast_paint_selection() {
-        local old_idx="$1"
-        [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
-        # A cursor address past the visible window scrolls the Windows
-        # console and the menu appears to vanish. Fall back to a full paint.
-        [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
-        [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
-        [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1
-        [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1
-        [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
-        [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
-        [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
-        [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1
-        [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1
-        local plain="" sel="" status=""
-        local o_key="" o_label="" o_extra=""
-        _menu_line_plain "$old_idx" plain
-        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"
-        highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"
-        _compose_menu_status status
-        # No DEC 2026 and no trailing newline. A newline on the last painted
-        # row would scroll the window. Bash flushes this before the next read.
-        printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b' "${_menu_item_row[$old_idx]}" "$plain"
-        printf '\033[0m\033[%s;1H%b' "${_menu_item_row[$cur_idx]}" "$sel"
-        printf '\033[0m\033[%s;1H%b\r\033[?25l' "${_menu_status_row}" "$status"
-        return 0
-    }
+# Repaint the previous row, the new row, and the status line.
+# Returns 1 when the window must scroll, so the caller rebuilds the frame.
+_menu_fast_paint_selection() {
+    local old_idx="$1"
+    [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
+    [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
+    [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
+    [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1
+    [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1
+    [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
+    [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
+    [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
+    [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1
+    [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1
+
+    local plain sel status
+    _menu_line_plain "$old_idx" plain
+    IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"
+    highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"
+    _compose_menu_status status
+
+    printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\r\033[?25l' \
+        "${_menu_item_row[$old_idx]}" "$plain" \
+        "${_menu_item_row[$cur_idx]}" "$sel" \
+        "${_menu_status_row}" "$status"
+
+    return 0
+}
 
     cleanup_submenu_screen() {
         _MENU_CURSOR_LOCK=0
