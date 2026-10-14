@@ -11567,677 +11567,296 @@ manage_promo_outreach() {
     done
 }
 
+# Shared helper to locate scripts without redundant loops
+_find_scr() {
+    for s in "$SCRIPT_DIR/$1" "$SCRIPT_DIR/scripts/$1" "./$1"; do
+        [[ -f "$s" ]] && { REPLY="$s"; return 0; }
+    done
+    echo -e "\n${RED}Error: $1 not found!${NC}"; press_enter; return 1
+}
+
 search_and_play_mix() {
     clear
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}            SEARCH FOR MIX & AUTO-PLAY WITH LIVE TRACKLIST            ${NC}"
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-
+    echo -e "${BOLD}${MAGENTA}======================================================================\n            SEARCH FOR MIX & AUTO-PLAY WITH LIVE TRACKLIST            \n======================================================================${NC}\n"
     read -r -p "Enter mix search query (Episode #, Title, Date, Artist): " query
-    if [ -z "$query" ]; then
-        echo -e "\n${YELLOW}Search cancelled.${NC}"
-        sleep 1
-        return 0
-    fi
-
+    [[ -z "$query" ]] && { echo -e "\n${YELLOW}Search cancelled.${NC}"; sleep 1; return 0; }
     echo -e "\n${CYAN}Searching archive for '${query}'...${NC}"
 
-    local search_dirs=("$OUTPUT_DIR" "$PWD" "${OUTPUT_DIR%/*}/CONVERTED_WAV_FILES" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/FLAC_CONVERTED_OUTPUTS")
-    while IFS= read -r f_dir; do
-        [ -n "$f_dir" ] && [ -d "$f_dir" ] && search_dirs+=("$f_dir")
-    done < <(get_all_flac_output_dirs)
-    while IFS= read -r w_dir; do
-        [ -n "$w_dir" ] && [ -d "$w_dir" ] && search_dirs+=("$w_dir")
-    done < <(get_all_wav_archive_dirs)
-    while IFS= read -r a_dir; do
-        [ -n "$a_dir" ] && [ -d "$a_dir" ] && search_dirs+=("$a_dir")
-    done < <(get_all_mix_archive_dirs)
+    local raw_dirs=("$OUTPUT_DIR" "$PWD" "${OUTPUT_DIR%/*}/CONVERTED_WAV_FILES" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/FLAC_CONVERTED_OUTPUTS")
+    local d valid_dirs=() matches=()
+    local -A seen_dirs=() seen_names=()
 
-    local matches=()
-    local seen_names=()
+    while IFS= read -r d; do
+        [[ -n "$d" && -d "$d" && -z "${seen_dirs[$d]}" ]] && { valid_dirs+=("$d"); seen_dirs["$d"]=1; }
+    done < <(printf "%s\n" "${raw_dirs[@]}"; get_all_flac_output_dirs; get_all_wav_archive_dirs; get_all_mix_archive_dirs)
 
-    for d in "${search_dirs[@]}"; do
-        if [ -d "$d" ]; then
-            while IFS= read -r -d '' file; do
-                local bname
-                bname=$(basename "$file")
-                if [[ ! " ${seen_names[*]} " =~ " ${bname} " ]]; then
-                    matches+=("$file")
-                    seen_names+=("$bname")
-                fi
-            done < <(find "$d" -maxdepth 2 -type f \( -name "*$query*.flac" -o -name "*$query*.wav" -o -name "*$query*.mp3" \) -print0 2>/dev/null)
-        fi
-    done
-
-    if [ ${#matches[@]} -eq 0 ]; then
-        echo -e "\n${YELLOW}No audio mixes matching '${query}' were found in the archive.${NC}"
-        press_enter
-        return 0
+    if ((${#valid_dirs[@]})); then
+        while IFS= read -r -d '' file; do
+            local bname="${file##*/}"
+            [[ -z "${seen_names[$bname]}" ]] && { matches+=("$file"); seen_names["$bname"]=1; }
+        done < <(find "${valid_dirs[@]}" -maxdepth 2 -type f \( -iname "*$query*.flac" -o -iname "*$query*.wav" -o -iname "*$query*.mp3" \) -print0 2>/dev/null)
     fi
 
-    local selected_mix=""
-    if [ ${#matches[@]} -eq 1 ]; then
-        selected_mix="${matches[0]}"
-        echo -e "\n${GREEN}Found 1 matching mix:${NC} $(basename "$selected_mix")"
+    ((${#matches[@]} == 0)) && { echo -e "\n${YELLOW}No audio mixes matching '${query}' were found.${NC}"; press_enter; return 0; }
+
+    local selected_mix="${matches[0]}"
+    if ((${#matches[@]} == 1)); then
+        echo -e "\n${GREEN}Found 1 matching mix:${NC} ${selected_mix##*/}"
     else
         echo -e "\n${BOLD}${CYAN}Multiple matches found (${#matches[@]} files):${NC}"
-        for i in "${!matches[@]}"; do
-            printf "  %2d) %s\n" "$((i + 1))" "$(basename "${matches[$i]}")"
-        done
-        echo ""
-        read -r -p "Select mix to play [1-${#matches[@]}, or q to cancel]: " sel_idx
-        if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#matches[@]}" ]; then
+        for i in "${!matches[@]}"; do printf "  %2d) %s\n" "$((i + 1))" "${matches[$i]##*/}"; done
+        read -r -p $'\n'"Select mix to play [1-${#matches[@]}, or q to cancel]: " sel_idx
+        if [[ "$sel_idx" =~ ^[0-9]+$ ]] && ((sel_idx >= 1 && sel_idx <= ${#matches[@]})); then
             selected_mix="${matches[$((sel_idx - 1))]}"
         else
-            echo -e "\n${YELLOW}Selection cancelled.${NC}"
-            sleep 1
-            return 0
+            echo -e "\n${YELLOW}Selection cancelled.${NC}"; sleep 1; return 0
         fi
     fi
 
-    echo -e "\n${BOLD}${YELLOW}Preparing playback for:${NC} $(basename "$selected_mix")"
+    local bname="${selected_mix##*/}" cliamp_bin="cliamp"
+    echo -e "\n${BOLD}${YELLOW}Preparing playback for:${NC} $bname"
+    command -v cliamp >/dev/null 2>&1 || {
+        [[ -x "$SCRIPT_DIR/bin/cliamp" ]] && cliamp_bin="$SCRIPT_DIR/bin/cliamp" || [[ -x "$HOME/.local/bin/cliamp" ]] && cliamp_bin="$HOME/.local/bin/cliamp"
+    }
 
-    local cliamp_bin="cliamp"
-    if ! command -v cliamp >/dev/null 2>&1; then
-        if [ -x "$SCRIPT_DIR/bin/cliamp" ]; then
-            cliamp_bin="$SCRIPT_DIR/bin/cliamp"
-        elif [ -x "$HOME/.local/bin/cliamp" ]; then
-            cliamp_bin="$HOME/.local/bin/cliamp"
-        fi
-    fi
-
-    local is_cliamp_running=0
     if pgrep -x cliamp >/dev/null 2>&1; then
-        is_cliamp_running=1
-    fi
-
-    if [ "$is_cliamp_running" -eq 1 ]; then
-        echo -e "${CYAN}cliamp is already active; queuing and playing track...${NC}"
+        echo -e "${CYAN}cliamp active; queuing and playing...${NC}"
         "$cliamp_bin" queue "$selected_mix" 2>/dev/null || true
         sleep 0.4
         "$cliamp_bin" play 2>/dev/null || true
     else
         echo -e "${CYAN}Launching cliamp in a new console window...${NC}"
-        local full_cmd=""$cliamp_bin" queue "$selected_mix" 2>/dev/null; "$cliamp_bin" --auto-play play 2>/dev/null || "$cliamp_bin" --auto-play"
-        launch_in_terminal "cliamp - $(basename "$selected_mix")" "$full_cmd" "window"
+        launch_in_terminal "cliamp - $bname" "\"$cliamp_bin\" queue \"$selected_mix\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play" "window"
     fi
 
-    # Check if audio player actually started playing
     echo -e "${CYAN}Verifying playback status...${NC}"
-    local started_playing=0
+    local attempt started=0
     for ((attempt=1; attempt<=10; attempt++)); do
         sleep 0.6
-        if get_cliamp_track_info 2>/dev/null; then
-            if [ "$CLIAMP_STATE" = "playing" ] || [ "$CLIAMP_RUNNING" -eq 1 ]; then
-                started_playing=1
-                break
-            fi
+        if get_cliamp_track_info 2>/dev/null && { [[ "$CLIAMP_STATE" = "playing" ]] || ((CLIAMP_RUNNING == 1)); }; then
+            started=1; break
         fi
     done
 
-    if [ "$started_playing" -eq 1 ]; then
-        echo -e "${BOLD}${GREEN}✓ Playback started successfully!${NC}"
-        echo -e "${CYAN}Returning to manager and loading currently playing tracklist...${NC}\n"
-        sleep 1.0
-
-        # Display tracklist for the currently playing track
-        local bname_no_ext
-        bname_no_ext=$(basename "$selected_mix")
-        bname_no_ext="${bname_no_ext%.*}"
-
-        local found_tl=""
+    if ((started)); then
+        echo -e "${BOLD}${GREEN}✓ Playback started!${NC}\n${CYAN}Loading tracklist...${NC}\n"
+        local bname_no_ext="${bname%.*}" found_tl
         found_tl=$(find_mix_tracklist "$selected_mix" 2>/dev/null || true)
-        if [ -z "$found_tl" ] || [ ! -f "$found_tl" ]; then
+        if [[ ! -f "$found_tl" ]]; then
             shopt -s nullglob nocaseglob
-            local tl_candidates=(
-                "${OUTPUT_DIR}/${bname_no_ext}.txt"
-                "${selected_mix%.*}.txt"
-                "$(dirname "$selected_mix")/${bname_no_ext}.txt"
-                "$PWD/${bname_no_ext}.txt"
-                "${OUTPUT_DIR}/"*${query}*".txt"
-                "$PWD/"*${query}*".txt"
-            )
-            shopt -u nullglob nocaseglob
-
-            for tc in "${tl_candidates[@]}"; do
-                if [ -f "$tc" ]; then found_tl="$tc"; break; fi
+            for tc in "$OUTPUT_DIR/$bname_no_ext.txt" "${selected_mix%.*}.txt" "${selected_mix%/*}/$bname_no_ext.txt" "$PWD/$bname_no_ext.txt" "$OUTPUT_DIR/"*"$query"*".txt" "$PWD/"*"$query"*".txt"; do
+                [[ -f "$tc" ]] && { found_tl="$tc"; break; }
             done
+            shopt -u nullglob nocaseglob
         fi
-
-        if [ -n "$found_tl" ]; then
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${CYAN}           CURRENTLY PLAYING TRACKLIST: $(basename "$found_tl")      ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        if [[ -f "$found_tl" ]]; then
+            echo -e "${BOLD}${MAGENTA}======================================================================\n           CURRENTLY PLAYING TRACKLIST: ${found_tl##*/}\n======================================================================${NC}\n"
             cat "$found_tl"
-            echo ""
-            echo -e "${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}"
-            echo -e "${DIM}Playback active in cliamp. Press [Enter] to return to Main Menu...${NC}"
+            echo -e "\n${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}\n${DIM}Playback active in cliamp. Press [Enter] to return...${NC}"
             read -r
         else
-            echo -e "\n${YELLOW}Track is playing, but no matching tracklist .txt file found for '${bname_no_ext}'.${NC}"
-            press_enter
+            echo -e "\n${YELLOW}Track playing, no matching .txt found for '${bname_no_ext}'.${NC}"; press_enter
         fi
     else
-        echo -e "\n${YELLOW}⚠️  Audio player did not start playback. Skipping tracklist view.${NC}"
-        sleep 1.8
+        echo -e "\n${YELLOW}⚠️ Audio player did not start. Skipping tracklist.${NC}"; sleep 1.8
     fi
 }
 
 manage_cover_converter() {
-    local script=""
-    for s in "$SCRIPT_DIR/convert_cover_art.py" "$SCRIPT_DIR/scripts/convert_cover_art.py" "./convert_cover_art.py"; do
-        if [ -f "$s" ]; then script="$s"; break; fi
-    done
-    if [ -z "$script" ]; then
-        echo -e "\n${RED}Error: convert_cover_art.py not found!${NC}"
-        press_enter
-        return 1
-    fi
-
+    local script; _find_scr "convert_cover_art.py" || return 1; script="$REPLY"
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}                   COVER ART CONVERTER & OPTIMIZER                    ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        echo -e "  Supported Formats:  ${BOLD}JPEG, WebP, PNG, TIFF${NC}"
-        echo -e "  Byte Target Modes:  ${BOLD}1MB Podcast, 500KB, 2MB, or Custom Target Size${NC}"
-        echo -e "  Resolution Presets: ${BOLD}3000x3000, 1400x1400, 1080x1080, 500x500${NC}\n"
-        echo -e "  ${BOLD}${CYAN}1)${NC} Optimize Cover to 1MB Podcast Standard (${GREEN}Strict <= 1MB Target${NC})"
-        echo -e "  ${BOLD}${CYAN}2)${NC} Convert Cover to WebP Format (${GREEN}High efficiency web delivery${NC})"
-        echo -e "  ${BOLD}${CYAN}3)${NC} Resize Cover Art (${GREEN}Square 3000x3000, 1400x1400, 1080x1080${NC})"
-        echo -e "  ${BOLD}${CYAN}4)${NC} Custom Byte Target Compression (${GREEN}Specify any byte/KB/MB size${NC})"
-        echo -e "  ${BOLD}${CYAN}5)${NC} Batch Convert All Covers in COVERS/ Directory"
-        echo -e "  ${BOLD}${CYAN}6)${NC} Launch Interactive Cover Converter CLI"
-        echo -e "  ${BOLD}${CYAN}7)${NC} Return to Main Menu\n"
-        read -r -p "Enter choice [1-7]: " cover_choice
-
-        case "$cover_choice" in
-            1)
-                read -r -p "Enter path to cover image [default: ./Cover.png]: " img_path
-                [ -z "$img_path" ] && img_path="./Cover.png"
-                if [ -f "$img_path" ]; then
-                    python3 "$script" -i "$img_path" --bytes 1MB -f jpg
-                else
-                    echo -e "\n${RED}File not found: $img_path${NC}"
-                fi
-                press_enter
-                ;;
-            2)
-                read -r -p "Enter path to cover image [default: ./Cover.png]: " img_path
-                [ -z "$img_path" ] && img_path="./Cover.png"
-                if [ -f "$img_path" ]; then
-                    python3 "$script" -i "$img_path" -f webp -q 90
-                else
-                    echo -e "\n${RED}File not found: $img_path${NC}"
-                fi
-                press_enter
-                ;;
-            3)
-                read -r -p "Enter path to cover image [default: ./Cover.png]: " img_path
-                [ -z "$img_path" ] && img_path="./Cover.png"
-                if [ -f "$img_path" ]; then
-                    echo -e "Select resolution: 1) 3000x3000  2) 1400x1400  3) 1080x1080  4) 500x500"
-                    read -r -p "Enter preset [1-4]: " res_sel
-                    local res="1400x1400"
-                    case "$res_sel" in
-                        1) res="3000x3000" ;;
-                        2) res="1400x1400" ;;
-                        3) res="1080x1080" ;;
-                        4) res="500x500" ;;
-                    esac
-                    python3 "$script" -i "$img_path" -r "$res"
-                else
-                    echo -e "\n${RED}File not found: $img_path${NC}"
-                fi
-                press_enter
-                ;;
-            4)
-                read -r -p "Enter path to cover image [default: ./Cover.png]: " img_path
-                [ -z "$img_path" ] && img_path="./Cover.png"
-                read -r -p "Enter target max size (e.g. 500KB, 1MB, 2.5MB): " target_sz
-                [ -z "$target_sz" ] && target_sz="1MB"
-                if [ -f "$img_path" ]; then
-                    python3 "$script" -i "$img_path" --bytes "$target_sz"
-                else
-                    echo -e "\n${RED}File not found: $img_path${NC}"
-                fi
-                press_enter
-                ;;
+        echo -e "${BOLD}${MAGENTA}======================================================================\n                   COVER ART CONVERTER & OPTIMIZER                    \n======================================================================${NC}
+  1) Optimize to 1MB Podcast (JPG)   5) Batch Convert COVERS/
+  2) Convert to WebP (q90)           6) Custom CLI Arguments
+  3) Resize Cover Art                7) Return to Main Menu
+  4) Custom Byte Target\n"
+        read -r -p "Enter choice [1-7]: " c
+        case "$c" in
+            1|2|3|4)
+                read -r -p "Cover path [default: ./Cover.png]: " img; img="${img:-./Cover.png}"
+                if [[ ! -f "$img" ]]; then echo -e "\n${RED}Not found: $img${NC}"; press_enter; continue; fi
+                case "$c" in
+                    1) python3 "$script" -i "$img" --bytes 1MB -f jpg ;;
+                    2) python3 "$script" -i "$img" -f webp -q 90 ;;
+                    3)
+                        read -r -p "Preset: 1) 3000x3000 2) 1400x1400 3) 1080x1080 4) 500x500: " r
+                        local res=("1400x1400" "3000x3000" "1400x1400" "1080x1080" "500x500")
+                        python3 "$script" -i "$img" -r "${res[${r:-2}]:-1400x1400}" ;;
+                    4)
+                        read -r -p "Target max size [default: 1MB]: " sz
+                        python3 "$script" -i "$img" --bytes "${sz:-1MB}" ;;
+                esac ;;
             5)
-                local cov_dir="$PWD/COVERS"
-                [ ! -d "$cov_dir" ] && cov_dir="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/COVERS"
-                if [ -d "$cov_dir" ]; then
-                    echo -e "\n${BOLD}${YELLOW}Batch converting covers in: $cov_dir${NC}\n"
-                    python3 "$script" -d "$cov_dir" --bytes 1MB -f jpg
-                else
-                    echo -e "\n${YELLOW}COVERS directory not found.${NC}"
-                fi
-                press_enter
-                ;;
+                local d="$PWD/COVERS"
+                [[ ! -d "$d" ]] && d="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/COVERS"
+                [[ -d "$d" ]] && python3 "$script" -d "$d" --bytes 1MB -f jpg || echo -e "\n${YELLOW}COVERS/ not found.${NC}" ;;
             6)
-                python3 "$script" -h
-                echo ""
-                read -r -p "Enter custom arguments for convert_cover_art.py: " custom_args
-                if [ -n "$custom_args" ]; then
-                    python3 "$script" $custom_args
-                fi
-                press_enter
-                ;;
-            7|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                python3 "$script" -h; read -r -p $'\n'"Custom args: " args
+                [[ -n "$args" ]] && python3 "$script" $args ;;
+            7|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1; continue ;;
         esac
+        press_enter
     done
 }
 
 find_duplicate_audio_mixes() {
-    local script=""
-    for s in "$SCRIPT_DIR/find_duplicate_mixes.py" "$SCRIPT_DIR/scripts/find_duplicate_mixes.py" "./find_duplicate_mixes.py"; do
-        if [ -f "$s" ]; then script="$s"; break; fi
-    done
-    if [ -z "$script" ]; then
-        echo -e "\n${RED}Error: find_duplicate_mixes.py not found!${NC}"
-        press_enter
-        return 1
-    fi
-
-    local scan_dirs=()
-    while IFS= read -r f_dir; do
-        [ -n "$f_dir" ] && [ -d "$f_dir" ] && scan_dirs+=("$f_dir")
-    done < <(get_all_flac_output_dirs)
-    while IFS= read -r w_dir; do
-        [ -n "$w_dir" ] && [ -d "$w_dir" ] && scan_dirs+=("$w_dir")
-    done < <(get_all_wav_archive_dirs)
-    [ -d "$PWD" ] && scan_dirs+=("$PWD")
+    local script; _find_scr "find_duplicate_mixes.py" || return 1; script="$REPLY"
+    local d scan_dirs=()
+    while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && scan_dirs+=("$d"); done < <(get_all_flac_output_dirs; get_all_wav_archive_dirs; printf "%s\n" "$PWD")
 
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}             DUPLICATE AUDIO FILE DETECTOR & CLEANER                  ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        echo -e "  Detects exact binary duplicates and multiple renders across:"
-        for sd in "${scan_dirs[@]}"; do
-            echo -e "  • ${CYAN}${sd}${NC}"
-        done
-        echo ""
-        echo -e "  ${BOLD}${CYAN}1)${NC} Scan & Generate Duplicate Mixes Report (${GREEN}Safe: Read Only${NC})"
-        echo -e "  ${BOLD}${CYAN}2)${NC} Move Duplicates to Quarantine Directory (${YELLOW}DUPLICATES_QUARANTINE/${NC})"
-        echo -e "  ${BOLD}${CYAN}3)${NC} Permanently Remove Duplicates (${RED}Prompt with safety confirmation${NC})"
-        echo -e "  ${BOLD}${CYAN}4)${NC} Custom Directory Scan"
-        echo -e "  ${BOLD}${CYAN}5)${NC} Return to Main Menu\n"
-        read -r -p "Enter choice [1-5]: " dup_choice
-
-        case "$dup_choice" in
-            1)
-                echo -e "\n${BOLD}${YELLOW}Scanning archives for duplicate mixes...${NC}\n"
-                python3 "$script" -d "${scan_dirs[@]}" --action report
-                press_enter
-                ;;
-            2)
-                echo -e "\n${BOLD}${YELLOW}Scanning and moving duplicates to quarantine...${NC}\n"
-                python3 "$script" -d "${scan_dirs[@]}" --action quarantine
-                press_enter
-                ;;
+        echo -e "${BOLD}${MAGENTA}======================================================================\n             DUPLICATE AUDIO FILE DETECTOR & CLEANER                  \n======================================================================${NC}\n  Scanning:"
+        printf "    ${CYAN}%s${NC}\n" "${scan_dirs[@]}"
+        echo -e "\n  1) Scan & Report (Safe)   3) Delete Duplicates   5) Return\n  2) Quarantine Duplicates  4) Custom Directory Scan\n"
+        read -r -p "Enter choice [1-5]: " c
+        case "$c" in
+            1) python3 "$script" -d "${scan_dirs[@]}" --action report ;;
+            2) python3 "$script" -d "${scan_dirs[@]}" --action quarantine ;;
             3)
-                echo -e "\n${BOLD}${RED}⚠️  WARNING: DELETION REQUESTED ⚠️${NC}\n"
-                read -r -p "Are you sure you want to permanently delete duplicate files? [y/N]: " del_confirm
-                case "$del_confirm" in
-                    [yY]|[yY][eE][sS])
-                        python3 "$script" -d "${scan_dirs[@]}" --action delete
-                        ;;
-                    *)
-                        echo -e "\n${GREEN}Deletion cancelled.${NC}"
-                        ;;
-                esac
-                press_enter
-                ;;
+                read -r -p $'\n'"${BOLD}${RED}⚠️ Permanently delete duplicates? [y/N]: ${NC}" yn
+                [[ "$yn" =~ ^[yY] ]] && python3 "$script" -d "${scan_dirs[@]}" --action delete || echo -e "\n${GREEN}Cancelled.${NC}" ;;
             4)
-                read -r -p "Enter directory path to scan for duplicates: " custom_dir
-                if [ -d "$custom_dir" ]; then
-                    python3 "$script" -d "$custom_dir" --action report
-                else
-                    echo -e "\n${RED}Directory not found: $custom_dir${NC}"
-                fi
-                press_enter
-                ;;
-            5|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                read -r -p "Directory to scan: " cd
+                [[ -d "$cd" ]] && python3 "$script" -d "$cd" --action report || echo -e "\n${RED}Not found: $cd${NC}" ;;
+            5|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1; continue ;;
         esac
+        press_enter
     done
 }
 
 export_mixes_to_path() {
     clear
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}                 EXPORT & COPY MIXES TO DESTINATION                   ${NC}"
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-
-    if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-        read -r -p "Enter destination path (e.g. D:\Mixes\Export, G:\My Drive\Export): " dest_dir
-    else
-        read -r -p "Enter destination path (e.g. /media/USB_DRIVE/Mixes, ~/Music/Export): " dest_dir
-    fi
-    if [ -z "$dest_dir" ]; then
-        echo -e "\n${YELLOW}Export cancelled.${NC}"
-        sleep 1
-        return 0
-    fi
+    echo -e "${BOLD}${MAGENTA}======================================================================\n                 EXPORT & COPY MIXES TO DESTINATION                   \n======================================================================${NC}\n"
+    read -r -p "Enter destination path: " dest_dir
+    [[ -z "$dest_dir" ]] && { echo -e "\n${YELLOW}Cancelled.${NC}"; sleep 1; return 0; }
 
     dest_dir="${dest_dir/#\~/$HOME}"
     dest_dir="${dest_dir//\\//}"
-    if [[ ! "$dest_dir" =~ ^[a-zA-Z]:/$ && "$dest_dir" != "/" ]]; then
-        dest_dir="${dest_dir%/}"
+    [[ ! "$dest_dir" =~ ^[a-zA-Z]:/$ && "$dest_dir" != "/" ]] && dest_dir="${dest_dir%/}"
+
+    if [[ ! -d "$dest_dir" ]]; then
+        read -r -p "Create directory '${dest_dir}'? [Y/n]: " yn
+        [[ "$yn" =~ ^[nN] ]] && return 0
+        mkdir -p "$dest_dir" || { echo -e "${RED}Failed!${NC}"; press_enter; return 1; }
     fi
 
-    if [ ! -d "$dest_dir" ]; then
-        echo -e "${YELLOW}Destination directory does not exist.${NC}"
-        read -r -p "Create directory '${dest_dir}'? [Y/n]: " create_dir
-        case "$create_dir" in
-            [nN]*)
-                echo -e "\n${YELLOW}Export cancelled.${NC}"
-                sleep 1
-                return 0
-                ;;
-            *)
-                mkdir -p "$dest_dir" || { echo -e "${RED}Failed to create directory!${NC}"; press_enter; return 1; }
-                echo -e "${GREEN}✓ Created directory: ${dest_dir}${NC}\n"
-                ;;
-        esac
-    fi
+    local d all_flac_dirs=()
+    while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && all_flac_dirs+=("$d"); done < <(get_all_flac_output_dirs)
 
-    local all_flac_dirs=()
-    while IFS= read -r f_dir; do
-        [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_flac_dirs+=("$f_dir")
-    done < <(get_all_flac_output_dirs)
-
-    echo -e "${BOLD}Select items to export:${NC}"
-    echo -e "  ${BOLD}${CYAN}1)${NC} Complete Mix Package (FLAC + Cover Art + Tracklists TXT/HTML/PDF + Spek)"
-    echo -e "  ${BOLD}${CYAN}2)${NC} Audio Files Only (FLAC / WAV / MP3)"
-    echo -e "  ${BOLD}${CYAN}3)${NC} Tracklists & Documentation Only (.txt, .html, .pdf)"
-    echo -e "  ${BOLD}${CYAN}4)${NC} Cover Art & Spectrograms Only"
-    echo -e "  ${BOLD}${CYAN}5)${NC} Specific Mix by Search Keyword"
-    echo -e "  ${BOLD}${CYAN}6)${NC} Cancel Export\n"
-    read -r -p "Enter choice [1-6]: " exp_choice
-
-    case "$exp_choice" in
+    echo -e "\n  1) Complete Package  3) Tracklists/Docs Only  5) Search Keyword\n  2) Audio Files Only  4) Covers & Spek Only    6) Cancel\n"
+    read -r -p "Enter choice [1-6]: " c
+    shopt -s nullglob
+    case "$c" in
         1)
-            echo -e "\n${BOLD}${YELLOW}Exporting complete packages to: ${dest_dir}...${NC}\n"
-            for fdir in "${all_flac_dirs[@]}"; do
-                echo -e "Exporting from: ${CYAN}${fdir}${NC}"
-                rsync -avh --progress "$fdir"/*.flac "$dest_dir/" 2>/dev/null || true
-                rsync -avh "$fdir"/*.txt "$fdir"/*.html "$fdir"/*.pdf "$dest_dir/" 2>/dev/null || true
-            done
-            if [ -d "$PWD/COVERS" ]; then
-                rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null || true
-            fi
-            if [ -d "$PWD/SPEK_OUTPUTS" ]; then
-                rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null || true
-            fi
-            echo -e "\n${BOLD}${GREEN}✓ Complete mix package export finished.${NC}"
-            ;;
+            for d in "${all_flac_dirs[@]}"; do rsync -avh --progress "$d"/*.{flac,txt,html,pdf} "$dest_dir/" 2>/dev/null; done
+            [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null
+            [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null ;;
         2)
-            echo -e "\n${BOLD}${YELLOW}Exporting audio files to: ${dest_dir}...${NC}\n"
-            for fdir in "${all_flac_dirs[@]}"; do
-                echo -e "Exporting from: ${CYAN}${fdir}${NC}"
-                rsync -avh --progress "$fdir"/*.flac "$dest_dir/" 2>/dev/null || true
-            done
-            rsync -avh --progress "$PWD"/*.flac "$PWD"/*.wav "$PWD"/*.mp3 "$dest_dir/" 2>/dev/null || true
-            echo -e "\n${BOLD}${GREEN}✓ Audio file export finished.${NC}"
-            ;;
+            for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh --progress "$d"/*.{flac,wav,mp3} "$dest_dir/" 2>/dev/null; done ;;
         3)
-            echo -e "\n${BOLD}${YELLOW}Exporting tracklists and documentation to: ${dest_dir}...${NC}\n"
-            for fdir in "${all_flac_dirs[@]}"; do
-                echo -e "Exporting from: ${CYAN}${fdir}${NC}"
-                rsync -avh "$fdir"/*.txt "$fdir"/*.html "$fdir"/*.pdf "$dest_dir/" 2>/dev/null || true
-            done
-            rsync -avh "$PWD"/*.txt "$PWD"/*.html "$PWD"/*.pdf "$dest_dir/" 2>/dev/null || true
-            echo -e "\n${BOLD}${GREEN}✓ Tracklist documentation export finished.${NC}"
-            ;;
+            for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh "$d"/*.{txt,html,pdf} "$dest_dir/" 2>/dev/null; done ;;
         4)
-            echo -e "\n${BOLD}${YELLOW}Exporting cover art and spectrograms to: ${dest_dir}...${NC}\n"
-            [ -d "$PWD/COVERS" ] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null || true
-            [ -d "$PWD/SPEK_OUTPUTS" ] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null || true
-            [ -f "$PWD/Cover.png" ] && cp -v "$PWD/Cover.png" "$dest_dir/" 2>/dev/null || true
-            echo -e "\n${BOLD}${GREEN}✓ Visual assets export finished.${NC}"
-            ;;
+            [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null
+            [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null
+            [[ -f "$PWD/Cover.png" ]] && cp -v "$PWD/Cover.png" "$dest_dir/" 2>/dev/null ;;
         5)
-            read -r -p "Enter mix search term (Episode #, Title): " mix_kw
-            if [ -n "$mix_kw" ]; then
-                echo -e "\n${BOLD}${YELLOW}Exporting matching assets for '${mix_kw}' to: ${dest_dir}...${NC}\n"
-                for fdir in "${all_flac_dirs[@]}" "$PWD"; do
-                    find "$fdir" -maxdepth 2 -type f -iname "*${mix_kw}*" -exec cp -v {} "$dest_dir/" \; 2>/dev/null
-                done
-                echo -e "\n${BOLD}${GREEN}✓ Matching mix assets exported.${NC}"
-            fi
-            ;;
-        *)
-            echo -e "\n${YELLOW}Export cancelled.${NC}"
-            sleep 1
-            return 0
-            ;;
+            read -r -p "Search term: " kw
+            [[ -n "$kw" ]] && find "${all_flac_dirs[@]}" "$PWD" -maxdepth 2 -type f -iname "*${kw}*" -exec cp -v -t "$dest_dir/" {} + 2>/dev/null ;;
+        *) shopt -u nullglob; return 0 ;;
     esac
-    press_enter
+    shopt -u nullglob
+    echo -e "\n${BOLD}${GREEN}✓ Export finished.${NC}"; press_enter
 }
 
 manage_audio_checksums() {
-    local script=""
-    for s in "$SCRIPT_DIR/manage_checksums.sh" "$SCRIPT_DIR/scripts/manage_checksums.sh" "./manage_checksums.sh"; do
-        if [ -f "$s" ]; then script="$s"; break; fi
-    done
-    if [ -z "$script" ]; then
-        echo -e "\n${RED}Error: manage_checksums.sh not found!${NC}"
-        press_enter
-        return 1
-    fi
-
+    local script; _find_scr "manage_checksums.sh" || return 1; script="$REPLY"
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}             AUDIO FILE CHECKSUM CREATION & VERIFICATION              ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        echo -e "  Cryptographic SHA-256 integrity protection for master mix files.\n"
-        echo -e "  ${BOLD}${CYAN}1)${NC} Generate SHA-256 Checksums for FLAC Master Mixes (${GREEN}FLAC_CONVERTED_OUTPUTS${NC})"
-        echo -e "  ${BOLD}${CYAN}2)${NC} Generate SHA-256 Checksums for Current Staging Directory (${GREEN}${PWD}${NC})"
-        echo -e "  ${BOLD}${CYAN}3)${NC} Verify Archive Checksums & Detect Corruption (${GREEN}Verify against checksums.sha256${NC})"
-        echo -e "  ${BOLD}${CYAN}4)${NC} View Checksum Manifest File (${CYAN}checksums.sha256${NC})"
-        echo -e "  ${BOLD}${CYAN}5)${NC} View Historical Verification Logs (${CYAN}VERIFY_LOGS/${NC})"
-        echo -e "  ${BOLD}${CYAN}6)${NC} Return to Main Menu\n"
-        read -r -p "Enter choice [1-6]: " cs_choice
-
-        case "$cs_choice" in
-            1)
-                bash "$script" -g -d "$OUTPUT_DIR"
-                press_enter
-                ;;
-            2)
-                bash "$script" -g -d "$PWD"
-                press_enter
-                ;;
-            3)
-                bash "$script" -v
-                press_enter
-                ;;
+        echo -e "${BOLD}${MAGENTA}======================================================================\n             AUDIO FILE CHECKSUM CREATION & VERIFICATION              \n======================================================================${NC}
+  1) Generate SHA-256 (FLAC_CONVERTED_OUTPUTS)  4) View Manifest
+  2) Generate SHA-256 ($PWD)  5) View Logs
+  3) Verify Archive Checksums                   6) Return\n"
+        read -r -p "Enter choice [1-6]: " c
+        case "$c" in
+            1) bash "$script" -g -d "$OUTPUT_DIR" ;;
+            2) bash "$script" -g -d "$PWD" ;;
+            3) bash "$script" -v ;;
             4)
-                if [ -f "$PWD/checksums.sha256" ]; then
-                    echo -e "\n${BOLD}${CYAN}=== CHECKSUMS MANIFEST ($PWD/checksums.sha256) ===${NC}\n"
-                    head -n 40 "$PWD/checksums.sha256"
-                elif [ -f "$OUTPUT_DIR/checksums.sha256" ]; then
-                    echo -e "\n${BOLD}${CYAN}=== CHECKSUMS MANIFEST ($OUTPUT_DIR/checksums.sha256) ===${NC}\n"
-                    head -n 40 "$OUTPUT_DIR/checksums.sha256"
-                else
-                    echo -e "\n${YELLOW}No checksums.sha256 manifest found. Generate one first with Option 1 or 2.${NC}"
-                fi
-                press_enter
-                ;;
+                local mf="$PWD/checksums.sha256"
+                [[ ! -f "$mf" ]] && mf="$OUTPUT_DIR/checksums.sha256"
+                [[ -f "$mf" ]] && head -n 40 "$mf" || echo -e "\n${YELLOW}No manifest found.${NC}" ;;
             5)
-                local log_dir="$PWD/VERIFY_LOGS"
-                if [ -d "$log_dir" ] && [ "$(ls -A "$log_dir" 2>/dev/null)" ]; then
-                    echo -e "\n${BOLD}${CYAN}Verification Logs in $log_dir:${NC}"
-                    ls -lh "$log_dir"
-                else
-                    echo -e "\n${YELLOW}No verification logs found in VERIFY_LOGS/.${NC}"
-                fi
-                press_enter
-                ;;
-            6|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                [[ -d "$PWD/VERIFY_LOGS" ]] && ls -lh "$PWD/VERIFY_LOGS" || echo -e "\n${YELLOW}No logs found.${NC}" ;;
+            6|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid!${NC}"; sleep 1; continue ;;
         esac
+        press_enter
     done
 }
 
 manage_mix_search_and_import() {
     clear 2>/dev/null || true
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}       Search & Import Mixes from Local Storage & Network SMB         ${NC}"
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "  ${BOLD}${CYAN} 1)${NC} Universal Search & Import Wizard ${GREEN}(Local Disks, USB, External Drives & SMB)${NC}"
-    echo -e "  ${BOLD}${CYAN} 2)${NC} Dedicated Traktor & SOF SMB Share Ingest ${GREEN}(import_new_mixes.sh)${NC}"
-    echo ""
-    echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"
-    echo ""
-    read -r -p "Select ingest mode [1-2, 0 to return]: " imode
-    case "$imode" in
-        1)
-            run_sub_script "search_and_import_mixes.sh"
-            press_enter
-            ;;
-        2)
-            echo -e "\n${BOLD}${YELLOW}Starting SMB Import Process...${NC}\n"
-            run_sub_script "import_new_mixes.sh"
-            press_enter
-            ;;
-        0|*)
-            return
-            ;;
+    echo -e "${BOLD}${MAGENTA}======================================================================\n       Search & Import Mixes from Local Storage & Network SMB         \n======================================================================${NC}
+  1) Universal Search & Import Wizard
+  2) Dedicated Traktor & SOF SMB Share Ingest
+  0) Return to Main Menu\n"
+    read -r -p "Select mode [1-2, 0]: " m
+    case "$m" in
+        1) run_sub_script "search_and_import_mixes.sh"; press_enter ;;
+        2) run_sub_script "import_new_mixes.sh"; press_enter ;;
     esac
 }
 
-manage_installation_and_config() {
-    run_sub_script "manage_installation_config.sh"
-}
+manage_installation_and_config() { run_sub_script "manage_installation_config.sh"; }
 
 reboot_system() {
-    echo -e "\n${BOLD}${RED}⚠️  SYSTEM REBOOT REQUESTED ⚠️${NC}\n"
-    echo -e "${YELLOW}Are you sure you want to reboot the system?${NC}"
-    read -r -p "Type 'yes' or 'y' to confirm reboot [y/N]: " confirm_reboot
-    case "$confirm_reboot" in
-        [yY]|[yY][eE][sS])
-            echo -e "\n${BOLD}${RED}Rebooting system now... Goodbye!${NC}\n"
-            sleep 1.5
-            if [ "$OS_TYPE" = "macos" ]; then
-                osascript -e 'tell app "System Events" to restart' 2>/dev/null || sudo shutdown -r now || shutdown -r now
-            elif [ "$OS_TYPE" = "windows" ]; then
-                shutdown.exe /r /t 0 2>/dev/null || shutdown /r /t 0
-            elif [ "$OS_TYPE" = "wsl" ]; then
-                cmd.exe /c shutdown /r /t 0 2>/dev/null || wsl.exe --shutdown
-            elif [ "$OS_TYPE" = "freebsd" ]; then
-                shutdown -r now || sudo shutdown -r now || reboot
-            else
-                if command -v systemctl >/dev/null 2>&1; then
-                    sudo systemctl reboot || sudo reboot || sudo shutdown -r now || systemctl reboot || reboot
-                else
-                    sudo reboot || sudo shutdown -r now || reboot
-                fi
-            fi
-            ;;
-        *)
-            echo -e "\n${GREEN}Reboot cancelled.${NC}"
-            sleep 1.2
-            ;;
+    read -r -p $'\n'"${BOLD}${RED}⚠️ Confirm system reboot? [y/N]: ${NC}" yn
+    [[ ! "$yn" =~ ^[yY] ]] && { echo -e "\n${GREEN}Cancelled.${NC}"; sleep 1; return 0; }
+    echo -e "\n${BOLD}${RED}Rebooting...${NC}"
+    case "$OS_TYPE" in
+        macos) osascript -e 'tell app "System Events" to restart' 2>/dev/null || sudo shutdown -r now ;;
+        windows) shutdown.exe /r /t 0 2>/dev/null || shutdown /r /t 0 ;;
+        wsl) cmd.exe /c shutdown /r /t 0 2>/dev/null || wsl.exe --shutdown ;;
+        *) sudo systemctl reboot 2>/dev/null || sudo reboot || sudo shutdown -r now || reboot ;;
     esac
 }
 
 get_audio_volume_and_mute() {
-    local status="Unknown"
-    if command -v wpctl >/dev/null 2>&1; then
-        local wp_out
-        wp_out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)
-        if [ -n "$wp_out" ]; then
-            local vol
-            vol=$(echo "$wp_out" | awk '{printf "%d", $2 * 100}')
-            if echo "$wp_out" | grep -qi "MUTED"; then
-                echo "Muted (${vol}%)"
-            else
-                echo "${vol}%"
-            fi
-            return 0
-        fi
+    local out vol
+    if out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) && [[ -n "$out" ]]; then
+        vol="${out#*: }"; vol="${vol%% *}"; vol="${vol//./}"; vol=$((10#$vol))
+        [[ "$out" == *MUTED* ]] && echo "Muted (${vol}%)" || echo "${vol}%"
+    elif out=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null) && [[ "$out" =~ ([0-9]+%) ]]; then
+        vol="${BASH_REMATCH[1]}"
+        [[ $(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null) == *yes* ]] && echo "Muted ($vol)" || echo "$vol"
+    elif [[ "$OS_TYPE" = "macos" ]]; then
+        out=$(osascript -e 'get volume settings' 2>/dev/null)
+        [[ "$out" =~ output\ volume:([0-9]+).*output\ muted:(true|false) ]] && {
+            [[ "${BASH_REMATCH[2]}" = "true" ]] && echo "Muted (${BASH_REMATCH[1]}%)" || echo "${BASH_REMATCH[1]}%"
+        }
+    else
+        echo "Active"
     fi
-    if command -v pactl >/dev/null 2>&1; then
-        local pac_sink
-        pac_sink=$(pactl get-default-sink 2>/dev/null)
-        if [ -n "$pac_sink" ]; then
-            local pac_mute
-            pac_mute=$(pactl get-sink-mute "$pac_sink" 2>/dev/null | awk '{print $2}')
-            local pac_vol
-            pac_vol=$(pactl get-sink-volume "$pac_sink" 2>/dev/null | grep -o '[0-9]\+%' | head -1)
-            if [ "$pac_mute" = "yes" ]; then
-                echo "Muted (${pac_vol})"
-            else
-                echo "${pac_vol}"
-            fi
-            return 0
-        fi
-    fi
-    if [ "$OS_TYPE" = "macos" ]; then
-        local mac_vol mac_mute
-        mac_vol=$(osascript -e "output volume of (get volume settings)" 2>/dev/null)
-        mac_mute=$(osascript -e "output muted of (get volume settings)" 2>/dev/null)
-        if [ "$mac_mute" = "true" ]; then
-            echo "Muted (${mac_vol}%)"
-        else
-            echo "${mac_vol}%"
-        fi
-        return 0
-    fi
-    echo "Active"
 }
 
 toggle_audio_mute() {
     echo -e "\n${BOLD}${MAGENTA}=== MASTER AUDIO MUTE / UNMUTE CONTROL ===${NC}\n"
-    local toggled=0
-    if command -v wpctl >/dev/null 2>&1; then
-        wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle 2>/dev/null && toggled=1
-    elif command -v pactl >/dev/null 2>&1; then
-        pactl set-sink-mute @DEFAULT_SINK@ toggle 2>/dev/null && toggled=1
-    elif command -v amixer >/dev/null 2>&1; then
-        amixer set Master toggle 2>/dev/null && toggled=1
-    elif [ "$OS_TYPE" = "macos" ]; then
-        osascript -e "set volume output muted not (output muted of (get volume settings))" 2>/dev/null && toggled=1
-    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-        if command -v powershell.exe >/dev/null 2>&1; then
-            powershell.exe -NoProfile -Command "$w = New-Object -ComObject WScript.Shell; $w.SendKeys([char]173)" 2>/dev/null && toggled=1
-        fi
-    elif [ "$OS_TYPE" = "freebsd" ] && command -v mixer >/dev/null 2>&1; then
-        mixer vol.mute=toggle 2>/dev/null || mixer -s vol toggle 2>/dev/null && toggled=1
-    fi
+    local ok=1
+    if command -v wpctl >/dev/null 2>&1; then wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle 2>/dev/null
+    elif command -v pactl >/dev/null 2>&1; then pactl set-sink-mute @DEFAULT_SINK@ toggle 2>/dev/null
+    elif command -v amixer >/dev/null 2>&1; then amixer -q set Master toggle 2>/dev/null
+    elif [[ "$OS_TYPE" = "macos" ]]; then osascript -e "set volume output muted not (output muted of (get volume settings))" 2>/dev/null
+    elif [[ "$OS_TYPE" =~ ^(windows|wsl)$ ]]; then powershell.exe -NoProfile -Command '(New-Object -ComObject WScript.Shell).SendKeys([char]173)' 2>/dev/null
+    elif [[ "$OS_TYPE" = "freebsd" ]]; then mixer vol.mute=toggle 2>/dev/null || mixer -s vol toggle 2>/dev/null
+    else ok=0; fi
 
-    if [ "$toggled" -eq 1 ]; then
-        local current_st
-        current_st=$(get_audio_volume_and_mute)
-        echo -e "${GREEN}✓ Master audio mute state toggled successfully.${NC}"
-        echo -e "  Current Audio Status: ${BOLD}${CYAN}${current_st}${NC}"
-    else
-        echo -e "${YELLOW}Warning: Could not detect standard audio mixer (wpctl/pactl/amixer/osascript).${NC}"
-    fi
+    ((ok)) && echo -e "${GREEN}✓ Toggled.${NC} Status: ${BOLD}${CYAN}$(get_audio_volume_and_mute)${NC}" || echo -e "${YELLOW}Warning: No mixer detected.${NC}"
     sleep 1.2
 }
-
-#!/usr/bin/env bash
 
 # Universal script/python dispatcher helper (Fixed: removed 'exec' so TUI doesn't exit)
 _run_tool() {
