@@ -438,14 +438,17 @@ class AudioEngine:
                             nat = int(sd.query_devices(int(dev)).get("default_samplerate") or 48000)
                             for rate in (nat, 48000, 44100): add(int(dev), rate, extra)
             except Exception: pass
-            try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 44100), None)
+            try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
             except Exception: pass
             for rate in (48000, 44100): add(None, rate, None)
         else:
-            add(None, 44100, None)
-            try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 44100), None)
+            try:
+                info = sd.query_devices(kind="output")
+                nat = int(info.get("default_samplerate") or 48000)
+                add(None, nat, None)
             except Exception: pass
             add(None, 48000, None)
+            add(None, 44100, None)
         return attempts
 
     def _open_output_stream(self) -> bool:
@@ -456,8 +459,15 @@ class AudioEngine:
         for dev, rate, extra in self._stream_attempts():
             s = None
             try:
-                kw = dict(samplerate=rate, channels=2, dtype="float32", callback=self._audio_callback, blocksize=0 if extra else 1024)
-                if extra: kw.update(latency="high", extra_settings=extra)
+                kw = dict(
+                    samplerate=rate,
+                    channels=2,
+                    dtype="float32",
+                    callback=self._audio_callback,
+                    blocksize=2048,
+                    latency="high"
+                )
+                if extra: kw["extra_settings"] = extra
                 if dev is not None: kw["device"] = dev
                 s = sd.OutputStream(**kw)
                 s.start()
@@ -570,7 +580,7 @@ class AudioEngine:
                     self.resampler.reset()
                 except Exception: pass
 
-            out_rate = float(self.output_rate or 44100)
+            out_rate = float(self.output_rate or 48000)
             data = self.resampler.process(lambda n: sf_ref.read(n, dtype='float32'), frames, (float(self.sample_rate) / out_rate) * self.pitch_factor)
             read_frames = len(data)
 
@@ -1057,17 +1067,17 @@ class EqualizerVisualizer:
 
         for r in range(frows):
             if r == krow and r == crow:
-                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄  0.0%% [CENTER]{NC}"
+                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄  0.0% [CENTER]{NC}"
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_TRAFFIC_GREEN}[▓█0█▓]{NC}  {tag} {COLOR_HOT_PURPLE}│{NC}")
             elif r == krow:
                 kcol = COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {kcol}[▓███▓]{NC}  {BOLD}{kcol}{f'◄ {p:+d}% ({1.0 + p/100:.2f}x)':<13}{NC} {COLOR_HOT_PURPLE}│{NC}")
             elif r == crow:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC}  {DIM}{COLOR_LILAC}CENTER (0%%){NC}   {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC}  {DIM}{COLOR_LILAC}CENTER (0%){NC}   {COLOR_HOT_PURPLE}│{NC}")
             elif r == 0:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20%% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
             elif r == frows - 1:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20%% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
             else:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}                    {COLOR_HOT_PURPLE}│{NC}")
         lines.append(f"{COLOR_HOT_PURPLE}╰────────────────────────╯{NC}")
@@ -1087,14 +1097,14 @@ class EqualizerVisualizer:
                 else: chars.append(f"{COLOR_TRAFFIC_AMBER}━{NC}" if cp < i <= kp else f"{DIM}─{NC}")
             return "".join(chars)
 
-        stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0%% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
-        pfx = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%%{NC} ["
-        sfx = f"] {DIM}+20%%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
+        stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
+        pfx = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} ["
+        sfx = f"] {DIM}+20%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
 
         if max_cols and (_display_width(pfx) + w + _display_width(sfx) > max_cols):
-            sfx = f"] {DIM}+20%%{NC}  {stag}"
+            sfx = f"] {DIM}+20%{NC}  {stag}"
             if _display_width(pfx) + w + _display_width(sfx) > max_cols:
-                sfx = f"] {DIM}+20%%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
+                sfx = f"] {DIM}+20%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
             avail = max_cols - _display_width(pfx) - _display_width(sfx)
             if avail < w:
                 w = max(8, avail)
@@ -1444,7 +1454,7 @@ class TerminalPlayerUI:
             f"  Vol {vol}  Pitch {pbadge}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         lines.append(_fit_text_line([
-            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20%% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
             f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  T List  E Export  F Files  e EQ  b/q Exit{NC}",
             f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  b/q Exit{NC}"
         ], max(20, w - 1)))
@@ -1478,8 +1488,8 @@ def main():
     parser.add_argument("--next", action="store_true", help="Skip to next track")
     parser.add_argument("--prev", action="store_true", help="Skip to previous track")
     parser.add_argument("--pitch", type=int, help="Set DJ pitch percentage (-20 to +20)")
-    parser.add_argument("--pitch-up", type=int, nargs="?", const=1, help="Increase DJ pitch percentage")
-    parser.add_argument("--pitch-down", type=int, nargs="?", const=1, help="Decrease DJ pitch percentage")
+    parser.add_argument("--pitch-up", type=int, nargs="?", const=1, help="Increase DJ pitch percentage (default: +1%%)")
+    parser.add_argument("--pitch-down", type=int, nargs="?", const=1, help="Decrease DJ pitch percentage (default: -1%%)")
     parser.add_argument("--pitch-reset", action="store_true", help="Reset DJ pitch percentage to 0%%")
     parser.add_argument("--vol", type=str, help="Set volume (e.g. 85, +5, -5)")
     parser.add_argument("--seek", type=float, help="Seek relative seconds")
@@ -1595,7 +1605,7 @@ def main():
             if data:
                 icon = "▶" if data["state"] == "playing" else "⏸"
                 pval = data.get("pitch_percent", 0)
-                pstr = f"Pitch: {pval:+d}%" if pval != 0 else "Pitch: 0%%"
+                pstr = f"Pitch: {pval:+d}%" if pval != 0 else "Pitch: 0%"
                 print(f"{icon} {data['title']} [{data['position_fmt']}/{data['duration_fmt']}] ({data['mini_eq']}) {pstr} Vol: {data['volume']}%")
             else: print("○ MP Audio Player: Stopped")
         sys.exit(0)
