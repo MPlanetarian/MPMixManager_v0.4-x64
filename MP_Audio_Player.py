@@ -131,6 +131,7 @@ PID_FILE = CONFIG_DIR / "mp_player.pid"
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 
+
 def get_base_dir() -> Path:
     script_p = Path(__file__).resolve()
     if script_p.parent.name == "scripts":
