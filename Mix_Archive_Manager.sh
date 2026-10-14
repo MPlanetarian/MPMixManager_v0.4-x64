@@ -24,6 +24,57 @@ if command -v cygpath >/dev/null 2>&1; then
     fi
 fi
 
+# # Prepend native Python 3.12 to PATH on Windows / Git Bash if available
+# for _py_cand in \
+#     "$LOCALAPPDATA/Programs/Python/Python312" \
+#     "$USERPROFILE/AppData/Local/Programs/Python/Python312" \
+#     "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" \
+#     "/c/Program Files/Python312" \
+#     "/c/Program Files/Python311"; do
+#     _py_u="$_py_cand"
+#     command -v cygpath >/dev/null 2>&1 && _py_u="$(cygpath -u "$_py_cand" 2>/dev/null || echo "$_py_cand")"
+#     [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ] && { export PATH="$_py_u:$_py_u/Scripts:$PATH"; break; }
+# done
+# unset _py_cand _py_u
+
+# _TERM_LINES=""
+# _TERM_COLS=""
+# _TERM_RESIZED=1
+# _MENU_CURSOR_LOCK=0
+
+# _on_winch() {
+#     _TERM_RESIZED=1
+#     if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
+#         printf '\033[?25l\033[?12l\033[?7l' 2>/dev/null || true
+#     fi
+# }
+# trap '_on_winch' WINCH
+
+# # Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
+# if ! command -v pgrep >/dev/null 2>&1; then
+#     pgrep() {
+#         local pattern="$1"
+#         [ -z "$pattern" ] && return 1
+#         if [ $((SECONDS - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
+#             _PGREP_SNAP_AT="$SECONDS"
+#             _PGREP_SNAP_PS=$(ps -ef 2>/dev/null || true)
+#             _PGREP_SNAP_TASK=$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null || true)
+#         fi
+#         if printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" > /dev/null; then
+#             printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" | awk '{print $2}'
+#             return 0
+#         fi
+#         if printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" > /dev/null; then
+#             printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" | cut -d',' -f2 | tr -d '"'
+#             return 0
+#         fi
+#         return 1
+#     }
+#     export -f pgrep 2>/dev/null || true
+# fi
+
+#!/usr/bin/env bash
+
 # Prepend native Python 3.12 to PATH on Windows / Git Bash if available
 for _py_cand in \
     "$LOCALAPPDATA/Programs/Python/Python312" \
@@ -37,11 +88,13 @@ for _py_cand in \
 done
 unset _py_cand _py_u
 
+# Initialize term variables
 _TERM_LINES=""
 _TERM_COLS=""
 _TERM_RESIZED=1
 _MENU_CURSOR_LOCK=0
 
+# Handle WINCH signal
 _on_winch() {
     _TERM_RESIZED=1
     if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
@@ -50,7 +103,7 @@ _on_winch() {
 }
 trap '_on_winch' WINCH
 
-# Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
+# Cross-platform pgrep and pkill polyfills
 if ! command -v pgrep >/dev/null 2>&1; then
     pgrep() {
         local pattern="$1"
