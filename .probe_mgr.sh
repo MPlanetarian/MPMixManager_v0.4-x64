@@ -6457,7 +6457,7 @@ manage_ai_models() {
         echo -e "${BOLD}${MAGENTA}       AI ASSISTANT & MODEL LAUNCHER (AGY)        ${NC}"
         echo -e "${BOLD}${MAGENTA}==================================================${NC}"
         echo ""
-        echo -e "  Account:    ${CYAN}enter-your-email@email.com${NC}"
+        echo -e "  Account:    ${CYAN}mathewkjohn2026@gmail.com${NC}"
         echo -e "  Workspace:  ${GREEN}${PWD}${NC}"
         echo ""
         echo -e "${BOLD}Claude & GPT Models (Shared Partner Quota):${NC}"
