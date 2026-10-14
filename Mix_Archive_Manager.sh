@@ -13433,17 +13433,9 @@ manage_integrity_and_verification() {
 
 manage_storage_and_archive_config() {
     while true; do
-        local archive_disp=""
-        if is_mix_archive_configured; then
-            archive_disp="${GREEN}${MIX_ARCHIVE_DIR}${NC}"
-        else
-            archive_disp="${RED}Not Configured${NC} ${DIM}(Root: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
-        fi
-        local extra_disp=""
-        if [ -n "${EXTRA_MIX_ARCHIVE_DIRS:-}" ]; then
-            extra_disp="\n  Extra Archives  : ${CYAN}${EXTRA_MIX_ARCHIVE_DIRS}${NC}"
-        fi
-        local stg_hdr="  Primary Archive : ${archive_disp}${extra_disp}\n"
+        local a_disp="${RED}Not Configured${NC} ${DIM}(Root: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
+        is_mix_archive_configured && a_disp="${GREEN}${MIX_ARCHIVE_DIR}${NC}"
+        local x_disp="${EXTRA_MIX_ARCHIVE_DIRS:+\n  Extra Archives  : ${CYAN}${EXTRA_MIX_ARCHIVE_DIRS}${NC}}"
         local opts=(
             "1|Show Mix Storage Drive Space Remaining|(All Configured Mix Drives)"
             "2|Show All Attached Drives Space Remaining|(Get_All_Drive_Space.sh)"
@@ -13451,36 +13443,21 @@ manage_storage_and_archive_config() {
             "4|Configure Mix Archive Storage Locations|(Option 14: Primary & Multiple Folders)"
             "0|Return to Main Menu|(or Esc / q)"
         )
-        run_interactive_submenu "STORAGE MANAGEMENT & ARCHIVE CONFIGURATION" "$stg_hdr" opts 0
-        local stg_choice="$REPLY"
-        case "$stg_choice" in
-            1)
-                show_mix_drive_space
-                ;;
-            2)
-                echo -e "\n${BOLD}${YELLOW}Scanning Drive Space Across Attached Storage...${NC}\n"
-                run_sub_script "Get_All_Drive_Space.sh"
-                press_enter
-                ;;
-            3)
-                _LAST_OS_UPDATE_CHECK=0
-                return 0
-                ;;
-            4|13)
-                configure_mix_archive_folder
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        run_interactive_submenu "STORAGE MANAGEMENT & ARCHIVE CONFIGURATION" "  Primary Archive : ${a_disp}${x_disp}\n" opts 0
+        case "$REPLY" in
+            1) show_mix_drive_space ;;
+            2) echo -e "\n${BOLD}${YELLOW}Scanning Drive Space Across Attached Storage...${NC}\n"
+               run_sub_script "Get_All_Drive_Space.sh"; press_enter ;;
+            3) _LAST_OS_UPDATE_CHECK=0; return 0 ;;
+            4|13) configure_mix_archive_folder ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
 manage_tracklist_suite() {
+    local f py_exp="$SCRIPT_DIR/scripts/export_chapters.py" py_id="$SCRIPT_DIR/scripts/identify_mix_tracks.py"
     while true; do
         local opts=(
             "1|Tracklist Management Suite|(Browse, Search, View, Export HTML & PDF)"
@@ -13493,126 +13470,65 @@ manage_tracklist_suite() {
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "TRACKLIST MANAGEMENT, SCANNING & METADATA SUITE" "" opts 0
-        local tl_choice="$REPLY"
-        case "$tl_choice" in
-            1)
-                manage_tracklists
-                ;;
-            2)
-                search_and_play_mix
-                ;;
-            3)
-                echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"
-                run_sub_script "Check_Find_Tracklists.sh"
-                press_enter
-                ;;
-            4)
-                echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"
-                if [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ]; then
-                    bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh"
-                else
-                    run_sub_script "Generate_Master_Tracklist.sh"
-                fi
-                press_enter
-                ;;
-            5)
-                launch_or_install_picard
-                ;;
-            6)
-                echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"
-                read -r -p "Enter path to tracklist .txt or .cue file: " ch_file
-                ch_file=$(echo "$ch_file" | sed "s/^'//;s/'$//;s/^\"//;s/\"$//")
-                if [ -n "$ch_file" ] && [ -f "$ch_file" ]; then
-                    python3 "$SCRIPT_DIR/scripts/export_chapters.py" "$ch_file" --format all --clipboard
-                else
-                    echo -e "${RED}Error: File not found.${NC}"
-                fi
-                press_enter
-                ;;
-            7)
-                echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"
-                read -r -p "Enter path to mix audio file: " id_audio
-                id_audio=$(echo "$id_audio" | sed "s/^'//;s/'$//;s/^\"//;s/\"$//")
-                if [ -n "$id_audio" ] && [ -f "$id_audio" ]; then
-                    python3 "$SCRIPT_DIR/scripts/identify_mix_tracks.py" "$id_audio"
-                else
-                    echo -e "${RED}Error: File not found.${NC}"
-                fi
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) manage_tracklists ;;
+            2) search_and_play_mix ;;
+            3) echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"
+               run_sub_script "Check_Find_Tracklists.sh"; press_enter ;;
+            4) echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"
+               [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"
+               press_enter ;;
+            5) launch_or_install_picard ;;
+            6) echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"
+               read -r -p "Enter path to tracklist .txt or .cue file: " f
+               f="${f#[\'\"]}"; f="${f%[\'\"]}"
+               [ -f "$f" ] && python3 "$py_exp" "$f" --format all --clipboard || echo -e "${RED}Error: File not found.${NC}"
+               press_enter ;;
+            7) echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"
+               read -r -p "Enter path to mix audio file: " f
+               f="${f#[\'\"]}"; f="${f%[\'\"]}"
+               [ -f "$f" ] && python3 "$py_id" "$f" || echo -e "${RED}Error: File not found.${NC}"
+               press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
 generate_archive_folder_playlists_menu() {
     ensure_playlists_generated_dirs
-    local py_script="$SCRIPT_DIR/scripts/generate_archive_folder_playlists.py"
-    if [ ! -f "$py_script" ]; then
-        py_script="$SCRIPT_DIR/generate_archive_folder_playlists.py"
-    fi
-    if [ -f "$py_script" ]; then
-        python3 "$py_script"
-    else
-        echo -e "${RED}Error: generate_archive_folder_playlists.py not found!${NC}"
-        press_enter
-    fi
+    local p="$SCRIPT_DIR/scripts/generate_archive_folder_playlists.py"
+    [ -f "$p" ] || p="$SCRIPT_DIR/generate_archive_folder_playlists.py"
+    [ -f "$p" ] && python3 "$p" || { echo -e "${RED}Error: generate_archive_folder_playlists.py not found!${NC}"; press_enter; }
 }
 
 manage_playlists_and_history() {
+    local t_ver rb py_rb="$SCRIPT_DIR/scripts/export_rekordbox_playlist.py"
+    t_ver="$(get_traktor_version_mac 2>/dev/null)"
+    t_ver="${t_ver//$'\r'/}"
+    t_ver="${t_ver//$'\n'/}"
     while true; do
-        local t_ver
-        t_ver="$(get_traktor_version_mac 2>/dev/null | tr -d '\r\n')"
-        t_ver="${t_ver:-3}"
-        local tr_lbl="Generate Playlist from History Files on Traktor 3"
-        [ -n "$t_ver" ] && [ "$t_ver" != "3" ] && tr_lbl="Generate Playlist from History Files on Traktor ${t_ver}"
         local opts=(
             "1|Custom Mix Playlists Suite|(.m3u / .m3u8 / .xspf - Create, Edit & Launch)"
             "2|Generate Mix Archive Folder Playlists|(.m3u / .m3u8 / .xspf ➔ PLAYLISTS_GENERATED)"
-            "3|${tr_lbl}|(Key Sorted / Decks Ready)"
+            "3|Generate Playlist from History Files on Traktor ${t_ver:-3}|(Key Sorted / Decks Ready)"
             "4|Listen to Your Top 5 Tracks Right Now|$(get_top_5_status_badge)"
             "5|Export Playlists / Traktor History to Pioneer Rekordbox XML|(export_rekordbox_playlist.py)"
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "CUSTOM PLAYLISTS & TRAKTOR HISTORY SUITE" "" opts 0
-        local ph_choice="$REPLY"
-        case "$ph_choice" in
-            1)
-                manage_playlists_menu
-                ;;
-            2)
-                generate_archive_folder_playlists_menu
-                ;;
-            3)
-                generate_traktor_playlist_from_history
-                ;;
-            4|top5|top-5|top|special)
-                manage_top_5_tracks
-                ;;
-            5)
-                echo -e "\n${BOLD}${BLUE}=== EXPORT TO PIONEER REKORDBOX XML ===${NC}\n"
-                read -r -p "Enter path to Traktor .nml, .m3u, or .m3u8 playlist: " rb_in
-                rb_in=$(echo "$rb_in" | sed "s/^'//;s/'$//;s/^\"//;s/\"$//")
-                if [ -n "$rb_in" ] && [ -f "$rb_in" ]; then
-                    python3 "$SCRIPT_DIR/scripts/export_rekordbox_playlist.py" "$rb_in"
-                else
-                    echo -e "${RED}Error: Playlist file not found.${NC}"
-                fi
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) manage_playlists_menu ;;
+            2) generate_archive_folder_playlists_menu ;;
+            3) generate_traktor_playlist_from_history ;;
+            4|top5|top-5|top|special) manage_top_5_tracks ;;
+            5) echo -e "\n${BOLD}${BLUE}=== EXPORT TO PIONEER REKORDBOX XML ===${NC}\n"
+               read -r -p "Enter path to Traktor .nml, .m3u, or .m3u8 playlist: " rb
+               rb="${rb#[\'\"]}"; rb="${rb%[\'\"]}"
+               [ -f "$rb" ] && python3 "$py_rb" "$rb" || echo -e "${RED}Error: Playlist file not found.${NC}"
+               press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
@@ -13621,219 +13537,147 @@ _LAST_TOP_5_CHECK=0
 _CACHED_TOP_5_BADGE=""
 
 get_top_5_status_badge() {
-    local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    if [ $((now - _LAST_TOP_5_CHECK)) -lt 30 ] && [ -n "$_CACHED_TOP_5_BADGE" ]; then
+    local now="$EPOCHSECONDS"
+    [ -z "$now" ] && printf -v now '%(%s)T' -1 2>/dev/null
+    if (( (now - _LAST_TOP_5_CHECK) < 30 )) && [ -n "$_CACHED_TOP_5_BADGE" ]; then
         echo -e "$_CACHED_TOP_5_BADGE"
         return 0
     fi
     _LAST_TOP_5_CHECK="$now"
-
-    local py_script="$SCRIPT_DIR/scripts/top_5_tracks_manager.py"
-    [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/top_5_tracks_manager.py"
-    if [ -f "$py_script" ]; then
-        _CACHED_TOP_5_BADGE="$(python3 "$py_script" --badge 2>/dev/null || echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}")"
-    else
-        _CACHED_TOP_5_BADGE="$(echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}")"
-    fi
+    local p="$SCRIPT_DIR/scripts/top_5_tracks_manager.py"
+    [ -f "$p" ] || p="$SCRIPT_DIR/top_5_tracks_manager.py"
+    _CACHED_TOP_5_BADGE="$([ -f "$p" ] && python3 "$p" --badge 2>/dev/null || echo -e "${YELLOW}[Unlock Mystery / Ready]${NC}")"
     echo -e "$_CACHED_TOP_5_BADGE"
 }
 
 manage_top_5_tracks() {
-    local py_script="$SCRIPT_DIR/scripts/top_5_tracks_manager.py"
-    [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/top_5_tracks_manager.py"
-    if [ -f "$py_script" ]; then
-        python3 "$py_script"
-    elif [ -x "$SCRIPT_DIR/scripts/manage_top_5_tracks.sh" ]; then
-        bash "$SCRIPT_DIR/scripts/manage_top_5_tracks.sh"
-    elif [ -x "$SCRIPT_DIR/manage_top_5_tracks.sh" ]; then
-        bash "$SCRIPT_DIR/manage_top_5_tracks.sh"
-    else
-        echo -e "\n${RED}Error: top_5_tracks_manager.py was not found in scripts/!${NC}\n"
-        press_enter
-    fi
+    local f
+    for f in "$SCRIPT_DIR/scripts/top_5_tracks_manager.py" "$SCRIPT_DIR/top_5_tracks_manager.py"; do
+        [ -f "$f" ] && { python3 "$f"; return; }
+    done
+    for f in "$SCRIPT_DIR/scripts/manage_top_5_tracks.sh" "$SCRIPT_DIR/manage_top_5_tracks.sh"; do
+        [ -x "$f" ] && { bash "$f"; return; }
+    done
+    echo -e "\n${RED}Error: top_5_tracks_manager.py was not found in scripts/!${NC}\n"
+    press_enter
 }
-
 
 manage_daws_suite() {
+    local opts=(
+        "1|Digital Audio Workstations (DAWs) Menu|(Reaper, Logic Pro, FL Studio, Traktor, Ardour, Bitwig...)"
+        "2|Open Mix WAV/FLAC Audio File in DAW|(Direct Mix Search/Select & Dispatch)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Digital Audio Workstations (DAWs) Menu|(Reaper, Logic Pro, FL Studio, Traktor, Ardour, Bitwig...)"
-            "2|Open Mix WAV/FLAC Audio File in DAW|(Direct Mix Search/Select & Dispatch)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "DIGITAL AUDIO WORKSTATIONS (DAWS) SUITE" "" opts 0
-        local daw_choice="$REPLY"
-        case "$daw_choice" in
-            1)
-                manage_daws
-                ;;
-            2)
-                open_mix_in_daw
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) manage_daws ;;
+            2) open_mix_in_daw ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
+
 manage_studio_hardware_and_volume() {
+    local opts=(
+        "1|Studio Hardware & Software Inspector|(PipeWire, ALSA, DAWs, MIDI Controllers & Surfaces)"
+        "2|Toggle Audio Mute / Unmute & Master Volume Control|(Instant PipeWire/ALSA Mute)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Studio Hardware & Software Inspector|(PipeWire, ALSA, DAWs, MIDI Controllers & Surfaces)"
-            "2|Toggle Audio Mute / Unmute & Master Volume Control|(Instant PipeWire/ALSA Mute)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "STUDIO HARDWARE, INTERFACES & VOLUME CONTROL" "" opts 0
-        local shv_choice="$REPLY"
-        case "$shv_choice" in
-            1)
-                inspect_audio_studio_menu
-                ;;
-            2)
-                toggle_audio_mute
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) inspect_audio_studio_menu ;;
+            2) toggle_audio_mute ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
-# ─── [ RUN ANY DESKTOP SHORTCUTS - LINUX (MANUAL MODE) ] ─────────────────────
 manage_desktop_shortcuts() {
+    local opts=(
+        "1|Run Any Desktop Shortcut Manually|(Games, Audio, Files, Tools, AI Servers)"
+        "2|Generate Keyboard Shortcut for a Desktop Shortcut|(e.g. Ctrl+Alt+Enter)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Run Any Desktop Shortcut Manually|(Games, Audio, Files, Tools, AI Servers)"
-            "2|Generate Keyboard Shortcut for a Desktop Shortcut|(e.g. Ctrl+Alt+Enter)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "RUN ANY DESKTOP SHORTCUTS — Linux / Windows / macOS" "  Launch and automate Desktop Shortcuts (Linux KDE Plasma, Windows .lnk, macOS .app).\n" opts 0
-        local dsk_top_choice="$REPLY"
-        case "$dsk_top_choice" in
-            1)
-                _run_desktop_shortcut_manual
-                ;;
-            2)
-                _bind_desktop_shortcut_keyboard
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) _run_desktop_shortcut_manual ;;
+            2) _bind_desktop_shortcut_keyboard ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
-# ─── Windows support (Git Bash / MSYS / Cygwin): .lnk / .url shortcuts ───────
 _dsk_is_windows() {
-    [ "${OS_TYPE:-}" = "windows" ] && return 0
-    case "${OSTYPE:-}" in msys*|cygwin*|win32*) return 0 ;; esac
-    case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) return 0 ;; esac
-    return 1
+    [[ "${OS_TYPE:-}${OSTYPE:-}" =~ (windows|msys|cygwin|win32) ]]
 }
 
 _dsk_have_ps() {
-    command -v powershell.exe >/dev/null 2>&1 || command -v pwsh.exe >/dev/null 2>&1 || command -v pwsh >/dev/null 2>&1
+    [ -n "$_CACHED_PS" ] || _CACHED_PS="$(command -v powershell.exe || command -v pwsh.exe || command -v pwsh)" 2>/dev/null
+    [ -n "$_CACHED_PS" ]
 }
 
-# Run a PowerShell snippet ($1) and print its output (CR stripped)
 _dsk_ps() {
-    local _ps=""
-    _ps="$(command -v powershell.exe 2>/dev/null || command -v pwsh.exe 2>/dev/null || command -v pwsh 2>/dev/null)"
-    [ -n "$_ps" ] || return 127
-    "$_ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \
-        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $1" 2>/dev/null | tr -d '\r'
-    return "${PIPESTATUS[0]}"
+    _dsk_have_ps || return 127
+    "$_CACHED_PS" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $1" 2>/dev/null
 }
 
-# Fills caller arrays: shortcut_names, shortcut_files (Windows paths), shortcut_comments (target), shortcut_existing_keys
 _dsk_collect_windows() {
-    shortcut_names=(); shortcut_files=(); shortcut_comments=(); shortcut_categories=(); shortcut_existing_keys=()
-    local _out
-    _out="$(_dsk_ps '
-$dirs=@([Environment]::GetFolderPath("Desktop"),[Environment]::GetFolderPath("CommonDesktopDirectory"),[Environment]::GetFolderPath("Programs"),[Environment]::GetFolderPath("CommonPrograms")) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
-$sh=New-Object -ComObject WScript.Shell
-$seen=@{}
-foreach($d in $dirs){
-  Get-ChildItem -LiteralPath $d -Recurse -Depth 2 -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in ".lnk",".url" } | Sort-Object Name | ForEach-Object {
-    if($_.BaseName -match "(?i)uninstall"){return}
-    if($seen.ContainsKey($_.FullName)){return}
-    $seen[$_.FullName]=1
-    $hk="";$tg=""
-    if($_.Extension -eq ".lnk"){ try{$l=$sh.CreateShortcut($_.FullName);$hk=$l.Hotkey;$tg=$l.TargetPath}catch{} }
-    Write-Output ($_.BaseName+"`t"+$_.FullName+"`t"+$hk+"`t"+$tg)
-  }
-}')"
-    local _n _p _h _t
+    shortcut_names=(); shortcut_files=(); shortcut_comments=()
+    local line
     while IFS=$'\t' read -r _n _p _h _t; do
-        [ -n "$_p" ] || continue
-        shortcut_names+=("$_n")
-        shortcut_files+=("$_p")
-        shortcut_existing_keys+=("$_h")
-        shortcut_comments+=("$_t")
-        shortcut_categories+=("")
-    done <<< "$_out"
+        [ -n "$_p" ] && { shortcut_names+=("$_n"); shortcut_files+=("$_p"); shortcut_comments+=("$_t"); }
+    done < <(_dsk_ps '$dirs=@([Environment]::GetFolderPath("Desktop"),[Environment]::GetFolderPath("CommonDesktopDirectory"),[Environment]::GetFolderPath("Programs"),[Environment]::GetFolderPath("CommonPrograms"))|?{$_ -and (Test-Path $_)}|Select -Unique
+$sh=New-Object -ComObject WScript.Shell;$s=@{}
+gci -LiteralPath $dirs -Recurse -Depth 2 -File -EA 0|?{$_.Extension -in ".lnk",".url"}|sort Name|%{
+if($_.BaseName -notmatch "(?i)uninstall" -and !$s[$_.FullName]){
+$s[$_.FullName]=1;$t=""
+if($_.Extension -eq ".lnk"){try{$t=$sh.CreateShortcut($_.FullName).TargetPath}catch{}}
+Write-Output "$($_.BaseName)`t$($_.FullName)`t`t$t"
+}}' | tr -d '\r')
 }
 
 _run_desktop_shortcut_manual_windows() {
-    local -a shortcut_names shortcut_files shortcut_comments shortcut_categories shortcut_existing_keys
     if ! _dsk_have_ps; then
         echo -e "\n${RED}PowerShell was not found — it is required to launch Windows shortcuts.${NC}"
         press_enter; return 0
     fi
     echo -e "\n${DIM}Scanning Desktop and Start Menu for Windows shortcuts...${NC}"
     _dsk_collect_windows
-    if [ ${#shortcut_names[@]} -eq 0 ]; then
-        echo -e "\n${RED}No Windows shortcuts (.lnk / .url) found on the Desktop or in the Start Menu.${NC}"
-        press_enter; return 0
-    fi
+    local total=${#shortcut_names[@]}
+    [ "$total" -eq 0 ] && { echo -e "\n${RED}No Windows shortcuts (.lnk / .url) found.${NC}"; press_enter; return 0; }
+
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}   🖥️  RUN ANY DESKTOP SHORTCUT MANUALLY — Windows                     ${NC}"
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "  ${DIM}Select a number to launch the shortcut. Press 0 to go back.${NC}"
-        echo ""
-        local idx _idx_str
-        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
-            printf -v _idx_str "%3d" "$(( idx + 1 ))"
-            echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} 📌 ${BOLD}${shortcut_names[$idx]}${NC}"
-            [ -n "${shortcut_comments[$idx]}" ] && echo -e "       ${DIM}${shortcut_comments[$idx]}${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================\n   🖥️  RUN ANY DESKTOP SHORTCUT MANUALLY — Windows\n========================================================================${NC}\n${DIM}Select a number to launch the shortcut. Press 0 to go back.${NC}\n"
+        local idx
+        for (( idx=0; idx<total; idx++ )); do
+            printf "  ${BOLD}${CYAN}\%3d)${NC} 📌 ${BOLD}\%s${NC}\n" "$((idx+1))" "${shortcut_names[idx]}"
+            [ -n "${shortcut_comments[idx]}" ] && echo -e "       ${DIM}${shortcut_comments[idx]}${NC}"
         done
-        echo ""
-        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
-        echo ""
-        local sc_choice
-        read -r -p "Enter shortcut number to launch [0-${#shortcut_names[@]}]: " sc_choice
-        if [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]]; then return 0; fi
-        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
-            echo -e "\n${RED}Invalid selection — please enter a number between 1 and ${#shortcut_names[@]}.${NC}"
-            sleep 1.5; continue
+        echo -e "\n  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu\n"
+        
+        local choice
+        read -r -p "Enter shortcut number to launch [0-$total]: " choice
+        [[ "$choice" =~ ^(0\vert{}[qQ])$ ]] && return 0
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > total )); then
+            echo -e "\n${RED}Invalid selection.${NC}"; sleep 1; continue
         fi
-        local _sel_name="${shortcut_names[$((sc_choice-1))]}"
-        local _sel_file="${shortcut_files[$((sc_choice-1))]}"
-        echo ""
-        echo -e "${BOLD}${YELLOW}▶  Launching: ${GREEN}${_sel_name}${NC}"
-        echo -e "   ${DIM}File: ${_sel_file}${NC}"
-        if DSK_LNK="$_sel_file" _dsk_ps 'Start-Process -FilePath $env:DSK_LNK; if($?){exit 0}else{exit 1}' >/dev/null; then
+
+        local sel_idx=$((choice-1))
+        echo -e "\n${BOLD}${YELLOW}▶  Launching: ${GREEN}${shortcut_names[sel_idx]}${NC}\n${DIM}File: ${shortcut_files[sel_idx]}${NC}"
+        if DSK_LNK="${shortcut_files[sel_idx]}" _dsk_ps 'Start-Process -FilePath $env:DSK_LNK; exit [int](!$?)' >/dev/null; then
             echo -e "${GREEN}✔  Shortcut launched successfully!${NC}"
         else
             echo -e "${RED}Error: Failed to launch shortcut.${NC}"
         fi
-        echo ""
-        press_enter
+        echo ""; press_enter
     done
 }
 
