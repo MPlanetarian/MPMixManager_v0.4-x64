@@ -10403,97 +10403,96 @@ for d in dirs:
     press_enter
 }
 
-# Helper: Add extra mix archive storage directory and persist
+# Internal Helper: Normalize path ( pure bash, 0 forks )
+_norm_path() {
+    local p="${1#"${1%%[![:space:]]*}"}"
+    p="${p%"${p##*[![:space:]]}"}"
+    p="${p#[\"\']}"; p="${p%[\"\']}"
+    [[ "$p" =~ ^~(/.*)?$ ]] && p="${HOME}${p:1}"
+    p="${p//\\//}"
+    [[ ! "$p" =~ ^[a-zA-Z]:/$ && "$p" != "/" ]] && p="${p%/}"
+    REPLY="$p"
+}
+
+# Internal Helper: Load extra dirs into _EXTRA_LIST array
+_load_extras() {
+    _EXTRA_LIST=()
+    local raw="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}" line
+    [ -z "$raw" ] && return
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        [ -n "$line" ] && _EXTRA_LIST+=("$line")
+    done < <(parse_extra_mix_archive_dirs "$raw")
+}
+
+# Internal Helper: Fast FLAC counter using glob arrays instead of find | wc -l
+_cnt_flacs() {
+    local d="$1" depth="${2:-1}" f=()
+    [ ! -d "$d" ] && { echo 0; return; }
+    shopt -s nullglob nocaseglob
+    if [ "$depth" -eq 2 ]; then
+        f=("$d"/*.flac "$d"/*/*.flac)
+    else
+        f=("$d"/*.flac)
+    fi
+    shopt -u nullglob nocaseglob
+    echo "${#f[@]}"
+}
+
+# Internal Helper: Apply and persist primary archive directory
+_set_primary_dir() {
+    local d="$1" save_subs="${2:-1}"
+    mkdir -p "$d"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
+    MIX_ARCHIVE_DIR="$d" MIX_ARCHIVE_CONFIGURED="true"
+    OUTPUT_DIR="$d/FLAC_CONVERTED_OUTPUTS" ARCHIVE_DIR="$d/CONVERTED_WAV_FILES"
+    MP3_OUTPUT_DIR="$d/MP3_CONVERTED_OUTPUTS" WAV_OUTPUT_DIR="$d/WAV_CONVERTED_OUTPUTS" MP4_OUTPUT_DIR="$d/MP4_CONVERTED_OUTPUTS"
+    export MIX_ARCHIVE_DIR MIX_ARCHIVE_CONFIGURED OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR
+    save_config_setting "MIX_ARCHIVE_DIR" "$d"
+    save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
+    if [ "$save_subs" -eq 1 ]; then
+        save_config_setting "OUTPUT_DIR" "$OUTPUT_DIR"
+        save_config_setting "ARCHIVE_DIR" "$ARCHIVE_DIR"
+        save_config_setting "MP3_OUTPUT_DIR" "$MP3_OUTPUT_DIR"
+        save_config_setting "WAV_OUTPUT_DIR" "$WAV_OUTPUT_DIR"
+        save_config_setting "MP4_OUTPUT_DIR" "$MP4_OUTPUT_DIR"
+    fi
+    cd "$d" 2>/dev/null || true
+    play_sound_effect "storage"
+}
+
 add_extra_mix_archive_dir() {
-    local new_dir="$1"
+    _norm_path "$1"; local new_dir="$REPLY"
     [ -z "$new_dir" ] && return 1
-
-    new_dir="${new_dir//\\//}"
-    if [[ ! "$new_dir" =~ ^[a-zA-Z]:/$ && "$new_dir" != "/" ]]; then
-        new_dir="${new_dir%/}"
-    fi
-
-    local current_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
-    local -a current_list=()
-    if [ -n "$current_extras" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            line="${line%$'\r'}"
-            [ -n "$line" ] && current_list+=("$line")
-        done < <(parse_extra_mix_archive_dirs "$current_extras")
-    fi
-
-    for clean_e in "${current_list[@]}"; do
-        if [ "$clean_e" = "$new_dir" ]; then
-            return 0
-        fi
-    done
-
-    current_list+=("$new_dir")
-
-    local joined=""
-    for k in "${current_list[@]}"; do
-        if [ -z "$joined" ]; then
-            joined="$k"
-        else
-            joined="${joined};${k}"
-        fi
-    done
-
-    EXTRA_MIX_ARCHIVE_DIRS="$joined"
+    _load_extras
+    local e
+    for e in "${_EXTRA_LIST[@]}"; do [ "$e" = "$new_dir" ] && return 0; done
+    _EXTRA_LIST+=("$new_dir")
+    local IFS=';'; EXTRA_MIX_ARCHIVE_DIRS="${_EXTRA_LIST[*]}"; unset IFS
     export EXTRA_MIX_ARCHIVE_DIRS
     clear_archive_dir_cache
-    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$joined"
+    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$EXTRA_MIX_ARCHIVE_DIRS"
     save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
 }
 
-# Helper: Remove extra mix archive storage directory and persist
 remove_extra_mix_archive_dir() {
-    local target_dir="$1"
-    target_dir="${target_dir//\\//}"
-    if [[ ! "$target_dir" =~ ^[a-zA-Z]:/$ && "$target_dir" != "/" ]]; then
-        target_dir="${target_dir%/}"
-    fi
-
-    local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
-    local -a existing_list=()
-    if [ -n "$raw_extras" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            line="${line%$'\r'}"
-            [ -n "$line" ] && existing_list+=("$line")
-        done < <(parse_extra_mix_archive_dirs "$raw_extras")
-    fi
-
-    local kept=()
-    for clean_e in "${existing_list[@]}"; do
-        if [ -n "$clean_e" ] && [ "$clean_e" != "$target_dir" ]; then
-            kept+=("$clean_e")
-        fi
+    _norm_path "$1"; local target="$REPLY"
+    _load_extras
+    local kept=() e
+    for e in "${_EXTRA_LIST[@]}"; do
+        [ -n "$e" ] && [ "$e" != "$target" ] && kept+=("$e")
     done
-
-    local joined=""
-    for k in "${kept[@]}"; do
-        if [ -z "$joined" ]; then
-            joined="$k"
-        else
-            joined="${joined};${k}"
-        fi
-    done
-
-    EXTRA_MIX_ARCHIVE_DIRS="$joined"
+    local IFS=';'; EXTRA_MIX_ARCHIVE_DIRS="${kept[*]}"; unset IFS
     export EXTRA_MIX_ARCHIVE_DIRS
     clear_archive_dir_cache
-    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$joined"
+    save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" "$EXTRA_MIX_ARCHIVE_DIRS"
 }
 
 configure_mix_archive_folder() {
+    local is_win=0
+    [[ "$OS_TYPE" =~ ^(windows|wsl)$ || "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]] && is_win=1
+
     while true; do
-        clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}     CONFIGURE MIX ARCHIVE STORAGE FOLDERS (PRIMARY & MULTIPLE)       ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        
-        local current_path="${MIX_ARCHIVE_DIR:-}"
-        local status_str
+        local current_path="${MIX_ARCHIVE_DIR:-}" status_str prim_flacs=0
         if is_mix_archive_configured && [ -d "$current_path" ]; then
             status_str="${GREEN}Configured & Accessible${NC}"
         elif is_mix_archive_configured; then
@@ -10501,44 +10500,27 @@ configure_mix_archive_folder() {
         else
             status_str="${RED}Not Configured (Defaulting to: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
         fi
-        
-        local prim_flacs=0
+
         if [ -d "$current_path/FLAC_CONVERTED_OUTPUTS" ]; then
-            prim_flacs=$(find "$current_path/FLAC_CONVERTED_OUTPUTS" -maxdepth 1 -type f -name "*.flac" 2>/dev/null | wc -l)
+            prim_flacs=$(_cnt_flacs "$current_path/FLAC_CONVERTED_OUTPUTS" 1)
         elif [ -d "$current_path" ]; then
-            prim_flacs=$(find "$current_path" -maxdepth 1 -type f -name "*.flac" 2>/dev/null | wc -l)
+            prim_flacs=$(_cnt_flacs "$current_path" 1)
         fi
 
-        echo -e "  • Primary Archive Path     : ${BOLD}${CYAN}${current_path:-$SCRIPT_DIR/MIX_ARCHIVE}${NC} ${DIM}(${prim_flacs} FLACs)${NC}"
-        echo -e "  • Primary Status           : ${status_str}"
-
-        # Parse and display extra archive paths
-        local extra_list=()
-        local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"
-        if [ -n "$raw_extras" ]; then
-            while IFS= read -r line || [ -n "$line" ]; do
-                line="${line%$'\r'}"
-                [ -n "$line" ] && extra_list+=("$line")
-            done < <(parse_extra_mix_archive_dirs "$raw_extras")
-        fi
-
-        if [ ${#extra_list[@]} -gt 0 ]; then
-            echo -e "  • Additional Storage Paths :"
-            local e_idx=1
-            for ed in "${extra_list[@]}"; do
-                local ed_stat="${RED}Not Found${NC}"
-                local ed_flacs=0
-                if [ -d "$ed" ]; then
-                    ed_flacs=$(find "$ed" -maxdepth 2 -type f -name "*.flac" 2>/dev/null | wc -l)
-                    ed_stat="${GREEN}Accessible (${ed_flacs} FLACs)${NC}"
-                fi
-                echo -e "      ${BOLD}${CYAN}[${e_idx}]${NC} ${WHITE}${ed}${NC} ➔ ${ed_stat}"
+        _load_extras
+        local status_hdr="Primary Archive Path     : ${BOLD}${CYAN}${current_path:-$SCRIPT_DIR/MIX_ARCHIVE}${NC} ${DIM}(${prim_flacs} FLACs)${NC}\n  • Primary Status           : ${status_str}\n"
+        if [ ${#_EXTRA_LIST[@]} -gt 0 ]; then
+            status_hdr+="Additional Storage Paths :\n"
+            local e_idx=1 ed ed_stat
+            for ed in "${_EXTRA_LIST[@]}"; do
+                ed_stat="${RED}Not Found${NC}"
+                [ -d "$ed" ] && ed_stat="${GREEN}Accessible ($(_cnt_flacs "$ed" 2) FLACs)${NC}"
+                status_hdr+="      ${BOLD}${CYAN}[${e_idx}]${NC} ${WHITE}${ed}${NC} ➔ ${ed_stat}\n"
                 ((e_idx++))
             done
         else
-            echo -e "  • Additional Storage Paths : ${DIM}None configured (Single Archive Mode)${NC}"
+            status_hdr+="Additional Storage Paths : ${DIM}None configured (Single Archive Mode)${NC}\n"
         fi
-        echo ""
 
         local cfg_opts=(
             "1|Enter New Primary Mix Archive Folder Path|(Custom Directory Path)"
@@ -10551,598 +10533,292 @@ configure_mix_archive_folder() {
             "8|Clear All Additional Mix Archive Storage Locations|"
             "0|Return to Main Menu|(or Esc / q)"
         )
-        local status_hdr="  • Primary Archive Path     : ${BOLD}${CYAN}${current_path:-$SCRIPT_DIR/MIX_ARCHIVE}${NC} ${DIM}(${prim_flacs} FLACs)${NC}\n  • Primary Status           : ${status_str}\n"
-        if [ ${#extra_list[@]} -gt 0 ]; then
-            status_hdr+="  • Additional Storage Paths :\n"
-            local e_idx=1
-            for ed in "${extra_list[@]}"; do
-                local ed_stat="${RED}Not Found${NC}"
-                local ed_flacs=0
-                if [ -d "$ed" ]; then
-                    ed_flacs=$(find "$ed" -maxdepth 2 -type f -name "*.flac" 2>/dev/null | wc -l)
-                    ed_stat="${GREEN}Accessible (${ed_flacs} FLACs)${NC}"
-                fi
-                status_hdr+="      ${BOLD}${CYAN}[${e_idx}]${NC} ${WHITE}${ed}${NC} ➔ ${ed_stat}\n"
-                ((e_idx++))
-            done
-        else
-            status_hdr+="  • Additional Storage Paths : ${DIM}None configured (Single Archive Mode)${NC}\n"
-        fi
-        
         run_interactive_submenu "CONFIGURE MIX ARCHIVE STORAGE FOLDERS (PRIMARY & MULTIPLE)" "$status_hdr" cfg_opts 0
         local opt="$REPLY"
+
         case "$opt" in
-            1)
+            1|4)
                 echo ""
-                echo -e "${BOLD}Enter full path to your Primary Mix Archive storage directory:${NC}"
-                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-                    echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  B:\\MIX_ARCHIVE  or  /g/My Drive/MIX_ARCHIVE)${NC}"
+                if [ "$opt" = 1 ]; then
+                    echo -e "${BOLD}Enter full path to your Primary Mix Archive storage directory:${NC}"
+                    [ "$is_win" -eq 1 ] && echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  B:\\MIX_ARCHIVE  or  /g/My Drive/MIX_ARCHIVE)${NC}" || echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/WD BLACK B/MIX_ARCHIVE  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                    read -e -r -p "Path: " raw_in
                 else
-                    echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/WD BLACK B/MIX_ARCHIVE  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                    echo -e "${BOLD}Enter full path to the Additional Mix Archive folder:${NC}"
+                    [ "$is_win" -eq 1 ] && echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  D:\\Mixes\\FLAC_CONVERTED_OUTPUTS  or  /g/My Drive/MIX_ARCHIVE)${NC}" || echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS/  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
+                    read -e -r -p "Additional Archive Path: " raw_in
                 fi
-                read -e -r -p "Path: " new_dir
-                new_dir="${new_dir#"${new_dir%%[![:space:]]*}"}"
-                new_dir="${new_dir%"${new_dir##*[![:space:]]}"}"
-                new_dir="${new_dir%\"}"
-                new_dir="${new_dir#\"}"
-                new_dir="${new_dir%\'}"
-                new_dir="${new_dir#\'}"
-                
-                # Expand tilde ~
-                if [[ "$new_dir" =~ ^~(/.*)?$ ]]; then
-                    new_dir="${HOME}${new_dir:1}"
+                _norm_path "$raw_in"; local target_dir="$REPLY"
+                [ -z "$target_dir" ] && continue
+
+                if [ ! -d "$target_dir" ]; then
+                    echo -e "\n${YELLOW}Directory does not exist:${NC} ${target_dir}"
+                    read -r -p "Create this directory now? [y/N]: " ans
+                    [[ ! "$ans" =~ ^[yY] ]] && continue
+                    mkdir -p "$target_dir" 2>/dev/null || { echo -e "${RED}Error: Failed to create directory.${NC}"; sleep 2; continue; }
                 fi
 
-                # Normalize path (convert backslashes to forward slashes) BEFORE directory check
-                new_dir="${new_dir//\\//}"
-                if [[ ! "$new_dir" =~ ^[a-zA-Z]:/$ && "$new_dir" != "/" ]]; then
-                    new_dir="${new_dir%/}"
+                if [ "$opt" = 1 ]; then
+                    _set_primary_dir "$target_dir" 1
+                    echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully configured and saved!${NC}\n  Primary Location: ${BOLD}${WHITE}${target_dir}${NC}"
+                else
+                    add_extra_mix_archive_dir "$target_dir"
+                    play_sound_effect "storage"
+                    echo -e "\n${GREEN}✓ Additional Mix Archive Location successfully added and saved!${NC}\n  Location: ${BOLD}${WHITE}${target_dir}${NC}"
                 fi
-                
-                [ -z "$new_dir" ] && continue
-                
-                if [ ! -d "$new_dir" ]; then
-                    echo -e "\n${YELLOW}Directory does not exist:${NC} ${new_dir}"
-                    read -r -p "Would you like to create this directory now? [y/N]: " create_ans
-                    if [[ "$create_ans" =~ ^[yY] ]]; then
-                        mkdir -p "$new_dir" 2>/dev/null || {
-                            echo -e "${RED}Error: Failed to create directory. Check permissions.${NC}"
-                            sleep 2
-                            continue
-                        }
-                    else
-                        continue
-                    fi
-                fi
-                
-                # Setup subdirectories
-                mkdir -p "$new_dir"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
-                
-                MIX_ARCHIVE_DIR="$new_dir"
-                MIX_ARCHIVE_CONFIGURED="true"
-                OUTPUT_DIR="$new_dir/FLAC_CONVERTED_OUTPUTS"
-                ARCHIVE_DIR="$new_dir/CONVERTED_WAV_FILES"
-                MP3_OUTPUT_DIR="$new_dir/MP3_CONVERTED_OUTPUTS"
-                WAV_OUTPUT_DIR="$new_dir/WAV_CONVERTED_OUTPUTS"
-                MP4_OUTPUT_DIR="$new_dir/MP4_CONVERTED_OUTPUTS"
-                export MIX_ARCHIVE_DIR MIX_ARCHIVE_CONFIGURED OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR
-                
-                save_config_setting "MIX_ARCHIVE_DIR" "$new_dir"
-                save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
-                save_config_setting "OUTPUT_DIR" "$new_dir/FLAC_CONVERTED_OUTPUTS"
-                save_config_setting "ARCHIVE_DIR" "$new_dir/CONVERTED_WAV_FILES"
-                save_config_setting "MP3_OUTPUT_DIR" "$new_dir/MP3_CONVERTED_OUTPUTS"
-                save_config_setting "WAV_OUTPUT_DIR" "$new_dir/WAV_CONVERTED_OUTPUTS"
-                save_config_setting "MP4_OUTPUT_DIR" "$new_dir/MP4_CONVERTED_OUTPUTS"
-                
-                cd "$new_dir" 2>/dev/null || true
-                play_sound_effect "storage"
-                echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully configured and saved!${NC}"
-                echo -e "  Primary Location: ${BOLD}${WHITE}${new_dir}${NC}"
-                sleep 2
-                ;;
-            2)
-                local found_dirs=()
+                sleep 2 ;;
+            2|6)
                 echo -e "\n${CYAN}Scanning mounted drives and volumes for candidate mix folders...${NC}"
                 shopt -s nullglob
-                local drive_candidates=(
-                    "/run/media/$USER"/*
-                    "/run/media/mplanetarian"/*
-                    "/Volumes"/*
-                    "/media/$USER"/*
-                    "/mnt"/*
-                )
-                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-                    for ltr in {a..z}; do
-                        [ -d "/$ltr" ] && drive_candidates+=("/$ltr")
-                    done
+                local candidates=("/run/media/$USER"/* "/run/media/mplanetarian"/* "/Volumes"/* "/media/$USER"/* "/mnt"/*)
+                if [ "$is_win" -eq 1 ]; then
+                    local ltr; for ltr in {a..z}; do [ -d "/$ltr" ] && candidates+=("/$ltr"); done
                 fi
-                for d in "${drive_candidates[@]}"; do
-                    if [ -d "$d" ]; then
-                        [ -d "$d/MIX_ARCHIVE" ] && found_dirs+=("$d/MIX_ARCHIVE")
-                        [ -d "$d/MIX_ARCHIVE2" ] && found_dirs+=("$d/MIX_ARCHIVE2")
-                        [ -d "$d/My Drive/MIX_ARCHIVE" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE")
-                        [ -d "$d/Mixes" ] && found_dirs+=("$d/Mixes")
-                        [ -d "$d/MIXES" ] && found_dirs+=("$d/MIXES")
-                        found_dirs+=("$d")
+                local found=() d sub
+                for d in "${candidates[@]}"; do
+                    [ ! -d "$d" ] && continue
+                    if [ "$opt" = 6 ]; then
+                        for sub in "FLAC_CONVERTED_OUTPUTS" "MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" "MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS" "My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS"; do
+                            [ -d "$d/$sub" ] && found+=("$d/$sub")
+                        done
                     fi
+                    for sub in "MIX_ARCHIVE" "MIX_ARCHIVE2" "My Drive/MIX_ARCHIVE" "Mixes" "MIXES"; do
+                        [ -d "$d/$sub" ] && found+=("$d/$sub")
+                    done
+                    [ "$opt" = 2 ] && found+=("$d")
                 done
                 shopt -u nullglob
-                
-                local unique_dirs=()
-                local seen_dirs=()
-                for f_dir in "${found_dirs[@]}"; do
-                    local real_d
-                    real_d="$(cd "$f_dir" 2>/dev/null && pwd -P || echo "$f_dir")"
-                    if [[ ! " ${seen_dirs[*]} " =~ " ${real_d} " ]]; then
-                        seen_dirs+=("$real_d")
-                        unique_dirs+=("$f_dir")
+
+                local unique=() seen=" " prim_real=""
+                [ "$opt" = 6 ] && prim_real="$(cd "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" 2>/dev/null && pwd -P)"
+                for d in "${found[@]}"; do
+                    local rd="$(cd "$d" 2>/dev/null && pwd -P || echo "$d")"
+                    if [ "$opt" = 6 ]; then
+                        [ "$rd" = "$prim_real" ] && continue
+                        local skip=0 ex
+                        for ex in "${_EXTRA_LIST[@]}"; do
+                            [ "$rd" = "$(cd "$ex" 2>/dev/null && pwd -P || echo "$ex")" ] && { skip=1; break; }
+                        done
+                        [ "$skip" -eq 1 ] && continue
+                    fi
+                    if [[ "$seen" != *" $rd "* ]]; then
+                        seen+="$rd "; unique+=("$d")
                     fi
                 done
-                
-                if [ ${#unique_dirs[@]} -eq 0 ]; then
-                    echo -e "\n${YELLOW}No external mounted drives detected.${NC}"
-                    sleep 1.5
-                    continue
+
+                if [ ${#unique[@]} -eq 0 ]; then
+                    echo -e "\n${YELLOW}No candidate mix archive folders detected on mounted drives.${NC}"
+                    sleep 1.5; continue
                 fi
-                
+
                 echo -e "\n${BOLD}Available Storage Locations:${NC}"
-                local idx=1
-                for u_dir in "${unique_dirs[@]}"; do
-                    local note=""
-                    [ -d "$u_dir/FLAC_CONVERTED_OUTPUTS" ] && note=" ${GREEN}(Contains FLAC_CONVERTED_OUTPUTS)${NC}"
-                    echo -e "  ${BOLD}${CYAN}${idx})${NC} ${u_dir}${note}"
+                local idx=1 u note
+                for u in "${unique[@]}"; do
+                    if [ "$opt" = 2 ]; then
+                        note=""; [ -d "$u/FLAC_CONVERTED_OUTPUTS" ] && note=" ${GREEN}(Contains FLAC_CONVERTED_OUTPUTS)${NC}"
+                    else
+                        note=" ${GREEN}($(_cnt_flacs "$u" 2) FLAC files)${NC}"
+                    fi
+                    echo -e "  ${BOLD}${CYAN}${idx})${NC} ${u}${note}"
                     ((idx++))
                 done
                 echo -e "  ${BOLD}0)${NC} Back"
-                
-                read -r -p "Select a location [1-${#unique_dirs[@]}, 0]: " sel_idx
-                if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#unique_dirs[@]}" ]; then
-                    local chosen_dir="${unique_dirs[$((sel_idx - 1))]}"
-                    chosen_dir="${chosen_dir//\\//}"
-                    mkdir -p "$chosen_dir"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
-                    MIX_ARCHIVE_DIR="$chosen_dir"
-                    MIX_ARCHIVE_CONFIGURED="true"
-                    OUTPUT_DIR="$chosen_dir/FLAC_CONVERTED_OUTPUTS"
-                    ARCHIVE_DIR="$chosen_dir/CONVERTED_WAV_FILES"
-                    MP3_OUTPUT_DIR="$chosen_dir/MP3_CONVERTED_OUTPUTS"
-                    WAV_OUTPUT_DIR="$chosen_dir/WAV_CONVERTED_OUTPUTS"
-                    MP4_OUTPUT_DIR="$chosen_dir/MP4_CONVERTED_OUTPUTS"
-                    export MIX_ARCHIVE_DIR MIX_ARCHIVE_CONFIGURED OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR
-                    save_config_setting "MIX_ARCHIVE_DIR" "$chosen_dir"
-                    save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
-                    save_config_setting "OUTPUT_DIR" "$chosen_dir/FLAC_CONVERTED_OUTPUTS"
-                    save_config_setting "ARCHIVE_DIR" "$chosen_dir/CONVERTED_WAV_FILES"
-                    save_config_setting "MP3_OUTPUT_DIR" "$chosen_dir/MP3_CONVERTED_OUTPUTS"
-                    save_config_setting "WAV_OUTPUT_DIR" "$chosen_dir/WAV_CONVERTED_OUTPUTS"
-                    save_config_setting "MP4_OUTPUT_DIR" "$chosen_dir/MP4_CONVERTED_OUTPUTS"
-                    cd "$chosen_dir" 2>/dev/null || true
-                    play_sound_effect "storage"
-                    echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully set to:${NC} ${BOLD}${WHITE}${chosen_dir}${NC}"
-                    sleep 2
-                fi
-                ;;
-            3)
-                local root_archive="$SCRIPT_DIR/MIX_ARCHIVE"
-                mkdir -p "$root_archive"/{FLAC_CONVERTED_OUTPUTS,CONVERTED_WAV_FILES,MP3_CONVERTED_OUTPUTS,WAV_CONVERTED_OUTPUTS,MP4_CONVERTED_OUTPUTS} 2>/dev/null || true
-                MIX_ARCHIVE_DIR="$root_archive"
-                MIX_ARCHIVE_CONFIGURED="true"
-                OUTPUT_DIR="$root_archive/FLAC_CONVERTED_OUTPUTS"
-                ARCHIVE_DIR="$root_archive/CONVERTED_WAV_FILES"
-                MP3_OUTPUT_DIR="$root_archive/MP3_CONVERTED_OUTPUTS"
-                WAV_OUTPUT_DIR="$root_archive/WAV_CONVERTED_OUTPUTS"
-                MP4_OUTPUT_DIR="$root_archive/MP4_CONVERTED_OUTPUTS"
-                export MIX_ARCHIVE_DIR MIX_ARCHIVE_CONFIGURED OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR
-                save_config_setting "MIX_ARCHIVE_DIR" "$root_archive"
-                save_config_setting "MIX_ARCHIVE_CONFIGURED" "true"
-                cd "$root_archive" 2>/dev/null || true
-                play_sound_effect "storage"
-                echo -e "\n${GREEN}✓ Primary Mix Archive Folder reset to Application Root Folder:${NC} ${BOLD}${WHITE}${root_archive}${NC}"
-                sleep 2
-                ;;
-            4)
-                echo ""
-                echo -e "${BOLD}Enter full path to the Additional Mix Archive folder:${NC}"
-                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-                    echo -e "${DIM}(e.g. Windows: G:\\My Drive\\MIX_ARCHIVE  or  D:\\Mixes\\FLAC_CONVERTED_OUTPUTS  or  /g/My Drive/MIX_ARCHIVE)${NC}"
-                else
-                    echo -e "${DIM}(e.g. Linux: /run/media/${USER:-user}/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS/  or  macOS: /Volumes/EXTERNAL/MIX_ARCHIVE)${NC}"
-                fi
-                read -e -r -p "Additional Archive Path: " add_dir
-                add_dir="${add_dir#"${add_dir%%[![:space:]]*}"}"
-                add_dir="${add_dir%"${add_dir##*[![:space:]]}"}"
-                add_dir="${add_dir%\"}"
-                add_dir="${add_dir#\"}"
-                add_dir="${add_dir%\'}"
-                add_dir="${add_dir#\'}"
-                
-                if [[ "$add_dir" =~ ^~(/.*)?$ ]]; then
-                    add_dir="${HOME}${add_dir:1}"
-                fi
-
-                # Normalize Windows backslashes to forward slashes BEFORE checking existence
-                add_dir="${add_dir//\\//}"
-                if [[ ! "$add_dir" =~ ^[a-zA-Z]:/$ && "$add_dir" != "/" ]]; then
-                    add_dir="${add_dir%/}"
-                fi
-                
-                [ -z "$add_dir" ] && continue
-                
-                if [ ! -d "$add_dir" ]; then
-                    echo -e "\n${YELLOW}Directory does not currently exist:${NC} ${add_dir}"
-                    read -r -p "Create this directory now? [y/N]: " create_ans
-                    if [[ "$create_ans" =~ ^[yY] ]]; then
-                        mkdir -p "$add_dir" 2>/dev/null || {
-                            echo -e "${RED}Error: Failed to create directory.${NC}"
-                            sleep 2
-                            continue
-                        }
+                read -r -p "Select a location [1-${#unique[@]}, 0]: " sel
+                if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#unique[@]}" ]; then
+                    local chosen="${unique[$((sel - 1))]//\\//}"
+                    if [ "$opt" = 2 ]; then
+                        _set_primary_dir "$chosen" 1
+                        echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully set to:${NC} ${BOLD}${WHITE}${chosen}${NC}"
                     else
-                        continue
+                        add_extra_mix_archive_dir "$chosen"
+                        play_sound_effect "storage"
+                        echo -e "\n${GREEN}✓ Added additional mix archive location:${NC} ${chosen}"
                     fi
-                fi
-                
-                add_extra_mix_archive_dir "$add_dir"
-                play_sound_effect "storage"
-                echo -e "\n${GREEN}✓ Additional Mix Archive Location successfully added and saved!${NC}"
-                echo -e "  Location: ${BOLD}${WHITE}${add_dir}${NC}"
-                sleep 2
-                ;;
+                    sleep 2
+                fi ;;
+            3)
+                local root_arch="$SCRIPT_DIR/MIX_ARCHIVE"
+                _set_primary_dir "$root_arch" 0
+                echo -e "\n${GREEN}✓ Primary Mix Archive Folder reset to Application Root Folder:${NC} ${BOLD}${WHITE}${root_arch}${NC}"
+                sleep 2 ;;
             5)
-                if [ ${#extra_list[@]} -eq 0 ]; then
+                if [ ${#_EXTRA_LIST[@]} -eq 0 ]; then
                     echo -e "\n${YELLOW}No additional mix archive locations currently configured.${NC}"
-                    sleep 1.5
-                    continue
+                    sleep 1.5; continue
                 fi
                 echo -e "\n${BOLD}Select an Additional Mix Archive Location to Remove:${NC}"
-                local r_idx=1
-                for ed in "${extra_list[@]}"; do
-                    echo -e "  ${BOLD}${CYAN}${r_idx})${NC} ${ed}"
-                    ((r_idx++))
-                done
+                local r_idx=1 ed
+                for ed in "${_EXTRA_LIST[@]}"; do echo -e "  ${BOLD}${CYAN}${r_idx})${NC} ${ed}"; ((r_idx++)); done
                 echo -e "  ${BOLD}0)${NC} Cancel"
-                read -r -p "Enter number to remove [1-${#extra_list[@]}, 0]: " rem_idx
-                if [[ "$rem_idx" =~ ^[0-9]+$ ]] && [ "$rem_idx" -ge 1 ] && [ "$rem_idx" -le "${#extra_list[@]}" ]; then
-                    local rem_target="${extra_list[$((rem_idx - 1))]}"
-                    remove_extra_mix_archive_dir "$rem_target"
-                    echo -e "\n${GREEN}✓ Removed:${NC} ${rem_target}"
+                read -r -p "Enter number to remove [1-${#_EXTRA_LIST[@]}, 0]: " rem
+                if [[ "$rem" =~ ^[0-9]+$ ]] && [ "$rem" -ge 1 ] && [ "$rem" -le "${#_EXTRA_LIST[@]}" ]; then
+                    local target="${_EXTRA_LIST[$((rem - 1))]}"
+                    remove_extra_mix_archive_dir "$target"
+                    echo -e "\n${GREEN}✓ Removed:${NC} ${target}"
                     sleep 1.5
-                fi
-                ;;
-            6)
-                local found_dirs=()
-                echo -e "\n${CYAN}Scanning mounted drives for potential mix archive folders...${NC}"
-                shopt -s nullglob
-                local drive_candidates=(
-                    "/run/media/$USER"/*
-                    "/run/media/mplanetarian"/*
-                    "/Volumes"/*
-                    "/media/$USER"/*
-                    "/mnt"/*
-                )
-                if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-                    for ltr in {a..z}; do
-                        [ -d "/$ltr" ] && drive_candidates+=("/$ltr")
-                    done
-                fi
-                for d in "${drive_candidates[@]}"; do
-                    if [ -d "$d" ]; then
-                        [ -d "$d/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/FLAC_CONVERTED_OUTPUTS")
-                        [ -d "$d/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS")
-                        [ -d "$d/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS")
-                        [ -d "$d/My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS")
-                        [ -d "$d/MIX_ARCHIVE" ] && found_dirs+=("$d/MIX_ARCHIVE")
-                        [ -d "$d/MIX_ARCHIVE2" ] && found_dirs+=("$d/MIX_ARCHIVE2")
-                        [ -d "$d/My Drive/MIX_ARCHIVE" ] && found_dirs+=("$d/My Drive/MIX_ARCHIVE")
-                        [ -d "$d/Mixes" ] && found_dirs+=("$d/Mixes")
-                        [ -d "$d/MIXES" ] && found_dirs+=("$d/MIXES")
-                    fi
-                done
-                shopt -u nullglob
-
-                local unique_candidates=()
-                local seen_cand=()
-                local prim_real
-                prim_real="$(cd "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" 2>/dev/null && pwd -P || echo "")"
-                for cand in "${found_dirs[@]}"; do
-                    local r_cand
-                    r_cand="$(cd "$cand" 2>/dev/null && pwd -P || echo "$cand")"
-                    # Skip primary
-                    [ "$r_cand" = "$prim_real" ] && continue
-                    # Skip already in extra_list
-                    local already=0
-                    for ex in "${extra_list[@]}"; do
-                        local r_ex
-                        r_ex="$(cd "$ex" 2>/dev/null && pwd -P || echo "$ex")"
-                        [ "$r_cand" = "$r_ex" ] && already=1 && break
-                    done
-                    [ "$already" -eq 1 ] && continue
-                    if [[ ! " ${seen_cand[*]} " =~ " ${r_cand} " ]]; then
-                        seen_cand+=("$r_cand")
-                        unique_candidates+=("$cand")
-                    fi
-                done
-
-                if [ ${#unique_candidates[@]} -eq 0 ]; then
-                    echo -e "\n${YELLOW}No new unconfigured mix archive folders detected on mounted drives.${NC}"
-                    sleep 2
-                    continue
-                fi
-
-                echo -e "\n${BOLD}Select a detected folder to add as an Additional Archive:${NC}"
-                local c_idx=1
-                for cand in "${unique_candidates[@]}"; do
-                    local fc
-                    fc=$(find "$cand" -maxdepth 2 -type f -name "*.flac" 2>/dev/null | wc -l)
-                    echo -e "  ${BOLD}${CYAN}${c_idx})${NC} ${cand} ${GREEN}(${fc} FLAC files)${NC}"
-                    ((c_idx++))
-                done
-                echo -e "  ${BOLD}0)${NC} Back"
-
-                read -r -p "Select folder [1-${#unique_candidates[@]}, 0]: " sel_cand
-                if [[ "$sel_cand" =~ ^[0-9]+$ ]] && [ "$sel_cand" -ge 1 ] && [ "$sel_cand" -le "${#unique_candidates[@]}" ]; then
-                    local chosen_extra="${unique_candidates[$((sel_cand - 1))]}"
-                    add_extra_mix_archive_dir "$chosen_extra"
-                    play_sound_effect "storage"
-                    echo -e "\n${GREEN}✓ Added additional mix archive location:${NC} ${chosen_extra}"
-                    sleep 2
-                fi
-                ;;
-            7)
-                show_mix_drive_space
-                ;;
+                fi ;;
+            7) show_mix_drive_space ;;
             8)
-                echo -e "\n${YELLOW}Are you sure you want to clear all additional mix archive locations? [y/N]:${NC} "
-                read -r clr_ans
-                if [[ "$clr_ans" =~ ^[yY] ]]; then
-                    EXTRA_MIX_ARCHIVE_DIRS=""
-                    export EXTRA_MIX_ARCHIVE_DIRS
+                read -r -p $'\n'"${YELLOW}Are you sure you want to clear all additional mix archive locations? [y/N]:${NC} " clr
+                if [[ "$clr" =~ ^[yY] ]]; then
+                    EXTRA_MIX_ARCHIVE_DIRS=""; export EXTRA_MIX_ARCHIVE_DIRS
                     clear_archive_dir_cache
                     save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" ""
                     echo -e "\n${GREEN}✓ All additional storage locations cleared.${NC}"
                     sleep 1.5
-                fi
-                ;;
-            0|[qQ]|ESC)
-                return 0
-                ;;
+                fi ;;
+            0|[qQ]|ESC) return 0 ;;
         esac
     done
 }
 
 manage_audio_conversion() {
-    local script=""
+    local script="" s
     for s in "$SCRIPT_DIR/convert_audio_format.sh" "$SCRIPT_DIR/scripts/convert_audio_format.sh" "./convert_audio_format.sh"; do
-        if [ -f "$s" ]; then script="$s"; break; fi
+        [ -f "$s" ] && { script="$s"; break; }
     done
-    if [ -z "$script" ]; then
-        echo -e "\n${RED}Error: convert_audio_format.sh script not found!${NC}"
-        press_enter
-        return 1
-    fi
+    [ -z "$script" ] && { echo -e "\n${RED}Error: convert_audio_format.sh script not found!${NC}"; press_enter; return 1; }
+
+    local conv_opts=(
+        "1|Convert Single Audio File|(Interactive Selection & Auto-Split Prompt)"
+        "2|Convert Current Staging WAV / OGG Files|(in ${PWD})"
+        "3|Convert All WAV / OGG in CONVERTED_WAV_FILES/|(Archive batch)"
+        "4|Convert FLAC Outputs to MP3 & OGG Vorbis|(320kbps CBR / Vorbis q8)"
+        "5|WAV-to-WAV Bit Depth Conversion|(16/24/32-bit Float)"
+        "6|Split Audio File into Parts & Generate Spek Spectrograms|(FLAC, MP3, OGG, WAV)"
+        "7|EBU R128 Loudness Scanner & True-Peak Analyzer|(master_audio_loudness.py)"
+        "8|Master & Normalize Loudness|(-14 LUFS Streaming / -16 LUFS Podcast / -23 LUFS)"
+        "9|Standard Red Book CUE Sheet Generator & Audio Splitter|(generate_cue_sheet.py)"
+        "10|Launch Full Interactive Converter CLI|(convert_audio_format.sh)"
+        "11|Verify Audio Mastering Quality, True Peak & Mono Phase|(verify_audio_mastering.py)"
+        "12|Embed Cover Art, Vorbis Tags & ReplayGain into Mixes|(tag_audio_metadata.py)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    local conv_hdr="  Supported Formats: ${BOLD}FLAC, MP3, Ogg Vorbis, Opus, Apple AAC, WAV${NC}\n  WAV Bit Depths:    ${BOLD}32-bit Float, 32-bit Int, 24-bit PCM, 16-bit 44.1kHz PCM${NC}\n"
 
     while true; do
-        local conv_opts=(
-            "1|Convert Single Audio File|(Interactive Selection & Auto-Split Prompt)"
-            "2|Convert Current Staging WAV / OGG Files|(in ${PWD})"
-            "3|Convert All WAV / OGG in CONVERTED_WAV_FILES/|(Archive batch)"
-            "4|Convert FLAC Outputs to MP3 & OGG Vorbis|(320kbps CBR / Vorbis q8)"
-            "5|WAV-to-WAV Bit Depth Conversion|(16/24/32-bit Float)"
-            "6|Split Audio File into Parts & Generate Spek Spectrograms|(FLAC, MP3, OGG, WAV)"
-            "7|EBU R128 Loudness Scanner & True-Peak Analyzer|(master_audio_loudness.py)"
-            "8|Master & Normalize Loudness|(-14 LUFS Streaming / -16 LUFS Podcast / -23 LUFS)"
-            "9|Standard Red Book CUE Sheet Generator & Audio Splitter|(generate_cue_sheet.py)"
-            "10|Launch Full Interactive Converter CLI|(convert_audio_format.sh)"
-            "11|Verify Audio Mastering Quality, True Peak & Mono Phase|(verify_audio_mastering.py)"
-            "12|Embed Cover Art, Vorbis Tags & ReplayGain into Mixes|(tag_audio_metadata.py)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
-        local conv_hdr="  Supported Formats: ${BOLD}FLAC, MP3, Ogg Vorbis, Opus, Apple AAC, WAV${NC}\n  WAV Bit Depths:    ${BOLD}32-bit Float, 32-bit Int, 24-bit PCM, 16-bit 44.1kHz PCM${NC}\n"
         run_interactive_submenu "AUDIO FORMAT & BIT DEPTH CONVERTER" "$conv_hdr" conv_opts 0
-        local conv_choice="$REPLY"
-
-        case "$conv_choice" in
-            1)
-                bash "$script" -i
-                press_enter
-                ;;
-            2)
-                bash "$script" -c
-                press_enter
-                ;;
-            3)
-                bash "$script" -w
-                press_enter
-                ;;
-            4)
-                bash "$script" -f -o mp3 -b 320k
-                press_enter
-                ;;
-            5)
-                bash "$script" -w -o wav -d 24
-                press_enter
-                ;;
-            6)
-                split_flac_audio
-                press_enter
-                ;;
-            7)
-                if [ -f "$SCRIPT_DIR/scripts/master_audio_loudness.py" ]; then
-                    python3 "$SCRIPT_DIR/scripts/master_audio_loudness.py"
-                else
-                    echo -e "\n${RED}Error: master_audio_loudness.py not found!${NC}"
-                fi
-                press_enter
-                ;;
-            8)
-                if [ -f "$SCRIPT_DIR/scripts/master_audio_loudness.py" ]; then
-                    python3 "$SCRIPT_DIR/scripts/master_audio_loudness.py"
-                else
-                    echo -e "\n${RED}Error: master_audio_loudness.py not found!${NC}"
-                fi
-                press_enter
-                ;;
+        case "$REPLY" in
+            1)  bash "$script" -i; press_enter ;;
+            2)  bash "$script" -c; press_enter ;;
+            3)  bash "$script" -w; press_enter ;;
+            4)  bash "$script" -f -o mp3 -b 320k; press_enter ;;
+            5)  bash "$script" -w -o wav -d 24; press_enter ;;
+            6)  split_flac_audio; press_enter ;;
+            7|8)
+                [ -f "$SCRIPT_DIR/scripts/master_audio_loudness.py" ] && python3 "$SCRIPT_DIR/scripts/master_audio_loudness.py" || echo -e "\n${RED}Error: master_audio_loudness.py not found!${NC}"
+                press_enter ;;
             9)
-                if [ -f "$SCRIPT_DIR/scripts/generate_cue_sheet.py" ]; then
-                    python3 "$SCRIPT_DIR/scripts/generate_cue_sheet.py"
-                else
-                    echo -e "\n${RED}Error: generate_cue_sheet.py not found!${NC}"
-                fi
-                press_enter
-                ;;
-            10)
-                bash "$script"
-                press_enter
-                ;;
+                [ -f "$SCRIPT_DIR/scripts/generate_cue_sheet.py" ] && python3 "$SCRIPT_DIR/scripts/generate_cue_sheet.py" || echo -e "\n${RED}Error: generate_cue_sheet.py not found!${NC}"
+                press_enter ;;
+            10) bash "$script"; press_enter ;;
             11)
                 echo -e "\n${BOLD}${BLUE}=== VERIFY AUDIO MASTERING QUALITY & MONO COMPATIBILITY ===${NC}\n"
-                read -r -p "Enter path to audio file (or drag & drop): " v_target
-                v_target=$(echo "$v_target" | sed "s/^'//;s/'$//;s/^\"//;s/\"$//")
-                if [ -n "$v_target" ] && [ -f "$v_target" ]; then
-                    python3 "$SCRIPT_DIR/scripts/verify_audio_mastering.py" "$v_target"
-                else
-                    echo -e "${RED}Error: File not found.${NC}"
-                fi
-                press_enter
-                ;;
+                read -r -p "Enter path to audio file (or drag & drop): " v_t
+                _norm_path "$v_t"; v_t="$REPLY"
+                [ -n "$v_t" ] && [ -f "$v_t" ] && python3 "$SCRIPT_DIR/scripts/verify_audio_mastering.py" "$v_t" || echo -e "${RED}Error: File not found.${NC}"
+                press_enter ;;
             12)
                 echo -e "\n${BOLD}${BLUE}=== EMBED COVER ART, METADATA & REPLAYGAIN ===${NC}\n"
-                read -r -p "Enter path to audio file or directory: " t_target
-                t_target=$(echo "$t_target" | sed "s/^'//;s/'$//;s/^\"//;s/\"$//")
-                if [ -n "$t_target" ]; then
-                    python3 "$SCRIPT_DIR/scripts/tag_audio_metadata.py" "$t_target"
+                read -r -p "Enter path to audio file or directory: " t_t
+                _norm_path "$t_t"; t_t="$REPLY"
+                if [ -n "$t_t" ]; then
+                    python3 "$SCRIPT_DIR/scripts/tag_audio_metadata.py" "$t_t"
                     invalidate_archive_stats_cache
                 else
                     echo -e "${RED}Error: Target path cannot be empty.${NC}"
                 fi
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
         esac
     done
 }
 
 detect_active_music_player() {
-    DETECTED_PLAYER_NAME=""
-    DETECTED_TRACK_PATH=""
-    DETECTED_TRACK_TITLE=""
-    DETECTED_PLAYER_LABEL=""
+    DETECTED_PLAYER_NAME="" DETECTED_TRACK_PATH="" DETECTED_TRACK_TITLE="" DETECTED_PLAYER_LABEL=""
+    local a_ok=0 s_ok=0 c_ok=0
+    get_audacious_track_info 2>/dev/null && a_ok=1
+    get_strawberry_track_info 2>/dev/null && s_ok=1
+    get_cliamp_track_info 2>/dev/null && c_ok=1
 
-    # 1. Check Audacious (priority if running or playing)
-    if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then
-        DETECTED_PLAYER_NAME="Audacious"
-        DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"
-    # 2. Check Strawberry (if running or playing)
-    elif get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ]; then
-        DETECTED_PLAYER_NAME="Strawberry"
-        DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"
-    elif get_cliamp_track_info 2>/dev/null && [ "$CLIAMP_STATE" = "playing" ]; then
-        DETECTED_PLAYER_NAME="cliamp"
-        DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$CLIAMP_TITLE"
-    elif get_audacious_track_info 2>/dev/null && [ -n "$AUDACIOUS_TITLE" ]; then
-        DETECTED_PLAYER_NAME="Audacious"
-        DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"
-    elif get_strawberry_track_info 2>/dev/null && [ -n "$STRAWBERRY_TITLE" ]; then
-        DETECTED_PLAYER_NAME="Strawberry"
-        DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"
-    elif get_cliamp_track_info 2>/dev/null && [ -n "$CLIAMP_TITLE" ]; then
-        DETECTED_PLAYER_NAME="cliamp"
-        DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$CLIAMP_TITLE"
-    elif pgrep -i -f audacious >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="Audacious"
-        get_audacious_track_info 2>/dev/null || true
-        DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"
-    elif pgrep -i -f strawberry >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="Strawberry"
-        get_strawberry_track_info 2>/dev/null || true
-        DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"
-    elif pgrep -x cliamp >/dev/null 2>&1 || pgrep -i -f cliamp >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="cliamp"
-        get_cliamp_track_info 2>/dev/null || true
-        DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"
-        DETECTED_TRACK_TITLE="$CLIAMP_TITLE"
-    elif pgrep -i -f vlc >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="VLC"
-    elif pgrep -i -f audacity >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="Audacity"
-    elif pgrep -i -f haruna >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="Haruna"
-    elif pgrep -x mpv >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="mpv"
-    elif pgrep -i -f kodi >/dev/null 2>&1; then
-        DETECTED_PLAYER_NAME="Kodi"
-    elif command -v playerctl >/dev/null 2>&1 && [ -n "$(playerctl -l 2>/dev/null)" ]; then
-        local raw_p
-        raw_p=$(playerctl -l 2>/dev/null | head -1 | sed 's/\..*//')
-        case "${raw_p,,}" in
-            audacious*) DETECTED_PLAYER_NAME="Audacious" ;;
-            strawberry*) DETECTED_PLAYER_NAME="Strawberry" ;;
-            vlc*) DETECTED_PLAYER_NAME="VLC" ;;
-            haruna*) DETECTED_PLAYER_NAME="Haruna" ;;
-            mpv*) DETECTED_PLAYER_NAME="mpv" ;;
-            audacity*) DETECTED_PLAYER_NAME="Audacity" ;;
-            kodi*) DETECTED_PLAYER_NAME="Kodi" ;;
-            *) DETECTED_PLAYER_NAME="${raw_p:-Music Player}" ;;
+    if [ "$a_ok" -eq 1 ] && [ "$AUDACIOUS_STATE" = "playing" ]; then
+        DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"
+    elif [ "$s_ok" -eq 1 ] && [ "$STRAWBERRY_STATE" = "playing" ]; then
+        DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"
+    elif [ "$c_ok" -eq 1 ] && [ "$CLIAMP_STATE" = "playing" ]; then
+        DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"
+    elif [ "$a_ok" -eq 1 ] && [ -n "$AUDACIOUS_TITLE" ]; then
+        DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"
+    elif [ "$s_ok" -eq 1 ] && [ -n "$STRAWBERRY_TITLE" ]; then
+        DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"
+    elif [ "$c_ok" -eq 1 ] && [ -n "$CLIAMP_TITLE" ]; then
+        DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"
+    else
+        local procs
+        procs=$(pgrep -i -f "audacious|strawberry|cliamp|vlc|audacity|haruna|mpv|kodi" 2>/dev/null | xargs -r ps -o comm= -p 2>/dev/null || true)
+        case "${procs,,}" in
+            *audacious*)  DETECTED_PLAYER_NAME="Audacious"; DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE" ;;
+            *strawberry*) DETECTED_PLAYER_NAME="Strawberry"; DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE" ;;
+            *cliamp*)     DETECTED_PLAYER_NAME="cliamp"; DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$CLIAMP_TITLE" ;;
+            *vlc*)        DETECTED_PLAYER_NAME="VLC" ;;
+            *audacity*)   DETECTED_PLAYER_NAME="Audacity" ;;
+            *haruna*)     DETECTED_PLAYER_NAME="Haruna" ;;
+            *mpv*)        DETECTED_PLAYER_NAME="mpv" ;;
+            *kodi*)       DETECTED_PLAYER_NAME="Kodi" ;;
+            *)
+                if command -v playerctl >/dev/null 2>&1; then
+                    local raw_p
+                    raw_p=$(playerctl -l 2>/dev/null | head -1)
+                    raw_p="${raw_p%%.*}"
+                    if [ -n "$raw_p" ]; then
+                        case "${raw_p,,}" in
+                            audacious*)  DETECTED_PLAYER_NAME="Audacious" ;;
+                            strawberry*) DETECTED_PLAYER_NAME="Strawberry" ;;
+                            vlc*)        DETECTED_PLAYER_NAME="VLC" ;;
+                            haruna*)     DETECTED_PLAYER_NAME="Haruna" ;;
+                            mpv*)        DETECTED_PLAYER_NAME="mpv" ;;
+                            audacity*)   DETECTED_PLAYER_NAME="Audacity" ;;
+                            kodi*)       DETECTED_PLAYER_NAME="Kodi" ;;
+                            *)           DETECTED_PLAYER_NAME="$raw_p" ;;
+                        esac
+                    fi
+                fi ;;
         esac
     fi
 
-    # Fallback to detect_currently_playing_mix if track path not yet resolved
     if [ -n "$DETECTED_PLAYER_NAME" ] && [ -z "$DETECTED_TRACK_PATH" ]; then
         if command -v playerctl >/dev/null 2>&1; then
             local u
             u=$(playerctl metadata xesam:url 2>/dev/null || true)
-            if [[ "$u" == file://* ]]; then
-                local p="${u#file://}"
-                DETECTED_TRACK_PATH=$(printf '%b' "${p//%/\\x}")
-            fi
-            if [ -z "$DETECTED_TRACK_TITLE" ]; then
-                DETECTED_TRACK_TITLE=$(playerctl metadata xesam:title 2>/dev/null || true)
-            fi
+            [[ "$u" == file://* ]] && printf -v DETECTED_TRACK_PATH '%b' "${u#file://}" && DETECTED_TRACK_PATH=$(printf '%b' "${DETECTED_TRACK_PATH//%/\\x}")
+            [ -z "$DETECTED_TRACK_TITLE" ] && DETECTED_TRACK_TITLE=$(playerctl metadata xesam:title 2>/dev/null || true)
         fi
         if [ -z "$DETECTED_TRACK_PATH" ]; then
             local dp
             dp=$(detect_currently_playing_mix 2>/dev/null || true)
-            if [ -n "$dp" ] && [ -f "$dp" ]; then
-                DETECTED_TRACK_PATH="$dp"
-            fi
+            [ -n "$dp" ] && [ -f "$dp" ] && DETECTED_TRACK_PATH="$dp"
         fi
     fi
 
     if [ -n "$DETECTED_PLAYER_NAME" ]; then
         DETECTED_PLAYER_LABEL="${GREEN}${DETECTED_PLAYER_NAME}${NC}"
         return 0
-    else
-        DETECTED_PLAYER_LABEL="${RED}No Player Detected${NC}"
-        return 1
     fi
+    DETECTED_PLAYER_LABEL="${RED}No Player Detected${NC}"
+    return 1
 }
 
 manage_tracklists() {
-    local doc_script=""
+    local doc_script="" s
     for s in "$SCRIPT_DIR/generate_tracklist_docs.py" "$SCRIPT_DIR/scripts/generate_tracklist_docs.py" "./generate_tracklist_docs.py"; do
-        if [ -f "$s" ]; then doc_script="$s"; break; fi
+        [ -f "$s" ] && { doc_script="$s"; break; }
     done
 
     while true; do
         detect_active_music_player
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}                   TRACKLIST & METADATA MANAGEMENT                    ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        echo -e "${BOLD}${MAGENTA}======================================================================\n                   TRACKLIST & METADATA MANAGEMENT                    \n======================================================================${NC}\n"
         echo -e "  ${BOLD}${CYAN}1)${NC} Browse & View Tracklists (Select from Archive List)"
         echo -e "  ${BOLD}${CYAN}2)${NC} Search Tracklist by Title, Episode or Keyword"
         echo -e "  ${BOLD}${CYAN}3)${NC} View Tracklist of Currently Playing Track (Current Music Player: ${DETECTED_PLAYER_LABEL})"
@@ -11159,17 +10835,11 @@ manage_tracklists() {
                 shopt -s nullglob nocaseglob
                 local txt_files=("$PWD"/*.txt "$OUTPUT_DIR"/*.txt)
                 shopt -u nullglob nocaseglob
-                if [ ${#txt_files[@]} -eq 0 ]; then
-                    echo -e "\n${YELLOW}No tracklist .txt files found in archive.${NC}"
-                    press_enter
-                    continue
-                fi
+                [ ${#txt_files[@]} -eq 0 ] && { echo -e "\n${YELLOW}No tracklist .txt files found in archive.${NC}"; press_enter; continue; }
                 echo -e "\n${BOLD}${CYAN}Available Tracklists (${#txt_files[@]} found):${NC}"
-                local idx=1
-                local display_files=()
+                local idx=1 display_files=() tf bname
                 for tf in "${txt_files[@]}"; do
-                    local bname
-                    bname=$(basename "$tf")
+                    bname="${tf##*/}"
                     if [[ "$bname" != "requirements.txt" && "$bname" != "checksums"* ]]; then
                         printf "  %2d) %s\n" "$idx" "$bname"
                         display_files+=("$tf")
@@ -11184,19 +10854,11 @@ manage_tracklists() {
                 read -r -p "Enter number to view [1-${#display_files[@]}, or q to cancel]: " sel_idx
                 if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#display_files[@]}" ]; then
                     local sel_file="${display_files[$((sel_idx - 1))]}"
-                    echo -e "\n${BOLD}${MAGENTA}======================================================================${NC}"
-                    echo -e "${BOLD}${CYAN}FILE: $(basename "$sel_file")${NC}"
-                    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-                    if command -v bat >/dev/null 2>&1; then
-                        bat --paging=always "$sel_file"
-                    elif command -v less >/dev/null 2>&1; then
-                        less -R "$sel_file"
-                    else
-                        cat "$sel_file"
-                        press_enter
-                    fi
-                fi
-                ;;
+                    echo -e "\n${BOLD}${MAGENTA}======================================================================\n${CYAN}FILE: ${sel_file##*/}\n${MAGENTA}======================================================================${NC}\n"
+                    if command -v bat >/dev/null 2>&1; then bat --paging=always "$sel_file"
+                    elif command -v less >/dev/null 2>&1; then less -R "$sel_file"
+                    else cat "$sel_file"; press_enter; fi
+                fi ;;
             2)
                 read -r -p "Enter search keyword (e.g. 033, Escape, Episode): " query
                 if [ -n "$query" ]; then
@@ -11208,85 +10870,50 @@ manage_tracklists() {
                         press_enter
                     else
                         echo -e "\n${BOLD}${GREEN}Matches Found:${NC}"
-                        local m_idx=1
-                        for m in "${matches[@]}"; do
-                            printf "  %2d) %s\n" "$m_idx" "$(basename "$m")"
-                            ((m_idx++))
-                        done
+                        local m_idx=1 m
+                        for m in "${matches[@]}"; do printf "  %2d) %s\n" "$m_idx" "${m##*/}"; ((m_idx++)); done
                         read -r -p "Select file to view [1-${#matches[@]}]: " chosen
                         if [[ "$chosen" =~ ^[0-9]+$ ]] && [ "$chosen" -ge 1 ] && [ "$chosen" -le "${#matches[@]}" ]; then
                             local sel_file="${matches[$((chosen - 1))]}"
-                            echo -e "\n${BOLD}${CYAN}=== TRACKLIST: $(basename "$sel_file") ===${NC}\n"
-                            cat "$sel_file"
-                            press_enter
+                            echo -e "\n${BOLD}${CYAN}=== TRACKLIST: ${sel_file##*/} ===${NC}\n"
+                            cat "$sel_file"; press_enter
                         fi
                     fi
-                fi
-                ;;
+                fi ;;
             3)
                 detect_active_music_player
-                if [ -z "$DETECTED_PLAYER_NAME" ]; then
-                    echo -e "\n${RED}No music player is currently running.${NC}"
-                    press_enter
-                    continue
-                fi
-
-                # If no track path is found yet, try detect_currently_playing_mix
+                [ -z "$DETECTED_PLAYER_NAME" ] && { echo -e "\n${RED}No music player is currently running.${NC}"; press_enter; continue; }
                 if [ -z "$DETECTED_TRACK_PATH" ] || [ ! -f "$DETECTED_TRACK_PATH" ]; then
-                    local fallback_path
-                    fallback_path=$(detect_currently_playing_mix 2>/dev/null || true)
-                    if [ -n "$fallback_path" ] && [ -f "$fallback_path" ]; then
-                        DETECTED_TRACK_PATH="$fallback_path"
-                    fi
+                    local fb; fb=$(detect_currently_playing_mix 2>/dev/null || true)
+                    [ -n "$fb" ] && [ -f "$fb" ] && DETECTED_TRACK_PATH="$fb"
                 fi
-
-                if [ -z "$DETECTED_TRACK_PATH" ] && [ -z "$DETECTED_TRACK_TITLE" ]; then
-                    echo -e "\n${YELLOW}${DETECTED_PLAYER_NAME} is currently running, but has no track loaded or playing.${NC}"
-                    press_enter
-                    continue
-                fi
+                [ -z "$DETECTED_TRACK_PATH" ] && [ -z "$DETECTED_TRACK_TITLE" ] && { echo -e "\n${YELLOW}${DETECTED_PLAYER_NAME} is currently running, but has no track loaded or playing.${NC}"; press_enter; continue; }
 
                 local found_tl=""
-                if [ -n "$DETECTED_TRACK_PATH" ] && [ -f "$DETECTED_TRACK_PATH" ]; then
-                    found_tl=$(find_mix_tracklist "$DETECTED_TRACK_PATH" 2>/dev/null || true)
-                fi
+                [ -n "$DETECTED_TRACK_PATH" ] && [ -f "$DETECTED_TRACK_PATH" ] && found_tl=$(find_mix_tracklist "$DETECTED_TRACK_PATH" 2>/dev/null || true)
+                [ -z "$found_tl" ] && [ -n "$DETECTED_TRACK_TITLE" ] && found_tl=$(find_mix_tracklist "$DETECTED_TRACK_TITLE" 2>/dev/null || true)
 
-                if [ -z "$found_tl" ] && [ -n "$DETECTED_TRACK_TITLE" ]; then
-                    found_tl=$(find_mix_tracklist "$DETECTED_TRACK_TITLE" 2>/dev/null || true)
-                fi
-
-                # Additional comprehensive scan across all mix archive directories
                 if [ -z "$found_tl" ]; then
-                    local search_term="${DETECTED_TRACK_TITLE:-$(basename "$DETECTED_TRACK_PATH")}"
-                    search_term="${search_term%.*}"
-                    local ep=""
-                    if [[ "$search_term" =~ [_\ -]([0-9]{2,3})([_\ -]|$) ]]; then
-                        ep="${BASH_REMATCH[1]}"
-                    elif [[ "$search_term" =~ ([0-9]{2,3}) ]]; then
-                        ep="${BASH_REMATCH[1]}"
-                    fi
-                    local search_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-}")
+                    local st="${DETECTED_TRACK_TITLE:-${DETECTED_TRACK_PATH##*/}}" ep=""
+                    st="${st%.*}"
+                    if [[ "$st" =~ [_\ -]([0-9]{2,3})([_\ -]|$) ]] || [[ "$st" =~ ([0-9]{2,3}) ]]; then ep="${BASH_REMATCH[1]}"; fi
+                    local s_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-}") f_dir
                     if command -v get_all_flac_output_dirs >/dev/null 2>&1; then
-                        while IFS= read -r f_dir; do
-                            [ -n "$f_dir" ] && search_dirs+=("$f_dir")
-                        done < <(get_all_flac_output_dirs)
+                        while IFS= read -r f_dir; do [ -n "$f_dir" ] && s_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs)
                     fi
                     shopt -s nullglob nocaseglob
-                    for sd in "${search_dirs[@]}"; do
+                    local sd tm bn
+                    for sd in "${s_dirs[@]}"; do
                         [ -z "$sd" ] || [ ! -d "$sd" ] && continue
                         if [ -n "$ep" ]; then
                             for tm in "$sd"/*"$ep"*.txt; do
-                                if [ -f "$tm" ] && [[ "$(basename "$tm")" != "requirements.txt" && "$(basename "$tm")" != "checksums"* ]]; then
-                                    found_tl="$tm"
-                                    break 2
-                                fi
+                                bn="${tm##*/}"
+                                [ -f "$tm" ] && [[ "$bn" != "requirements.txt" && "$bn" != "checksums"* ]] && { found_tl="$tm"; break 2; }
                             done
                         fi
-                        for tm in "$sd"/*"${search_term}"*.txt; do
-                            if [ -f "$tm" ] && [[ "$(basename "$tm")" != "requirements.txt" && "$(basename "$tm")" != "checksums"* ]]; then
-                                found_tl="$tm"
-                                break 2
-                            fi
+                        for tm in "$sd"/*"${st}"*.txt; do
+                            bn="${tm##*/}"
+                            [ -f "$tm" ] && [[ "$bn" != "requirements.txt" && "$bn" != "checksums"* ]] && { found_tl="$tm"; break 2; }
                         done
                     done
                     shopt -u nullglob nocaseglob
@@ -11294,275 +10921,128 @@ manage_tracklists() {
 
                 if [ -n "$found_tl" ] && [ -f "$found_tl" ]; then
                     echo -e "\n${BOLD}${MAGENTA}======================================================================${NC}"
-                    echo -e "  ${BOLD}${CYAN}CURRENT TRACKLIST:${NC} ${GREEN}$(basename "$found_tl")${NC}"
+                    echo -e "  ${BOLD}${CYAN}CURRENT TRACKLIST:${NC} ${GREEN}${found_tl##*/}${NC}"
                     echo -e "  ${BOLD}${CYAN}MUSIC PLAYER:${NC}      ${YELLOW}${DETECTED_PLAYER_NAME}${NC}"
                     [ -n "$DETECTED_TRACK_TITLE" ] && echo -e "  ${BOLD}${CYAN}CURRENT TRACK:${NC}     ${WHITE}${DETECTED_TRACK_TITLE}${NC}"
-                    [ -n "$DETECTED_TRACK_PATH" ] && echo -e "  ${BOLD}${CYAN}AUDIO FILE:${NC}        ${DIM}$(basename "$DETECTED_TRACK_PATH")${NC}"
+                    [ -n "$DETECTED_TRACK_PATH" ] && echo -e "  ${BOLD}${CYAN}AUDIO FILE:${NC}        ${DIM}${DETECTED_TRACK_PATH##*/}${NC}"
                     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
                     cat "$found_tl"
                 else
-                    echo -e "\n${YELLOW}No tracklist found for current track '${DETECTED_TRACK_TITLE:-$(basename "$DETECTED_TRACK_PATH")}' playing in ${DETECTED_PLAYER_NAME}.${NC}"
+                    echo -e "\n${YELLOW}No tracklist found for current track '${DETECTED_TRACK_TITLE:-${DETECTED_TRACK_PATH##*/}}' playing in ${DETECTED_PLAYER_NAME}.${NC}"
                 fi
-                press_enter
-                ;;
-            4)
-                if [ -n "$doc_script" ]; then
-                    python3 "$doc_script" -f html
-                else
-                    echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"
-                fi
-                press_enter
-                ;;
-            5)
-                if [ -n "$doc_script" ]; then
-                    python3 "$doc_script" -f pdf
-                else
-                    echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"
-                fi
-                press_enter
-                ;;
+                press_enter ;;
+            4|5)
+                local fmt="html"; [ "$tl_choice" = 5 ] && fmt="pdf"
+                [ -n "$doc_script" ] && python3 "$doc_script" -f "$fmt" || echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"
+                press_enter ;;
             6)
                 if [ -n "$doc_script" ]; then
-                    local all_flac_dirs=()
-                    while IFS= read -r f_dir; do
-                        [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_flac_dirs+=("$f_dir")
-                    done < <(get_all_flac_output_dirs)
-                    echo -e "\n${BOLD}${YELLOW}Batch exporting all tracklists across ${#all_flac_dirs[@]} archive(s) to HTML and PDF...${NC}\n"
-                    python3 "$doc_script" -d "${all_flac_dirs[@]}" -f both
+                    local all_dirs=() f_dir
+                    while IFS= read -r f_dir; do [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs)
+                    echo -e "\n${BOLD}${YELLOW}Batch exporting all tracklists across ${#all_dirs[@]} archive(s) to HTML and PDF...${NC}\n"
+                    python3 "$doc_script" -d "${all_dirs[@]}" -f both
                 else
                     echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"
                 fi
-                press_enter
-                ;;
-            7)
-                run_sub_script "Check_Find_Tracklists.sh"
-                press_enter
-                ;;
+                press_enter ;;
+            7) run_sub_script "Check_Find_Tracklists.sh"; press_enter ;;
             8)
-                if [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ]; then
-                    bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh"
-                else
-                    run_sub_script "Generate_Master_Tracklist.sh"
-                fi
-                press_enter
-                ;;
-            9|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"
+                press_enter ;;
+            9|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
         esac
     done
 }
 
 manage_promo_outreach() {
-    local py_script=""
+    local py_script="" s
     for s in "$SCRIPT_DIR/send_promo_email.py" "$SCRIPT_DIR/scripts/send_promo_email.py" "./send_promo_email.py"; do
-        if [ -f "$s" ]; then py_script="$s"; break; fi
+        [ -f "$s" ] && { py_script="$s"; break; }
     done
-
-    if [ -z "$py_script" ]; then
-        echo -e "\n${RED}Error: send_promo_email.py not found!${NC}"
-        press_enter
-        return 1
-    fi
+    [ -z "$py_script" ] && { echo -e "\n${RED}Error: send_promo_email.py not found!${NC}"; press_enter; return 1; }
 
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}             PROMOTIONAL & PUBLISHER OUTREACH SYSTEM                  ${NC}"
-        echo -e "${BOLD}${MAGENTA}         (Promoters, Podcast Publishers, Radio & Labels)              ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        local c_cnt=0 c_file="$SCRIPT_DIR/assets/promo_contacts.json"
+        [ ! -f "$c_file" ] && [ -f "./assets/promo_contacts.json" ] && c_file="./assets/promo_contacts.json"
+        [ -f "$c_file" ] && c_cnt=$(grep -c '"email":' "$c_file" 2>/dev/null || echo 0)
 
-        local contact_count="0"
-        local contacts_file="$SCRIPT_DIR/assets/promo_contacts.json"
-        if [ ! -f "$contacts_file" ] && [ -f "./assets/promo_contacts.json" ]; then
-            contacts_file="./assets/promo_contacts.json"
-        fi
-        if [ -f "$contacts_file" ]; then
-            contact_count=$(grep -c '"email":' "$contacts_file" 2>/dev/null || echo "0")
-        fi
-
+        echo -e "${BOLD}${MAGENTA}======================================================================\n             PROMOTIONAL & PUBLISHER OUTREACH SYSTEM                  \n         (Promoters, Podcast Publishers, Radio & Labels)              \n======================================================================${NC}\n"
         echo -e "  Sender Name:          ${GREEN}${PROMO_SENDER_NAME:-MPlanetarian}${NC}"
         echo -e "  Sender Email:         ${CYAN}${PROMO_SENDER_EMAIL:-Not Set (Direct desktop mailto/preview)}${NC}"
         echo -e "  SMTP Outgoing Server: ${YELLOW}${SMTP_HOST:-None Configured (Mail client / Browser preview)}${NC}"
-        echo -e "  Outreach Contacts:    ${GREEN}${contact_count} contacts in address book${NC}"
-        echo ""
+        echo -e "  Outreach Contacts:    ${GREEN}${c_cnt} contacts in address book${NC}\n"
         echo -e "${BOLD}Send Enquiries & Promotional Pitches:${NC}"
         echo -e "  ${BOLD}${CYAN} 1)${NC} ${GREEN}Interactive Outreach Wizard${NC} (Step-by-step custom email builder)"
         echo -e "  ${BOLD}${CYAN} 2)${NC} Pitch Episode to Podcast Publishers & Syndicators (${CYAN}Apple Podcasts, DI.FM, Proton...${NC})"
         echo -e "  ${BOLD}${CYAN} 3)${NC} Send Booking / Guest Mix Enquiry to Promoters & Venues (${CYAN}Clubs, Festivals...${NC})"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Send New Episode Press & Promo Release Blast"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Send Track Support Courtesy Notice to Labels & Producers"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Submit Radio Guest Mix & Syndication Proposal"
-        echo ""
+        echo -e "  ${BOLD}${CYAN} 6)${NC} Submit Radio Guest Mix & Syndication Proposal\n"
         echo -e "${BOLD}Tools, Contacts & Preferences:${NC}"
         echo -e "  ${BOLD}${CYAN} 7)${NC} Preview HTML & Plaintext Email in Browser & Terminal"
         echo -e "  ${BOLD}${CYAN} 8)${NC} Browse & Search Outreach Contacts Book"
         echo -e "  ${BOLD}${CYAN} 9)${NC} Add New Contact (Promoter, Publisher, Label, Radio, Press)"
         echo -e "  ${BOLD}${CYAN}10)${NC} View Sent Email History & Delivery Logs"
-        echo -e "  ${BOLD}${CYAN}11)${NC} Configure Sender Profile & SMTP Server Settings"
-        echo ""
+        echo -e "  ${BOLD}${CYAN}11)${NC} Configure Sender Profile & SMTP Server Settings\n"
         echo -e "  ${BOLD}${CYAN}12)${NC} Return to Main Menu\n"
         read -r -p "Enter choice [1-12]: " p_choice
 
         case "$p_choice" in
-            1)
-                python3 "$py_script" --interactive
-                press_enter
-                ;;
-            2)
-                echo -e "\n${BOLD}${CYAN}=== PITCH TO PODCAST PUBLISHERS & SYNDICATORS ===${NC}\n"
+            1) python3 "$py_script" --interactive; press_enter ;;
+            2|3|4|5|6)
+                local hdrs=("" "" "PITCH TO PODCAST PUBLISHERS & SYNDICATORS" "PROMOTER & VENUE BOOKING ENQUIRY" "NEW EPISODE PROMO RELEASE BLAST" "TRACK SUPPORT COURTESY NOTICE TO LABELS" "RADIO GUEST MIX & SYNDICATION PROPOSAL")
+                local prompts=("" "" "saved publishers" "saved promoters" "press/media contacts" "saved labels" "saved radio stations")
+                local cats=("" "" "publisher" "promoter" "press" "label" "radio")
+                local tpls=("" "" "podcast_publisher" "promoter_booking" "episode_promo" "track_support" "radio_guestmix")
+                echo -e "\n${BOLD}${CYAN}=== ${hdrs[$p_choice]} ===${NC}\n"
                 read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                read -r -p "Enter recipient email (or ENTER to select from saved publishers): " to_email
-                local extra_args=()
-                if [ -n "$to_email" ]; then
-                    extra_args+=(--to "$to_email")
-                else
-                    extra_args+=(--category publisher)
-                fi
-                [ -n "$ep_q" ] && extra_args+=(--episode "$ep_q")
-                python3 "$py_script" --template podcast_publisher "${extra_args[@]}" --interactive
-                press_enter
-                ;;
-            3)
-                echo -e "\n${BOLD}${CYAN}=== PROMOTER & VENUE BOOKING ENQUIRY ===${NC}\n"
-                read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                read -r -p "Enter recipient email (or ENTER to select from saved promoters): " to_email
-                local extra_args=()
-                if [ -n "$to_email" ]; then
-                    extra_args+=(--to "$to_email")
-                else
-                    extra_args+=(--category promoter)
-                fi
-                [ -n "$ep_q" ] && extra_args+=(--episode "$ep_q")
-                python3 "$py_script" --template promoter_booking "${extra_args[@]}" --interactive
-                press_enter
-                ;;
-            4)
-                echo -e "\n${BOLD}${CYAN}=== NEW EPISODE PROMO RELEASE BLAST ===${NC}\n"
-                read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                read -r -p "Enter recipient email (or ENTER to select from press/media contacts): " to_email
-                local extra_args=()
-                if [ -n "$to_email" ]; then
-                    extra_args+=(--to "$to_email")
-                else
-                    extra_args+=(--category press)
-                fi
-                [ -n "$ep_q" ] && extra_args+=(--episode "$ep_q")
-                python3 "$py_script" --template episode_promo "${extra_args[@]}" --interactive
-                press_enter
-                ;;
-            5)
-                echo -e "\n${BOLD}${CYAN}=== TRACK SUPPORT COURTESY NOTICE TO LABELS ===${NC}\n"
-                read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                read -r -p "Enter label / artist email (or ENTER to select from saved labels): " to_email
-                local extra_args=()
-                if [ -n "$to_email" ]; then
-                    extra_args+=(--to "$to_email")
-                else
-                    extra_args+=(--category label)
-                fi
-                [ -n "$ep_q" ] && extra_args+=(--episode "$ep_q")
-                python3 "$py_script" --template track_support "${extra_args[@]}" --interactive
-                press_enter
-                ;;
-            6)
-                echo -e "\n${BOLD}${CYAN}=== RADIO GUEST MIX & SYNDICATION PROPOSAL ===${NC}\n"
-                read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                read -r -p "Enter station / show email (or ENTER to select from saved radio stations): " to_email
-                local extra_args=()
-                if [ -n "$to_email" ]; then
-                    extra_args+=(--to "$to_email")
-                else
-                    extra_args+=(--category radio)
-                fi
-                [ -n "$ep_q" ] && extra_args+=(--episode "$ep_q")
-                python3 "$py_script" --template radio_guestmix "${extra_args[@]}" --interactive
-                press_enter
-                ;;
+                read -r -p "Enter recipient email (or ENTER to select from ${prompts[$p_choice]}): " to_em
+                local args=(--template "${tpls[$p_choice]}")
+                [ -n "$to_em" ] && args+=(--to "$to_em") || args+=(--category "${cats[$p_choice]}")
+                [ -n "$ep_q" ] && args+=(--episode "$ep_q")
+                python3 "$py_script" "${args[@]}" --interactive
+                press_enter ;;
             7)
                 echo -e "\n${BOLD}${CYAN}=== PREVIEW EMAIL IN WEB BROWSER ===${NC}\n"
                 python3 "$py_script" --list-templates
-                read -r -p "Enter template name [podcast_publisher]: " t_name
-                t_name="${t_name:-podcast_publisher}"
+                read -r -p "Enter template name [podcast_publisher]: " t_n
                 read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-                local prev_args=(--template "$t_name" --preview)
-                [ -n "$ep_q" ] && prev_args+=(--episode "$ep_q")
-                python3 "$py_script" "${prev_args[@]}"
-                press_enter
-                ;;
-            8)
-                python3 "$py_script" --list-contacts
-                press_enter
-                ;;
-            9)
-                python3 "$py_script" --add-contact
-                press_enter
-                ;;
+                local p_args=(--template "${t_n:-podcast_publisher}" --preview)
+                [ -n "$ep_q" ] && p_args+=(--episode "$ep_q")
+                python3 "$py_script" "${p_args[@]}"
+                press_enter ;;
+            8) python3 "$py_script" --list-contacts; press_enter ;;
+            9) python3 "$py_script" --add-contact; press_enter ;;
             10)
-                local log_file="$SCRIPT_DIR/assets/promo_logs/sent_promo_emails.log"
-                if [ ! -f "$log_file" ] && [ -f "./assets/promo_logs/sent_promo_emails.log" ]; then
-                    log_file="./assets/promo_logs/sent_promo_emails.log"
-                fi
+                local l_file="$SCRIPT_DIR/assets/promo_logs/sent_promo_emails.log"
+                [ ! -f "$l_file" ] && [ -f "./assets/promo_logs/sent_promo_emails.log" ] && l_file="./assets/promo_logs/sent_promo_emails.log"
                 echo -e "\n${BOLD}${CYAN}=== OUTREACH & DELIVERY LOGS ===${NC}\n"
-                if [ -f "$log_file" ] && [ -s "$log_file" ]; then
-                    tail -n 35 "$log_file"
-                else
-                    echo -e "${DIM}No sent emails or drafts logged yet.${NC}"
-                fi
-                echo ""
-                press_enter
-                ;;
+                [ -s "$l_file" ] && tail -n 35 "$l_file" || echo -e "${DIM}No sent emails or drafts logged yet.${NC}"
+                echo ""; press_enter ;;
             11)
                 echo -e "\n${BOLD}${CYAN}=== CONFIGURE SENDER PROFILE & SMTP SERVER ===${NC}\n"
-                read -r -p "Sender Full Name [${PROMO_SENDER_NAME:-MPlanetarian}]: " new_name
-                read -r -p "Sender Email Address [${PROMO_SENDER_EMAIL}]: " new_email
-                read -r -p "SMTP Host (e.g. smtp.gmail.com) [${SMTP_HOST}]: " new_host
-                read -r -p "SMTP Port [${SMTP_PORT:-587}]: " new_port
-                read -r -p "SMTP Username / Login Email [${SMTP_USER}]: " new_user
-                read -r -s -p "SMTP Password / App Password (leave blank to keep existing): " new_pass
+                read -r -p "Sender Full Name [${PROMO_SENDER_NAME:-MPlanetarian}]: " n_name
+                read -r -p "Sender Email Address [${PROMO_SENDER_EMAIL}]: " n_email
+                read -r -p "SMTP Host (e.g. smtp.gmail.com) [${SMTP_HOST}]: " n_host
+                read -r -p "SMTP Port [${SMTP_PORT:-587}]: " n_port
+                read -r -p "SMTP Username / Login Email [${SMTP_USER}]: " n_user
+                read -r -s -p "SMTP Password / App Password (leave blank to keep existing): " n_pass
                 echo ""
-
-                local cfg_file="$SCRIPT_DIR/config.env"
-                if [ ! -f "$cfg_file" ] && [ -f "./config.env" ]; then cfg_file="./config.env"; fi
-
-                if [ -n "$new_name" ]; then
-                    PROMO_SENDER_NAME="$new_name"
-                    sed -i "s|^PROMO_SENDER_NAME=.*|PROMO_SENDER_NAME=\"$new_name\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                if [ -n "$new_email" ]; then
-                    PROMO_SENDER_EMAIL="$new_email"
-                    sed -i "s|^PROMO_SENDER_EMAIL=.*|PROMO_SENDER_EMAIL=\"$new_email\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                if [ -n "$new_host" ]; then
-                    SMTP_HOST="$new_host"
-                    sed -i "s|^SMTP_HOST=.*|SMTP_HOST=\"$new_host\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                if [ -n "$new_port" ]; then
-                    SMTP_PORT="$new_port"
-                    sed -i "s|^SMTP_PORT=.*|SMTP_PORT=\"$new_port\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                if [ -n "$new_user" ]; then
-                    SMTP_USER="$new_user"
-                    sed -i "s|^SMTP_USER=.*|SMTP_USER=\"$new_user\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                if [ -n "$new_pass" ]; then
-                    SMTP_PASSWORD="$new_pass"
-                    sed -i "s|^SMTP_PASSWORD=.*|SMTP_PASSWORD=\"$new_pass\"|" "$cfg_file" 2>/dev/null || true
-                fi
-                echo -e "\n${GREEN}✔ Outreach settings updated in ${cfg_file}!${NC}"
-                press_enter
-                ;;
-            12|[qQ])
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1.2
-                ;;
+                local cfg="$SCRIPT_DIR/config.env" sed_args=()
+                [ ! -f "$cfg" ] && [ -f "./config.env" ] && cfg="./config.env"
+                [ -n "$n_name" ]  && { PROMO_SENDER_NAME="$n_name";  sed_args+=(-e "s|^PROMO_SENDER_NAME=.*|PROMO_SENDER_NAME=\"$n_name\"|"); }
+                [ -n "$n_email" ] && { PROMO_SENDER_EMAIL="$n_email"; sed_args+=(-e "s|^PROMO_SENDER_EMAIL=.*|PROMO_SENDER_EMAIL=\"$n_email\"|"); }
+                [ -n "$n_host" ]  && { SMTP_HOST="$n_host";          sed_args+=(-e "s|^SMTP_HOST=.*|SMTP_HOST=\"$n_host\"|"); }
+                [ -n "$n_port" ]  && { SMTP_PORT="$n_port";          sed_args+=(-e "s|^SMTP_PORT=.*|SMTP_PORT=\"$n_port\"|"); }
+                [ -n "$n_user" ]  && { SMTP_USER="$n_user";          sed_args+=(-e "s|^SMTP_USER=.*|SMTP_USER=\"$n_user\"|"); }
+                [ -n "$n_pass" ]  && { SMTP_PASSWORD="$n_pass";      sed_args+=(-e "s|^SMTP_PASSWORD=.*|SMTP_PASSWORD=\"$n_pass\"|"); }
+                [ ${#sed_args[@]} -gt 0 ] && sed -i "${sed_args[@]}" "$cfg" 2>/dev/null || true
+                echo -e "\n${GREEN}✔ Outreach settings updated in ${cfg}!${NC}"
+                press_enter ;;
+            12|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
         esac
     done
 }
