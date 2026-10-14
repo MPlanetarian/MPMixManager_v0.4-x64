@@ -432,803 +432,354 @@ read_nav_key() {
     fi
     # Clear arrow timestamp after a short window (prevents false ENTER suppression)
     [[ -n "$_NAV_ARROW_AT" ]] && { sleep 0.01; _NAV_ARROW_AT=""; } 2>/dev/null || true
-}
+} # U_001
 
 highlight_menu_line() {
-    local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}"
-    local c_mod=$(( (color_idx % 4 + 4) % 4 ))
-    local bg fg_key fg_lbl fg_ext ptr_col ptr rst
-
-    case "$c_mod" in
-        0) bg="\033[48;2;247;37;133m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;5;20m"; ptr_col="\033[1;38;2;247;37;133m"; ;;
-        1) bg="\033[48;2;0;229;255m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;0;35;45m"; ptr_col="\033[1;38;2;0;229;255m"; ;;
-        2) bg="\033[48;2;255;140;0m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;45;20;0m"; ptr_col="\033[1;38;2;255;140;0m"; ;;
-        3) bg="\033[48;2;88;98;118m"; fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;238m"; ptr_col="\033[1;38;2;160;175;205m"; ;;
+    local key="$1" label="$2" extra="$3" c_mod=$(( (${4:-0} % 4 + 4) % 4 )) _out="$5" bw="${6:-74}"
+    local bg fk fl fe pc rst="\033[0m"
+    case $c_mod in
+        0) bg="\033[48;2;247;37;133m"; fk=fl="\033[1;38;2;0;0;0m"; fe="\033[0;38;2;40;5;20m"; pc="\033[1;38;2;247;37;133m" ;;
+        1) bg="\033[48;2;0;229;255m"; fk=fl="\033[1;38;2;0;0;0m"; fe="\033[0;38;2;0;35;45m"; pc="\033[1;38;2;0;229;255m" ;;
+        2) bg="\033[48;2;255;140;0m"; fk=fl="\033[1;38;2;0;0;0m"; fe="\033[0;38;2;45;20;0m"; pc="\033[1;38;2;255;140;0m" ;;
+        3) bg="\033[48;2;88;98;118m"; fk=fl="\033[1;38;2;255;255;255m"; fe="\033[0;38;2;215;225;238m"; pc="\033[1;38;2;160;175;205m" ;;
     esac
-
-    rst="\033[0m"
-    ptr="${ptr_col} ▶ ❯${rst}"
-    printf -v formatted_key "[%2s]" "$key"
-    local ext_part
-    [ -n "$extra" ] && ext_part="  ${fg_ext}${extra}"
-
-    local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${ext_part}"
-    local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} + ( ${#extra} > 0 ? 2 + ${#extra} : 0 ) ))
-    local target_w=$(( box_width - 6 ))
-    local pad_len=$(( target_w - raw_len ))
-    [ "$pad_len" -lt 1 ] && pad_len=1
-    local pad_spaces
-    printf -v pad_spaces '%*s' "$pad_len" ''
-
-    local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"
-    if [ -n "$_out_var" ]; then
-        printf -v "$_out_var" "%s" "$line_out"
-    else
-        printf "%b\n" "$line_out"
-    fi
+    local fkfmt; printf -v fkfmt '[%2s]' "$key"
+    local ext=""; [ -n "$extra" ] && ext="  ${fe}${extra}"
+    local raw=$((1+${#fkfmt}+1+${#label}+(${#extra}>0?2+${#extra}:0)))
+    local pad=$((bw-6-raw)); [ $pad -lt 1 ] && pad=1
+    local ps; printf -v ps '%*s' "$pad" ''
+    local line="${pc} ▶ ❯${rst}${bg}${fk} ${fkfmt} ${fl}${label}${ext}${ps} ${rst}\033[K"
+    [ -n "$_out" ] && printf -v "$_out" '%s' "$line" || printf '%b\n' "$line"
 }
 
-# Keep the Windows console caret hidden while a menu is open.
-# Git Bash shows that caret again on every read, and a full-screen redraw
-# then leaves it blinking in the header. CONOUT$ is the screen buffer even
-# when this helper's own stdout is discarded.
 _start_win_cursor_hider() {
-    if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then
-        return 0
-    fi
-    local _os="${OS_TYPE:-}"
-    if [ -z "$_os" ]; then
-        case "$(uname -s 2>/dev/null)" in
-            CYGWIN*|MINGW*|MSYS*) _os="windows" ;;
-        esac
-    fi
-    [ "$_os" != "windows" ] && return 0
-    local py=""
-    if command -v python3 >/dev/null 2>&1; then
-        py="python3"
-    elif command -v python >/dev/null 2>&1; then
-        py="python"
-    else
-        return 0
-    fi
-
-    local conf_dir="${HOME}/.config/mix-manager"
-    mkdir -p "$conf_dir" 2>/dev/null || true
-    rm -f "$conf_dir/console_size" 2>/dev/null || true
-    local hider_py="$conf_dir/win_cursor_hider.py"
-
-    # Write the helper script to disk once to prevent heredoc buffer leaks in Git Bash
-    if [ ! -f "$hider_py" ]; then
-        cat <<'PY' > "$hider_py"
-import ctypes, os, sys, time
-k = ctypes.WinDLL("kernel32", use_last_error=True)
-k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
-k.CreateFileW.restype = ctypes.c_void_p
-k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.GetConsoleCursorInfo.restype = ctypes.c_int
-k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.SetConsoleCursorInfo.restype = ctypes.c_int
-k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.GetConsoleScreenBufferInfo.restype = ctypes.c_int
-GENERIC_RW = 0x80000000 | 0x40000000
-h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
-invalid = ctypes.c_void_p(-1).value
-if not h or h == invalid:
-    sys.exit(0)
-
-class COORD(ctypes.Structure):
-    _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
-
-class SMALL_RECT(ctypes.Structure):
-    _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short),
-                ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
-
-class CSBI(ctypes.Structure):
-    _fields_ = [
-        ("dwSize", COORD),
-        ("dwCursorPosition", COORD),
-        ("wAttributes", ctypes.c_ushort),
-        ("srWindow", SMALL_RECT),
-        ("dwMaximumWindowSize", COORD),
-    ]
-
-class CCI(ctypes.Structure):
-    _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
-
-def _native_path(p):
-    if os.name != "nt" or not p:
-        return p
-    if len(p) >= 4 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
-        return p[1].upper() + ":" + p[2:].replace("/", "\\")
-    if p.startswith("/cygdrive/") and len(p) > 11 and p[10].isalpha() and p[11] == "/":
-        return p[10].upper() + ":" + p[11:].replace("/", "\\")
+    [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null && return
+    local os="${OS_TYPE:-}"; [ -z "$os" ] && case "$(uname -s 2>/dev/null)" in CYGWIN*|MINGW*|MSYS*) os=windows;; esac
+    [ "$os" != windows ] && return
+    local py; command -v python3 >/dev/null && py=python3 || { command -v python >/dev/null && py=python; } || return
+    local d="${HOME}/.config/mix-manager"; mkdir -p "$d" 2>/dev/null; rm -f "$d/console_size" 2>/dev/null
+    local pyf="$d/win_cursor_hider.py"
+    [ -f "$pyf" ] || cat >"$pyf" <<'PY'
+import ctypes,os,sys,time
+k=ctypes.WinDLL("kernel32",use_last_error=True)
+k.CreateFileW.argtypes=[ctypes.c_wchar_p,ctypes.c_uint,ctypes.c_uint,ctypes.c_void_p,ctypes.c_uint,ctypes.c_uint,ctypes.c_void_p]
+k.CreateFileW.restype=ctypes.c_void_p
+k.GetConsoleCursorInfo.argtypes=[ctypes.c_void_p,ctypes.c_void_p];k.GetConsoleCursorInfo.restype=ctypes.c_int
+k.SetConsoleCursorInfo.argtypes=[ctypes.c_void_p,ctypes.c_void_p];k.SetConsoleCursorInfo.restype=ctypes.c_int
+k.GetConsoleScreenBufferInfo.argtypes=[ctypes.c_void_p,ctypes.c_void_p];k.GetConsoleScreenBufferInfo.restype=ctypes.c_int
+h=k.CreateFileW("CONOUT$",0x80000000|0x40000000,3,None,3,0,None)
+if not h or h==ctypes.c_void_p(-1).value:sys.exit(0)
+class COORD(ctypes.Structure):_fields_=[("X",ctypes.c_short),("Y",ctypes.c_short)]
+class SMALL_RECT(ctypes.Structure):_fields_=[("Left",ctypes.c_short),("Top",ctypes.c_short),("Right",ctypes.c_short),("Bottom",ctypes.c_short)]
+class CSBI(ctypes.Structure):_fields_=[("dwSize",COORD),("dwCursorPosition",COORD),("wAttributes",ctypes.c_ushort),("srWindow",SMALL_RECT),("dwMaximumWindowSize",COORD)]
+class CCI(ctypes.Structure):_fields_=[("dwSize",ctypes.c_ulong),("bVisible",ctypes.c_int)]
+def np(p):
+    if os.name!="nt" or not p:return p
+    if len(p)>=4 and p[0]=="/" and p[2]=="/" and p[1].isalpha():return p[1].upper()+":"+p[2:].replace("/","\\")
+    if p.startswith("/cygdrive/") and len(p)>11 and p[10].isalpha() and p[11]=="/":return p[10].upper()+":"+p[11:].replace("/","\\")
     return p
-
-info = CCI()
-csbi = CSBI()
-size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
-if ctypes.sizeof(csbi) != 22:
-    size_path = ""
-last = None
-
-def publish():
+info,csbi=CCI(),CSBI()
+sp=np(os.environ.get("MP_WIN_SIZE_FILE") or "")
+if ctypes.sizeof(csbi)!=22:sp=""
+last=None
+def pub():
     global last
-    if not size_path:
-        return
-    if not k.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
-        return
-    rows = int(csbi.srWindow.Bottom) - int(csbi.srWindow.Top) + 1
-    cols = int(csbi.srWindow.Right) - int(csbi.srWindow.Left) + 1
-    if rows < 1 or cols < 1 or (rows, cols) == last:
-        return
+    if not sp or not k.GetConsoleScreenBufferInfo(h,ctypes.byref(csbi)):return
+    r,c=int(csbi.srWindow.Bottom)-int(csbi.srWindow.Top)+1,int(csbi.srWindow.Right)-int(csbi.srWindow.Left)+1
+    if r<1 or c<1 or (r,c)==last:return
     try:
-        tmp = "%s.%d" % (size_path, os.getpid())
-        with open(tmp, "w", encoding="ascii", newline="\n") as fh:
-            fh.write("%d %d\n" % (rows, cols))
-        os.replace(tmp, size_path)
-    except OSError:
-        return
-    last = (rows, cols)
-
-publish()
-while True:
-    if k.GetConsoleCursorInfo(h, ctypes.byref(info)) and info.bVisible:
-        info.bVisible = 0
-        k.SetConsoleCursorInfo(h, ctypes.byref(info))
-    publish()
-    time.sleep(0.04)
+        t="%s.%d"%(sp,os.getpid())
+        open(t,"w",encoding="ascii",newline="\n").write("%d %d\n"%(r,c))
+        os.replace(t,sp);last=(r,c)
+    except OSError:pass
+pub()
+while 1:
+    if k.GetConsoleCursorInfo(h,ctypes.byref(info)) and info.bVisible:info.bVisible=0;k.SetConsoleCursorInfo(h,ctypes.byref(info))
+    pub();time.sleep(0.04)
 PY
-    fi
-
-    MP_WIN_SIZE_FILE="$conf_dir/console_size" \
-    "$py" -u "$hider_py" >/dev/null 2>&1 &
+    MP_WIN_SIZE_FILE="$d/console_size" "$py" -u "$pyf" >/dev/null 2>&1 &
     _WIN_CURSOR_HIDER_PID=$!
 }
 
 _stop_win_cursor_hider() {
-    local pid="${_WIN_CURSOR_HIDER_PID:-}"
-    _WIN_CURSOR_HIDER_PID=""
-    if [ -n "$pid" ]; then
-        if [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
-            local _win_pid
-            _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}')
-            if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then
-                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F >/dev/null 2>&1 || true
-            fi
-        fi
-        kill -9 "$pid" 2>/dev/null || true
-    fi
+    local p="${_WIN_CURSOR_HIDER_PID:-}"; _WIN_CURSOR_HIDER_PID=""
+    [ -n "$p" ] || return
+    [[ "$(uname -s 2>/dev/null)" =~ MINGW|MSYS|CYGWIN ]] && {
+        local wp; wp=$(ps -W 2>/dev/null | awk -v p="$p" '$1==p{print $4;exit}')
+        [[ "$wp" =~ ^[0-9]+$ ]] && MSYS_NO_PATHCONV=1 taskkill.exe /PID "$wp" /F >/dev/null 2>&1 || true
+    }
+    kill -9 "$p" 2>/dev/null || true
 }
 
-
-# Interactive Submenu Runner
 run_interactive_submenu() {
-    local menu_title="$1"
-    local menu_header="$2"
-    local -n _opts_ref="$3"
-    local cur_idx="${4:-0}"
-    local total_opts="${#_opts_ref[@]}"
-    
-    if [ "$total_opts" -eq 0 ]; then
-        REPLY="0"
-        return 0
-    fi
-    
-    # Ensure starting cur_idx is on a selectable item
-    local start_attempts=0
-    while [ "$start_attempts" -lt "$total_opts" ]; do
-        IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-        if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then
-            break
+    local title="$1" header="$2" -n opts="$3" cur="${4:-0}" n=${#opts[@]}
+    [ $n -eq 0 ] && { REPLY=0; return; }
+    local a=0; while [ $a -lt $n ]; do
+        IFS='|' read -r k _ _ <<<"${opts[$cur]}"
+        [ "$k" != SECTION ] && [ "$k" != SEP ] && break
+        cur=$(( (cur+1)%n )); ((a++))
+    done
+    local -a smap=(); local sc=0 i
+    for ((i=0;i<n;i++)); do
+        IFS='|' read -r k _ _ <<<"${opts[$i]}"
+        if [ "$k" != SECTION ] && [ "$k" != SEP ]; then smap[i]=$sc; ((sc++)); else smap[i]=-1; fi
+    done
+    if [ ! -t 0 ]; then
+        clear
+        if [ -n "$title" ]; then
+            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+            echo -e "${BOLD}${MAGENTA}       $title${NC}"
+            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        elif [ -z "$title" ] && [ -z "$header" ] && command -v render_main_header >/dev/null 2>&1; then
+            update_terminal_geometry 0; render_main_header "$((_TERM_COLS-4))" >/dev/null; header="${_RENDERED_MAIN_HEADER:-}"
         fi
-        cur_idx=$(( (cur_idx + 1) % total_opts ))
-        ((start_attempts++))
-    done
-
-    # Pre-map selectable items to sequential indexes for Pink/Cyan/Orange/Grey color rotation
-    local -a selectable_map=()
-    local s_count=0
-    local i
-    for (( i=0; i<total_opts; i++ )); do
-        IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$i]}"
-        if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then
-            selectable_map[i]=$s_count
-            ((s_count++))
-        else
-            selectable_map[i]=-1
+        [ -n "$header" ] && echo -e "$header"
+        if get_mp_audio_player_track_info 2>/dev/null; then
+            local st="${BOLD}${GREEN}▶ PLAYING${NC}"; [ "$MP_PLAYER_STATE" = paused ] && st="${BOLD}${YELLOW}⏸ PAUSED${NC}"
+            local dt="$MP_PLAYER_TITLE"; [ ${#dt} -gt 40 ] && dt="${dt:0:37}..."
+            echo -e "  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ─────────────────────────────────────────────────────╮${NC}"
+            printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st" "$dt" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"
+            printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [n] Next [</>] Track [p] UI [f] FM       ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
+            echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"
         fi
-    done
-    
-# Non-interactive fallback
-if [ ! -t 0 ]; then
-    clear
-    if [ -n "$menu_title" ]; then
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}       $menu_title${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    elif [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header >/dev/null 2>&1; then
-        update_terminal_geometry 0
-        render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null
-        menu_header="${_RENDERED_MAIN_HEADER:-}"
+        local e; for e in "${opts[@]}"; do
+            IFS='|' read -r k l x <<<"$e"
+            case $k in
+                SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $l ] ─────────${NC}" ;;
+                SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;;
+                *) echo -e "  ${BOLD}${CYAN}$k)${NC} $l ${DIM}$x${NC}" ;;
+            esac
+        done
+        echo; run_deferred_startup; read -r -p "Enter choice: " REPLY; return
     fi
-    [ -n "$menu_header" ] && echo -e "$menu_header"
-    if get_mp_audio_player_track_info 2>/dev/null; then
-        local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"
-        [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
-        local disp_title="$MP_PLAYER_TITLE"
-        [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."
-        echo -e "  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ─────────────────────────────────────────────────────╮${NC}"
-        printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"
-        printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [n] Next [</>] Track [p] UI [f] FM       ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
-        echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"
-    fi
-    for opt_entry in "${_opts_ref[@]}"; do
-        IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"
-        case "$o_key" in
-            SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $o_label ] ─────────${NC}" ;;
-            SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;;
-            *) echo -e "  ${BOLD}${CYAN}$o_key)${NC} $o_label ${DIM}$o_extra${NC}" ;;
-        esac
-    done
-    echo ""
-    run_deferred_startup
-    read -r -p "Enter choice: " REPLY
-    return 0
-fi
-    # Update terminal geometry to 0
-    # Set local bo_w
-    # Set Width 
     update_terminal_geometry 0
-    local box_w
-    _set_menu_box_width box_w "${_TERM_COLS:-80}"
-    _CURRENT_BOX_W="$box_w"
-
-    # Reuse a stale disk line. df runs from the menu ticker, not here.
+    local bw; _set_menu_box_width bw "${_TERM_COLS:-80}"; _CURRENT_BOX_W=$bw
     _MENU_CURSOR_LOCK=1
-
-    local header_count=0
-    local cached_header_block=""
-    local cached_header_lines=0
-    local overhead=4
-
+    local hc=0 chb="" chl=0 oh=4
     build_header_block() {
-        header_count=0
-        cached_header_block=""
-        local inner_w=$(( box_w - 2 ))
-        local text_w=$(( box_w - 4 ))
-        local h_border
-        printf -v h_border '%*s' "$inner_w" ''
-        h_border="${h_border// /─}"
-
-        if [ -n "$menu_title" ]; then
-            cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"
-            local title_line
-            printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"
-            cached_header_block+="$title_line"
-            cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"
+        hc=0; chb=""; local iw=$((bw-2)) tw=$((bw-4)) hb; printf -v hb '%*s' "$iw" ''; hb=${hb// /─}
+        if [ -n "$title" ]; then
+            chb+="  ${BOLD}${MAGENTA}╭${hb}╮\033[K${NC}\n"
+            printf -v _tl "  ${BOLD}${MAGENTA}│ %-${tw}s │\033[K${NC}\n" "  ${title}"
+            chb+="$_tl  ${BOLD}${MAGENTA}╰${hb}╯\033[K${NC}\n"
         fi
-        if [ -z "$menu_title" ] && command -v render_main_header >/dev/null 2>&1; then
-            render_main_header "$box_w" >/dev/null
-            menu_header="${_RENDERED_MAIN_HEADER:-}"
+        if [ -z "$title" ] && command -v render_main_header >/dev/null 2>&1; then
+            render_main_header "$bw" >/dev/null; header="${_RENDERED_MAIN_HEADER:-}"
         fi
-        if [ -n "$menu_header" ]; then
-            local exp_hdr=""
-            printf -v exp_hdr "%b" "$menu_header"
-            while IFS= read -r h_line; do
-                cached_header_block+="${h_line}\033[K\n"
-                ((header_count++))
-            done <<< "$exp_hdr"
+        if [ -n "$header" ]; then
+            local eh; printf -v eh '%b' "$header"
+            while IFS= read -r hl; do chb+="${hl}\033[K\n"; ((hc++)); done <<<"$eh"
         fi
-        if [ -n "$menu_title" ]; then
-            cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, [Esc] to return immediately\033[K${NC}\n"
+        if [ -n "$title" ]; then
+            chb+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, [Esc] to return immediately\033[K${NC}\n"
         else
-            cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, 'q' to exit\033[K${NC}\n"
+            chb+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, 'q' to exit\033[K${NC}\n"
         fi
-
-        overhead=5 # prompt help line (1), top scroll (1), bottom scroll (1), bottom divider (1), selection status (1)
-        [ -n "$menu_title" ] && overhead=$((overhead + 3)) # top box border, title line, bottom box border
-        overhead=$((overhead + header_count))
-        # Help line is always present. The title box is three lines and is
-        # not included in header_count. This is the row count of the block.
-        cached_header_lines=$header_count
-        [ -n "$menu_title" ] && cached_header_lines=$((cached_header_lines + 3))
-        cached_header_lines=$((cached_header_lines + 1))
+        oh=5; [ -n "$title" ] && oh=$((oh+3)); oh=$((oh+hc))
+        chl=$hc; [ -n "$title" ] && chl=$((chl+3)); chl=$((chl+1))
     }
-
     build_header_block
-
-    # Status line shared by the full frame and the one-row selection paint.
     _compose_menu_status() {
-        local _out="$1"
-        local cur_key="" cur_lbl="" cur_ext=""
-        local line=""
-        IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"
-        if [ -n "$typed_buffer" ]; then
-            if [ -n "$menu_title" ]; then
-                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"
-            else
-                line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
-            fi
+        local o="$1" k l x; IFS='|' read -r k l x <<<"${opts[$cur]}"
+        local ln
+        if [ -n "$tb" ]; then
+            [ -n "$title" ] && ln="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${tb}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K" || ln="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${tb}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"
         else
-            if [ -n "$menu_title" ]; then
-                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K"
-            else
-                line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
-            fi
+            [ -n "$title" ] && ln="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${k}: ${l}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, Esc to Return]\033[K" || ln="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${k}: ${l}]${NC} ▏ ${DIM}[↑/↓ to Navigate, Enter to Select, 'q' to Exit]\033[K"
         fi
-        printf -v "$_out" '%s' "$line"
+        printf -v "$o" '%s' "$ln"
     }
-
     _menu_line_plain() {
-        local idx="$1"
-        local _out="$2"
-        local o_key="" o_label="" o_extra=""
-        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
-        local key_formatted=""
-        printf -v key_formatted "[%2s]" "$o_key"
-        local extra_display=""
-        [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
-        printf -v "$_out" '%s' "     ${BOLD}${CYAN}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
+        local i="$1" o="$2" k l x; IFS='|' read -r k l x <<<"${opts[$i]}"
+        local kf; printf -v kf '[%2s]' "$k"
+        local ed=""; [ -n "$x" ] && ed="  ${DIM}${x}${NC}"
+        printf -v "$o" '%s' "     ${BOLD}${CYAN}${kf}${NC} ${l}${ed}\033[K"
     }
-
-# Repaint the previous row, the new row, and the status line.
-# Returns 1 when the window must scroll, so the caller rebuilds the frame.
-_menu_fast_paint_selection() {
-    local old_idx="$1"
-    [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
-    [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
-    [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
-    [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1
-    [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1
-    [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1
-    [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1
-    [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1
-    [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1
-    [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1
-
-    local plain sel status
-    _menu_line_plain "$old_idx" plain
-    IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"
-    highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"
-    _compose_menu_status status
-
-    printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\r\033[?25l' \
-        "${_menu_item_row[$old_idx]}" "$plain" \
-        "${_menu_item_row[$cur_idx]}" "$sel" \
-        "${_menu_status_row}" "$status"
-
-    return 0
-}
-
+    _menu_fast_paint_selection() {
+        local oi="$1"
+        [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1
+        [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1
+        [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$oi]:-0}" -ge 1 ] && [ "${_menu_item_row[$oi]}" -lt "$_TERM_LINES" ] || return 1
+        [ "${_menu_item_row[$cur]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur]}" -lt "$_TERM_LINES" ] || return 1
+        [[ "${vt:-}" =~ ^[0-9]+$ && "${ve:-}" =~ ^[0-9]+$ ]] || return 1
+        [ -n "${_menu_item_row[$oi]:-}" ] && [ -n "${_menu_item_row[$cur]:-}" ] || return 1
+        [ "$cur" -ge "$vt" ] && [ "$cur" -le "$ve" ] && [ "$oi" -ge "$vt" ] && [ "$oi" -le "$ve" ] || return 1
+        local pl se st
+        _menu_line_plain "$oi" pl
+        IFS='|' read -r ok ol oe <<<"${opts[$cur]}"
+        highlight_menu_line "$ok" "$ol" "$oe" "${smap[$cur]:-0}" se "$bw"
+        _compose_menu_status st
+        printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\r\033[?25l' \
+            "${_menu_item_row[$oi]}" "$pl" "${_menu_item_row[$cur]}" "$se" "$_menu_status_row" "$st"
+        return 0
+    }
     cleanup_submenu_screen() {
-        _MENU_CURSOR_LOCK=0
-        _stop_win_cursor_hider
-        # Restore wrap, blinking, and the caret for the next prompt.
+        _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider
         printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
     }
-
-    # Hide the caret, stop it blinking, and stop long header lines from wrapping
-    # onto the next row. Wrapping is what walks the caret through the header.
-    # The lock makes a Ctrl+/- zoom re-apply this from the WINCH trap
-    # before the menu redraws.
-    _MENU_CURSOR_LOCK=1
-    _start_win_cursor_hider
-    printf '\033[?25l\033[?12l\033[?7l'
-    local _last_menu_frame=""
-    
-    local typed_buffer=""
-    local view_top=0
-    local last_term_lines="$_TERM_LINES"
-    local _MENU_FRAME_FRESH=0
-    local _LAST_MENU_TICK_S="${SECONDS:-0}"
-    local -a _menu_item_row=()
-    local _menu_status_row=0
-    local _menu_fast_ok=0
-    local _ARROW_HOLD=0
-
-    while true; do
+    _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'
+    local lf="" tb="" vt=0 ltl="$_TERM_LINES" _MENU_FRAME_FRESH=0 _LAST_MENU_TICK_S="${SECONDS:-0}"
+    local -a _menu_item_row=(); local _menu_status_row=0 _menu_fast_ok=0 _ARROW_HOLD=0
+    while :; do
         update_terminal_geometry 0
-        local cur_box_w
-        _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"
-        # A drag wakes this loop about 20 times a second. Rebuild only
-        # when the size changed, the selection changed, or a second has
-        # passed. An idle wake just keeps the caret hidden.
-        local _draw=1
-        if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then
-            _draw=0
-        fi
-        if [ "$_draw" -eq 0 ]; then
+        local cbw; _set_menu_box_width cbw "${_TERM_COLS:-80}"
+        local draw=1
+        [ "$cbw" -eq "$bw" ] && [ "$_TERM_LINES" -eq "$ltl" ] && [ -n "$lf" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ] && draw=0
+        if [ $draw -eq 0 ]; then
             printf '\033[?25l\033[?12l\033[?7l'
         else
-        if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then
-            box_w="$cur_box_w"
-            last_term_lines="$_TERM_LINES"
-            _CURRENT_BOX_W="$box_w"
-            build_header_block
-        fi
-
-        local inner_w=$(( box_w - 2 ))
-        local text_w=$(( box_w - 4 ))
-        local h_border
-        printf -v h_border '%*s' "$inner_w" ''
-        h_border="${h_border// /─}"
-
-        # Check MP Audio Player status and build live banner if active
-        local player_banner=""
-        local banner_lines=0
-        if get_mp_audio_player_track_info 2>/dev/null; then
-            local st_sym="${BOLD}${MP_PLAYER_STATE = "paused" ? YELLOW : GREEN}▶ $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")${NC}"
-            local st_raw="${MP_PLAYER_STATE = "paused" ? "⏸" : "▶"} $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")"
-            local rem_dashes=$(( inner_w - 22 ))
-            [ "$rem_dashes" -lt 0 ] && rem_dashes=0
-            local p_top_dashes="${rem_dashes// /─}"
-            player_banner+="  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ${p_top_dashes}╮\033[K${NC}\n"
-            local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"
-            local max_t_len=$(( text_w - ${#pos_pct_str} - 16 ))
-            [ "$max_t_len" -lt 4 ] && max_t_len=4
-            [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"
-            local disp_title="${MP_PLAYER_TITLE:0:$((max_t_len - 3))}..."
-            local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"
-            local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"
-            local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} ))
-            local l1_pad=$(( text_w - raw_l1_len ))
-            [ "$l1_pad" -lt 2 ] && l1_pad=2
-            local l1_sp
-            printf -v l1_sp '%*s' "$l1_pad" ''
-            player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"
-            local line2_ctrl="[Space] Toggle  [n] Next  [</>] Track  [p] UI  [f] FM"
-            local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
-            local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} ))
-            local l2_pad=$(( text_w - raw_l2_len ))
-            [ "$l2_pad" -lt 2 ] && l2_pad=2
-            local l2_sp
-            printf -v l2_sp '%*s' "$l2_pad" ''
-            player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"
-            player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"
-            banner_lines=4
-        fi
-
-        # Compute maximum visible options with safe headroom
-local effective_overhead=$(( overhead + banner_lines ))
-local max_visible=$(( _TERM_LINES - effective_overhead - 1 ))
-max_visible=$(( max_visible < 1 ? 1 : max_visible ))
-
-if [ "$max_visible" -ge "$total_opts" ]; then
-    max_visible=$total_opts
-    view_top=0
-else
-    view_top=$(( cur_idx < view_top ? cur_idx : view_top ))
-    view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top ))
-    view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top ))
-    view_top=$(( view_top < 0 ? 0 : view_top ))
-fi
-
-local view_end=$(( view_top + max_visible - 1 ))
-[ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 ))
-
-# Build entire frame in memory
-local frame_buf="$cached_header_block"
-[ -n "$player_banner" ] && frame_buf+="$player_banner"
-
-# Scroll indicator top
-if [ "$view_top" -gt 0 ]; then
-    frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"
-else
-    frame_buf+="\033[K\n"
-fi
-
-    # Render visible items
-    local idx
-    for (( idx=view_top; idx<=view_end; idx++ )); do
-        IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"
-        if [ "$o_key" = "SECTION" ]; then
-            local sec_rem=$(( inner_w - ${#o_label} - 8 ))
-            [ "$sec_rem" -lt 4 ] && sec_rem=4
-            local sec_dashes
-            printf -v sec_dashes '%*s' "$sec_rem" ''
-            sec_dashes="${sec_dashes// /─}"
-            frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"
-            continue
-        elif [ "$o_key" = "SEP" ]; then
-            frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
-            continue
-        fi
-
-        if [ "$idx" -eq "$cur_idx" ]; then
-            local sel_color_idx="${selectable_map[$cur_idx]:-0}"
-            local h_line=""
-            highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"
-            frame_buf+="${h_line}\n"
-        else
-            local key_formatted
-            printf -v key_formatted "[%2s]" "$o_key"
-            local key_display="${BOLD}${CYAN}${key_formatted}${NC}"
-            local label_display="${o_label}"
-            local extra_display=""
-            [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
-            frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"
-        fi
-    done
-
-        # Bottom scroller, divider, then the status line.
-        _menu_status_row=$((_menu_row + 2))
-        _menu_fast_ok=1
-
-        # Scroll indicator bottom
-        local remaining_below=$(( total_opts - 1 - view_end ))
-        if [ "$remaining_below" -gt 0 ]; then
-            frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"
-        else
-            frame_buf+="\033[K\n"
-        fi
-
-        frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"
-        local _status_line=""
-        _compose_menu_status _status_line
-        frame_buf+="$_status_line"
-        
-        # Draw only when the screen changed. Never park the caret on the
-        # right edge: after Ctrl+/- mintty shows it there and it tracks
-        # the selection. Do not use DEC 2026 here. Mintty treats ?2026h
-        # as a timed screen suspend, so the menu freezes while the caret
-        # still moves. Re-hide on an unchanged tick too, because a font
-        # zoom reveals the caret without changing the frame.
-        if [ "$frame_buf" != "$_last_menu_frame" ]; then
-            _last_menu_frame="$frame_buf"
-            # \r leaves the caret on column 1. A font zoom reveals it,
-            # and parking on the last column is what draws it down the
-            # right edge while the selection moves.
-            printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"
-        else
-            printf '\033[?25l\033[?12l\033[?7l'
-        fi
-        # First frame is already on screen. Fork autoplay and the header
-        # refresh now, not before the paint.
-        if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then
-            run_deferred_startup
-        fi
-        _MENU_FRAME_FRESH=1
-        fi
-
-        # The paint above is slower than key repeat. Drop the up/down
-        # sequences already waiting so releasing the key stops the highlight.
-        if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then
-            _discard_buffered_vertical_arrows
-            _ARROW_HOLD=0
-        fi
-
-        local key_action=""
-        read_nav_key key_action
-        # Any real key must redraw so the highlight moves. A timed-out
-        # tick redraws at most once a second (player banner and uptime).
-        if [ "$key_action" != "TICK" ]; then
-            _MENU_FRAME_FRESH=0
-        fi
-
-        case "$key_action" in
-            TOGGLE_FULLSCREEN)
-                toggle_manager_fullscreen
-                _TERM_RESIZED=1
-                last_term_lines=0
-                _last_menu_frame=""
+            if [ "$cbw" -ne "$bw" ] || [ "$_TERM_LINES" -ne "$ltl" ]; then
+                bw=$cbw; ltl="$_TERM_LINES"; _CURRENT_BOX_W=$bw; build_header_block
+            fi
+            local iw=$((bw-2)) tw=$((bw-4)) hb; printf -v hb '%*s' "$iw" ''; hb=${hb// /─}
+            local pb="" bl=0
+            if get_mp_audio_player_track_info 2>/dev/null; then
+                local st="${BOLD}$([ "$MP_PLAYER_STATE" = paused ] && echo "${YELLOW}⏸" || echo "${GREEN}▶") $(tr '[:upper:]' '[:lower:]' <<<"$MP_PLAYER_STATE")${NC}"
+                local sr="$([ "$MP_PLAYER_STATE" = paused ] && echo "⏸" || echo "▶") $(tr '[:upper:]' '[:lower:]' <<<"$MP_PLAYER_STATE")"
+                local rd=$((iw-22)); [ $rd -lt 0 ] && rd=0; local ptd; printf -v ptd '%*s' "$rd" ''; ptd=${ptd// /─}
+                pb+="  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ${ptd}╮\033[K${NC}\n"
+                local pps="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"
+                local mtl=$((tw-${#pps}-16)); [ $mtl -lt 4 ] && mtl=4; [ $mtl -gt $tw ] && mtl=$tw
+                local dt="${MP_PLAYER_TITLE:0:$((mtl-3))}..."
+                local l1l="${st}  ${BOLD}${YELLOW}${dt}${NC}" l1r="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"
+                local r1=$((${#sr}+2+${#dt}+${#pps})); local p1=$((tw-r1)); [ $p1 -lt 2 ] && p1=2
+                local s1; printf -v s1 '%*s' "$p1" ''
+                pb+="  ${BOLD}${MAGENTA}│${NC} ${l1l}${s1}${l1r} ${BOLD}${MAGENTA}│\033[K${NC}\n"
+                local c2="[Space] Toggle  [n] Next  [</>] Track  [p] UI  [f] FM"
+                local eq="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
+                local r2=$((6+8+10+${#c2})); local p2=$((tw-r2)); [ $p2 -lt 2 ] && p2=2
+                local s2; printf -v s2 '%*s' "$p2" ''
+                pb+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq}${s2}${DIM}Controls: ${c2}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"
+                pb+="  ${BOLD}${MAGENTA}╰${hb}╯\033[K${NC}\n"; bl=4
+            fi
+            local eo=$((oh+bl)); local mv=$((_TERM_LINES-eo-1)); [ $mv -lt 1 ] && mv=1
+            if [ $mv -ge $n ]; then mv=$n; vt=0
+            else
+                vt=$((cur<vt?cur:vt)); vt=$((cur>=vt+mv?cur-mv+1:vt)); vt=$((vt>n-mv?n-mv:vt)); [ $vt -lt 0 ] && vt=0
+            fi
+            local ve=$((vt+mv-1)); [ $ve -ge $n ] && ve=$((n-1))
+            local fb="$chb"; [ -n "$pb" ] && fb+="$pb"
+            if [ $vt -gt 0 ]; then
+                fb+="  ${BOLD}${YELLOW}▲  (${vt} more option$([ $vt -gt 1 ] && echo s) above - press ↑ to scroll)\033[K${NC}\n"
+            else fb+="\033[K\n"; fi
+            local idx
+            for ((idx=vt;idx<=ve;idx++)); do
+                IFS='|' read -r ok ol oe <<<"${opts[$idx]}"
+                if [ "$ok" = SECTION ]; then
+                    local sr=$((iw-${#ol}-8)); [ $sr -lt 4 ] && sr=4
+                    local sd; printf -v sd '%*s' "$sr" ''; sd=${sd// /─}
+                    fb+="  ${BOLD}${BLUE}─── [ ${ol} ] ${sd}\033[K${NC}\n"; continue
+                elif [ "$ok" = SEP ]; then fb+="  ${BOLD}${BLUE}${hb}\033[K${NC}\n"; continue; fi
+                if [ $idx -eq $cur ]; then
+                    local hl; highlight_menu_line "$ok" "$ol" "$oe" "${smap[$cur]:-0}" hl "$bw"
+                    fb+="${hl}\n"
+                else
+                    local kf; printf -v kf '[%2s]' "$ok"
+                    local ed=""; [ -n "$oe" ] && ed="  ${DIM}${oe}${NC}"
+                    fb+="     ${BOLD}${CYAN}${kf}${NC} ${ol}${ed}\033[K\n"
+                fi
+            done
+            _menu_status_row=$((_menu_row+2)); _menu_fast_ok=1
+            local rb=$((n-1-ve))
+            if [ $rb -gt 0 ]; then
+                fb+="  ${BOLD}${YELLOW}▼  (${rb} more option$([ $rb -gt 1 ] && echo s) below - press ↓ to scroll)\033[K${NC}\n"
+            else fb+="\033[K\n"; fi
+            fb+="  ${BOLD}${BLUE}${hb}\033[K${NC}\n"
+            local sl; _compose_menu_status sl; fb+="$sl"
+            if [ "$fb" != "$lf" ]; then
+                lf="$fb"
+                printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$fb"
+            else
                 printf '\033[?25l\033[?12l\033[?7l'
-                continue
-                ;;
-            RESIZE)
-                # One cheap geometry pass. The loop top rebuilds the
-                # header once for the new size. Rebuilding here as well
-                # ran df and dropped the next arrow key.
-                update_terminal_geometry 1
-                last_term_lines=0
-                _last_menu_frame=""
-                printf '\033[?25l\033[?12l\033[?7l'
-                continue
-                ;;
+            fi
+            if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi
+            _MENU_FRAME_FRESH=1
+        fi
+        if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi
+        local ka; read_nav_key ka
+        [ "$ka" != TICK ] && _MENU_FRAME_FRESH=0
+        case $ka in
+            TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; ltl=0; lf=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;;
+            RESIZE) update_terminal_geometry 1; ltl=0; lf=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;;
             TICK)
-                # The key wait is 0.05s, so a tick counter would refresh
-                # the header five times a second. Gate on the clock instead.
-                local _now_s="${SECONDS:-0}"
-                if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then
-                    _LAST_MENU_TICK_S="$_now_s"
-                    update_terminal_geometry 0
-                    if [ -z "$menu_title" ]; then
-                        load_header_cache 2>/dev/null || true
-                        build_header_block
-                        maybe_spawn_header_refresh
-                        _maybe_refresh_perf_cache
+                local ns="${SECONDS:-0}"
+                if [ "$ns" != "${_LAST_MENU_TICK_S:-}" ]; then
+                    _LAST_MENU_TICK_S=$ns; update_terminal_geometry 0
+                    if [ -z "$title" ]; then
+                        load_header_cache 2>/dev/null || true; build_header_block; maybe_spawn_header_refresh; _maybe_refresh_perf_cache
                     fi
                     _MENU_FRAME_FRESH=0
                 fi
-                continue
-                ;;
-            SPACE)
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --toggle >/dev/null 2>&1 &
-                ;;
-            CHAR:n|CHAR:N|CHAR:\>|CHAR:\])
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --next >/dev/null 2>&1 &
-                ;;
-            CHAR:\<|CHAR:\[)
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --prev >/dev/null 2>&1 &
-                ;;
-            CHAR:+|CHAR:=)
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --pitch-up >/dev/null 2>&1 &
-                ;;
-            CHAR:-|CHAR:_)
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --pitch-down >/dev/null 2>&1 &
-                ;;
-            CHAR:0)
-                local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset >/dev/null 2>&1 &
-                ;;
-            UP)
-                local old_idx="$cur_idx"
-                local hops=0
-                while [ "$hops" -lt "$total_opts" ]; do
-                    cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts ))
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break
+                continue ;;
+            SPACE|CHAR:n|CHAR:N|CHAR:\>|CHAR:\]|CHAR:\<|CHAR:\[|CHAR:+|CHAR:=|CHAR:-|CHAR:_|CHAR:0)
+                local mp="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp" ] && mp="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+                [ -f "$mp" ] || continue
+                case $ka in
+                    SPACE) python3 "$mp" --toggle >/dev/null 2>&1 & ;;
+                    CHAR:n|CHAR:N|CHAR:\>|CHAR:\]) python3 "$mp" --next >/dev/null 2>&1 & ;;
+                    CHAR:\<|CHAR:\[) python3 "$mp" --prev >/dev/null 2>&1 & ;;
+                    CHAR:+|CHAR:=) python3 "$mp" --pitch-up >/dev/null 2>&1 & ;;
+                    CHAR:-|CHAR:_) python3 "$mp" --pitch-down >/dev/null 2>&1 & ;;
+                    CHAR:0) python3 "$mp" --pitch-reset >/dev/null 2>&1 & ;;
+                esac ;;
+            UP|DOWN)
+                local oi=$cur hops=0
+                while [ $hops -lt $n ]; do
+                    [ "$ka" = UP ] && cur=$(( (cur-1+n)%n )) || cur=$(( (cur+1)%n ))
+                    IFS='|' read -r k _ _ <<<"${opts[$cur]}"
+                    [ "$k" != SECTION ] && [ "$k" != SEP ] && break
                     ((hops++))
                 done
-                typed_buffer=""
-                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
-                    _MENU_FRAME_FRESH=1
-                fi
-                _ARROW_HOLD=1
-                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
-                ;;
-            PAGE_UP)
-                local hops=0
-                local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 ))
-                while [ "$hops" -lt "$target_step" ]; do
-                    cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts ))
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then
-                        ((hops++))
-                    fi
+                tb=""; [ "$oi" -ne "$cur" ] && _menu_fast_paint_selection "$oi" && _MENU_FRAME_FRESH=1
+                _ARROW_HOLD=1; _NAV_ARROW_AT="${EPOCHREALTIME:-0}" ;;
+            PAGE_UP|PAGE_DOWN)
+                local hops=0 ts=$((mv>5?mv-2:5))
+                while [ $hops -lt $ts ]; do
+                    [ "$ka" = PAGE_UP ] && cur=$(( (cur-1+n)%n )) || cur=$(( (cur+1)%n ))
+                    IFS='|' read -r k _ _ <<<"${opts[$cur]}"
+                    [ "$k" != SECTION ] && [ "$k" != SEP ] && ((hops++))
                 done
-                typed_buffer=""
-                ;;
-            DOWN)
-                local old_idx="$cur_idx"
-                local hops=0
-                while [ "$hops" -lt "$total_opts" ]; do
-                    cur_idx=$(( (cur_idx + 1) % total_opts ))
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break
-                    ((hops++))
-                done
-                typed_buffer=""
-                if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then
-                    _MENU_FRAME_FRESH=1
-                fi
-                _ARROW_HOLD=1
-                _NAV_ARROW_AT="${EPOCHREALTIME:-0}"
-                ;;
-            PAGE_DOWN)
-                local hops=0
-                local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 ))
-                while [ "$hops" -lt "$target_step" ]; do
-                    cur_idx=$(( (cur_idx + 1) % total_opts ))
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then
-                        ((hops++))
-                    fi
-                done
-                typed_buffer=""
-                ;;
+                tb="" ;;
             HOME)
-                cur_idx=0
-                while [ "$cur_idx" -lt "$total_opts" ]; do
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break
-                    ((cur_idx++))
-                done
-                typed_buffer=""
-                ;;
+                cur=0; while [ $cur -lt $n ]; do IFS='|' read -r k _ _ <<<"${opts[$cur]}"; [ "$k" != SECTION ] && [ "$k" != SEP ] && break; ((cur++)); done; tb="" ;;
             END)
-                cur_idx=$(( total_opts - 1 ))
-                while [ "$cur_idx" -ge 0 ]; do
-                    IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"
-                    [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break
-                    ((cur_idx--))
-                done
-                typed_buffer=""
-                ;;
+                cur=$((n-1)); while [ $cur -ge 0 ]; do IFS='|' read -r k _ _ <<<"${opts[$cur]}"; [ "$k" != SECTION ] && [ "$k" != SEP ] && break; ((cur--)); done; tb="" ;;
             ENTER)
-                cleanup_submenu_screen
-                clear
-                if [ -n "$typed_buffer" ]; then
-                    REPLY="$typed_buffer"
-                else
-                    IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"
-                    REPLY="$sel_key"
-                fi
-                return 0
-                ;;
-            ESC)
-                cleanup_submenu_screen
-                clear
-                REPLY="ESC"
-                return 0
-                ;;
-            BACKSPACE)
-                typed_buffer="${typed_buffer%?}"
-                ;;
+                cleanup_submenu_screen; clear
+                if [ -n "$tb" ]; then REPLY=$tb; else IFS='|' read -r sk _ _ <<<"${opts[$cur]}"; REPLY=$sk; fi
+                return ;;
+            ESC) cleanup_submenu_screen; clear; REPLY=ESC; return ;;
+            BACKSPACE) tb="${tb%?}" ;;
             CHAR:*)
-                local ch="${key_action#CHAR:}"
-                # manager.bat's console can deliver the arrow's final A or B
-                # again. B is also Back, so it was leaving the menu and the
-                # main loop reported an invalid option. mintty does not.
-                if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then
-                    continue
+                local ch="${ka#CHAR:}"
+                if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == A || "$ch" == B ]] && _nav_just_arrowed; then continue; fi
+                if [ -z "$tb" ] && [[ "$ch" == [pP] ]]; then
+                    local hp=0 e; for e in "${opts[@]}"; do IFS='|' read -r k _ _ <<<"$e"; [[ "$k" == [pP] ]] && { hp=1; break; }; done
+                    if [ $hp -eq 0 ]; then
+                        cleanup_submenu_screen; manage_mp_audio_player
+                        _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; clear; continue
+                    fi
                 fi
-                if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then
-                    local has_exact_p=0
-                    for opt_entry in "${_opts_ref[@]}"; do
-                        IFS='|' read -r o_key _ _ <<< "$opt_entry"
-                        if [ "$o_key" = "p" ] || [ "$o_key" = "P" ]; then
-                            has_exact_p=1
-                            break
-                        fi
-                    done
-                    if [ "$has_exact_p" -eq 0 ]; then
-                        cleanup_submenu_screen
-                        manage_mp_audio_player
-                        _MENU_CURSOR_LOCK=1
-                        _start_win_cursor_hider
-                        printf '\033[?25l\033[?12l\033[?7l'
-                        clear
+                if [ -z "$tb" ] && [[ "$ch" == [fF] ]] && [ "${MP_PLAYER_ACTIVE:-0}" -eq 1 ]; then
+                    local hf=0 e; for e in "${opts[@]}"; do IFS='|' read -r k _ _ <<<"$e"; [[ "$k" == [fF] ]] && { hf=1; break; }; done
+                    if [ $hf -eq 0 ]; then
+                        local mp="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp" ] && mp="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+                        [ -f "$mp" ] && python3 "$mp" --open-file-manager >/dev/null 2>&1 &
                         continue
                     fi
                 fi
-                if [ -z "$typed_buffer" ] && ([ "$ch" = "f" ] || [ "$ch" = "F" ]) && [ "${MP_PLAYER_ACTIVE:-0}" -eq 1 ]; then
-                    local has_exact_f=0
-                    for opt_entry in "${_opts_ref[@]}"; do
-                        IFS='|' read -r o_key _ _ <<< "$opt_entry"
-                        if [ "$o_key" = "f" ] || [ "$o_key" = "F" ]; then
-                            has_exact_f=1
-                            break
-                        fi
-                    done
-                    if [ "$has_exact_f" -eq 0 ]; then
-                        local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-                        [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-                        [ -f "$mp_py" ] && python3 "$mp_py" --open-file-manager >/dev/null 2>&1 &
-                        continue
-                    fi
-                fi
-                typed_buffer+="$ch"
-                local m_idx=0
-                for opt_entry in "${_opts_ref[@]}"; do
-                    IFS='|' read -r o_key _ _ <<< "$opt_entry"
-                    if [ "$o_key" = "$typed_buffer" ]; then
-                        cur_idx=$m_idx
-                        break
-                    fi
-                    ((m_idx++))
+                tb+="$ch"
+                local mi=0 e; for e in "${opts[@]}"; do
+                    IFS='|' read -r k _ _ <<<"$e"
+                    [ "$k" = "$tb" ] && { cur=$mi; break; }
+                    ((mi++))
                 done
-                if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ] || [ "$typed_buffer" = "b" ] || [ "$typed_buffer" = "B" ]; then
-                    cleanup_submenu_screen
-                    clear
-                    REPLY="$typed_buffer"
-                    return 0
-                fi
+                if [[ "$tb" == [qQbB] ]]; then cleanup_submenu_screen; clear; REPLY=$tb; return; fi
                 ;;
         esac
     done
-}
-
+} # U_002
 
 load_theme() {
     local theme_file="$HOME/.config/mix-manager/theme"
