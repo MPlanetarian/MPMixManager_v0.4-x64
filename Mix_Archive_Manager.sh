@@ -15027,7 +15027,6 @@ manage_settings_and_system() {
     done
 }
 
-
 # ==============================================================================
 # MAIN APPLICATION LOOP & HEADER RENDERER
 # ==============================================================================
@@ -15036,101 +15035,84 @@ render_main_header() {
     local cur_box_w="${1:-}"
     local _hdr_cap=""
     _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"
-    if [ -z "$cur_box_w" ]; then
+
+    if [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]]; then
         cur_box_w="$_hdr_cap"
     fi
-    # Never widen the header past the window. The old 74-column floor
-    # wrapped after a font zoom and dragged the caret down the margin.
-    [ "$cur_box_w" -gt "$_hdr_cap" ] && cur_box_w="$_hdr_cap"
-    [ "$cur_box_w" -lt 1 ] && cur_box_w=1
+    (( cur_box_w < 1 )) && cur_box_w=1
 
-    local hdr=""
-
-    local h_eq
+    # Pre-generate width-dependent separator bars in single printf passes
+    local h_eq h_dash title_sp
     printf -v h_eq '%*s' "$cur_box_w" ''
     h_eq="${h_eq// /=}"
+    printf -v h_dash '%*s' "$cur_box_w" ''
+    h_dash="${h_dash// /-}"
+
     local title_text="MP Mix Archive Manager (v0.3.6 Beta)"
     local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
-    [ "$title_pad" -lt 0 ] && title_pad=0
-    local title_sp
+    (( title_pad < 0 )) && title_pad=0
     printf -v title_sp '%*s' "$title_pad" ''
 
-    hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
-    hdr+="${BOLD}${MAGENTA}${title_sp}${title_text}${NC}\n"
-    hdr+="${BOLD}${MAGENTA}${h_eq}${NC}\n"
+    # Fast path: ensure caches are populated
+    [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge >/dev/null 2>&1
+    get_system_perf_stats >/dev/null
 
-    # Fast path: render only from in-memory cached values (refreshed asynchronously by
-    # refresh_header_cache_worker). Never run python/curl/network probes here.
-    [ -z "${_CACHED_OS_BADGE:-}" ] && get_os_badge >/dev/null 2>&1
-    local os_badge="${_CACHED_OS_BADGE:-}"
-    local os_updates="${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}"
-    local shell_info="Bash ${BASH_VERSION%%(*}"
     local net_status
-    if [ "${_CACHED_INTERNET_STATUS:-online}" = "offline" ]; then
+    if [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]]; then
         net_status="${YELLOW}Offline (LAN Only)${NC}"
     else
         net_status="${GREEN}Online${NC}"
     fi
-    hdr+="  ${os_badge}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${os_updates}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} ${shell_info}\n"
-    [ -n "${_CACHED_CLOUD_STATUS:-}" ] && hdr+="  ${_CACHED_CLOUD_STATUS}\n"
-    get_system_perf_stats >/dev/null
-    [ -n "${_CACHED_PERF_DISPLAY:-}" ] && hdr+="${_CACHED_PERF_DISPLAY}\n"
-    [ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ] && hdr+="${_CACHED_AUDIO_IFACE_DISPLAY}\n"
 
-    local h_dash
-    printf -v h_dash '%*s' "$cur_box_w" ''
-    h_dash="${h_dash// /-}"
+    # Initialize buffer with banner, status bar, and active metric rows
+    local hdr="${BOLD}${MAGENTA}${h_eq}${NC}
+${BOLD}${MAGENTA}${title_sp}${title_text}${NC}
+${BOLD}${MAGENTA}${h_eq}${NC}
+  ${_CACHED_OS_BADGE:-}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
 
-    if [ "$_TERM_LINES" -ge 38 ]; then
-        if [ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]; then
-            hdr+="  ${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}\n"
+    [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n'"  ${_CACHED_CLOUD_STATUS}"
+    [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"
+    [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"
+
+    if (( _TERM_LINES >= 38 )); then
+        [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n'"  ${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"
+        [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n'"  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"
+
+        if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then
+            hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"
         fi
-        if [ -n "${STARTUP_SPEK_NOTICE:-}" ]; then
-            hdr+="  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}\n"
+        if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then
+            hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"
         fi
-        if [ "${WEATHER_ENABLED:-true}" = "true" ] && [ -n "${WEATHER_LOCATION:-}" ] && [ -n "${_CACHED_WEATHER_DISPLAY:-}" ]; then
-            hdr+="${_CACHED_WEATHER_DISPLAY}\n"
-        fi
-        if [ "${PLANETS_ENABLED:-true}" = "true" ] && [ -n "${_CACHED_PLANETS_DISPLAY:-}" ]; then
-            hdr+="${_CACHED_PLANETS_DISPLAY}\n"
-        fi
-        [ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ] && hdr+="${_CACHED_ALARM_CLOCK_STATUS}\n"
-        hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
+        [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"
+
+        hdr+=$'\n'"${BOLD}${MAGENTA}${h_dash}${NC}"
+
         if ! is_mix_archive_configured; then
-            hdr+="\n  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}\n"
-            hdr+="  ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}\n"
+            hdr+=$'\n\n'"  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}
+  ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
         fi
-        hdr+="\n"
-        # Same bytes show_stats prints on the fast path, without forking
-        # this script. A fork here is most of the old resize lag.
-        local stats_block=""
-        if [ -z "${_CACHED_STATS_CORE:-}" ]; then
+
+        if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then
             load_header_cache 2>/dev/null || true
+            if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then
+                _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}
+  ${DIM}⚡ Loading archive statistics in background...${NC}"
+            fi
         fi
-        if [ -z "${_CACHED_STATS_CORE:-}" ]; then
-            _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}\n  ${DIM}⚡ Loading archive statistics in background...${NC}"
-        fi
-        printf -v stats_block '%b\n' "$_CACHED_STATS_CORE"
-        if [ -n "${_CACHED_NOW_PLAYING:-}" ]; then
-            stats_block+="${_CACHED_NOW_PLAYING}"$'\n'
-        fi
-        local stats_rule=""
-        printf -v stats_rule '%b' "${BLUE}===================================${NC}"
-        stats_block+="$stats_rule"
-        hdr+="${stats_block}"$'\n\n'
-        get_manager_uptime >/dev/null
-        hdr+="  ${_MANAGER_UPTIME_LINE}"$'\n'
+
+        hdr+=$'\n\n'"${_CACHED_STATS_CORE}"
+        [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"
+        hdr+=$'\n'"${BLUE}===================================${NC}"
     else
-        hdr+="${BOLD}${MAGENTA}${h_dash}${NC}\n"
-        get_manager_uptime >/dev/null
-        hdr+="  ${_MANAGER_UPTIME_LINE}"$'\n'
+        hdr+=$'\n'"${BOLD}${MAGENTA}${h_dash}${NC}"
     fi
 
-    # Drop one trailing newline so callers match a command substitution.
+    get_manager_uptime >/dev/null
+    hdr+=$'\n'"  ${_MANAGER_UPTIME_LINE}"
+
+    # Cache result without trailing newline; decode escapes once
     _RENDERED_MAIN_HEADER="$hdr"
-    if [ -n "$_RENDERED_MAIN_HEADER" ] && [ "${_RENDERED_MAIN_HEADER: -1}" = $'\n' ]; then
-        _RENDERED_MAIN_HEADER="${_RENDERED_MAIN_HEADER%$'\n'}"
-    fi
     printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 
