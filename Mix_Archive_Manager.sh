@@ -829,46 +829,42 @@ run_interactive_submenu() {
         fi
     done
     
-    # Non-interactive fallback
-    if [ ! -t 0 ]; then
-        clear
-        if [ -n "$menu_title" ]; then
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}       ${menu_title}${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        fi
-        if [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header >/dev/null 2>&1; then
-            update_terminal_geometry 0
-            render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null
-            menu_header="${_RENDERED_MAIN_HEADER:-}"
-        fi
-        [ -n "$menu_header" ] && echo -e "$menu_header"
-        if get_mp_audio_player_track_info 2>/dev/null; then
-            local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"
-            [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
-            local disp_title="$MP_PLAYER_TITLE"
-            [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."
-            echo -e "  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ─────────────────────────────────────────────────────╮${NC}"
-            printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"
-            printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [n] Next [</>] Track [p] UI [f] FM       ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
-            echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"
-        fi
-        for opt_entry in "${_opts_ref[@]}"; do
-            IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"
-            if [ "$o_key" = "SECTION" ]; then
-                echo -e "\n  ${BOLD}${BLUE}─── [ ${o_label} ] ─────────${NC}"
-                continue
-            elif [ "$o_key" = "SEP" ]; then
-                echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}"
-                continue
-            fi
-            echo -e "  ${BOLD}${CYAN}${o_key})${NC} ${o_label} ${DIM}${o_extra}${NC}"
-        done
-        echo ""
-        run_deferred_startup
-        read -r -p "Enter choice: " REPLY
-        return 0
+# Non-interactive fallback
+if [ ! -t 0 ]; then
+    clear
+    if [ -n "$menu_title" ]; then
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}       $menu_title${NC}"
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    elif [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header >/dev/null 2>&1; then
+        update_terminal_geometry 0
+        render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null
+        menu_header="${_RENDERED_MAIN_HEADER:-}"
     fi
+    [ -n "$menu_header" ] && echo -e "$menu_header"
+    if get_mp_audio_player_track_info 2>/dev/null; then
+        local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"
+        [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
+        local disp_title="$MP_PLAYER_TITLE"
+        [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."
+        echo -e "  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ─────────────────────────────────────────────────────╮${NC}"
+        printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"
+        printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [n] Next [</>] Track [p] UI [f] FM       ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
+        echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"
+    fi
+    for opt_entry in "${_opts_ref[@]}"; do
+        IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"
+        case "$o_key" in
+            SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $o_label ] ─────────${NC}" ;;
+            SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;;
+            *) echo -e "  ${BOLD}${CYAN}$o_key)${NC} $o_label ${DIM}$o_extra${NC}" ;;
+        esac
+    done
+    echo ""
+    run_deferred_startup
+    read -r -p "Enter choice: " REPLY
+    return 0
+fi
 
     update_terminal_geometry 0
     local box_w
