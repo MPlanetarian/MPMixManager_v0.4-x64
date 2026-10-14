@@ -1057,17 +1057,17 @@ class EqualizerVisualizer:
 
         for r in range(frows):
             if r == krow and r == crow:
-                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄  0.0% [CENTER]{NC}"
+                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄  0.0%% [CENTER]{NC}"
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_TRAFFIC_GREEN}[▓█0█▓]{NC}  {tag} {COLOR_HOT_PURPLE}│{NC}")
             elif r == krow:
                 kcol = COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {kcol}[▓███▓]{NC}  {BOLD}{kcol}{f'◄ {p:+d}% ({1.0 + p/100:.2f}x)':<13}{NC} {COLOR_HOT_PURPLE}│{NC}")
             elif r == crow:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC}  {DIM}{COLOR_LILAC}CENTER (0%){NC}   {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC}  {DIM}{COLOR_LILAC}CENTER (0%%){NC}   {COLOR_HOT_PURPLE}│{NC}")
             elif r == 0:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20%% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
             elif r == frows - 1:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20%% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
             else:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}                    {COLOR_HOT_PURPLE}│{NC}")
         lines.append(f"{COLOR_HOT_PURPLE}╰────────────────────────╯{NC}")
@@ -1087,14 +1087,14 @@ class EqualizerVisualizer:
                 else: chars.append(f"{COLOR_TRAFFIC_AMBER}━{NC}" if cp < i <= kp else f"{DIM}─{NC}")
             return "".join(chars)
 
-        stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
-        pfx = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} ["
-        sfx = f"] {DIM}+20%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
+        stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0%% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
+        pfx = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%%{NC} ["
+        sfx = f"] {DIM}+20%%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
 
         if max_cols and (_display_width(pfx) + w + _display_width(sfx) > max_cols):
-            sfx = f"] {DIM}+20%{NC}  {stag}"
+            sfx = f"] {DIM}+20%%{NC}  {stag}"
             if _display_width(pfx) + w + _display_width(sfx) > max_cols:
-                sfx = f"] {DIM}+20%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
+                sfx = f"] {DIM}+20%%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
             avail = max_cols - _display_width(pfx) - _display_width(sfx)
             if avail < w:
                 w = max(8, avail)
@@ -1444,7 +1444,7 @@ class TerminalPlayerUI:
             f"  Vol {vol}  Pitch {pbadge}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         lines.append(_fit_text_line([
-            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20%% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
             f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  T List  E Export  F Files  e EQ  b/q Exit{NC}",
             f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  b/q Exit{NC}"
         ], max(20, w - 1)))
@@ -1480,7 +1480,7 @@ def main():
     parser.add_argument("--pitch", type=int, help="Set DJ pitch percentage (-20 to +20)")
     parser.add_argument("--pitch-up", type=int, nargs="?", const=1, help="Increase DJ pitch percentage")
     parser.add_argument("--pitch-down", type=int, nargs="?", const=1, help="Decrease DJ pitch percentage")
-    parser.add_argument("--pitch-reset", action="store_true", help="Reset DJ pitch percentage to 0%")
+    parser.add_argument("--pitch-reset", action="store_true", help="Reset DJ pitch percentage to 0%%")
     parser.add_argument("--vol", type=str, help="Set volume (e.g. 85, +5, -5)")
     parser.add_argument("--seek", type=float, help="Seek relative seconds")
     parser.add_argument("--status", action="store_true", help="Output JSON playback status")
@@ -1595,7 +1595,7 @@ def main():
             if data:
                 icon = "▶" if data["state"] == "playing" else "⏸"
                 pval = data.get("pitch_percent", 0)
-                pstr = f"Pitch: {pval:+d}%" if pval != 0 else "Pitch: 0%"
+                pstr = f"Pitch: {pval:+d}%" if pval != 0 else "Pitch: 0%%"
                 print(f"{icon} {data['title']} [{data['position_fmt']}/{data['duration_fmt']}] ({data['mini_eq']}) {pstr} Vol: {data['volume']}%")
             else: print("○ MP Audio Player: Stopped")
         sys.exit(0)
