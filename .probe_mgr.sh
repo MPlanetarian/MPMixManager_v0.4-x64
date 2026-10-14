@@ -448,49 +448,31 @@ read_nav_key() {
 # Color order: Pink -> Cyan -> Orange -> Grey (repeating in order).
 # Efficient in-memory formatting with zero subprocess forks.
 highlight_menu_line() {
-    local key="$1"
-    local label="$2"
-    local extra="$3"
-    local color_idx="${4:-0}"
-    local _out_var="$5"
-    local box_width="${6:-${_CURRENT_BOX_W:-74}}"
+    local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}"
+    local c_mod=$(( (color_idx % 4 + 4) % 4 ))
+    local bg fg_key fg_lbl fg_ext ptr_col ptr rst
 
-    local c_mod=$(( color_idx % 4 ))
-    [ "$c_mod" -lt 0 ] && c_mod=$(( c_mod + 4 ))
+    case "$c_mod" in
+        0) bg="\033[48;2;247;37;133m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;5;20m"; ptr_col="\033[1;38;2;247;37;133m"; ;;
+        1) bg="\033[48;2;0;229;255m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;0;35;45m"; ptr_col="\033[1;38;2;0;229;255m"; ;;
+        2) bg="\033[48;2;255;140;0m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;45;20;0m"; ptr_col="\033[1;38;2;255;140;0m"; ;;
+        3) bg="\033[48;2;88;98;118m"; fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;238m"; ptr_col="\033[1;38;2;160;175;205m"; ;;
+    esac
 
-    local bg="" fg_key="" fg_lbl="" fg_ext="" ptr_col=""
-    if [ "${COLORTERM:-}" = "truecolor" ] || [ "${COLORTERM:-}" = "24bit" ] || true; then
-        case "$c_mod" in
-            0) # Pink (#f72585 Sweet Neon Hot Pink)
-                bg="\033[48;2;247;37;133m"
-                fg_key="\033[1;38;2;0;0;0m"
-                fg_lbl="\033[1;38;2;0;0;0m"
-                fg_ext="\033[0;38;2;40;5;20m"
-                ptr_col="\033[1;38;2;247;37;133m"
-                ;;
-            1) # Cyan (#00e5ff Sweet Electric Aqua Cyan)
-                bg="\033[48;2;0;229;255m"
-                fg_key="\033[1;38;2;0;0;0m"
-                fg_lbl="\033[1;38;2;0;0;0m"
-                fg_ext="\033[0;38;2;0;35;45m"
-                ptr_col="\033[1;38;2;0;229;255m"
-                ;;
-            2) # Orange (#ff8c00 Sweet Amber Orange)
-                bg="\033[48;2;255;140;0m"
-                fg_key="\033[1;38;2;0;0;0m"
-                fg_lbl="\033[1;38;2;0;0;0m"
-                fg_ext="\033[0;38;2;45;20;0m"
-                ptr_col="\033[1;38;2;255;140;0m"
-                ;;
-            3) # Grey (#586276 Desktop Selection Slate Grey)
-                bg="\033[48;2;88;98;118m"
-                fg_key="\033[1;38;2;255;255;255m"
-                fg_lbl="\033[1;38;2;255;255;255m"
-                fg_ext="\033[0;38;2;215;225;238m"
-                ptr_col="\033[1;38;2;160;175;205m"
-                ;;
-        esac
-    fi
+    rst="\033[0m"
+    ptr="${ptr_col} ▶ ❯${rst}"
+    printf -v formatted_key "[%2s]" "$key"
+    ext_part="${extra:+  ${fg_ext}${extra}}"
+
+    line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${ext_part}"
+    raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} + ${#ext_part} ))
+    pad_len=$(( box_width - 6 - raw_len ))
+    [ "$pad_len" -lt 1 ] && pad_len=1
+    printf -v pad_spaces '%*s' "$pad_len" ''
+
+    line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"
+    [ -n "$_out_var" ] && printf -v "$_out_var" "%s" "$line_out" || printf "%b\n" "$line_out"
+}
 
     local rst="\033[0m"
     local ptr="${ptr_col} ▶ ❯${rst}"
