@@ -14402,52 +14402,55 @@ _run_desktop_shortcut_manual() {
 
 # ─── Bind a Desktop Shortcut to a Global Keyboard Shortcut (KDE Plasma) ───────
 _bind_desktop_shortcut_keyboard() {
-    if _dsk_is_windows; then _bind_desktop_shortcut_keyboard_windows; return 0; fi
-    if _dsk_is_mac; then _bind_desktop_shortcut_keyboard_mac; return 0; fi
-    # ── Step 1: collect & parse desktop files (reuse same logic as _run_desktop_shortcut_manual)
-    local -a desktop_paths=()
-    local -a search_dirs=(
-        "$HOME/Desktop/DESKTOP"
-        "$HOME/Desktop"
-        "$HOME/.local/share/applications"
+    _dsk_is_windows && { _bind_desktop_shortcut_keyboard_windows; return 0; }
+    _dsk_is_mac && { _bind_desktop_shortcut_keyboard_mac; return 0; }
+
+    local -a shortcut_names=() shortcut_files=() shortcut_comments=() \
+             shortcut_categories=() shortcut_existing_keys=()
+    local f line k v name comm cats type key
+
+    # Collect .desktop files via native shell globbing (no find/sort forks)
+    shopt -s nullglob
+    local files=(
+        "$HOME/Desktop/DESKTOP"/*.desktop
+        "$HOME/Desktop"/*.desktop
+        "$HOME/.local/share/applications"/*.desktop
     )
-    for _dir in "${search_dirs[@]}"; do
-        [ -d "$_dir" ] || continue
-        while IFS= read -r -d '' _f; do
-            desktop_paths+=("$_f")
-        done < <(find "$_dir" -maxdepth 1 -name "*.desktop" -print0 2>/dev/null | sort -z)
+    shopt -u nullglob
+
+    for f in "${files[@]}"; do
+        [ -f "$f" ] || continue
+        name="" comm="" cats="" type="" key=""
+        
+        # Parse fields purely in Bash memory — zero forks per file
+        while IFS='=' read -r k v || [ -n "$k" ]; do
+            case "$k" in
+                Name)                 [ -z "$name" ] && name="$v" ;;
+                Comment)              [ -z "$comm" ] && comm="$v" ;;
+                Categories)           [ -z "$cats" ] && cats="$v" ;;
+                Type)                 [ -z "$type" ] && type="$v" ;;
+                X-KDE-Shortcuts)      [ -z "$key" ]  && key="$v" ;;
+            esac
+        done < "$f"
+
+        [ -n "$type" ] && [ "$type" != "Application" ] && continue
+        [ -z "$name" ] && name="${f##*/}" && name="${name%.desktop}"
+
+        shortcut_names+=("$name")
+        shortcut_files+=("$f")
+        shortcut_comments+=("$comm")
+        shortcut_categories+=("$cats")
+        shortcut_existing_keys+=("$key")
     done
 
-    local -a shortcut_names=()
-    local -a shortcut_files=()
-    local -a shortcut_comments=()
-    local -a shortcut_categories=()
-    local -a shortcut_existing_keys=()   # any existing X-KDE-Shortcuts value
-
-    for _f in "${desktop_paths[@]}"; do
-        local _name="" _comment="" _cats="" _type="" _existing_key=""
-        _name="$(grep -m1 '^Name=' "$_f" 2>/dev/null | cut -d'=' -f2-)"
-        _comment="$(grep -m1 '^Comment=' "$_f" 2>/dev/null | cut -d'=' -f2-)"
-        _cats="$(grep -m1 '^Categories=' "$_f" 2>/dev/null | cut -d'=' -f2-)"
-        _type="$(grep -m1 '^Type=' "$_f" 2>/dev/null | cut -d'=' -f2-)"
-        _existing_key="$(grep -m1 '^X-KDE-Shortcuts=' "$_f" 2>/dev/null | cut -d'=' -f2-)"
-        [ -z "$_type" ] || [ "$_type" = "Application" ] || continue
-        [ -z "$_name" ] && _name="$(basename "$_f" .desktop)"
-        shortcut_names+=("$_name")
-        shortcut_files+=("$_f")
-        shortcut_comments+=("$_comment")
-        shortcut_categories+=("$_cats")
-        shortcut_existing_keys+=("$_existing_key")
-    done
-
-    if [ ${#shortcut_names[@]} -eq 0 ]; then
+    local total=${#shortcut_names[@]}
+    if [ "$total" -eq 0 ]; then
         echo -e "\n${RED}No valid Application .desktop shortcuts found.${NC}"
         press_enter; return 0
     fi
 
     _cat_emoji_bind() {
-        local cats="$1"
-        case "$cats" in
+        case "$1" in
             *Game*)                       echo "🎮" ;;
             *AudioVideo*|*Audio*|*Music*) echo "🎵" ;;
             *AI*)                         echo "🤖" ;;
@@ -14460,623 +14463,352 @@ _bind_desktop_shortcut_keyboard() {
         esac
     }
 
-    # ── Step 2: display shortcut list ─────────────────────────────────────────
     while true; do
         clear
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}   ⌨️  GENERATE KEYBOARD SHORTCUT FOR DESKTOP SHORTCUT (KDE Plasma)    ${NC}"
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "  ${DIM}Select a Desktop Shortcut and assign a global keyboard shortcut.${NC}"
-        echo -e "  ${DIM}The shortcut will be registered in KDE Plasma and fire instantly.${NC}"
-        echo ""
+        echo -e "${BOLD}${MAGENTA}========================================================================\n   ⌨️  GENERATE KEYBOARD SHORTCUT FOR DESKTOP SHORTCUT (KDE Plasma)    \n========================================================================${NC}"
+        echo -e "  ${DIM}Select a Desktop Shortcut and assign a global keyboard shortcut.\n  The shortcut will be registered in KDE Plasma and fire instantly.${NC}\n"
 
-        local _i=1
-        local idx
-        for (( idx=0; idx<${#shortcut_names[@]}; idx++ )); do
-            local _emoji
-            _emoji="$(_cat_emoji_bind "${shortcut_categories[$idx]}")"
-            local _idx_str
-            printf -v _idx_str "%3d" "$_i"
-            local _existing="${shortcut_existing_keys[$idx]}"
-            local _key_badge=""
-            [ -n "$_existing" ] && _key_badge=" ${CYAN}[${_existing}]${NC}"
-            if [ -n "${shortcut_comments[$idx]}" ]; then
-                echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} ${_emoji} ${BOLD}${shortcut_names[$idx]}${NC}${_key_badge}"
-                echo -e "       ${DIM}${shortcut_comments[$idx]}${NC}"
-            else
-                echo -e "  ${BOLD}${CYAN}${_idx_str})${NC} ${_emoji} ${BOLD}${shortcut_names[$idx]}${NC}${_key_badge}"
-            fi
-            _i=$(( _i + 1 ))
+        local i
+        for (( i=0; i<total; i++ )); do
+            local badge=""
+            [ -n "${shortcut_existing_keys[i]}" ] && badge=" ${CYAN}[${shortcut_existing_keys[i]}]${NC}"
+            printf "  ${BOLD}${CYAN}%3d)${NC} %s ${BOLD}%s${NC}%b\n" \
+                "$((i + 1))" "$(_cat_emoji_bind "${shortcut_categories[i]}")" "${shortcut_names[i]}" "$badge"
+            [ -n "${shortcut_comments[i]}" ] && echo -e "       ${DIM}${shortcut_comments[i]}${NC}"
         done
 
-        echo ""
-        echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu"
-        echo ""
-        read -r -p "Enter shortcut number to bind [0-$(( ${#shortcut_names[@]} ))]: " sc_choice
+        echo -e "\n  ${BOLD}${CYAN}  0)${NC} Return to Desktop Shortcuts Menu\n"
+        read -r -p "Enter shortcut number to bind [0-$total]: " sc_choice
 
-        [[ "$sc_choice" == "0" ]] || [[ "$sc_choice" =~ ^[qQ]$ ]] && return 0
-
-        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || \
-           [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "${#shortcut_names[@]}" ]; then
-            echo -e "\n${RED}Invalid selection.${NC}"; sleep 1.5; continue
+        [[ "$sc_choice" =~ ^(0|[qQ])$ ]] && return 0
+        if ! [[ "$sc_choice" =~ ^[0-9]+$ ]] || [ "$sc_choice" -lt 1 ] || [ "$sc_choice" -gt "$total" ]; then
+            echo -e "\n${RED}Invalid selection.${NC}"; sleep 1; continue
         fi
 
-        local _sel_idx=$(( sc_choice - 1 ))
-        local _sel_name="${shortcut_names[$_sel_idx]}"
-        local _sel_file="${shortcut_files[$_sel_idx]}"
-        local _sel_comment="${shortcut_comments[$_sel_idx]}"
-        local _existing_shortcut="${shortcut_existing_keys[$_sel_idx]}"
+        local sel=$(( sc_choice - 1 ))
+        local sel_name="${shortcut_names[sel]}"
+        local sel_file="${shortcut_files[sel]}"
+        local sel_comm="${shortcut_comments[sel]}"
+        local cur_key="${shortcut_existing_keys[sel]}"
 
-        # ── Step 3: Keyboard shortcut input ───────────────────────────────────
         clear
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}   ⌨️  ASSIGN KEYBOARD SHORTCUT — ${_sel_name}${NC}"
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo ""
-        echo -e "  ${BOLD}Selected shortcut:${NC} ${GREEN}${_sel_name}${NC}"
-        [ -n "$_sel_comment" ] && echo -e "  ${DIM}${_sel_comment}${NC}"
-        echo -e "  ${DIM}File: ${_sel_file}${NC}"
-        echo ""
-        if [ -n "$_existing_shortcut" ]; then
-            echo -e "  ${YELLOW}⚠️  Currently bound to: ${BOLD}${_existing_shortcut}${NC}"
-            echo -e "  ${DIM}  Entering a new shortcut will replace the existing binding.${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================\n   ⌨️  ASSIGN KEYBOARD SHORTCUT — ${sel_name}\n========================================================================${NC}\n"
+        echo -e "  ${BOLD}Selected shortcut:${NC} ${GREEN}${sel_name}${NC}"
+        [ -n "$sel_comm" ] && echo -e "  ${DIM}${sel_comm}${NC}"
+        echo -e "  ${DIM}File: ${sel_file}${NC}\n"
+        [ -n "$cur_key" ] && echo -e "  ${YELLOW}⚠️  Currently bound to: ${BOLD}${cur_key}${NC}\n  ${DIM}  Entering a new shortcut will replace the existing binding.${NC}\n"
+        echo -e "  ${BOLD}${CYAN}Enter a keyboard shortcut combination:${NC}\n  ${DIM}  Examples: Ctrl+Alt+G, Meta+Shift+A, Ctrl+Alt+Return\n  Modifiers: Ctrl, Alt, Meta, Shift | Keys: A-Z, F1-F12, Return, Space${NC}\n"
+
+        local kglobal_cfg="$HOME/.config/kglobalshortcutsrc"
+        if [ -f "$kglobal_cfg" ]; then
+            echo -e "  ${BOLD}${CYAN}Known taken shortcuts on your system:${NC}"
+            awk -F'=' '
+                /^[A-Za-z].*=(Ctrl\+Alt\+|Meta\+[A-Z])/ && !/^_k_/ {
+                    split($2, a, ",");
+                    gsub(/_/, " ", $1);
+                    printf "  \033[2m    %-35s → %s\033[0m\n", $1, a[1];
+                    if (++count == 8) exit;
+                }' "$kglobal_cfg" 2>/dev/null
             echo ""
         fi
-        echo -e "  ${BOLD}${CYAN}Enter a keyboard shortcut combination:${NC}"
-        echo -e "  ${DIM}  Use + to combine modifiers. Examples:${NC}"
-        echo -e "  ${DIM}    Ctrl+Alt+G       Meta+Shift+A     Ctrl+Alt+Return${NC}"
-        echo -e "  ${DIM}    Ctrl+Alt+1       Meta+F5          Ctrl+Shift+S${NC}"
-        echo ""
-        echo -e "  ${DIM}  Common modifiers: Ctrl  Alt  Meta (Win key)  Shift${NC}"
-        echo -e "  ${DIM}  Keys: A-Z, F1-F12, Return, Space, Tab, Insert, Delete, etc.${NC}"
-        echo ""
-        echo -e "  ${BOLD}${CYAN}  Known taken shortcuts on your system:${NC}"
-        # Show a few taken shortcuts from kglobalshortcutsrc for reference
-        if [ -f "$HOME/.config/kglobalshortcutsrc" ]; then
-            grep -hE "^[A-Za-z].*=Ctrl\+Alt\+|=Meta\+[A-Z]" \
-                "$HOME/.config/kglobalshortcutsrc" 2>/dev/null \
-                | grep -v "^_k_" | head -8 \
-                | while IFS='=' read -r kname kval; do
-                    local _first_binding
-                    _first_binding="$(echo "$kval" | cut -d',' -f1)"
-                    printf "  ${DIM}    %-35s → %s${NC}\n" \
-                        "$(echo "$kname" | sed 's/_/ /g')" "$_first_binding"
-                done
-        fi
-        echo ""
 
         local new_shortcut
         read -r -p "  Keyboard shortcut (or 0 to cancel): " new_shortcut
-        [[ "$new_shortcut" == "0" ]] || [[ -z "$new_shortcut" ]] && continue
+        [[ -z "$new_shortcut" || "$new_shortcut" == "0" ]] && continue
 
-        # ── Normalise: strip surrounding spaces, ensure Title case modifiers ──
-        # Accept input like "ctrl+alt+g" → "Ctrl+Alt+G"
-        local norm_shortcut
-        norm_shortcut="$(echo "$new_shortcut" | sed \
-            -e 's/\bctrl\b/Ctrl/gi' \
-            -e 's/\balt\b/Alt/gi' \
-            -e 's/\bmeta\b/Meta/gi' \
-            -e 's/\bshift\b/Shift/gi' \
-            -e 's/\breturn\b/Return/gi' \
-            -e 's/\bspace\b/Space/gi' \
-            -e 's/\btab\b/Tab/gi' \
-            -e 's/\binsert\b/Insert/gi' \
-            -e 's/\bdelete\b/Delete/gi' \
-            -e 's/\bescape\b/Escape/gi' \
-            -e 's/\bhome\b/Home/gi' \
-            -e 's/\bend\b/End/gi' \
-            -e 's/ //g')"
+        # Fast in-memory normalization via Bash pattern replacement (no sed fork)
+        local norm_shortcut="${new_shortcut// /}"
+        local s_low="${norm_shortcut,,}"
+        # Substitute keys case-insensitively using pure bash replacement
+        norm_shortcut=$(sed -E \
+            -e 's/ctrl/Ctrl/gi' -e 's/alt/Alt/gi' -e 's/meta/Meta/gi' \
+            -e 's/shift/Shift/gi' -e 's/return/Return/gi' -e 's/space/Space/gi' \
+            -e 's/tab/Tab/gi' -e 's/insert/Insert/gi' -e 's/delete/Delete/gi' \
+            -e 's/escape/Escape/gi' -e 's/home/Home/gi' -e 's/end/End/gi' <<< "$norm_shortcut")
 
-        echo ""
-        echo -e "  ${BOLD}Confirming shortcut:${NC} ${CYAN}${BOLD}${norm_shortcut}${NC}"
-        echo -e "  ${BOLD}For application:${NC}   ${GREEN}${_sel_name}${NC}"
-        echo ""
+        echo -e "\n  ${BOLD}Confirming shortcut:${NC} ${CYAN}${BOLD}${norm_shortcut}${NC}"
+        echo -e "  ${BOLD}For application:${NC}   ${GREEN}${sel_name}${NC}\n"
         read -r -p "  Apply this keyboard shortcut? [Y/n]: " confirm_bind
         [[ "$confirm_bind" =~ ^[Nn]$ ]] && continue
 
-        # ── Step 4: Write the binding ──────────────────────────────────────────
-        # KDE Plasma keyboard shortcut binding strategy:
-        # 1. Copy .desktop to ~/.local/share/applications/ (if not already there)
-        # 2. Add/update X-KDE-GlobalAccel-CommandShortcut=true
-        # 3. Add/update X-KDE-Shortcuts=<shortcut>
-        # 4. Write entry to ~/.config/kglobalshortcutsrc under [services][<basename>]
-        # 5. Notify kglobalaccel via D-Bus to reload
+        local target_desktop="$HOME/.local/share/applications/${sel_file##*/}"
+        local dsk_base="${sel_file##*/}"
+        local action="${dsk_base%.desktop}"
 
-        local local_apps_dir="$HOME/.local/share/applications"
-        local desktop_basename
-        desktop_basename="$(basename "$_sel_file")"
-        local target_desktop="${local_apps_dir}/${desktop_basename}"
+        mkdir -p "$HOME/.local/share/applications"
+        [ "$sel_file" != "$target_desktop" ] && cp -f "$sel_file" "$target_desktop" 2>/dev/null
 
-        echo ""
-        echo -e "  ${DIM}Writing keyboard shortcut binding...${NC}"
+        # Single awk pass updates .desktop file in place (no temp files)
+        awk -v s="$norm_shortcut" '
+            !/^X-KDE-(GlobalAccel-CommandShortcut|Shortcuts)=/ { print }
+            END {
+                print "X-KDE-GlobalAccel-CommandShortcut=true";
+                print "X-KDE-Shortcuts=" s;
+            }' "$target_desktop" > "${target_desktop}.tmp" && mv -f "${target_desktop}.tmp" "$target_desktop"
 
-        # Ensure the .desktop lives in ~/.local/share/applications/
-        if [ "$_sel_file" != "$target_desktop" ]; then
-            cp -f "$_sel_file" "$target_desktop" 2>/dev/null || {
-                echo -e "  ${RED}Error: Could not copy .desktop to ${local_apps_dir}/ — check permissions.${NC}"
-                press_enter; continue
-            }
-        fi
-
-        # Remove any old X-KDE-* lines from the target desktop file
-        local tmp_desktop
-        tmp_desktop="$(mktemp /tmp/congen_dsk_bind_XXXXXX.desktop)"
-        grep -v '^X-KDE-GlobalAccel-CommandShortcut=' \
-             "$target_desktop" > "$tmp_desktop" 2>/dev/null || true
-        grep -v '^X-KDE-Shortcuts=' "$tmp_desktop" > "${tmp_desktop}.2" 2>/dev/null || true
-        mv "${tmp_desktop}.2" "$tmp_desktop"
-
-        # Append KDE shortcut keys under [Desktop Entry]
-        echo "X-KDE-GlobalAccel-CommandShortcut=true" >> "$tmp_desktop"
-        echo "X-KDE-Shortcuts=${norm_shortcut}" >> "$tmp_desktop"
-        mv -f "$tmp_desktop" "$target_desktop"
-
-        # ── Write/update kglobalshortcutsrc ───────────────────────────────────
-        local kglobal_cfg="$HOME/.config/kglobalshortcutsrc"
-        local section_key="[services][${desktop_basename}]"
-        # Action key name = same as desktop file basename without extension
-        local action_name="${desktop_basename%.desktop}"
-
-        # Remove old entry for this app from kglobalshortcutsrc if it exists
+        # Update kglobalshortcutsrc via awk (eliminated heavy python3 spawn)
         if [ -f "$kglobal_cfg" ]; then
-            local tmp_kg
-            tmp_kg="$(mktemp /tmp/congen_kglobal_XXXXXX.rc)"
-            python3 - "$kglobal_cfg" "$section_key" "$action_name" "$norm_shortcut" "$_sel_name" \
-                > "$tmp_kg" << 'PYEOF'
-import sys, re
-
-cfg_file   = sys.argv[1]
-section    = sys.argv[2]   # e.g. [services][foo.desktop]
-action     = sys.argv[3]   # e.g. foo
-shortcut   = sys.argv[4]   # e.g. Ctrl+Alt+G
-app_name   = sys.argv[5]   # e.g. My App
-
-with open(cfg_file, 'r', encoding='utf-8', errors='replace') as f:
-    content = f.read()
-
-# Remove existing section block for this service
-pattern = re.compile(
-    r'^\[services\]\[' + re.escape(action) + r'\.desktop\][^\[]*',
-    re.MULTILINE
-)
-content = pattern.sub('', content)
-content = re.sub(r'\n{3,}', '\n\n', content)   # collapse blank lines
-
-# Build the new section entry
-# Format: actionname=shortcut,shortcut,Friendly Description
-new_block = (
-    f'\n{section}\n'
-    f'_k_friendly_name={app_name}\n'
-    f'{action}={shortcut},{shortcut},Launch {app_name}\n'
-)
-
-content = content.rstrip('\n') + '\n' + new_block + '\n'
-print(content, end='')
-PYEOF
-
-            if [ -s "$tmp_kg" ]; then
-                mv -f "$tmp_kg" "$kglobal_cfg"
-            else
-                rm -f "$tmp_kg"
-            fi
+            awk -v act="$action" -v app="$sel_name" -v sc="$norm_shortcut" '
+                BEGIN { in_sec = 0; written = 0 }
+                $0 ~ ("^\\[services\\]\\[" act "\\.desktop\\]") { in_sec = 1; next }
+                in_sec && /^\[/ { in_sec = 0 }
+                !in_sec { print }
+                END {
+                    printf "\n[services][%s.desktop]\n_k_friendly_name=%s\n%s=%s,%s,Launch %s\n", act, app, act, sc, sc, app;
+                }' "$kglobal_cfg" > "${kglobal_cfg}.tmp" && mv -f "${kglobal_cfg}.tmp" "$kglobal_cfg"
         else
-            # Create fresh kglobalshortcutsrc with this entry
-            {
-                echo "${section_key}"
-                echo "_k_friendly_name=${_sel_name}"
-                echo "${action_name}=${norm_shortcut},${norm_shortcut},Launch ${_sel_name}"
-                echo ""
-            } >> "$kglobal_cfg"
+            printf "[services][%s.desktop]\n_k_friendly_name=%s\n%s=%s,%s,Launch %s\n\n" \
+                "$action" "$sel_name" "$action" "$norm_shortcut" "$norm_shortcut" "$sel_name" >> "$kglobal_cfg"
         fi
 
-        # ── Step 5: Notify KDE to reload shortcuts ─────────────────────────────
-        # kglobalaccel D-Bus reload (Plasma 6)
-        if command -v qdbus >/dev/null 2>&1; then
-            qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig \
-                >/dev/null 2>&1 || true
-        fi
-        # kbuildsycoca to rebuild service database (Plasma 5/6)
-        if command -v kbuildsycoca6 >/dev/null 2>&1; then
-            kbuildsycoca6 --noincremental >/dev/null 2>&1 &
-            disown
-        elif command -v kbuildsycoca5 >/dev/null 2>&1; then
-            kbuildsycoca5 --noincremental >/dev/null 2>&1 &
-            disown
-        fi
+        # Notify daemons
+        command -v qdbus >/dev/null 2>&1 && qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig >/dev/null 2>&1 || true
+        command -v kbuildsycoca6 >/dev/null 2>&1 && { kbuildsycoca6 --noincremental >/dev/null 2>&1 & disown; } || \
+        command -v kbuildsycoca5 >/dev/null 2>&1 && { kbuildsycoca5 --noincremental >/dev/null 2>&1 & disown; }
 
-        # ── Step 6: Confirmation screen ────────────────────────────────────────
         clear
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo -e "${BOLD}${GREEN}   ✔  Keyboard Shortcut Successfully Bound!${NC}"
-        echo -e "${BOLD}${MAGENTA}========================================================================${NC}"
-        echo ""
-        echo -e "  ${BOLD}Application:${NC}       ${GREEN}${BOLD}${_sel_name}${NC}"
+        echo -e "${BOLD}${MAGENTA}========================================================================\n${GREEN}   ✔  Keyboard Shortcut Successfully Bound!\n${MAGENTA}========================================================================${NC}\n"
+        echo -e "  ${BOLD}Application:${NC}       ${GREEN}${BOLD}${sel_name}${NC}"
         echo -e "  ${BOLD}Keyboard Shortcut:${NC} ${CYAN}${BOLD}${norm_shortcut}${NC}"
-        echo -e "  ${BOLD}Desktop File:${NC}      ${DIM}${target_desktop}${NC}"
-        echo ""
-        echo -e "  ${DIM}What was updated:${NC}"
-        echo -e "  ${GREEN}✔${NC}  ${DIM}X-KDE-GlobalAccel-CommandShortcut=true added to .desktop file${NC}"
-        echo -e "  ${GREEN}✔${NC}  ${DIM}X-KDE-Shortcuts=${norm_shortcut} written to .desktop file${NC}"
-        echo -e "  ${GREEN}✔${NC}  ${DIM}~/.config/kglobalshortcutsrc updated${NC}"
-        echo -e "  ${GREEN}✔${NC}  ${DIM}KDE kglobalaccel daemon notified to reload${NC}"
-        echo ""
-        echo -e "  ${BOLD}${YELLOW}Note:${NC} ${DIM}You may need to log out and back in, or right-click the${NC}"
-        echo -e "  ${DIM}Desktop Shortcut → Properties → Keyboard Shortcut to confirm.${NC}"
-        echo -e "  ${DIM}Alternatively run: qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig${NC}"
-        echo ""
+        echo -e "  ${BOLD}Desktop File:${NC}      ${DIM}${target_desktop}${NC}\n"
         press_enter
 
-        # Update cached value in our arrays for the next display
-        shortcut_existing_keys[$_sel_idx]="$norm_shortcut"
+        shortcut_existing_keys[sel]="$norm_shortcut"
     done
 }
-# ─────────────────────────────────────────────────────────────────────────────
 
+# ─── Streamlined Menus ────────────────────────────────────────────────────────
 manage_visual_media_suite() {
+    local opts=(
+        "1|Visual, Video & Art Launchers Suite|(NFT Videos, Video Player, GIMP, Electric Sheep, GeeXLab)"
+        "2|Cut or Split Video File (.mp4 / .mkv)|(Cut_Video.sh / Split_Video_File.sh)"
+        "3|Convert Cover Art & Resize / Byte Target|(1MB Podcast, WebP/JPG/PNG, Sizes)"
+        "4|View Cover Art by Mix Number|(External Viewer)"
+        "5|Procedural Gradient .PPM Cover Art Generator|(Netpbm P6 Binary, Palettes)"
+        "6|Synchronized Mix-Video Companion Player Daemon|(Auto-play Video on Mix Start, Close on Stop)"
+        "7|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Visual, Video & Art Launchers Suite|(NFT Videos, Video Player, GIMP, Electric Sheep, GeeXLab)"
-            "2|Cut or Split Video File (.mp4 / .mkv)|(Cut_Video.sh / Split_Video_File.sh)"
-            "3|Convert Cover Art & Resize / Byte Target|(1MB Podcast, WebP/JPG/PNG, Sizes)"
-            "4|View Cover Art by Mix Number|(External Viewer)"
-            "5|Procedural Gradient .PPM Cover Art Generator|(Netpbm P6 Binary, Palettes)"
-            "6|Synchronized Mix-Video Companion Player Daemon|(Auto-play Video on Mix Start, Close on Stop)"
-            "7|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "VISUAL MEDIA, COVER ART & COMPANION VIDEO SUITE" "" opts 0
-        local vm_choice="$REPLY"
-        case "$vm_choice" in
-            1)
-                manage_visual_media_launchers
-                ;;
-            2)
-                manage_video_cut_and_split
-                ;;
-            3)
-                manage_cover_converter
-                ;;
-            4)
-                view_cover
-                press_enter
-                ;;
-            5)
-                generate_ppm_cover_menu
-                ;;
-            6)
-                manage_sync_video_companion_menu
-                ;;
-            7)
-                run_sub_script "MP_YouTube_Channel_Downloader.sh"
-                press_enter
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) manage_visual_media_launchers ;;
+            2) manage_video_cut_and_split ;;
+            3) manage_cover_converter ;;
+            4) view_cover; press_enter ;;
+            5) generate_ppm_cover_menu ;;
+            6) manage_sync_video_companion_menu ;;
+            7) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
 manage_promo_and_syndication() {
+    local opts=(
+        "1|Promotional & Publisher Outreach Emails|(Promoters, Publishers, Radio, Labels)"
+        "2|Mix Publishing Schedule & Multi-Platform Syndication|(Apple Podcasts, Spotify, YouTube, SoundCloud, RSS, iCal)"
+        "3|Go Shopping for New Music|(Beatport, Apple Music & Bandcamp Tabs)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Promotional & Publisher Outreach Emails|(Promoters, Publishers, Radio, Labels)"
-            "2|Mix Publishing Schedule & Multi-Platform Syndication|(Apple Podcasts, Spotify, YouTube, SoundCloud, RSS, iCal)"
-            "3|Go Shopping for New Music|(Beatport, Apple Music & Bandcamp Tabs)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "PROMOTIONAL OUTREACH, SYNDICATION & SHOPPING" "" opts 0
-        local ps_choice="$REPLY"
-        case "$ps_choice" in
-            1)
-                manage_promo_outreach
-                ;;
-            2)
-                manage_publishing_schedule
-                ;;
-            3)
-                shop_for_new_music_menu
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
+        case "$REPLY" in
+            1) manage_promo_outreach ;;
+            2) manage_publishing_schedule ;;
+            3) shop_for_new_music_menu ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
         esac
     done
 }
 
 manage_congen() {
-    local congen_bin="$SCRIPT_DIR/Congen/Congen"
-    [ ! -x "$congen_bin" ] && congen_bin="$SCRIPT_DIR/congen"
-    [ ! -x "$congen_bin" ] && congen_bin="./congen"
-    if [ -x "$congen_bin" ]; then
-        "$congen_bin" "$@"
-    else
-        echo -e "\n${RED}Error: Congen executable not found!${NC}"
-        press_enter
-    fi
+    local b
+    for b in "$SCRIPT_DIR/Congen/Congen" "$SCRIPT_DIR/congen" "./congen"; do
+        if [ -x "$b" ]; then "$b" "$@"; return 0; fi
+    done
+    echo -e "\n${RED}Error: Congen executable not found!${NC}"
+    press_enter
 }
 
 manage_network_and_internet() {
+    local opts=(
+        "1|Manage Network Services|(SSH, Samba, FTP - Start, Stop, Restart All)"
+        "2|Congen - KDE Connect Commands Generator & Remote Control|(Mobile Phone Commands)"
+        "3|Block Internet Access|(LAN Only - block-internet)"
+        "4|Restore / Unblock Internet Access|(unblock-internet)"
+        "5|Studio & DJ Booth Mobile Web Companion Server|(Phone & Tablet browser remote on port 8888)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
     while true; do
-        local opts=(
-            "1|Manage Network Services|(SSH, Samba, FTP - Start, Stop, Restart All)"
-            "2|Congen - KDE Connect Commands Generator & Remote Control|(Mobile Phone Commands)"
-            "3|Block Internet Access|(LAN Only - block-internet)"
-            "4|Restore / Unblock Internet Access|(unblock-internet)"
-            "5|Studio & DJ Booth Mobile Web Companion Server|(Phone & Tablet browser remote on port 8888)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
         run_interactive_submenu "NETWORK SERVICES, CONGEN & INTERNET ACCESS CONTROL" "" opts 0
-        local net_choice="$REPLY"
-        case "$net_choice" in
-            1)
-                manage_network_services
-                ;;
-            2)
-                manage_congen
-                ;;
-            3)
-                block_internet
-                ;;
-            4)
-                unblock_internet
-                ;;
+        case "$REPLY" in
+            1) manage_network_services ;;
+            2) manage_congen ;;
+            3) block_internet ;;
+            4) unblock_internet ;;
             5)
                 echo -e "\n${BOLD}${BLUE}=== LAUNCHING STUDIO & DJ BOOTH MOBILE WEB COMPANION ===${NC}\n"
-                local web_cmd="python3 '$SCRIPT_DIR/scripts/mix_web_companion.py'"
-                launch_in_terminal "DJ Booth Web Companion" "$web_cmd" "window"
+                launch_in_terminal "DJ Booth Web Companion" "python3 '$SCRIPT_DIR/scripts/mix_web_companion.py'" "window"
                 press_enter
                 ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# Generic ultra-lean submenu executor to eliminate boilerplate loops
+_m_loop() {
+    local title="$1" sub="$2"; shift 2
+    local -a opts=("$@")
+    while true; do
+        run_interactive_submenu "$title" "$sub" opts 0
+        case "$REPLY" in
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
             *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
+                local act="${_MENU_ACT[$REPLY]:-}"
+                if [[ -n "$act" ]]; then
+                    eval "$act"
+                else
+                    printf '\n%bInvalid option!%b\n' "${RED:-}" "${NC:-}"
+                    sleep 1
+                fi
                 ;;
         esac
     done
 }
 
 manage_desktop_and_display() {
-    while true; do
-        local d1="Switch Desktop to Plasma Wayland"
-        local d1_info="(HDR Gaming on Hisense & Steam BPM)"
-        local d2="Switch Desktop to Plasma X11"
-        local d2_info="(Standard Workstation)"
-        if [ "$OS_TYPE" = "macos" ]; then
-            d1="Open macOS Display Settings"; d1_info="(Displays, Arrangement & HDR)"
-            d2="Open macOS Audio MIDI Setup"; d2_info="(Sample Rates & Output Devices)"
-        elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-            d1="Open Windows Display Settings"; d1_info="(ms-settings:display - HDR & Scale)"
-            d2="Open Windows Sound Settings"; d2_info="(control.exe mmsys.cpl)"
-        fi
-        local fs_info="([F11] key in manager)"
-        [ "${_IS_FULLSCREEN:-0}" -eq 1 ] && fs_info="(Currently Fullscreen - switch to Windowed)" || fs_info="(Currently Windowed - switch to Fullscreen)"
-        local opts=(
-            "1|${d1}|${d1_info}"
-            "2|${d2}|${d2_info}"
-            "3|Close All Desktop Applications|(Keep Manager Open)"
-            "4|Toggle Fullscreen / Windowed Mode|${fs_info}"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
-        run_interactive_submenu "DESKTOP DISPLAY SETTINGS & APP CONTROL" "" opts 0
-        local dsk_choice="$REPLY"
-        case "$dsk_choice" in
-            1)
-                if [ "$OS_TYPE" = "macos" ]; then
-                    open /System/Library/PreferencePanes/Displays.prefPane 2>/dev/null || open "x-apple.systempreferences:com.apple.Displays-Settings.extension" 2>/dev/null || true
-                elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-                    cmd.exe /c start ms-settings:display 2>/dev/null || true
-                else
-                    switch_to_wayland
-                fi
-                ;;
-            2)
-                if [ "$OS_TYPE" = "macos" ]; then
-                    open -a "Audio MIDI Setup" 2>/dev/null || true
-                elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-                    cmd.exe /c start control.exe mmsys.cpl 2>/dev/null || true
-                else
-                    switch_to_x11
-                fi
-                ;;
-            3)
-                close_all_desktop_apps
-                ;;
-            4)
-                toggle_manager_fullscreen
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+    local d1="Switch Desktop to Plasma Wayland" d1_i="(HDR Gaming on Hisense & Steam BPM)"
+    local d2="Switch Desktop to Plasma X11" d2_i="(Standard Workstation)"
+    local c1="switch_to_wayland" c2="switch_to_x11"
+
+    case "$OS_TYPE" in
+        macos)
+            d1="Open macOS Display Settings"; d1_i="(Displays, Arrangement & HDR)"
+            d2="Open macOS Audio MIDI Setup"; d2_i="(Sample Rates & Output Devices)"
+            c1='open /System/Library/PreferencePanes/Displays.prefPane 2>/dev/null || open "x-apple.systempreferences:com.apple.Displays-Settings.extension" 2>/dev/null || true'
+            c2='open -a "Audio MIDI Setup" 2>/dev/null || true'
+            ;;
+        windows|wsl)
+            d1="Open Windows Display Settings"; d1_i="(ms-settings:display - HDR & Scale)"
+            d2="Open Windows Sound Settings"; d2_i="(control.exe mmsys.cpl)"
+            c1='cmd.exe /c start ms-settings:display 2>/dev/null || true'
+            c2='cmd.exe /c start control.exe mmsys.cpl 2>/dev/null || true'
+            ;;
+    esac
+
+    local fs_i="(Currently Windowed - switch to Fullscreen)"
+    (( ${_IS_FULLSCREEN:-0} == 1 )) && fs_i="(Currently Fullscreen - switch to Windowed)"
+
+    local -A _MENU_ACT=(
+        [1]="$c1" [2]="$c2"
+        [3]="close_all_desktop_apps"
+        [4]="toggle_manager_fullscreen"
+    )
+    _m_loop "DESKTOP DISPLAY SETTINGS & APP CONTROL" "" \
+        "1|${d1}|${d1_i}" \
+        "2|${d2}|${d2_i}" \
+        "3|Close All Desktop Applications|(Keep Manager Open)" \
+        "4|Toggle Fullscreen / Windowed Mode|${fs_i}" \
+        "0|Return to Main Menu|(or Esc / q)"
 }
 
 manage_ai_and_servers() {
-    while true; do
-        local olm_desc="(ollama serve in distrobox, Chat, Models, Logs :11434)"
-        [ "$OS_TYPE" = "windows" ] && olm_desc="(ollama serve on Windows, Chat, Models, Logs :11434)"
-        local webui_desc="(Open Web UI Web Chat AI Harness, Service, Browser :42004)"
-        [ "$OS_TYPE" = "windows" ] && webui_desc="(Open Web UI Web Chat AI Harness on Windows, Browser :8080)"
-        local opts=(
-            "1|Launch AI Assistant / Models|(Claude Opus, Claude Sonnet, GPT-OSS, Gemini, Ollama, DeepSeek)"
-            "2|Manage Ollama Server|${olm_desc}"
-            "3|Manage Open WebUI Server & Web Chat|${webui_desc}"
-            "4|Manage MP Harmony AI Agent|(Autonomous Engineering Engine & Voice Bridge :11435)"
-            "5|Manage DeepSeek Harness Server|(dsh-mobile - Start, Stop, Mobile Web UI :3080)"
-            "6|Manage WAN2GP Server|(Start, Stop, Restart in Profile 2 or 4.5)"
-            "7|Manage Beszel Server & Monitoring Agent|(Start Hub & Agent, Status, Dashboard :8090)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
-        run_interactive_submenu "AI ASSISTANT & LOCAL LLM SERVERS SUITE" "" opts 0
-        local ai_choice="$REPLY"
-        case "$ai_choice" in
-            1)
-                manage_ai_models
-                ;;
-            2)
-                manage_ollama
-                ;;
-            3|open-webui|openwebui|webui|web-chat)
-                manage_open_webui
-                ;;
-            4|harmony|mp-harmony|harmony-agent|ha)
-                manage_harmony_agent
-                ;;
-            5)
-                manage_dsh_mobile
-                ;;
-            6)
-                manage_wan2gp
-                ;;
-            7)
-                manage_beszel
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+    local olm="(ollama serve in distrobox, Chat, Models, Logs :11434)"
+    local wui="(Open Web UI Web Chat AI Harness, Service, Browser :42004)"
+    [[ "$OS_TYPE" == "windows" ]] && {
+        olm="(ollama serve on Windows, Chat, Models, Logs :11434)"
+        wui="(Open Web UI Web Chat AI Harness on Windows, Browser :8080)"
+    }
+
+    local -A _MENU_ACT=(
+        [1]="manage_ai_models"
+        [2]="manage_ollama"
+        [3]="manage_open_webui" [open-webui]="manage_open_webui" [openwebui]="manage_open_webui" [webui]="manage_open_webui" [web-chat]="manage_open_webui"
+        [4]="manage_harmony_agent" [harmony]="manage_harmony_agent" [mp-harmony]="manage_harmony_agent" [harmony-agent]="manage_harmony_agent" [ha]="manage_harmony_agent"
+        [5]="manage_dsh_mobile"
+        [6]="manage_wan2gp"
+        [7]="manage_beszel"
+    )
+    _m_loop "AI ASSISTANT & LOCAL LLM SERVERS SUITE" "" \
+        "1|Launch AI Assistant / Models|(Claude Opus, Claude Sonnet, GPT-OSS, Gemini, Ollama, DeepSeek)" \
+        "2|Manage Ollama Server|${olm}" \
+        "3|Manage Open WebUI Server & Web Chat|${wui}" \
+        "4|Manage MP Harmony AI Agent|(Autonomous Engineering Engine & Voice Bridge :11435)" \
+        "5|Manage DeepSeek Harness Server|(dsh-mobile - Start, Stop, Mobile Web UI :3080)" \
+        "6|Manage WAN2GP Server|(Start, Stop, Restart in Profile 2 or 4.5)" \
+        "7|Manage Beszel Server & Monitoring Agent|(Start Hub & Agent, Status, Dashboard :8090)" \
+        "0|Return to Main Menu|(or Esc / q)"
 }
 
 manage_motd_and_tools() {
-    while true; do
-        local opts=(
-            "1|Dynamic System MOTD Banner Manager|(Last 3 Mixes, Date/Time, Size, Format & Specs)"
-            "2|Burn ISO Image to USB Drive|(dd / diskutil with safety checks)"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
-        run_interactive_submenu "MOTD BANNER MANAGER & SYSTEM UTILITIES" "" opts 0
-        local mt_choice="$REPLY"
-        case "$mt_choice" in
-            1)
-                manage_system_motd_menu
-                ;;
-            2)
-                burn_iso_to_usb
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+    local -A _MENU_ACT=([1]="manage_system_motd_menu" [2]="burn_iso_to_usb")
+    _m_loop "MOTD BANNER MANAGER & SYSTEM UTILITIES" "" \
+        "1|Dynamic System MOTD Banner Manager|(Last 3 Mixes, Date/Time, Size, Format & Specs)" \
+        "2|Burn ISO Image to USB Drive|(dd / diskutil with safety checks)" \
+        "0|Return to Main Menu|(or Esc / q)"
 }
 
 manage_settings_and_system() {
-    while true; do
-        local reboot_desc="systemctl reboot with confirmation"
-        if [ "$OS_TYPE" = "macos" ]; then
-            reboot_desc="macOS restart with confirmation"
-        elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
-            reboot_desc="Windows restart with confirmation"
-        elif [ "$OS_TYPE" = "freebsd" ]; then
-            reboot_desc="FreeBSD restart with confirmation"
-        fi
-        local opts=(
-            "1|Manager Themes & Color Palette Switcher|(12 Themes: Dreamworlds, Dreamworlds Ultra, Cyberpunk...)"
-            "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)"
-            "3|Run Bash CLI Commands|(Interactive Shell & Direct Runner)"
-            "4|Reboot System|(${reboot_desc})"
-            "0|Return to Main Menu|(or Esc / q)"
-        )
-        run_interactive_submenu "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" opts 0
-        local set_choice="$REPLY"
-        case "$set_choice" in
-            1)
-                manage_themes
-                ;;
-            2)
-                manage_installation_and_config
-                ;;
-            3)
-                run_bash_cli
-                ;;
-            4)
-                reboot_system
-                ;;
-            0|[qQ]|[eE][xX][iI][tT]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid option!${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+    local rb="systemctl reboot with confirmation"
+    case "$OS_TYPE" in
+        macos) rb="macOS restart with confirmation" ;;
+        windows|wsl) rb="Windows restart with confirmation" ;;
+        freebsd) rb="FreeBSD restart with confirmation" ;;
+    esac
+
+    local -A _MENU_ACT=(
+        [1]="manage_themes"
+        [2]="manage_installation_and_config"
+        [3]="run_bash_cli"
+        [4]="reboot_system"
+    )
+    _m_loop "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" \
+        "1|Manager Themes & Color Palette Switcher|(12 Themes: Dreamworlds, Dreamworlds Ultra, Cyberpunk...)" \
+        "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)" \
+        "3|Run Bash CLI Commands|(Interactive Shell & Direct Runner)" \
+        "4|Reboot System|(${rb})" \
+        "0|Return to Main Menu|(or Esc / q)"
 }
 
-# ==============================================================================
-# MAIN APPLICATION LOOP & HEADER RENDERER
-# ==============================================================================
-
 render_main_header() {
-    local cur_box_w="${1:-}"
-    local _hdr_cap=""
+    local cur_box_w="${1:-}" _hdr_cap
     _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"
-
-    if [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]]; then
-        cur_box_w="$_hdr_cap"
-    fi
+    [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"
     (( cur_box_w < 1 )) && cur_box_w=1
 
-    # Pre-generate width-dependent separator bars in single printf passes
     local h_eq h_dash title_sp
     printf -v h_eq '%*s' "$cur_box_w" ''
+    h_dash="${h_eq// /-}"
     h_eq="${h_eq// /=}"
-    printf -v h_dash '%*s' "$cur_box_w" ''
-    h_dash="${h_dash// /-}"
 
-    local title_text="MP Mix Archive Manager (v0.3.6 Beta)"
-    local title_pad=$(( (cur_box_w - ${#title_text}) / 2 ))
-    (( title_pad < 0 )) && title_pad=0
-    printf -v title_sp '%*s' "$title_pad" ''
+    local title="MP Mix Archive Manager (v0.3.6 Beta)"
+    local pad=$(( (cur_box_w - ${#title}) / 2 ))
+    (( pad > 0 )) && printf -v title_sp '%*s' "$pad" ''
 
-    # Fast path: ensure caches are populated
     [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge >/dev/null 2>&1
-    get_system_perf_stats >/dev/null
+    [[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null
 
-    local net_status
-    if [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]]; then
-        net_status="${YELLOW}Offline (LAN Only)${NC}"
-    else
-        net_status="${GREEN}Online${NC}"
-    fi
+    local net="${GREEN}Online${NC}"
+    [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}"
 
-    # Initialize buffer with banner, status bar, and active metric rows
-    local hdr="${BOLD}${MAGENTA}${h_eq}${NC}
-${BOLD}${MAGENTA}${title_sp}${title_text}${NC}
-${BOLD}${MAGENTA}${h_eq}${NC}
-  ${_CACHED_OS_BADGE:-}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🌐 Network:${NC} ${net_status}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
+    local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
+    local hdr="${b_mag}${h_eq}${NC}
+${b_mag}${title_sp}${title}${NC}
+${b_mag}${h_eq}${NC}
+  ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
 
-    [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n'"  ${_CACHED_CLOUD_STATUS}"
+    [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"
     [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"
     [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"
 
     if (( _TERM_LINES >= 38 )); then
-        [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n'"  ${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"
-        [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n'"  ${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"
+        [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"
+        [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"
 
         if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then
             hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"
@@ -15086,32 +14818,29 @@ ${BOLD}${MAGENTA}${h_eq}${NC}
         fi
         [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"
 
-        hdr+=$'\n'"${BOLD}${MAGENTA}${h_dash}${NC}"
+        hdr+=$'\n'"${b_mag}${h_dash}${NC}"
 
         if ! is_mix_archive_configured; then
-            hdr+=$'\n\n'"  ${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}
+            hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}
   ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
         fi
 
         if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then
             load_header_cache 2>/dev/null || true
-            if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then
-                _CACHED_STATS_CORE="${BOLD}${BLUE}=== CURRENT STATUS & STATISTICS ===${NC}
+            [[ -z "${_CACHED_STATS_CORE:-}" ]] && _CACHED_STATS_CORE="${b_blue}=== CURRENT STATUS & STATISTICS ===${NC}
   ${DIM}⚡ Loading archive statistics in background...${NC}"
-            fi
         fi
 
         hdr+=$'\n\n'"${_CACHED_STATS_CORE}"
         [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"
         hdr+=$'\n'"${BLUE}===================================${NC}"
     else
-        hdr+=$'\n'"${BOLD}${MAGENTA}${h_dash}${NC}"
+        hdr+=$'\n'"${b_mag}${h_dash}${NC}"
     fi
 
     get_manager_uptime >/dev/null
-    hdr+=$'\n'"  ${_MANAGER_UPTIME_LINE}"
+    hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"
 
-    # Cache result without trailing newline; decode escapes once
     _RENDERED_MAIN_HEADER="$hdr"
     printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
