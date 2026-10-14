@@ -3,146 +3,77 @@
 # Auto-upgrade to modern Bash on macOS if running under ancient system Bash 3.2
 if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
     for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
-        if [[ -x "$bash" ]]; then
-            exec "$bash" "$0" "$@"
-        fi
+        [[ -x "$bash" ]] && exec "$bash" "$0" "$@"
     done
 fi
 
-# SET SCRIPTS DIR
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Enable terminal window size tracking and resize signal handling
 shopt -s checkwinsize 2>/dev/null || true
-export PYTHONIOENCODING="utf-8"
-export PYTHONUTF8=1
+export PYTHONIOENCODING="utf-8" PYTHONUTF8=1
 
 # Normalize HOME on Windows / Git Bash if needed
 if command -v cygpath >/dev/null 2>&1; then
-    if [ -z "$HOME" ] || [ ! -d "$HOME" ] || [ "$HOME" = "/home/$USER" ]; then
+    if [[ -z "$HOME" || ! -d "$HOME" || "$HOME" = "/home/$USER" ]]; then
         export HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"
     fi
 fi
 
-# # Prepend native Python 3.12 to PATH on Windows / Git Bash if available
-# for _py_cand in \
-#     "$LOCALAPPDATA/Programs/Python/Python312" \
-#     "$USERPROFILE/AppData/Local/Programs/Python/Python312" \
-#     "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" \
-#     "/c/Program Files/Python312" \
-#     "/c/Program Files/Python311"; do
-#     _py_u="$_py_cand"
-#     command -v cygpath >/dev/null 2>&1 && _py_u="$(cygpath -u "$_py_cand" 2>/dev/null || echo "$_py_cand")"
-#     [ -d "$_py_u" ] && [ -x "$_py_u/python.exe" ] && { export PATH="$_py_u:$_py_u/Scripts:$PATH"; break; }
-# done
-# unset _py_cand _py_u
-
-# _TERM_LINES=""
-# _TERM_COLS=""
-# _TERM_RESIZED=1
-# _MENU_CURSOR_LOCK=0
-
-# _on_winch() {
-#     _TERM_RESIZED=1
-#     if [ "${_MENU_CURSOR_LOCK:-0}" -eq 1 ]; then
-#         printf '\033[?25l\033[?12l\033[?7l' 2>/dev/null || true
-#     fi
-# }
-# trap '_on_winch' WINCH
-
-# # Cross-platform pgrep and pkill polyfills (for Windows / Git Bash / MSYS2)
-# if ! command -v pgrep >/dev/null 2>&1; then
-#     pgrep() {
-#         local pattern="$1"
-#         [ -z "$pattern" ] && return 1
-#         if [ $((SECONDS - ${_PGREP_SNAP_AT:--100})) -ge 2 ]; then
-#             _PGREP_SNAP_AT="$SECONDS"
-#             _PGREP_SNAP_PS=$(ps -ef 2>/dev/null || true)
-#             _PGREP_SNAP_TASK=$(MSYS_NO_PATHCONV=1 tasklist.exe /FO CSV /NH 2>/dev/null || true)
-#         fi
-#         if printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" > /dev/null; then
-#             printf '%s\n' "$_PGREP_SNAP_PS" | grep -E -- "$pattern" | grep -v "grep" | awk '{print $2}'
-#             return 0
-#         fi
-#         if printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" > /dev/null; then
-#             printf '%s\n' "$_PGREP_SNAP_TASK" | grep -iE -- "$pattern" | cut -d',' -f2 | tr -d '"'
-#             return 0
-#         fi
-#         return 1
-#     }
-#     export -f pgrep 2>/dev/null || true
-# fi
-
+# pkill polyfill (Windows / Git Bash / MSYS2)
 if ! command -v pkill >/dev/null 2>&1; then
     pkill() {
-        local sig="TERM"
-        local pattern=""
-        while [ $# -gt 0 ]; do
+        local sig="TERM" pattern=""
+        while [[ $# -gt 0 ]]; do
             case "$1" in
                 -9|-KILL) sig="KILL" ;;
                 -15|-TERM) sig="TERM" ;;
-                -f|-i|-x) ;;
-                -*) ;;
+                -f|-i|-x| -*) ;;
                 *) pattern="$1" ;;
             esac
             shift
         done
-        [ -z "$pattern" ] && return 1
+        [[ -z "$pattern" ]] && return 1
         pgrep -f "$pattern" | xargs -I{} kill -$sig {} 2>/dev/null || true
     }
     export -f pkill 2>/dev/null || true
 fi
 
-# Visible window from the Windows cursor hider (srWindow). Only while
-# that process is alive, so a leftover file cannot resize a mintty session.
+# Visible window from the Windows cursor hider (srWindow). Only while that process is alive.
 _win_console_size() {
-    local _rows_var="$1"
-    local _cols_var="$2"
-    local pid="${_WIN_CURSOR_HIDER_PID:-}"
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    local _rows_var="$1" _cols_var="$2" pid="${_WIN_CURSOR_HIDER_PID:-}"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
     local f="${HOME}/.config/mix-manager/console_size"
-    [ -f "$f" ] || return 1
-    local r="" c=""
+    [[ -f "$f" ]] || return 1
+    local r c
     IFS=$' \t' read -r r c < "$f" || return 1
-    [[ "$r" =~ ^[0-9]+$ ]] && [[ "$c" =~ ^[0-9]+$ ]] || return 1
-    [ "$r" -ge 1 ] && [ "$c" -ge 1 ] || return 1
+    [[ "$r" =~ ^[0-9]+$ && "$c" =~ ^[0-9]+$ && "$r" -ge 1 && "$c" -ge 1 ]] || return 1
     printf -v "$_rows_var" '%s' "$r"
     printf -v "$_cols_var" '%s' "$c"
-    return 0
 }
 
 update_terminal_geometry() {
-    local force="${1:-0}"
-    local win_l="" win_c=""
-
+    local force="${1:-0}" win_l="" win_c=""
     if _win_console_size win_l win_c; then
-        if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ "$win_l" != "${_TERM_LINES:-}" ] || [ "$win_c" != "${_TERM_COLS:-}" ]; then
-            _TERM_LINES="$win_l"
-            _TERM_COLS="$win_c"
-            _TERM_RESIZED=0
+        if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then
+            _TERM_LINES="$win_l" _TERM_COLS="$win_c" _TERM_RESIZED=0
             return 0
         fi
         return 1
     fi
-
-    if [ "$force" -eq 1 ] || [ "${_TERM_RESIZED:-0}" -eq 1 ] || [ -z "${_TERM_LINES:-}" ] || [ -z "${_TERM_COLS:-}" ]; then
-        local new_l="${LINES:-}" new_c="${COLUMNS:-}"
-        local need_stty=0
-
-        if [ -z "$new_l" ] || [ -z "$new_c" ] || [ "$force" -eq 1 ] && [ "$new_l" = "${_TERM_LINES:-}" ] && [ "$new_c" = "${_TERM_COLS:-}" ]; then
+    if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then
+        local new_l="${LINES:-}" new_c="${COLUMNS:-}" need_stty=0
+        if [[ -z "$new_l" || -z "$new_c" || ( "$force" -eq 1 && "$new_l" = "${_TERM_LINES:-}" && "$new_c" = "${_TERM_COLS:-}" ) ]]; then
             need_stty=1
         fi
-
-        if [ "$need_stty" -eq 1 ]; then
+        if [[ "$need_stty" -eq 1 ]]; then
             local sz
-            if sz="$(stty size 2>/dev/null)" && [ -n "$sz" ]; then
+            if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then
                 read -r new_l new_c <<< "$sz"
             else
                 new_l=$(tput lines 2>/dev/null || echo 40)
                 new_c=$(tput cols 2>/dev/null || echo 100)
             fi
         fi
-
         _TERM_LINES="${new_l:-${_TERM_LINES:-40}}"
         _TERM_COLS="${new_c:-${_TERM_COLS:-100}}"
         _TERM_RESIZED=0
@@ -151,20 +82,16 @@ update_terminal_geometry() {
     return 1
 }
 
-# Menu width that always fits the visible window. Borders are drawn
-# with two leading spaces, so the box stays four columns inside the
-# terminal. A 74-column floor overflows a zoomed-in window, wraps,
-# and walks the caret down the right edge as the selection moves.
+# Menu width that always fits the visible window. Borders are drawn with two leading spaces.
 _set_menu_box_width() {
-    local _dest="$1"
-    local _cols="${2:-${_TERM_COLS:-80}}"
+    local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"
     [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80
-    [ "$_cols" -lt 1 ] && _cols=1
+    [[ "$_cols" -lt 1 ]] && _cols=1
     local _w
-    if [ "$_cols" -ge 8 ]; then
-        _w=$(( _cols - 4 ))
-    elif [ "$_cols" -ge 3 ]; then
-        _w=$(( _cols - 2 ))
+    if [[ "$_cols" -ge 8 ]]; then
+        _w=$((_cols - 4))
+    elif [[ "$_cols" -ge 3 ]]; then
+        _w=$((_cols - 2))
     else
         _w=1
     fi
@@ -174,140 +101,74 @@ _set_menu_box_width() {
 # Colors for terminal styling & Theme Engine
 set_theme_colors() {
     local theme_name="${1:-dreamworlds}"
-    NC='\033[0m'
-    BOLD='\033[1m'
-    DIM='\033[2m'
-    
+    NC='\033[0m' BOLD='\033[1m' DIM='\033[2m'
     case "$theme_name" in
         dreamworlds|mplanetarian_dreamworlds|mplanetarian|default)
-            # MPlanetarian Dreamworlds [Default]
-            # Based on the Sweet / Nice KDE Plasma Palette (No Green - Neon Aesthetic)
-            RED='\033[38;2;237;37;78m'       # Sweet Neon Red / Coral (#ed254e)
-            GREEN='\033[38;2;0;229;255m'     # Sweet Bright Aqua Cyan (#00e5ff) - Sweet theme accent
-            YELLOW='\033[38;2;255;170;0m'    # Sweet Electric Amber / Gold (#ffaa00)
-            BLUE='\033[38;2;155;89;182m'     # Soft Sweet Lavender (#9b59b6)
-            MAGENTA='\033[38;2;247;37;133m'  # Sweet Neon Hot Pink (#f72585)
-            CYAN='\033[38;2;0;193;228m'      # Sweet Electric Cyan (#00c1e4)
-            CURRENT_THEME="dreamworlds"
-            ;;
+            RED='\033[38;2;237;37;78m' GREEN='\033[38;2;0;229;255m' YELLOW='\033[38;2;255;170;0m'
+            BLUE='\033[38;2;155;89;182m' MAGENTA='\033[38;2;247;37;133m' CYAN='\033[38;2;0;193;228m'
+            CURRENT_THEME="dreamworlds" ;;
         dreamworlds_ultra|ultra|dreamworlds_ultra_mp_mix_manager|"Dreamworlds Ultra MP Mix Manager")
-            # Dreamworlds Ultra MP Mix Manager
-            # Adapted from BTOP HotPurpleTrafficLight theme
-            RED='\033[38;2;255;0;0m'          # Traffic Light Danger Red (#ff0000)
-            GREEN='\033[38;2;0;255;0m'        # Traffic Light Go Green (#00ff00)
-            YELLOW='\033[38;2;255;153;51m'    # Traffic Light Amber Warning (#ff9933)
-            BLUE='\033[38;2;102;102;255m'     # Electric Lavender Indigo (#6666ff)
-            MAGENTA='\033[38;2;166;77;255m'   # Hot Purple Accent (#a64dff)
-            CYAN='\033[38;2;153;153;255m'     # Soft Lilac / Process Blue (#9999ff)
-            CURRENT_THEME="dreamworlds_ultra"
-            ;;
+            RED='\033[38;2;255;0;0m' GREEN='\033[38;2;0;255;0m' YELLOW='\033[38;2;255;153;51m'
+            BLUE='\033[38;2;102;102;255m' MAGENTA='\033[38;2;166;77;255m' CYAN='\033[38;2;153;153;255m'
+            CURRENT_THEME="dreamworlds_ultra" ;;
         dracula)
-            RED='\033[38;5;212m'     # Dracula Coral Pink / Red
-            GREEN='\033[38;5;84m'    # Dracula Neon Green
-            YELLOW='\033[38;5;228m'  # Dracula Pale Gold
-            BLUE='\033[38;5;62m'     # Dracula Lavender Blue
-            MAGENTA='\033[38;5;141m' # Dracula Purple
-            CYAN='\033[38;5;117m'    # Dracula Sky Cyan
-            CURRENT_THEME="dracula"
-            ;;
+            RED='\033[38;5;212m' GREEN='\033[38;5;84m' YELLOW='\033[38;5;228m'
+            BLUE='\033[38;5;62m' MAGENTA='\033[38;5;141m' CYAN='\033[38;5;117m'
+            CURRENT_THEME="dracula" ;;
         nord)
-            RED='\033[38;5;167m'     # Nord Aurora Red
-            GREEN='\033[38;5;108m'   # Nord Aurora Green / Sage
-            YELLOW='\033[38;5;221m'  # Nord Aurora Yellow
-            BLUE='\033[38;5;110m'    # Nord Frost Slate Blue
-            MAGENTA='\033[38;5;139m' # Nord Aurora Purple
-            CYAN='\033[38;5;117m'    # Nord Frost Polar Cyan
-            CURRENT_THEME="nord"
-            ;;
+            RED='\033[38;5;167m' GREEN='\033[38;5;108m' YELLOW='\033[38;5;221m'
+            BLUE='\033[38;5;110m' MAGENTA='\033[38;5;139m' CYAN='\033[38;5;117m'
+            CURRENT_THEME="nord" ;;
         matrix)
-            RED='\033[38;5;124m'     # Dark Terminal Crimson
-            GREEN='\033[38;5;46m'    # Pure Phosphor Green
-            YELLOW='\033[38;5;190m'  # Electric Yellow-Green
-            BLUE='\033[38;5;29m'     # Deep Matrix Green
-            MAGENTA='\033[38;5;35m'  # Forest Emerald
-            CYAN='\033[38;5;120m'    # Light Phosphor Mint
-            CURRENT_THEME="matrix"
-            ;;
+            RED='\033[38;5;124m' GREEN='\033[38;5;46m' YELLOW='\033[38;5;190m'
+            BLUE='\033[38;5;29m' MAGENTA='\033[38;5;35m' CYAN='\033[38;5;120m'
+            CURRENT_THEME="matrix" ;;
         solarized)
-            RED='\033[38;5;166m'     # Solarized Red
-            GREEN='\033[38;5;64m'    # Solarized Green
-            YELLOW='\033[38;5;136m'  # Solarized Yellow
-            BLUE='\033[38;5;33m'     # Solarized Blue
-            MAGENTA='\033[38;5;125m' # Solarized Magenta
-            CYAN='\033[38;5;37m'     # Solarized Cyan
-            CURRENT_THEME="solarized"
-            ;;
+            RED='\033[38;5;166m' GREEN='\033[38;5;64m' YELLOW='\033[38;5;136m'
+            BLUE='\033[38;5;33m' MAGENTA='\033[38;5;125m' CYAN='\033[38;5;37m'
+            CURRENT_THEME="solarized" ;;
         tokyo)
-            RED='\033[38;5;203m'     # Tokyo Red/Coral
-            GREEN='\033[38;5;114m'   # Tokyo Sage Green
-            YELLOW='\033[38;5;222m'  # Tokyo Warm Sand
-            BLUE='\033[38;5;111m'    # Tokyo Soft Blue
-            MAGENTA='\033[38;5;176m' # Tokyo Neon Purple
-            CYAN='\033[38;5;73m'     # Tokyo Cyan
-            CURRENT_THEME="tokyo"
-            ;;
+            RED='\033[38;5;203m' GREEN='\033[38;5;114m' YELLOW='\033[38;5;222m'
+            BLUE='\033[38;5;111m' MAGENTA='\033[38;5;176m' CYAN='\033[38;5;73m'
+            CURRENT_THEME="tokyo" ;;
         monokai)
-            RED='\033[38;5;197m'     # Monokai Pink/Red
-            GREEN='\033[38;5;148m'   # Monokai Lime Green
-            YELLOW='\033[38;5;220m'  # Monokai Gold Yellow
-            BLUE='\033[38;5;141m'    # Monokai Purple Blue
-            MAGENTA='\033[38;5;208m' # Monokai Bright Orange
-            CYAN='\033[38;5;81m'     # Monokai Bright Blue/Cyan
-            CURRENT_THEME="monokai"
-            ;;
+            RED='\033[38;5;197m' GREEN='\033[38;5;148m' YELLOW='\033[38;5;220m'
+            BLUE='\033[38;5;141m' MAGENTA='\033[38;5;208m' CYAN='\033[38;5;81m'
+            CURRENT_THEME="monokai" ;;
         gruvbox)
-            RED='\033[38;5;167m'     # Gruvbox Rust Red
-            GREEN='\033[38;5;142m'   # Gruvbox Olive Green
-            YELLOW='\033[38;5;214m'  # Gruvbox Warm Yellow
-            BLUE='\033[38;5;109m'    # Gruvbox Slate Blue
-            MAGENTA='\033[38;5;175m' # Gruvbox Dusty Rose
-            CYAN='\033[38;5;108m'    # Gruvbox Aqua
-            CURRENT_THEME="gruvbox"
-            ;;
+            RED='\033[38;5;167m' GREEN='\033[38;5;142m' YELLOW='\033[38;5;214m'
+            BLUE='\033[38;5;109m' MAGENTA='\033[38;5;175m' CYAN='\033[38;5;108m'
+            CURRENT_THEME="gruvbox" ;;
         emerald)
-            RED='\033[38;5;204m'     # Soft Coral
-            GREEN='\033[38;5;48m'    # Pure Spring Emerald
-            YELLOW='\033[38;5;221m'  # Gold Amber
-            BLUE='\033[38;5;31m'     # Deep Ocean
-            MAGENTA='\033[38;5;78m'  # Light Seafoam
-            CYAN='\033[38;5;86m'     # Mint Cyan
-            CURRENT_THEME="emerald"
-            ;;
+            RED='\033[38;5;204m' GREEN='\033[38;5;48m' YELLOW='\033[38;5;221m'
+            BLUE='\033[38;5;31m' MAGENTA='\033[38;5;78m' CYAN='\033[38;5;86m'
+            CURRENT_THEME="emerald" ;;
         classic)
-            RED='\033[0;31m'
-            GREEN='\033[0;32m'
-            YELLOW='\033[0;33m'
-            BLUE='\033[0;34m'
-            MAGENTA='\033[0;35m'
-            CYAN='\033[0;36m'
-            CURRENT_THEME="classic"
-            ;;
+            RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[0;33m'
+            BLUE='\033[0;34m' MAGENTA='\033[0;35m' CYAN='\033[0;36m'
+            CURRENT_THEME="classic" ;;
         cyberpunk|*)
-            RED='\033[38;5;196m'     # Cyberpunk Neon Red
-            GREEN='\033[38;5;48m'    # Cyberpunk Acid Green
-            YELLOW='\033[38;5;226m'  # Cyberpunk High Voltage Yellow
-            BLUE='\033[38;5;45m'     # Cyberpunk Deep Cyan/Blue
-            MAGENTA='\033[38;5;198m' # Cyberpunk Hot Pink
-            CYAN='\033[38;5;51m'     # Cyberpunk Electric Cyan
-            CURRENT_THEME="cyberpunk"
-            ;;
+            RED='\033[38;5;196m' GREEN='\033[38;5;48m' YELLOW='\033[38;5;226m'
+            BLUE='\033[38;5;45m' MAGENTA='\033[38;5;198m' CYAN='\033[38;5;51m'
+            CURRENT_THEME="cyberpunk" ;;
     esac
 }
 
 # UI Sound Effects player
 play_sound_effect() {
     local sound_type="${1:-storage}" sound_file=""
-    
     if [[ "$sound_type" == "dreamworlds" || "$sound_type" == "theme" ]]; then
-        for cand in "/usr/share/sounds/Oxygen-Sys-Special.ogg" "/usr/share/sounds/oxygen/stereo/dialog-special.ogg" "/usr/share/sounds/ocean/stereo/theme-demo.oga" "/usr/share/sounds/ocean/stereo/desktop-login.oga" "/usr/share/sounds/freedesktop/stereo/service-login.oga"; do
-            if [[ -f "$cand" ]]; then sound_file="$cand"; break; fi
+        for cand in /usr/share/sounds/Oxygen-Sys-Special.ogg /usr/share/sounds/oxygen/stereo/dialog-special.ogg \
+                    /usr/share/sounds/ocean/stereo/theme-demo.oga /usr/share/sounds/ocean/stereo/desktop-login.oga \
+                    /usr/share/sounds/freedesktop/stereo/service-login.oga; do
+            [[ -f "$cand" ]] && { sound_file="$cand"; break; }
         done
     elif [[ "$sound_type" == "storage" ]]; then
-        for cand in "/usr/share/sounds/ocean/stereo/device-added.oga" "/usr/share/sounds/freedesktop/stereo/device-added.oga" "/usr/share/sounds/Oxygen-Sys-App-Positive.ogg" "/usr/share/sounds/ocean/stereo/completion-success.oga"; do
-            if [[ -f "$cand" ]]; then sound_file="$cand"; break; fi
+        for cand in /usr/share/sounds/ocean/stereo/device-added.oga /usr/share/sounds/freedesktop/stereo/device-added.oga \
+                    /usr/share/sounds/Oxygen-Sys-App-Positive.ogg /usr/share/sounds/ocean/stereo/completion-success.oga; do
+            [[ -f "$cand" ]] && { sound_file="$cand"; break; }
         done
     fi
-    
     if [[ -n "$sound_file" ]]; then
         for player in pw-play paplay canberra-gtk-play aplay; do
             if command -v "$player" >/dev/null 2>&1; then
@@ -317,7 +178,7 @@ play_sound_effect() {
     fi
 }
 
-# Returns 0 exactly once per real terminal resize (WINCH or a change in bash's LINES/COLUMNS)
+# Returns 0 exactly once per real terminal resize
 _resize_pending() {
     local win_l win_c
     if _win_console_size win_l win_c; then
@@ -331,76 +192,38 @@ _resize_pending() {
     return 1
 }
 
-# Bytes pushed back while discarding a held arrow. Bash 5.3 cannot ungetc.
-# A queued newline stands for Enter: `read -n1` stores that as an empty string.
+# Navigation state
 _nav_pending=""
-
-# manager.bat attaches Git Bash to the Windows console (/dev/consN).
-# manager.sh is mintty (/dev/ptyN). Cached so a key repeat does not fork.
 _NAV_WIN_CON=""
+_NAV_ARROW_AT=""
+
 _nav_mark_console() {
-    [ -n "${_NAV_WIN_CON:-}" ] && return 0
+    [[ -n "${_NAV_WIN_CON:-}" ]] && return 0
     case "$(tty 2>/dev/null)" in
         /dev/cons*) _NAV_WIN_CON=1 ;;
         *) _NAV_WIN_CON=0 ;;
     esac
 }
 
-# Copy one queued or already-buffered character into the named variable.
-# Do not use `read -t 0` here. On the Windows console that poll drops the
-# byte it notices, so the ESC of a Down arrow disappears and the final B
-# is read later as Back. A byte that is already waiting is returned at
-# once. An empty buffer comes back in a few milliseconds, before the
-# keyboard has repeated, so a key that is still held is left for the
-# real read.
 _nav_take_ready() {
     local _dest="$1" _ch
     _nav_mark_console
-    if [ -n "$_nav_pending" ]; then
+    if [[ -n "$_nav_pending" ]]; then
+        _ch="${_nav_pending:0:1}"
         _nav_pending="${_nav_pending:1}"
     elif IFS= read -rsn1 -t 0.01 _ch; then
-        [ -z "$_ch" ] && return 2
+        [[ -z "$_ch" ]] && return 2
     else
         return 1
     fi
     printf -v "$_dest" '%s' "$_ch"
 }
 
-# Set when an arrow was just handled. manager.bat's console then delivers
-# a leftover A/B or a null read; those must not become text or Enter.
-_NAV_ARROW_AT=""
+_nav_push_front() { _nav_pending="${1}${_nav_pending}"; }
 
-# Copy one queued or already-buffered character into the named variable.
-# Do not use `read -t 0` here. On the Windows console that poll drops the
-# byte it notices, so the ESC of a Down arrow disappears and the final B
-# is read later as Back. A byte that is already waiting is returned at
-# once. An empty buffer comes back in a few milliseconds, before the
-# keyboard has repeated, so a key that is still held is left for the
-# real read.
-_nav_take_ready() {
-    local _dest="$1" _ch
-    _nav_mark_console
-    if [ -n "$_nav_pending" ]; then
-        _nav_pending="${_nav_pending:1}"
-    elif IFS= read -rsn1 -t 0.01 _ch; then
-        [ -z "$_ch" ] && return 2
-    else
-        return 1
-    fi
-    printf -v "$_dest" '%s' "$_ch"
-}
-
-_nav_push_front() {
-    _nav_pending="${1}${_nav_pending}"
-}
-
-# Timed read used by the menu. Queued bytes are returned before stdin.
-# The status of a real read is preserved so a timeout stays a tick and
-# end-of-file does not.
 _nav_pull() {
-    local _to="$1"
-    local _dest="$2"
-    if [ -n "$_nav_pending" ]; then
+    local _to="$1" _dest="$2"
+    if [[ -n "$_nav_pending" ]]; then
         printf -v "$_dest" '%s' "${_nav_pending:0:1}"
         _nav_pending="${_nav_pending:1}"
         return 0
@@ -408,7 +231,7 @@ _nav_pull() {
     local _ch="" _rc=0
     IFS= read -rsn1 -t "$_to" _ch
     _rc=$?
-    if [ "$_rc" -eq 0 ]; then
+    if [[ "$_rc" -eq 0 ]]; then
         printf -v "$_dest" '%s' "$_ch"
         return 0
     fi
@@ -416,32 +239,25 @@ _nav_pull() {
     return "$_rc"
 }
 
-# Drop up/down repeats that arrived while the menu was painting.
-# Replaying that backlog is what keeps the highlight moving after the
-# key is released. A repeat that is not buffered yet is left alone, so
-# holding the key still advances on the keyboard's own repeat.
+# Drop up/down repeats that arrived while the menu was painting
 _discard_buffered_vertical_arrows() {
-    local guard=0
-    local b1="" b2="" b3="" b4=""
-    local seq="" cur="" steps=0 discard_it=0
-    local ready_rc=0 empties=0
-
-    while [ "$guard" -lt 200 ]; do
-        guard=$((guard + 1))
+    local guard=0 b1="" b2="" b3="" b4="" seq="" cur="" steps=0 discard_it=0 ready_rc=0 empties=0
+    while [[ "$guard" -lt 200 ]]; do
+        ((guard++))
         b1=""
         _nav_take_ready b1
         ready_rc=$?
-        if [ "$ready_rc" -eq 2 ]; then
-            if [ "${_NAV_WIN_CON:-0}" -ne 1 ]; then
+        if [[ "$ready_rc" -eq 2 ]]; then
+            if [[ "${_NAV_WIN_CON:-0}" -ne 1 ]]; then
                 _nav_pending=$'\n'"${_nav_pending}"
                 return 0
             fi
-            empties=$((empties + 1))
-            [ "$empties" -ge 2 ] && return 0
+            ((empties++))
+            [[ "$empties" -ge 2 ]] && return 0
             continue
         fi
-        [ "$ready_rc" -eq 0 ] || return 0
-        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ]]; then
+        [[ "$ready_rc" -eq 0 ]] || return 0
+        if [[ "${_NAV_WIN_CON:-0}" -eq 1 && ( "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ) ]]; then
             continue
         fi
         if [[ "$b1" != $'\e' ]]; then
@@ -462,8 +278,8 @@ _discard_buffered_vertical_arrows() {
                     discard_it=1
                 else
                     seq="${b1}${b2}${b3}"
-                    while [ "$steps" -lt 16 ]; do
-                        steps=$((steps + 1))
+                    while [[ "$steps" -lt 16 ]]; do
+                        ((steps++))
                         cur=""
                         if ! _nav_take_ready cur; then
                             _nav_push_front "$seq"
@@ -479,10 +295,7 @@ _discard_buffered_vertical_arrows() {
                             return 0
                         fi
                     done
-                    if [ "$discard_it" -ne 1 ]; then
-                        _nav_push_front "$seq"
-                        return 0
-                    fi
+                    [[ "$discard_it" -ne 1 ]] && { _nav_push_front "$seq"; return 0; }
                 fi
             fi
         elif [[ "$b2" == "O" ]]; then
@@ -496,39 +309,36 @@ _discard_buffered_vertical_arrows() {
 
 # Key reader for interactive navigation
 read_nav_key() {
-    local _out_var="$1"
-    local _k=""
+    local _out_var="$1" _k=""
     _emit_key() {
-        if [ -n "$_out_var" ]; then
+        if [[ -n "$_out_var" ]]; then
             printf -v "$_out_var" "%s" "$1"
         else
             echo "$1"
         fi
         return 0
     }
-
     _nav_mark_console
     local read_rc=0
     _nav_pull 0.05 _k
     read_rc=$?
-    if [ "$read_rc" -ne 0 ]; then
+    if [[ "$read_rc" -ne 0 ]]; then
         _k=""
         if _resize_pending; then
             _emit_key "RESIZE"
             return 0
         fi
-        if [ "$read_rc" -gt 128 ]; then
+        if [[ "$read_rc" -gt 128 ]]; then
             _emit_key "TICK"
             return 0
         fi
-        if [ -n "$_out_var" ]; then
+        if [[ -n "$_out_var" ]]; then
             printf -v "$_out_var" "%s" ""
         fi
         return 1
     fi
-
     if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
-        if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && _nav_just_arrowed; then
+        if [[ "${_NAV_WIN_CON:-0}" -eq 1 && -n "$_NAV_ARROW_AT" ]]; then
             _emit_key "TICK"
             return 0
         fi
@@ -544,20 +354,20 @@ read_nav_key() {
                 local c3=""
                 if _nav_pull 0.02 c3; then
                     case "$c3" in
-                        "A") _emit_key "UP" ;;
-                        "B") _emit_key "DOWN" ;;
-                        "C") _emit_key "RIGHT" ;;
-                        "D") _emit_key "LEFT" ;;
-                        "H") _emit_key "HOME" ;;
-                        "F") _emit_key "END" ;;
+                        A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;;
+                        B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;;
+                        C) _emit_key "RIGHT" ;;
+                        D) _emit_key "LEFT" ;;
+                        H) _emit_key "HOME" ;;
+                        F) _emit_key "END" ;;
                         "[")
                             local c4=""
                             if _nav_pull 0.02 c4; then
                                 case "$c4" in
-                                    "A") _emit_key "UP" ;;
-                                    "B") _emit_key "DOWN" ;;
-                                    "C") _emit_key "RIGHT" ;;
-                                    "D") _emit_key "LEFT" ;;
+                                    A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;;
+                                    B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;;
+                                    C) _emit_key "RIGHT" ;;
+                                    D) _emit_key "LEFT" ;;
                                     *) _emit_key "UNKNOWN" ;;
                                 esac
                             fi
@@ -566,13 +376,13 @@ read_nav_key() {
                             local c4=""
                             if _nav_pull 0.02 c4; then
                                 case "${c3}${c4}" in
-                                    "5~") _emit_key "PAGE_UP" ;;
-                                    "6~") _emit_key "PAGE_DOWN" ;;
-                                    "1~"|"7~") _emit_key "HOME" ;;
-                                    "4~"|"8~") _emit_key "END" ;;
-                                    "2~") _emit_key "INSERT" ;;
-                                    "3~") _emit_key "DELETE" ;;
-                                    "23"|"24")
+                                    5~) _emit_key "PAGE_UP" ;;
+                                    6~) _emit_key "PAGE_DOWN" ;;
+                                    1~|7~) _emit_key "HOME" ;;
+                                    4~|8~) _emit_key "END" ;;
+                                    2~) _emit_key "INSERT" ;;
+                                    3~) _emit_key "DELETE" ;;
+                                    23|24)
                                         local c5=""
                                         _nav_pull 0.02 c5 || true
                                         _emit_key "TOGGLE_FULLSCREEN"
@@ -583,33 +393,31 @@ read_nav_key() {
                                             _nav_pull 0.02 cur || break
                                         done
                                         case "$cur" in
-                                            "A") _emit_key "UP" ;;
-                                            "B") _emit_key "DOWN" ;;
-                                            "C") _emit_key "RIGHT" ;;
-                                            "D") _emit_key "LEFT" ;;
-                                            "H") _emit_key "HOME" ;;
-                                            "F") _emit_key "END" ;;
+                                            A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;;
+                                            B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;;
+                                            C) _emit_key "RIGHT" ;;
+                                            D) _emit_key "LEFT" ;;
+                                            H) _emit_key "HOME" ;;
+                                            F) _emit_key "END" ;;
                                             *) _emit_key "UNKNOWN" ;;
                                         esac
                                         ;;
                                 esac
                             fi
                             ;;
-                        *)
-                            _emit_key "UNKNOWN"
-                            ;;
+                        *) _emit_key "UNKNOWN" ;;
                     esac
                 fi
             elif [[ "$c2" == "O" ]]; then
                 local c3=""
                 if _nav_pull 0.02 c3; then
                     case "$c3" in
-                        "A") _emit_key "UP" ;;
-                        "B") _emit_key "DOWN" ;;
-                        "C") _emit_key "RIGHT" ;;
-                        "D") _emit_key "LEFT" ;;
-                        "H") _emit_key "HOME" ;;
-                        "F") _emit_key "END" ;;
+                        A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;;
+                        B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;;
+                        C) _emit_key "RIGHT" ;;
+                        D) _emit_key "LEFT" ;;
+                        H) _emit_key "HOME" ;;
+                        F) _emit_key "END" ;;
                         *) _emit_key "UNKNOWN" ;;
                     esac
                 fi
@@ -622,6 +430,8 @@ read_nav_key() {
     else
         _emit_key "CHAR:$_k"
     fi
+    # Clear arrow timestamp after a short window (prevents false ENTER suppression)
+    [[ -n "$_NAV_ARROW_AT" ]] && { sleep 0.01; _NAV_ARROW_AT=""; } 2>/dev/null || true
 }
 
 highlight_menu_line() {
