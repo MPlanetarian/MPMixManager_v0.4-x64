@@ -1,7 +1,7 @@
 # Gemini Engineering & Development History: Mix Archive Manager (`MP_Mix_Manager_v0.3`)
 
 **Author & AI Pair Programmer**: Antigravity / Gemini 3.8  
-**Client / Lead Architect**: MPlanetarian (`mathewkjohn2026@gmail.com`)  
+**Client / Lead Architect**: MPlanetarian (`mplanetarian@mplanetarian.com`)  
 **Repository**: `/home/mplanetarian/MP_Mix_Manager_v0.3` (`git@github.com:MPlanetarian/MP_Mix_Manager_v0.3.git`)  
 **Mirror Path**: `/var/home/mplanetarian/Documents/BASH_SCRIPTS/`  
 **Latest Revision**: v0.2.1 (September 17, 2026)  
@@ -47,7 +47,7 @@ What began on September 13, 2026, as a collection of scattered shell utilities a
   3. Created `install.sh` for user-space installation (`~/.local/bin/` symlinks and desktop entries).
   4. Authored `INSTALL_BAZZITE.md` detailing step-by-step setup on immutable Fedora/Bazzite Silverblue ostree systems.
   5. Clarified and configured bundled retro music player `cliamp` to run with zero external installation dependencies.
-  6. Established standard Git workflow with author metadata `MPlanetarian <mathewkjohn2026@gmail.com>`.
+  6. Established standard Git workflow with author metadata `MPlanetarian <mplanetarian@mplanetarian.com`.
 - **Git Commits**:
   - `40687c9` — *Initial release: Stream of Frequency MP Mix Archive Manager v0.1 (Bazzite Linux)*
   - `12b110c` — *docs: update clone URL with official GitHub repo path*

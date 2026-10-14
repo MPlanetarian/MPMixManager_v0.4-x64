@@ -487,7 +487,6 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None]) -> bool:
 
     return False
 
-
 def export_playlist_m3u(mixes: List[Dict[str, Any]], target_path: Union[str, Path, None]) -> Tuple[bool, str]:
     """Exports playlist of mixes strictly as a .m3u file to any destination path."""
     if not target_path:
@@ -1655,10 +1654,8 @@ def _char_display_width(ch: str) -> int:
         return 2
     return 1
 
-
 def _display_width(text: str) -> int:
     return sum(_char_display_width(ch) for ch in _ANSI_RE.sub("", text))
-
 
 def _clip_display(text: str, max_cols: int) -> str:
     """Cut a colored line so it cannot wrap onto the next console row."""
@@ -1795,7 +1792,6 @@ def _win_console_fit_buffer():
     except Exception:
         pass
 
-
 def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
     state = _WIN_CONSOLE
     if state and state.get("window"):
@@ -1844,7 +1840,6 @@ def _win_console_end(state):
         pass
     _WIN_CONSOLE = None
 
-
 def _present_frame(lines: List[str], width: int, height: int):
     """Draw one frame in place. No trailing newline, so the window does not scroll."""
     width = max(1, int(width))
@@ -1863,7 +1858,6 @@ def _present_frame(lines: List[str], width: int, height: int):
     # 2026 brackets are synchronized updates: the top of the screen is not painted mid-write.
     sys.stdout.write(f"\033[?2026h\033[?7l\033[H{frame}\033[?2026l")
     sys.stdout.flush()
-
 
 class EqualizerVisualizer:
     """Renders high-resolution animated equalizers and studio meters."""

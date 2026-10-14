@@ -2241,26 +2241,25 @@ open_startup_mix_spek() {
 # Cross-Platform Clipboard Copy (Linux wl-copy/xclip, macOS pbcopy, Windows clip.exe)
 copy_to_clipboard() {
     local text="$1"
-    if [ "$OS_TYPE" = "macos" ] && command -v pbcopy >/dev/null 2>&1; then
-        printf "%s" "$text" | pbcopy
-        return 0
-    elif [ "$OS_TYPE" = "windows" ] && command -v clip.exe >/dev/null 2>&1; then
-        printf "%s" "$text" | clip.exe
-        return 0
-    elif [ "$OS_TYPE" = "wsl" ] && command -v clip.exe >/dev/null 2>&1; then
-        printf "%s" "$text" | clip.exe
-        return 0
-    elif command -v wl-copy >/dev/null 2>&1; then
-        printf "%s" "$text" | wl-copy
-        return 0
-    elif command -v xclip >/dev/null 2>&1; then
-        printf "%s" "$text" | xclip -selection clipboard
-        return 0
-    elif command -v pbcopy >/dev/null 2>&1; then
-        printf "%s" "$text" | pbcopy
-        return 0
-    elif command -v clip.exe >/dev/null 2>&1; then
-        printf "%s" "$text" | clip.exe
+    local cmd
+    if [ "$OS_TYPE" = "macos" ] || [ "$OS_TYPE" = "wsl" ]; then
+        cmd="pbcopy"
+    elif [ "$OS_TYPE" = "windows" ]; then
+        cmd="clip.exe"
+    else
+        if command -v wl-copy >/dev/null 2>&1; then
+            cmd="wl-copy"
+        elif command -v xclip >/dev/null 2>&1; then
+            cmd="xclip -selection clipboard"
+        elif command -v pbcopy >/dev/null 2>&1; then
+            cmd="pbcopy"
+        elif command -v clip.exe >/dev/null 2>&1; then
+            cmd="clip.exe"
+        fi
+    fi
+
+    if [ -n "$cmd" ]; then
+        printf "%s" "$text" | $cmd
         return 0
     fi
     return 1
@@ -13655,7 +13654,6 @@ manage_top_5_tracks() {
     fi
 }
 
-
 manage_daws_suite() {
     while true; do
         local opts=(
@@ -13682,7 +13680,6 @@ manage_daws_suite() {
         esac
     done
 }
-
 manage_studio_hardware_and_volume() {
     while true; do
         local opts=(
