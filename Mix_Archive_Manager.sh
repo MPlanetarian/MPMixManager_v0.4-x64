@@ -9526,6 +9526,7 @@ manage_audio_players() {
 }
 
 manage_visual_media_launchers() {
+    local vml_choice
     while true; do
         clear
         echo -e "${BOLD}${MAGENTA}====================================================${NC}"
@@ -9542,24 +9543,12 @@ manage_visual_media_launchers() {
         echo ""
         read -r -p "Enter choice [0-5]: " vml_choice
         case "$vml_choice" in
-            1)
-                launch_video_playlists
-                ;;
-            2)
-                manage_video_dispatcher
-                ;;
-            3)
-                launch_gimp
-                ;;
-            4)
-                launch_electricsheep
-                ;;
-            5)
-                launch_geexlab_demos
-                ;;
-            0|[qQ])
-                return 0
-                ;;
+            1) launch_video_playlists ;;
+            2) manage_video_dispatcher ;;
+            3) launch_gimp ;;
+            4) launch_electricsheep ;;
+            5) launch_geexlab_demos ;;
+            0|[qQ]) return 0 ;;
             *)
                 echo -e "\n${RED}Invalid choice!${NC}"
                 sleep 1
@@ -9569,6 +9558,7 @@ manage_visual_media_launchers() {
 }
 
 manage_live_monitors() {
+    local lm_choice
     while true; do
         clear
         echo -e "${BOLD}${MAGENTA}====================================================${NC}"
@@ -9648,6 +9638,7 @@ manage_live_monitors() {
 }
 
 manage_system_process_monitors() {
+    local spm_choice
     while true; do
         clear
         echo -e "${BOLD}${MAGENTA}====================================================${NC}"
@@ -9668,10 +9659,17 @@ manage_system_process_monitors() {
                 trap ':' INT
                 if command -v btop >/dev/null 2>&1; then
                     if [ "$CURRENT_THEME" = "dreamworlds_ultra" ]; then
-                        mkdir -p "$HOME/.config/btop/themes" 2>/dev/null
-                        [ -f "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" ] && cp -p "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" "$HOME/.config/btop/themes/" 2>/dev/null
-                        if [ -f "$HOME/.config/btop/btop.conf" ] && ! grep -q 'color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"' "$HOME/.config/btop/btop.conf" 2>/dev/null; then
-                            sed -i 's|^color_theme = .*|color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"|' "$HOME/.config/btop/btop.conf" 2>/dev/null
+                        local btop_dir="$HOME/.config/btop"
+                        local btop_conf="$btop_dir/btop.conf"
+                        local theme_src="$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme"
+                        mkdir -p "$btop_dir/themes" 2>/dev/null
+                        [ -f "$theme_src" ] && cp -p "$theme_src" "$btop_dir/themes/" 2>/dev/null
+                        if [ -f "$btop_conf" ]; then
+                            local conf_data
+                            conf_data=$(<"$btop_conf")
+                            if [[ "$conf_data" != *'color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"'* ]]; then
+                                sed -i 's|^color_theme = .*|color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"|' "$btop_conf" 2>/dev/null
+                            fi
                         fi
                     fi
                     btop
@@ -9717,6 +9715,7 @@ manage_system_process_monitors() {
 }
 
 run_bash_cli() {
+    local cli_choice user_cmd
     echo -e "\n${BOLD}${MAGENTA}====================================================${NC}"
     echo -e "${BOLD}${MAGENTA}             Interactive Bash CLI Runner            ${NC}"
     echo -e "${BOLD}${MAGENTA}====================================================${NC}"
@@ -9756,19 +9755,35 @@ run_bash_cli() {
 
 manage_themes() {
     while true; do
+        local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12=""
+        case "$CURRENT_THEME" in
+            dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;;
+            dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;;
+            cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;;
+            dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;;
+            nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;;
+            matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;;
+            solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;;
+            tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;;
+            monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;;
+            gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;;
+            emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;;
+            classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;;
+        esac
+
         local opts=(
-            "1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet] $([ "$CURRENT_THEME" = "dreamworlds" ] && echo -e "${GREEN}★ ACTIVE (DEFAULT)${NC}")"
-            "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB] $([ "$CURRENT_THEME" = "dreamworlds_ultra" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow] $([ "$CURRENT_THEME" = "cyberpunk" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink] $([ "$CURRENT_THEME" = "dracula" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora] $([ "$CURRENT_THEME" = "nord" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint] $([ "$CURRENT_THEME" = "matrix" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta] $([ "$CURRENT_THEME" = "solarized" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral] $([ "$CURRENT_THEME" = "tokyo" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue] $([ "$CURRENT_THEME" = "monokai" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold] $([ "$CURRENT_THEME" = "gruvbox" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan] $([ "$CURRENT_THEME" = "emerald" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
-            "12|Classic ANSI|[Standard 16-Color Terminal Fallback] $([ "$CURRENT_THEME" = "classic" ] && echo -e "${GREEN}★ ACTIVE${NC}")"
+            "1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${m1}"
+            "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}"
+            "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}"
+            "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}"
+            "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}"
+            "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}"
+            "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}"
+            "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}"
+            "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}"
+            "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}"
+            "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}"
+            "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}"
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0
@@ -9854,11 +9869,9 @@ _CACHED_PERF_DISPLAY=""
 
 get_system_perf_stats() {
     local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
-    # A file cache keeps a zoom or a window drag from running df on the
-    # key path. While a menu is open, never block on df. The in-memory
-    # copy is filled here so an in-process header can use it after
-    # redirecting this function's stdout.
+    [ "$now" -eq 0 ] && printf -v now '%(%s)T' -1 2>/dev/null
+    [ "${now:-0}" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+
     local _perf_dir="${HOME}/.config/mix-manager"
     local _perf_file="${_perf_dir}/perf_display.cache"
     local _perf_stamp="${_perf_dir}/perf_display.stamp"
@@ -9892,27 +9905,31 @@ get_system_perf_stats() {
     _LAST_PERF_CHECK="$now"
 
     local cpu_info="" ram_info="" disk_info=""
-    
-    # 1. CPU / Load Info (Skip /proc/loadavg on Windows to eliminate 400ms PDH query latency)
+
+    # 1. CPU / Load Info (Zero-fork on Linux & parsed without awk on macOS/FreeBSD)
     if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
         cpu_info="Active"
     elif [ -f /proc/loadavg ]; then
-        read -r l1 l5 l15 _ < /proc/loadavg
+        local l1 l5 _
+        read -r l1 l5 _ < /proc/loadavg
         cpu_info="${l1} (1m), ${l5} (5m)"
     elif [ "$OS_TYPE" = "macos" ] || [ "$OS_TYPE" = "freebsd" ]; then
-        local load
-        load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2, $3}')
-        [ -n "$load" ] && cpu_info="${load}" || cpu_info="Active"
+        local raw_load l1 l5
+        raw_load=$(sysctl -n vm.loadavg 2>/dev/null)
+        raw_load="${raw_load#\{ }"
+        raw_load="${raw_load% \}}"
+        read -r l1 l5 _ <<< "$raw_load"
+        [ -n "$l1" ] && cpu_info="${l1} ${l5}" || cpu_info="Active"
     else
         cpu_info="Active"
     fi
 
-    # 2. RAM Info
+    # 2. RAM Info (Pure Bash integer arithmetic, no awk fork)
     if [ -f /proc/meminfo ]; then
         local mem_total="" mem_avail="" mem_used mem_total_g mem_used_g mem_pct key val
         while read -r key val _; do
             case "$key" in
-                MemTotal:*) mem_total="$val" ;;
+                MemTotal:*)     mem_total="$val" ;;
                 MemAvailable:*) mem_avail="$val" ;;
             esac
             [ -n "$mem_total" ] && [ -n "$mem_avail" ] && break
@@ -9932,8 +9949,8 @@ get_system_perf_stats() {
         if [ -n "$mem_bytes" ] && [ "$mem_bytes" -gt 0 ]; then
             local free_bytes=$(( free_pages * page_size ))
             local used_bytes=$(( mem_bytes - free_bytes ))
-            mem_total_g=$(awk "BEGIN {printf \"%.1f\", $mem_bytes/1073741824}")
-            mem_used_g=$(awk "BEGIN {printf \"%.1f\", $used_bytes/1073741824}")
+            mem_total_g="$((mem_bytes / 1073741824)).$(( (mem_bytes % 1073741824) * 10 / 1073741824 ))"
+            mem_used_g="$((used_bytes / 1073741824)).$(( (used_bytes % 1073741824) * 10 / 1073741824 ))"
             mem_pct=$(( (used_bytes * 100) / mem_bytes ))
             ram_info="${mem_used_g}G/${mem_total_g}G (${mem_pct}%)"
         fi
@@ -9960,11 +9977,10 @@ get_system_perf_stats() {
     echo -e "$_CACHED_PERF_DISPLAY"
 }
 
-# Refresh the disk line off the menu key path. The worker writes the
-# same cache file get_system_perf_stats reads, so a zoom stays instant.
 _maybe_refresh_perf_cache() {
     local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    [ "$now" -eq 0 ] && printf -v now '%(%s)T' -1 2>/dev/null
+    [ "${now:-0}" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     local stamp="${HOME}/.config/mix-manager/perf_display.stamp"
     local last=0
     [ -f "$stamp" ] && { read -r last < "$stamp" 2>/dev/null || last=0; }
@@ -9985,7 +10001,8 @@ _CACHED_AUDIO_IFACE_DISPLAY=""
 
 get_active_audio_interface_display() {
     local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    [ "$now" -eq 0 ] && printf -v now '%(%s)T' -1 2>/dev/null
+    [ "${now:-0}" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_AUDIO_IFACE_CHECK)) -lt 30 ] && [ -n "$_CACHED_AUDIO_IFACE_DISPLAY" ]; then
         echo -e "$_CACHED_AUDIO_IFACE_DISPLAY"
         return 0
@@ -10015,7 +10032,8 @@ _CACHED_ALARM_CLOCK_STATUS=""
 
 get_alarm_clock_status_display() {
     local now="${EPOCHSECONDS:-0}"
-    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    [ "$now" -eq 0 ] && printf -v now '%(%s)T' -1 2>/dev/null
+    [ "${now:-0}" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
     if [ $((now - _LAST_ALARM_STATUS_CHECK)) -lt 30 ] && [ -n "$_CACHED_ALARM_CLOCK_STATUS" ]; then
         echo -e "$_CACHED_ALARM_CLOCK_STATUS"
         return 0
@@ -10107,12 +10125,12 @@ launch_traktor_monitor_window() {
     echo -e "\n${BOLD}${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "${BOLD}${CYAN}       🎛️  TRAKTOR PRO LIVE MONITOR & AUDIO RECORDER CONTROL  🎛️               ${NC}"
     echo -e "${BOLD}${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "  • ${BOLD}Process Metrics:${NC}   Traktor CPU %, RSS RAM, Thread Count & Execution State"
-    echo -e "  • ${BOLD}Deck Tracking:${NC}     Active open audio files & deck playback detection"
-    echo -e "  • ${BOLD}Audio Recorder:${NC}    Live WAV write detection, file-growth tracking & standby"
-    echo -e "  • ${BOLD}Hardware & I/O:${NC}    Traktor audio device, sample rate, latency & buffer size"
-    echo -e "  • ${BOLD}Hotkeys in Live:${NC}   [s] Start Rec  │  [x] Stop Rec  │  [t] Toggle Rec  │  [q] Quit"
-    echo -e "  • ${BOLD}Cross-Platform:${NC}    macOS (AppleScript UI), Windows 10 & 11, Linux (Bazzite/Fedora)"
+    echo -e "  ${BOLD}Process Metrics:${NC}   Traktor CPU %, RSS RAM, Thread Count & Execution State"
+    echo -e "  ${BOLD}Deck Tracking:${NC}     Active open audio files & deck playback detection"
+    echo -e "  ${BOLD}Audio Recorder:${NC}    Live WAV write detection, file-growth tracking & standby"
+    echo -e "  ${BOLD}Hardware & I/O:${NC}    Traktor audio device, sample rate, latency & buffer size"
+    echo -e "  ${BOLD}Hotkeys in Live:${NC}   [s] Start Rec  │  [x] Stop Rec  │  [t] Toggle Rec  │  [q] Quit"
+    echo -e "  ${BOLD}Cross-Platform:${NC}    macOS (AppleScript UI), Windows 10 & 11, Linux (Bazzite/Fedora)"
     echo -e "${BOLD}${CYAN}───────────────────────────────────────────────────────────────────────────────${NC}"
     echo -e "Select launch target:"
     echo -e "  ${BOLD}${CYAN}1)${NC} Launch Live Monitor in ${BOLD}${GREEN}New Terminal Window${NC} (Recommended)"
@@ -10123,18 +10141,20 @@ launch_traktor_monitor_window() {
     echo -e "  ${BOLD}${CYAN}6)${NC} Trigger Traktor Audio Recording: ${YELLOW}TOGGLE RECORDING${NC}"
     echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
     echo ""
+    local tm_choice
     read -r -p "Enter choice [1-6, default: 1]: " tm_choice
     tm_choice="${tm_choice:-1}"
 
     case "$tm_choice" in
         1)
-            if ! pgrep -i -f "Traktor.app/Contents/MacOS/Traktor$" >/dev/null 2>&1 && ! pgrep -i -f "Traktor\.exe" >/dev/null 2>&1 && ! pgrep -i -f "Traktor" >/dev/null 2>&1; then
+            if ! pgrep -i -f "Traktor" >/dev/null 2>&1; then
                 echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"
                 launch_traktor >/dev/null 2>&1 || true
                 sleep 1.5
             fi
             echo -e "\n${BOLD}${GREEN}Launching Traktor Live Monitor in a new terminal window...${NC}\n"
-            local full_cmd="\"$mon_sh\"; echo ''; echo 'Traktor monitor closed. Press [Enter] to exit...'; read -r"
+            local full_cmd
+            printf -v full_cmd '%q; echo ""; echo "Traktor monitor closed. Press [Enter] to exit..."; read -r' "$mon_sh"
             if launch_in_terminal "Traktor Live Monitor" "$full_cmd" "window"; then
                 echo -e "${GREEN}✓ Traktor Live Monitor launched in standalone window.${NC}"
                 sleep 1.2
@@ -10148,7 +10168,7 @@ launch_traktor_monitor_window() {
             fi
             ;;
         2)
-            if ! pgrep -i -f "Traktor.app/Contents/MacOS/Traktor$" >/dev/null 2>&1 && ! pgrep -i -f "Traktor\.exe" >/dev/null 2>&1 && ! pgrep -i -f "Traktor" >/dev/null 2>&1; then
+            if ! pgrep -i -f "Traktor" >/dev/null 2>&1; then
                 echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"
                 launch_traktor >/dev/null 2>&1 || true
                 sleep 1.5
@@ -10201,6 +10221,7 @@ show_mix_drive_space() {
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
 
     local all_arch_dirs=()
+    local adir
     while IFS= read -r adir; do
         [ -n "$adir" ] && all_arch_dirs+=("$adir")
     done < <(get_all_mix_archive_dirs)
@@ -10209,45 +10230,65 @@ show_mix_drive_space() {
         all_arch_dirs=("${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}")
     fi
 
-    # Precompute audio sizes with Python (fast single pass across all directories)
+    # Single-pass Python scanner: computes byte sizes, GB strings, AND exact FLAC/WAV/MP3 counts
+    # across all archive directories in one invocation (eliminating 3x `find | wc -l` per folder).
     local folder_audio_bytes=()
     local folder_audio_gbs=()
+    local folder_flacs=()
+    local folder_wavs=()
+    local folder_mp3s=()
     local total_audio_bytes=0
-
-    while IFS=$'\t' read -r d_path d_bytes d_gb; do
-        folder_audio_bytes+=("$d_bytes")
-        folder_audio_gbs+=("$d_gb")
-        total_audio_bytes=$(python3 -c "print($total_audio_bytes + $d_bytes)" 2>/dev/null || awk "BEGIN {printf \"%.0f\", $total_audio_bytes + $d_bytes}")
-    done < <(python3 -c "
-import os, sys
-dirs = sys.argv[1:]
-audio_exts = {'.flac', '.wav'}
-for d in dirs:
-    total = 0
-    if os.path.exists(d):
-        for root, subdirs, files in os.walk(d):
-            depth = 0 if root == d else os.path.relpath(root, d).count(os.sep) + 1
-            if depth > 1 and 'mp3_converted_outputs' not in root.lower():
-                continue
-            for f in files:
-                ext = os.path.splitext(f)[1].lower()
-                if ext in audio_exts:
-                    try: total += os.path.getsize(os.path.join(root, f))
-                    except OSError: pass
-                elif ext == '.mp3':
-                    if depth == 0 or 'mp3_converted_outputs' in root.lower():
-                        try: total += os.path.getsize(os.path.join(root, f))
-                        except OSError: pass
-    gb = total / (1024 ** 3)
-    print(f'{d}\t{total}\t{gb:.2f}')
-" "${all_arch_dirs[@]}")
-
-    local loc_num=1
     local total_flacs_all=0
     local total_wavs_all=0
     local total_mp3s_all=0
+
+    local d_path d_bytes d_gb d_flac d_wav d_mp3
+    while IFS=$'\t' read -r d_path d_bytes d_gb d_flac d_wav d_mp3; do
+        folder_audio_bytes+=("${d_bytes:-0}")
+        folder_audio_gbs+=("${d_gb:-0.00}")
+        folder_flacs+=("${d_flac:-0}")
+        folder_wavs+=("${d_wav:-0}")
+        folder_mp3s+=("${d_mp3:-0}")
+        total_audio_bytes=$((total_audio_bytes +${d_bytes:-0}))
+        total_flacs_all=$((total_flacs_all +${d_flac:-0}))
+        total_wavs_all=$((total_wavs_all +${d_wav:-0}))
+        total_mp3s_all=$((total_mp3s_all +${d_mp3:-0}))
+    done < <(python3 -c "
+import os, sys
+for d in sys.argv[1:]:
+    total = flacs = wavs = mp3s = 0
+    if os.path.isdir(d):
+        d_norm = os.path.normpath(d)
+        is_mp3_dir = os.path.basename(d_norm).lower() == 'mp3_converted_outputs'
+        has_mp3_sub = os.path.isdir(os.path.join(d, 'MP3_CONVERTED_OUTPUTS'))
+        for root, _, files in os.walk(d):
+            rel = '' if root == d else os.path.relpath(root, d)
+            depth = 0 if not rel or rel == '.' else rel.count(os.sep) + 1
+            in_mp3_sub = 'mp3_converted_outputs' in root.lower()
+            if depth > 1 and not in_mp3_sub:
+                continue
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                fp = os.path.join(root, f)
+                if ext == '.flac' and depth <= 1:
+                    flacs += 1
+                    try: total += os.path.getsize(fp)
+                    except OSError: pass
+                elif ext == '.wav' and depth <= 1:
+                    wavs += 1
+                    try: total += os.path.getsize(fp)
+                    except OSError: pass
+                elif ext == '.mp3':
+                    if (has_mp3_sub and in_mp3_sub and depth == 1) or ((not has_mp3_sub or is_mp3_dir) and depth == 0):
+                        mp3s += 1
+                        try: total += os.path.getsize(fp)
+                        except OSError: pass
+    print(f'{d}\t{total}\t{total / (1024 ** 3):.2f}\t{flacs}\t{wavs}\t{mp3s}')
+" "${all_arch_dirs[@]}")
+
+    local loc_num=1
     local total_free_kb=0
-    local seen_mounts=""
+    declare -A seen_mounts=()
 
     local folder_fs=()
     local folder_mounts=()
@@ -10255,10 +10296,11 @@ for d in dirs:
     local folder_used=()
     local folder_free=()
     local folder_pcts=()
-    local folder_flacs=()
-    local folder_wavs=()
-    local folder_mp3s=()
 
+    local full_blocks="███████████████████████████████████"
+    local empty_blocks="░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"
+
+    local idx
     for idx in "${!all_arch_dirs[@]}"; do
         local mix_target="${all_arch_dirs[$idx]}"
         echo -e "${BOLD}${CYAN}──────────────────────────────────────────────────────────────────────${NC}"
@@ -10275,69 +10317,55 @@ for d in dirs:
             folder_used+=("N/A")
             folder_free+=("N/A")
             folder_pcts+=("N/A")
-            folder_flacs+=(0)
-            folder_wavs+=(0)
-            folder_mp3s+=(0)
             ((loc_num++))
             continue
         fi
 
-        local fs total_kb used_kb avail_kb cap_pct mount_pt
-        read -r fs total_kb used_kb avail_kb cap_pct mount_pt <<< $(df -k -P "$mix_target" 2>/dev/null | tail -n 1 | awk '{fs=$1; t=$2; u=$3; a=$4; c=$5; $1=$2=$3=$4=$5=""; sub(/^[ \t]+/, ""); print fs, t, u, a, c, $0}')
-        if [ -n "$mount_pt" ]; then
-            if [[ "$seen_mounts" != *"|${mount_pt}|"* ]]; then
-                seen_mounts+="|${mount_pt}|"
-                total_free_kb=$((total_free_kb + avail_kb))
-            fi
+        # Parse df -k -P without tail or awk forks
+        local _df_line fs total_kb used_kb avail_kb cap_pct mount_pt
+        {
+            read -r _
+            read -r _df_line
+        } < <(df -k -P "$mix_target" 2>/dev/null)
+        read -r fs total_kb used_kb avail_kb cap_pct mount_pt <<< "$_df_line"
+
+        if [ -n "$mount_pt" ] && [ -z "${seen_mounts[$mount_pt]+_}" ]; then
+            seen_mounts["$mount_pt"]=1
+            total_free_kb=$((total_free_kb +${avail_kb:-0}))
         fi
 
-        local df_output
-        df_output=$(df -h -T "$mix_target" 2>/dev/null || df -h "$mix_target" 2>/dev/null)
-        local line
-        line=$(echo "$df_output" | tail -n 1)
-        local fs_dev type total used avail pct mount
-        if [ "$(echo "$df_output" | head -n 1 | awk '{print NF}')" -ge 7 ]; then
-            read -r fs_dev type total used avail pct mount <<< "$line"
-        else
-            read -r fs_dev total used avail pct mount <<< "$line"
+        # Parse human-readable df -h -T (or fallback df -h) without head/tail/awk
+        local _hdr _line fs_dev type total used avail pct mount
+        if { read -r _hdr && read -r _line; } < <(df -h -T "$mix_target" 2>/dev/null); then
+            read -r fs_dev type total used avail pct mount <<< "$_line"
+        elif { read -r _hdr && read -r _line; } < <(df -h "$mix_target" 2>/dev/null); then
+            read -r fs_dev total used avail pct mount <<< "$_line"
             type="filesystem"
         fi
 
-        echo -e "  • ${BOLD}Device Filesystem:${NC}   ${CYAN}${fs_dev}${NC} (${type})"
-        echo -e "  • ${BOLD}Mount Point:${NC}         ${GREEN}${mount}${NC}"
-        echo -e "  • ${BOLD}Total Capacity:${NC}      ${total}"
-        echo -e "  • ${BOLD}Space Used:${NC}          ${YELLOW}${used}${NC} (${pct})"
-        echo -e "  • ${BOLD}Space Remaining:${NC}     ${BOLD}${GREEN}${avail}${NC} free"
+        echo -e "  ${BOLD}Device Filesystem:${NC}   ${CYAN}${fs_dev}${NC} (${type})"
+        echo -e "  ${BOLD}Mount Point:${NC}${GREEN}${mount}${NC}"
+        echo -e "  ${BOLD}Total Capacity:${NC}${total}"
+        echo -e "  ${BOLD}Space Used:${NC}          ${YELLOW}${used}${NC} (${pct})"
+        echo -e "  ${BOLD}Space Remaining:${NC}     ${BOLD}${GREEN}${avail}${NC} free"
 
-        local pct_num
-        pct_num=$(echo "$pct" | tr -dc '0-9')
+        local pct_num="${pct//[!0-9]/}"
         if [ -n "$pct_num" ]; then
             local bar_len=35
             local filled=$(( (pct_num * bar_len) / 100 ))
+            [ "$filled" -gt "$bar_len" ] && filled="$bar_len"
             local empty=$(( bar_len - filled ))
-            local bar=""
-            for ((i=0; i<filled; i++)); do bar+="█"; done
-            for ((i=0; i<empty; i++)); do bar+="░"; done
+            local bar="${full_blocks:0:filled}${empty_blocks:0:empty}"
             local bar_color="${GREEN}"
             [ "$pct_num" -ge 75 ] && bar_color="${YELLOW}"
             [ "$pct_num" -ge 90 ] && bar_color="${RED}"
-            echo -e "  • ${BOLD}Usage Graph:${NC}         [${bar_color}${bar}${NC}] ${BOLD}${pct}${NC}"
+            echo -e "  ${BOLD}Usage Graph:${NC}         [${bar_color}${bar}${NC}]${BOLD}${pct}${NC}"
         fi
 
-        # File counts
-        local flac_count wav_count mp3_count
-        flac_count=$(find "$mix_target" -maxdepth 2 -type f \( -name "*.flac" -o -name "*.FLAC" \) 2>/dev/null | wc -l)
-        wav_count=$(find "$mix_target" -maxdepth 2 -type f \( -name "*.wav" -o -name "*.WAV" \) 2>/dev/null | wc -l)
-        if [ -d "$mix_target/MP3_CONVERTED_OUTPUTS" ]; then
-            mp3_count=$(find "$mix_target/MP3_CONVERTED_OUTPUTS" -maxdepth 1 -type f \( -name "*.mp3" -o -name "*.MP3" \) 2>/dev/null | wc -l)
-        elif [[ "$mix_target" =~ MP3_CONVERTED_OUTPUTS/?$ ]]; then
-            mp3_count=$(find "$mix_target" -maxdepth 1 -type f \( -name "*.mp3" -o -name "*.MP3" \) 2>/dev/null | wc -l)
-        else
-            mp3_count=$(find "$mix_target" -maxdepth 1 -type f \( -name "*.mp3" -o -name "*.MP3" \) 2>/dev/null | wc -l)
-        fi
-        total_flacs_all=$((total_flacs_all + flac_count))
-        total_wavs_all=$((total_wavs_all + wav_count))
-        total_mp3s_all=$((total_mp3s_all + mp3_count))
+        local flac_count="${folder_flacs[$idx]:-0}"
+        local wav_count="${folder_wavs[$idx]:-0}"
+        local mp3_count="${folder_mp3s[$idx]:-0}"
+        local f_gb="${folder_audio_gbs[$idx]:-0.00}"
 
         folder_fs+=("$fs_dev")
         folder_mounts+=("$mount")
@@ -10345,22 +10373,25 @@ for d in dirs:
         folder_used+=("$used")
         folder_free+=("$avail")
         folder_pcts+=("$pct")
-        folder_flacs+=("$flac_count")
-        folder_wavs+=("$wav_count")
-        folder_mp3s+=("$mp3_count")
 
-        local f_gb="${folder_audio_gbs[$idx]:-0.00}"
-        echo -e "  • ${BOLD}Audio Consumed:${NC}      ${CYAN}${f_gb} GB${NC}"
-        echo -e "  • ${BOLD}Audio Files Hosted:${NC}  ${GREEN}${flac_count}${NC} FLACs | ${CYAN}${wav_count}${NC} WAVs | ${YELLOW}${mp3_count}${NC} MP3s\n"
+        echo -e "  ${BOLD}Audio Consumed:${NC}${CYAN}${f_gb} GB${NC}"
+        echo -e "  ${BOLD}Audio Files Hosted:${NC}${GREEN}${flac_count}${NC} FLACs | ${CYAN}${wav_count}${NC} WAVs \vert{}${YELLOW}${mp3_count}${NC} MP3s\n"
         ((loc_num++))
     done
 
     local total_master_mixes=$((total_flacs_all + total_wavs_all + total_mp3s_all))
     local total_folders_configured=${#all_arch_dirs[@]}
+
+    # Pure Bash fixed-point GB formatting (2 decimal places) — zero python/awk forks
+    local cons_int=$(( total_audio_bytes / 1073741824 ))
+    local cons_frac=$(( (total_audio_bytes % 1073741824) * 100 / 1073741824 ))
     local total_consumed_gb
-    total_consumed_gb=$(python3 -c "print(f'{$total_audio_bytes / (1024**3):.2f}')" 2>/dev/null || awk "BEGIN {printf \"%.2f\", $total_audio_bytes / 1073741824}")
+    printf -v total_consumed_gb "%d.%02d" "$cons_int" "$cons_frac"
+
+    local free_int=$(( total_free_kb / 1048576 ))
+    local free_frac=$(( (total_free_kb % 1048576) * 100 / 1048576 ))
     local total_free_gb
-    total_free_gb=$(python3 -c "print(f'{$total_free_kb / (1024*1024):.2f}')" 2>/dev/null || awk "BEGIN {printf \"%.2f\", $total_free_kb / 1048576}")
+    printf -v total_free_gb "%d.%02d" "$free_int" "$free_frac"
 
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
     echo -e "  Total FLAC Master Mixes Across All Drives: ${BOLD}${GREEN}${total_flacs_all}${NC}"
@@ -10385,18 +10416,18 @@ for d in dirs:
         local f_used="${folder_used[$idx]}"
         local f_free="${folder_free[$idx]}"
         local f_pct="${folder_pcts[$idx]}"
-        local f_flac="${folder_flacs[$idx]}"
-        local f_wav="${folder_wavs[$idx]}"
-        local f_mp3="${folder_mp3s[$idx]}"
+        local f_flac="${folder_flacs[$idx]:-0}"
+        local f_wav="${folder_wavs[$idx]:-0}"
+        local f_mp3="${folder_mp3s[$idx]:-0}"
         local f_audio_gb="${folder_audio_gbs[$idx]:-0.00}"
         local f_mix_total=$((f_flac + f_wav + f_mp3))
 
         echo -e "  📁 ${BOLD}${YELLOW}[Folder #${f_num}]${NC} ${BOLD}${WHITE}${f_path}${NC}"
-        echo -e "     • ${BOLD}Drive Mount:${NC}    ${GREEN}${f_mount}${NC} (${CYAN}${f_fs}${NC})"
-        echo -e "     • ${BOLD}Space Free:${NC}     ${BOLD}${GREEN}${f_free}${NC} free"
-        echo -e "     • ${BOLD}Space Used:${NC}     ${YELLOW}${f_used}${NC} (${f_pct} of ${f_total} capacity)"
-        echo -e "     • ${BOLD}Audio Consumed:${NC} ${CYAN}${f_audio_gb} GB${NC}"
-        echo -e "     • ${BOLD}Mixes Tally:${NC}    ${GREEN}${f_flac}${NC} FLACs | ${CYAN}${f_wav}${NC} WAVs | ${YELLOW}${f_mp3}${NC} MP3s (Total: ${BOLD}${WHITE}${f_mix_total}${NC} mixes)"
+        echo -e "     ${BOLD}Drive Mount:${NC}    ${GREEN}${f_mount}${NC} (${CYAN}${f_fs}${NC})"
+        echo -e "     ${BOLD}Space Free:${NC}     ${BOLD}${GREEN}${f_free}${NC} free"
+        echo -e "     ${BOLD}Space Used:${NC}${YELLOW}${f_used}${NC} (${f_pct} of${f_total} capacity)"
+        echo -e "     ${BOLD}Audio Consumed:${NC}${CYAN}${f_audio_gb} GB${NC}"
+        echo -e "     ${BOLD}Mixes Tally:${NC}${GREEN}${f_flac}${NC} FLACs | ${CYAN}${f_wav}${NC} WAVs \vert{}${YELLOW}${f_mp3}${NC} MP3s (Total: ${BOLD}${WHITE}${f_mix_total}${NC} mixes)"
         echo ""
     done
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
