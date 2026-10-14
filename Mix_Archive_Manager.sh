@@ -1047,30 +1047,17 @@ _menu_fast_paint_selection() {
         local player_banner=""
         local banner_lines=0
         if get_mp_audio_player_track_info 2>/dev/null; then
-            local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"
-            local st_raw="▶ PLAYING"
-            if [ "$MP_PLAYER_STATE" = "paused" ]; then
-                st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"
-                st_raw="⏸ PAUSED"
-            fi
-
+            local st_sym="${BOLD}${MP_PLAYER_STATE = "paused" ? YELLOW : GREEN}▶ $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")${NC}"
+            local st_raw="${MP_PLAYER_STATE = "paused" ? "⏸" : "▶"} $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")"
             local rem_dashes=$(( inner_w - 22 ))
             [ "$rem_dashes" -lt 0 ] && rem_dashes=0
-            local p_top_dashes
-            printf -v p_top_dashes '%*s' "$rem_dashes" ''
-            p_top_dashes="${p_top_dashes// /─}"
-
+            local p_top_dashes="${rem_dashes// /─}"
             player_banner+="  ${BOLD}${MAGENTA}╭── ♫ MP AUDIO PLAYER ${p_top_dashes}╮\033[K${NC}\n"
-
             local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"
             local max_t_len=$(( text_w - ${#pos_pct_str} - 16 ))
             [ "$max_t_len" -lt 4 ] && max_t_len=4
             [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"
-            local disp_title="$MP_PLAYER_TITLE"
-            if [ ${#disp_title} -gt "$max_t_len" ]; then
-                disp_title="${disp_title:0:$((max_t_len - 3))}..."
-            fi
-
+            local disp_title="${MP_PLAYER_TITLE:0:$((max_t_len - 3))}..."
             local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"
             local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"
             local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} ))
@@ -1079,7 +1066,6 @@ _menu_fast_paint_selection() {
             local l1_sp
             printf -v l1_sp '%*s' "$l1_pad" ''
             player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"
-
             local line2_ctrl="[Space] Toggle  [n] Next  [</>] Track  [p] UI  [f] FM"
             local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"
             local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} ))
@@ -1097,27 +1083,18 @@ _menu_fast_paint_selection() {
         # Keep one row unused. A frame that fills the last row scrolls
         # mintty after a font zoom and pins the caret to the right edge.
         local max_visible=$(( _TERM_LINES - effective_overhead - 1 ))
-        if [ "$max_visible" -lt 1 ]; then
-            max_visible=1
-        fi
+        max_visible=$(( max_visible < 1 ? 1 : max_visible ))
 
         if [ "$max_visible" -ge "$total_opts" ]; then
             max_visible=$total_opts
             view_top=0
         else
             # Adjust view_top so cur_idx is always inside [view_top, view_top + max_visible - 1]
-            if [ "$cur_idx" -lt "$view_top" ]; then
-                view_top="$cur_idx"
-            elif [ "$cur_idx" -ge $(( view_top + max_visible )) ]; then
-                view_top=$(( cur_idx - max_visible + 1 ))
-            fi
+            view_top=$(( cur_idx < view_top ? cur_idx : view_top ))
+            view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top ))
             # Bound checks
-            if [ "$view_top" -gt $(( total_opts - max_visible )) ]; then
-                view_top=$(( total_opts - max_visible ))
-            fi
-            if [ "$view_top" -lt 0 ]; then
-                view_top=0
-            fi
+            view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top ))
+            view_top=$(( view_top < 0 ? 0 : view_top ))
         fi
 
         local view_end=$(( view_top + max_visible - 1 ))
