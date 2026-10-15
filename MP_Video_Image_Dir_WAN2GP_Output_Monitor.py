@@ -135,12 +135,13 @@ def resolve_default_watch_dir() -> Path:
 
 
 class Monitor:
-    def __init__(self, watch_dir: Path | str | None = None):
+    def __init__(self, watch_dir: Path | str | None = None, interval: float = 10.0):
         if watch_dir:
             self.watch_dir = Path(watch_dir).expanduser().resolve()
         else:
             self.watch_dir = resolve_default_watch_dir().resolve()
 
+        self.interval = max(0.5, float(interval))
         self.known_files = set()
         self.images = []
         self.videos = []
@@ -722,7 +723,7 @@ class Monitor:
 
                 start = time.time()
                 action = None
-                while time.time() - start < 10:
+                while time.time() - start < self.interval:
                     if sys.stdin in select.select([sys.stdin], [], [], 0.5)[0]:
                         key = sys.stdin.read(1).lower()
                         if key == "i":
@@ -815,8 +816,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MP Video Image Directory Output Monitor (FLUX / LTX / WAN2GP)")
     parser.add_argument("dir", nargs="?", default=None, help="Directory to monitor (optional)")
     parser.add_argument("--dir", "--output-dir", "-d", dest="output_dir", default=None, help="Directory to monitor")
+    parser.add_argument("--interval", "-i", type=float, default=10.0, help="Refresh interval in seconds (default: 10)")
     args = parser.parse_args()
 
     target_dir = args.output_dir or args.dir
-    monitor = Monitor(target_dir)
+    monitor = Monitor(target_dir, interval=args.interval)
     monitor.run()
