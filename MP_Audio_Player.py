@@ -257,6 +257,47 @@ def choose_export_m3u_gui() -> Optional[str]:
             except Exception: pass
     return None
 
+def choose_audio_file_gui() -> Optional[str]:
+    """GUI file open dialog using kdialog, zenity, powershell, or applescript."""
+    if sys.platform == "win32":
+        try:
+            ps_cmd = (
+                "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null; "
+                "$f = New-Object System.Windows.Forms.OpenFileDialog; "
+                "$f.Filter = 'Audio Files (*.flac;*.wav;*.mp3;*.ogg;*.aac;*.m4a)|*.flac;*.wav;*.mp3;*.ogg;*.aac;*.m4a|All Files (*.*)|*.*'; "
+                "$f.Title = 'Open Audio File in MP Audio Player'; "
+                "if($f.ShowDialog() -eq 'OK'){ Write-Host $f.FileName }"
+            )
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=120).stdout.strip()
+            if out and os.path.isfile(out): return out
+            return "" if out == "" else None
+        except Exception:
+            pass
+
+    if sys.platform == "darwin":
+        try:
+            osa = 'choose file of type {"public.audio", "wav", "flac", "mp3", "ogg", "aac", "m4a"} with prompt "Open Audio File in MP Audio Player"'
+            res = subprocess.run(["osascript", "-e", osa], capture_output=True, text=True, timeout=120).stdout.strip()
+            if res:
+                p_res = subprocess.run(["osascript", "-e", f'POSIX path of "{res}"'], capture_output=True, text=True, timeout=10).stdout.strip()
+                if p_res and os.path.isfile(p_res): return p_res
+            return ""
+        except Exception:
+            pass
+
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        home = os.path.expanduser("~")
+        for cmd in [
+            ["kdialog", "--title", "Open Audio File in MP Audio Player", "--getopenfilename", home, "*.flac *.wav *.mp3 *.ogg *.aac *.m4a *.aiff | Audio Files (*.flac *.wav *.mp3 *.ogg *.aac *.m4a *.aiff)"],
+            ["zenity", "--file-selection", "--title=Open Audio File in MP Audio Player", f"--filename={home}/", "--file-filter=Audio Files (*.flac, *.wav, *.mp3, *.ogg, *.aac, *.m4a) | *.flac *.wav *.mp3 *.ogg *.aac *.m4a *.FLAC *.WAV *.MP3"],
+        ]:
+            if shutil.which(cmd[0]):
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else ""
+                except Exception: pass
+    return None
+
 class MixArchiveScanner:
     def __init__(self, base_dir: Union[Path, str]):
         self.base_dir = Path(base_dir)
@@ -299,6 +340,11 @@ class MixArchiveScanner:
                       "/run/media/mplanetarian/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS",
                       os.path.expanduser("~/GoogleDrive/MIX_ARCHIVE")):
                 add(p)
+
+        # Fallback audio discovery paths when user has not configured specific mix archives
+        for fallback in (self.base_dir, Path.cwd(), Path.home() / "Music"):
+            add(fallback)
+
         return dirs
 
     def _load_and_scan(self):
@@ -1221,6 +1267,31 @@ class TerminalPlayerUI:
             self.notification_msg = f"No tracklist found for: {tn or os.path.basename(tp)}"
         self.notification_time = time.time() + 3.5
 
+    def _open_audio_file(self):
+        chosen = choose_audio_file_gui()
+        if chosen == "":
+            self.notification_msg = "Open file cancelled."
+            self.notification_time = time.time() + 2.5
+            return
+        if chosen and os.path.isfile(chosen):
+            self._send_cmd("play", file=chosen)
+            ext = os.path.splitext(chosen)[1].lower()
+            item = {
+                "name": os.path.basename(chosen),
+                "path": chosen,
+                "size_mb": os.path.getsize(chosen) / (1024 * 1024),
+                "mtime": time.time(),
+                "ext": ext[1:].upper()
+            }
+            if not any(m["path"] == chosen for m in self.scanner.mixes):
+                self.scanner.mixes.insert(0, item)
+            self.selected_row = 0
+            self.notification_msg = f"Playing: {os.path.basename(chosen)}"
+            self.notification_time = time.time() + 3.5
+            return
+        self.notification_msg = "No audio file selected. Press [F] for File Manager."
+        self.notification_time = time.time() + 3.0
+
     def _export_playlist(self):
         mixes = self.scanner.get_mixes(self.search_query)
         if not mixes:
@@ -1371,6 +1442,7 @@ class TerminalPlayerUI:
         elif data in (b"r", b"R"): self._send_cmd("repeat")
         elif data == b"e": self.visualizer.cycle_style()
         elif data in (b"c", b"C"): self.visualizer.cycle_theme()
+        elif data in (b"o", b"O"): self._open_audio_file()
         elif data in (b"t", b"T"): self._view_selected_tracklist()
         elif data in (b"E", b"w", b"W"): self._export_playlist()
         elif data == b"/": self.search_mode, self.search_query = True, ""
@@ -1430,36 +1502,45 @@ class TerminalPlayerUI:
 
         b_col = f"{BOLD}{MAGENTA}"
         avail_name = max(4, iw - 23)
-        for i in range(self.scroll_offset, min(len(mixes), self.scroll_offset + vrows)):
-            m = mixes[i]
-            act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
-            raw_name = str(m.get("name", ""))
-            if _display_width(raw_name) > avail_name:
-                mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
-            else:
-                mn = raw_name
-            name_pad = " " * max(0, avail_name - _display_width(mn))
-            pfx = "▶ " if act else "  "
-            ext_str = f"{m.get('ext', ''):<4}"[:4]
-            sz_str = f"{m.get('size_mb', 0):.0f}MB"
-            inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
-            curr_w = _display_width(inner_plain)
-            if curr_w < iw:
-                inner_plain += " " * (iw - curr_w)
-            elif curr_w > iw:
-                inner_plain = _clip_display(inner_plain, iw)
+        if not mixes:
+            empty_msg1 = "No audio mixes found in archive. (Mix archive folders not yet configured)"
+            empty_msg2 = "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
+            for em in (empty_msg1, empty_msg2):
+                pad = " " * max(0, iw - _display_width(em) - 2)
+                lines.append(f"  {b_col}│{NC} {COLOR_TRAFFIC_AMBER}{em}{NC}{pad}{b_col}│{NC}")
+            for _ in range(max(0, vrows - 2)):
+                lines.append(f"  {b_col}│{NC}{' ' * iw}{b_col}│{NC}")
+        else:
+            for i in range(self.scroll_offset, min(len(mixes), self.scroll_offset + vrows)):
+                m = mixes[i]
+                act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
+                raw_name = str(m.get("name", ""))
+                if _display_width(raw_name) > avail_name:
+                    mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
+                else:
+                    mn = raw_name
+                name_pad = " " * max(0, avail_name - _display_width(mn))
+                pfx = "▶ " if act else "  "
+                ext_str = f"{m.get('ext', ''):<4}"[:4]
+                sz_str = f"{m.get('size_mb', 0):.0f}MB"
+                inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
+                curr_w = _display_width(inner_plain)
+                if curr_w < iw:
+                    inner_plain += " " * (iw - curr_w)
+                elif curr_w > iw:
+                    inner_plain = _clip_display(inner_plain, iw)
 
-            if sel and act:
-                lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
-            elif sel:
-                lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
-            elif act:
-                lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
-            else:
-                lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
-            lines.append(lstr)
+                if sel and act:
+                    lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
+                elif sel:
+                    lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
+                elif act:
+                    lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
+                else:
+                    lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
+                lines.append(lstr)
 
-        lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
+        lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
 
         shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
         rep = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
@@ -1474,15 +1555,17 @@ class TerminalPlayerUI:
             f"  Vol {vol}  Pitch {pbadge}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         lines.append(_fit_text_line([
-            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  b/q Exit{NC}"
+            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+            f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+            f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  O Open  b/q Exit{NC}"
         ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
 
-def _spawn_player_daemon(file_path: str):
-    proc = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--daemon", file_path],
+def _spawn_player_daemon(file_path: Optional[str] = None):
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
+    if file_path: cmd.append(str(file_path))
+    proc = subprocess.Popen(cmd,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
     try: PID_FILE.write_text(str(proc.pid))
@@ -1633,18 +1716,16 @@ def main():
     if args.interactive or (not args.daemon and sys.stdin.isatty()):
         scanner = MixArchiveScanner(base_dir)
         mixes = scanner.get_mixes()
-        if not mixes and not daemon_running:
-            sys.exit(f"{RED}No audio mixes found in any configured archive directory.{NC}")
 
         tf = os.path.abspath(args.file) if args.file else None
         if not daemon_running:
-            init_file = tf or (scanner.get_latest_mix() or mixes[0])["path"]
-            if init_file:
-                _spawn_player_daemon(init_file)
-                for _ in range(50):
-                    time.sleep(0.04)
-                    if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running():
-                        break
+            latest = scanner.get_latest_mix()
+            init_file = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
+            _spawn_player_daemon(init_file)
+            for _ in range(50):
+                time.sleep(0.04)
+                if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running():
+                    break
         elif tf: send_ipc_command("play", file=tf)
 
         TerminalPlayerUI(None, scanner, is_remote=True).run()
@@ -1668,16 +1749,10 @@ def main():
                                  "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()})
                 init_idx = 0
 
-    if not mixes:
-        if args.daemon:
-            try:
-                if PID_FILE.exists() and PID_FILE.read_text().strip() == str(os.getpid()): PID_FILE.unlink()
-            except OSError: pass
-        sys.exit(f"{RED}No audio mixes found in any configured archive directory.{NC}")
-
     engine = AudioEngine(mixes)
     PlayerIPCServer(engine).start()
-    engine.load_track(init_idx, True)
+    if mixes:
+        engine.load_track(init_idx, True)
 
     try:
         while True:
