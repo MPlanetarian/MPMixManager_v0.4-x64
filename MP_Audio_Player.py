@@ -1390,7 +1390,6 @@ class TerminalPlayerUI:
         lines = []
 
         iw = 115 if w >= 122 else max(20, w - 6)
-        name_len = max(4, min(iw - 23, w - 28))
 
         btitle = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"[:max(0, iw - 1)]
         bsub = "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition"[:max(0, iw - 1)]
@@ -1429,15 +1428,35 @@ class TerminalPlayerUI:
         elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
         elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
 
+        b_col = f"{BOLD}{MAGENTA}"
+        avail_name = max(4, iw - 23)
         for i in range(self.scroll_offset, min(len(mixes), self.scroll_offset + vrows)):
             m = mixes[i]
             act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
-            mn = m["name"][:name_len - 3] + "..." if len(m["name"]) > name_len else m["name"]
+            raw_name = str(m.get("name", ""))
+            if _display_width(raw_name) > avail_name:
+                mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
+            else:
+                mn = raw_name
+            name_pad = " " * max(0, avail_name - _display_width(mn))
             pfx = "▶ " if act else "  "
-            sz = f"{m['size_mb']:.0f}MB"
-            lstr = f"  │ {pfx}[{i+1:4d}] {mn:<{name_len}} {m['ext']} {sz:>6s} │"
-            if sel: lstr = f"  │ \033[7m{pfx}[{i+1:4d}] {mn:<{name_len}} {m['ext']} {sz:>6s}\033[0m │"
-            elif act: lstr = f"  │ {BOLD}{GREEN}{pfx}[{i+1:4d}] {mn:<{name_len}} {m['ext']} {sz:>6s}{NC} │"
+            ext_str = f"{m.get('ext', ''):<4}"[:4]
+            sz_str = f"{m.get('size_mb', 0):.0f}MB"
+            inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
+            curr_w = _display_width(inner_plain)
+            if curr_w < iw:
+                inner_plain += " " * (iw - curr_w)
+            elif curr_w > iw:
+                inner_plain = _clip_display(inner_plain, iw)
+
+            if sel and act:
+                lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
+            elif sel:
+                lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
+            elif act:
+                lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
+            else:
+                lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
             lines.append(lstr)
 
         lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
