@@ -1067,19 +1067,20 @@ class EqualizerVisualizer:
 
         for r in range(frows):
             if r == krow and r == crow:
-                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄  0.0% [CENTER]{NC}"
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_TRAFFIC_GREEN}[▓█0█▓]{NC}  {tag} {COLOR_HOT_PURPLE}│{NC}")
+                tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄ 0.0% [CENTER]{NC}"
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_TRAFFIC_GREEN}[▓█0█▓]{NC} {tag}{COLOR_HOT_PURPLE}│{NC}")
             elif r == krow:
                 kcol = COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {kcol}[▓███▓]{NC}  {BOLD}{kcol}{f'◄ {p:+d}% ({1.0 + p/100:.2f}x)':<13}{NC} {COLOR_HOT_PURPLE}│{NC}")
+                tag_str = f"◄ {p:+d}% ({1.0 + p/100:.2f}x)"
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {kcol}[▓███▓]{NC} {BOLD}{kcol}{tag_str:<14}{NC} {COLOR_HOT_PURPLE}│{NC}")
             elif r == crow:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC}  {DIM}{COLOR_LILAC}CENTER (0%){NC}   {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC} {DIM}{COLOR_LILAC}CENTER (0%){NC}  {COLOR_HOT_PURPLE}│{NC}")
             elif r == 0:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
             elif r == frows - 1:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
             else:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}                    {COLOR_HOT_PURPLE}│{NC}")
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}{' ' * 19}{COLOR_HOT_PURPLE}│{NC}")
         lines.append(f"{COLOR_HOT_PURPLE}╰────────────────────────╯{NC}")
         return lines
 
@@ -1124,7 +1125,7 @@ class EqualizerVisualizer:
 
         if width >= 122:
             faders = self.render_vertical_pitch_fader(int(status.get("pitch_percent", 0)), total_lines=len(lines))
-            return [f"{el}{' ' * max(0, 91 - len(_ANSI_RE.sub('', el)))}  {fl}" for el, fl in zip(lines, faders)]
+            return [f"{el}{' ' * max(0, 91 - _display_width(el))}  {fl}" for el, fl in zip(lines, faders)]
         return lines
 
 class TerminalPlayerUI:
