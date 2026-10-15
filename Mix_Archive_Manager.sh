@@ -11799,6 +11799,7 @@ case "$1" in
     --ollama-restart)           run_sub_script "manage_ollama.sh" restart; exit 0 ;;
     --ollama-chat)              shift; run_sub_script "manage_ollama.sh" chat "$@"; exit 0 ;;
     --ollama-voice|--ollama-voice-chat) shift; run_sub_script "manage_ollama.sh" voice "$@"; exit 0 ;;
+    --ollama-audio|--ollama-recordings) run_sub_script "manage_ollama.sh" audio; exit 0 ;;
     --ollama-logs)              run_sub_script "manage_ollama.sh" logs; exit 0 ;;
     --ollama-status)            run_sub_script "manage_ollama.sh" status; exit 0 ;;
     58) [ -z "$2" ] && manage_ollama || run_sub_script "manage_ollama.sh" "${2/1/start}"; exit 0 ;;

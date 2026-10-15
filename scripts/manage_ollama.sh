@@ -80,6 +80,7 @@ if [ "$OS_TYPE" = "windows" ]; then
 else
     LOG_FILE="/tmp/ollama-serve.log"
 fi
+AUDIO_DIR="${OLLAMA_AUDIO_DIR:-/var/home/mplanetarian/voice-ai/audio_responses}"
 
 get_lan_ip() {
     local ip=""
@@ -431,6 +432,13 @@ show_status() {
         [ -n "$gpu_info" ] && echo -e "  Hardware Accel:   ${GREEN}${gpu_info}${NC} (CUDA Enabled)"
     fi
 
+    # Audio responses archive
+    if [ -d "$AUDIO_DIR" ]; then
+        local wav_count
+        wav_count=$(find "$AUDIO_DIR" -name "*.wav" 2>/dev/null | wc -l)
+        echo -e "  Audio Archive:    ${CYAN}${AUDIO_DIR}${NC} (${wav_count} responses recorded)"
+    fi
+
     echo ""
     echo -e "${BOLD}Installed Local Models in Ollama:${NC}"
     if is_ollama_running; then
@@ -692,6 +700,64 @@ run_voice_chat_cli() {
     fi
 }
 
+view_audio_responses() {
+    clear
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}              OLLAMA VOICE CHAT AUDIO SPEECH ARCHIVE                  ${NC}"
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+    if [ ! -d "$AUDIO_DIR" ]; then
+        echo -e "Audio responses directory does not exist: ${AUDIO_DIR}"
+        echo ""
+        read -r -p "Press Enter to return..."
+        return 0
+    fi
+
+    local wavs=()
+    mapfile -t wavs < <(find "$AUDIO_DIR" -name "*.wav" -type f 2>/dev/null | sort -r | head -n 15)
+
+    if [ ${#wavs[@]} -eq 0 ]; then
+        echo -e "No recorded audio responses found yet in ${AUDIO_DIR}."
+        echo ""
+        read -r -p "Press Enter to return..."
+        return 0
+    fi
+
+    echo -e "Recent Audio Speech Responses (Latest 15):\n"
+    local idx=1
+    for w in "${wavs[@]}"; do
+        local bname txt_file txt_snippet
+        bname=$(basename "$w")
+        txt_file="${w%.*}.txt"
+        txt_snippet=""
+        if [ -f "$txt_file" ]; then
+            txt_snippet=$(head -n 1 "$txt_file" | cut -c 1-60)
+            [ -n "$txt_snippet" ] && txt_snippet=" - \"${txt_snippet}...\""
+        fi
+        printf "  %2d) %s%s\n" "$idx" "$bname" "$txt_snippet"
+        ((idx++))
+    done
+    echo ""
+    echo -e "Enter number [1-${#wavs[@]}] to play with audio player, or press Enter to return:"
+    read -r -p "Choice: " a_choice
+    if [[ "$a_choice" =~ ^[0-9]+$ ]] && [ "$a_choice" -ge 1 ] && [ "$a_choice" -le ${#wavs[@]} ]; then
+        local chosen_wav="${wavs[$((a_choice - 1))]}"
+        echo -e "\n${BOLD}${CYAN}Playing: ${chosen_wav}${NC}"
+        if command -v paplay >/dev/null 2>&1; then
+            paplay "$chosen_wav"
+        elif command -v pw-play >/dev/null 2>&1; then
+            pw-play "$chosen_wav"
+        elif command -v aplay >/dev/null 2>&1; then
+            aplay -q "$chosen_wav"
+        elif command -v mpv >/dev/null 2>&1; then
+            mpv --no-video "$chosen_wav"
+        else
+            xdg-open "$chosen_wav" >/dev/null 2>&1 || true
+        fi
+        echo ""
+        read -r -p "Press Enter to return..."
+    fi
+}
+
 view_logs() {
     clear
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
@@ -752,9 +818,10 @@ interactive_menu() {
         echo -e "  ${BOLD}${CYAN} 4)${NC} Restart Ollama Server"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Chat with a Local Model (Interactive CLI: Qwen, LLaMA...)"
         echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion${NC})"
-        echo -e "  ${BOLD}${CYAN} 7)${NC} View Server Log File (${LOG_FILE})"
-        echo -e "  ${BOLD}${CYAN} 8)${NC} Return to Previous Menu\n"
-        read -r -p "Enter choice [1-8, or q to return]: " o_choice
+        echo -e "  ${BOLD}${CYAN} 7)${NC} View Archived Audio Responses & Transcripts (${AUDIO_DIR})"
+        echo -e "  ${BOLD}${CYAN} 8)${NC} View Server Log File (${LOG_FILE})"
+        echo -e "  ${BOLD}${CYAN} 9)${NC} Return to Previous Menu\n"
+        read -r -p "Enter choice [1-9, or q to return]: " o_choice
 
         case "$o_choice" in
             1)
@@ -784,9 +851,12 @@ interactive_menu() {
                 run_voice_chat_cli
                 ;;
             7)
+                view_audio_responses
+                ;;
+            8)
                 view_logs
                 ;;
-            8|[qQ])
+            9|[qQ])
                 return 0
                 ;;
             *)
@@ -840,6 +910,9 @@ case "${1:-}" in
         shift
         run_voice_chat_cli "$@"
         ;;
+    audio|recordings|responses)
+        view_audio_responses
+        ;;
     logs)
         view_logs
         ;;
@@ -847,7 +920,7 @@ case "${1:-}" in
         interactive_menu
         ;;
     *)
-        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|voice|logs}"
+        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|voice|audio|logs}"
         exit 1
         ;;
 esac
