@@ -151,7 +151,7 @@ start_ollama_bg() {
         export OLLAMA_HOST="${OLLAMA_BIND}"
         export OLLAMA_FLASH_ATTENTION="1"
         export OLLAMA_KV_CACHE_TYPE="q8_0"
-        export OLLAMA_CONTEXT_LENGTH="16384"
+        export OLLAMA_CONTEXT_LENGTH="32768"
         [ -d "X:/OLLAMA/models" ] || mkdir -p "X:/OLLAMA/models" 2>/dev/null || true
         [ -d "X:/OLLAMA" ] || mkdir -p "X:/OLLAMA" 2>/dev/null || true
 
@@ -169,7 +169,7 @@ set OLLAMA_ORIGINS=*
 set OLLAMA_HOST=${OLLAMA_BIND}
 set OLLAMA_FLASH_ATTENTION=1
 set OLLAMA_KV_CACHE_TYPE=q8_0
-set OLLAMA_CONTEXT_LENGTH=4096
+set OLLAMA_CONTEXT_LENGTH=32768
 set OLLAMA_NUM_PARALLEL=1
 set OLLAMA_GPU_OVERHEAD=536870912
 set OLLAMA_VULKAN=0
@@ -197,7 +197,7 @@ EOFBAT
                 OLLAMA_ORIGINS="*" \
                 OLLAMA_FLASH_ATTENTION="1" \
                 OLLAMA_KV_CACHE_TYPE="q8_0" \
-                OLLAMA_CONTEXT_LENGTH="4096" \
+                OLLAMA_CONTEXT_LENGTH="32768" \
                 OLLAMA_NUM_PARALLEL="1" \
                 OLLAMA_GPU_OVERHEAD="536870912" \
                 OLLAMA_VULKAN="0" \
@@ -280,7 +280,7 @@ start_ollama_window() {
     ensure_container_started
 
     local TITLE="Ollama Server (${OLLAMA_CONTAINER})"
-    local OLLAMA_ENV="LD_LIBRARY_PATH=/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-} OLLAMA_HOST=${OLLAMA_BIND} OLLAMA_ORIGINS=\"*\" OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=4096 OLLAMA_NUM_PARALLEL=1 OLLAMA_GPU_OVERHEAD=536870912 OLLAMA_VULKAN=0"
+    local OLLAMA_ENV="LD_LIBRARY_PATH=/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-} OLLAMA_HOST=${OLLAMA_BIND} OLLAMA_ORIGINS=\"*\" OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_NUM_PARALLEL=1 OLLAMA_GPU_OVERHEAD=536870912 OLLAMA_VULKAN=0"
     local CMD="distrobox enter ${OLLAMA_CONTAINER} -- env ${OLLAMA_ENV} ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
 
     echo -e "Opening terminal window for 'ollama serve' [listening on ${OLLAMA_BIND}]..."
