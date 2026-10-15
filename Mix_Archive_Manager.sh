@@ -5605,10 +5605,11 @@ manage_wan2gp() {
         echo -e "  ${BOLD}${CYAN}24)${NC} Scan & Remove Byte-for-Byte Duplicate Images (${GREEN}remove_duplicate_images.py${NC})"
         echo -e "  ${BOLD}${CYAN}25)${NC} Text to Speech (TTS) Batch Converter & Audio Player (${GREEN}wan2gp_tts_batch.py${NC})"
         echo -e "  ${BOLD}${CYAN}26)${NC} MP Video Image Directory Output Monitor (FLUX / LTX / WAN2GP)"
-        echo -e "  ${BOLD}${CYAN}C)${NC}  ${YELLOW}Configure / Change Output & Batch Directory Paths${NC}"
-        echo -e "  ${BOLD}${CYAN}27)${NC} Return to Main Menu"
+        echo -e "  ${BOLD}${CYAN}27)${NC} ${BOLD}${MAGENTA}Update WAN2GP Server to Latest Upstream Release${NC} (${GREEN}Git Rebase + uv pip${NC})"
+        echo -e "  ${BOLD}${CYAN}28)${NC} ${YELLOW}Configure / Change Output & Batch Directory Paths${NC}"
+        echo -e "  ${BOLD}${CYAN}29)${NC} Return to Previous Menu (or q / 0)"
         echo ""
-        read -r -p "Enter choice [1-27, C]: " w_choice
+        read -r -p "Enter choice [1-29]: " w_choice
 
         case $w_choice in
             1)
@@ -5729,10 +5730,22 @@ manage_wan2gp() {
             26|monitor|output-monitor)
                 run_wan2gp_output_monitor
                 ;;
-            [cC]|config|dirs)
+            27|[uU]|update)
+                echo -e "\n${BOLD}${MAGENTA}==================================================${NC}"
+                echo -e "${BOLD}${MAGENTA}       UPDATE WAN2GP TO LATEST RELEASE            ${NC}"
+                echo -e "${BOLD}${MAGENTA}==================================================${NC}\n"
+                read -r -p "Proceed with updating WAN2GP from upstream git repository? [Y/n]: " _up_confirm
+                if [[ -z "$_up_confirm" || "$_up_confirm" =~ ^[Yy]$ ]]; then
+                    run_sub_script "wan2gp.sh" update
+                else
+                    echo -e "\n${YELLOW}Update cancelled.${NC}"
+                fi
+                press_enter
+                ;;
+            28|[cC]|config|dirs)
                 configure_wan2gp_directories
                 ;;
-            27|[qQ]|[eE][xX][iI][tT]|0)
+            29|[qQ]|[eE][xX][iI][tT]|0)
                 return 0
                 ;;
             *)
@@ -13009,7 +13022,7 @@ manage_ai_and_servers() {
         "3|Manage Open WebUI Server & Web Chat|${wui}" \
         "4|Manage MP Harmony AI Agent|(Autonomous Engineering Engine & Voice Bridge :11435)" \
         "5|Manage DeepSeek Harness Server|(dsh-mobile - Start, Stop, Mobile Web UI :3080)" \
-        "6|Manage WAN2GP Server|(Start, Stop, Restart in Profile 2 or 4.5)" \
+        "6|Manage WAN2GP Server|(Start, Stop, Restart in Profile 2 or 4.5, Update)" \
         "7|Manage Beszel Server & Monitoring Agent|(Start Hub & Agent, Status, Dashboard :8090)" \
         "0|Return to Main Menu|(or Esc / q)"
 }

@@ -6,6 +6,7 @@
 #   ./wan2gp.sh stop           Stop running WAN2GP instance
 #   ./wan2gp.sh status         Check running status
 #   ./wan2gp.sh restart [prof] Restart in chosen profile
+#   ./wan2gp.sh update         Update WAN2GP to latest version from upstream git
 # ==============================================================================
 
 # Cross-platform pgrep & pkill polyfills
@@ -127,12 +128,135 @@ status_wan2gp() {
     fi
 }
 
+resolve_wan2gp_paths() {
+    # Resolve WAN2GP App Root
+    APP_DIR="${WAN2GP_DIR:-}"
+    [ -z "$APP_DIR" ] && [ -d "X:/WAN2GP/Wan2GP" ] && APP_DIR="X:/WAN2GP/Wan2GP"
+    [ -z "$APP_DIR" ] && [ -d "D:/WAN2GP/Wan2GP" ] && APP_DIR="D:/WAN2GP/Wan2GP"
+    [ -z "$APP_DIR" ] && [ -d "/var/home/mplanetarian/pinokio/api/wan.git/app" ] && APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
+    [ -z "$APP_DIR" ] && [ -d "$HOME/pinokio/api/wan.git/app" ] && APP_DIR="$HOME/pinokio/api/wan.git/app"
+
+    # Resolve Python environment
+    PYTHON_BIN="${WAN2GP_PYTHON:-}"
+    [ -z "$PYTHON_BIN" ] && [ -x "X:/WAN2GP/conda_envs/wan2gp/python.exe" ] && PYTHON_BIN="X:/WAN2GP/conda_envs/wan2gp/python.exe"
+    [ -z "$PYTHON_BIN" ] && [ -x "$APP_DIR/venv/Scripts/python.exe" ] && PYTHON_BIN="$APP_DIR/venv/Scripts/python.exe"
+    [ -z "$PYTHON_BIN" ] && [ -x "$APP_DIR/venv/bin/python" ] && PYTHON_BIN="$APP_DIR/venv/bin/python"
+    if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
+        if command -v python3 >/dev/null 2>&1; then
+            PYTHON_BIN="$(command -v python3)"
+        elif command -v python >/dev/null 2>&1; then
+            PYTHON_BIN="$(command -v python)"
+        fi
+    fi
+}
+
+update_wan2gp() {
+    resolve_wan2gp_paths
+
+    if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
+        echo -e "\033[0;31m[-] Error: WAN2GP application directory not found!\033[0m"
+        echo -e "\033[0;33mPlease set WAN2GP_DIR in config.env to the path containing wgp.py.\033[0m"
+        return 1
+    fi
+
+    echo -e "\033[1;36m==================================================\033[0m"
+    echo -e "\033[1;36m       UPDATING WAN2GP SERVER TO LATEST           \033[0m"
+    echo -e "\033[1;36m==================================================\033[0m"
+    echo -e "  App Directory: \033[1;36m$APP_DIR\033[0m"
+    echo -e "  Python:        \033[1;36m$PYTHON_BIN\033[0m\n"
+
+    # Stop running instance if any
+    stop_wan2gp
+    echo ""
+
+    if [ ! -d "$APP_DIR/.git" ]; then
+        echo -e "\033[0;31m[-] Error: $APP_DIR is not a git repository.\033[0m"
+        return 1
+    fi
+
+    # Safety branch backup
+    local backup_tag="backup_pre_update_$(date +%Y%m%d_%H%M%S)"
+    echo -e "\033[0;33m[1/4] Creating safety backup branch: $backup_tag ...\033[0m"
+    git -C "$APP_DIR" branch "$backup_tag" 2>/dev/null || true
+    echo -e "\033[0;32m✓ Local backup branch created.\033[0m\n"
+
+    # Fetch upstream origin
+    echo -e "\033[0;33m[2/4] Fetching latest upstream commits...\033[0m"
+    if ! git -C "$APP_DIR" fetch origin; then
+        echo -e "\033[0;31m[-] Error: Unable to fetch from origin remote.\033[0m"
+        return 1
+    fi
+    echo -e "\033[0;32m✓ Upstream commits fetched.\033[0m\n"
+
+    # Rebase / integrate local customizations
+    echo -e "\033[0;33m[3/4] Rebasing local customizations onto origin/main...\033[0m"
+    if ! GIT_EDITOR=true git -C "$APP_DIR" rebase origin/main; then
+        echo -e "\033[0;31m[-] Warning: Merge conflict during rebase. Aborting rebase cleanly to avoid repository corruption...\033[0m"
+        git -C "$APP_DIR" rebase --abort 2>/dev/null || true
+        echo -e "\033[0;33mRepository restored to $backup_tag. Please inspect conflicts manually.\033[0m"
+        return 1
+    fi
+    echo -e "\033[0;32m✓ Local customizations cleanly rebased onto latest upstream.\033[0m\n"
+
+    # Also update outer Pinokio repo if exists
+    local parent_dir
+    parent_dir="$(cd "$APP_DIR/.." 2>/dev/null && pwd)"
+    if [ -d "$parent_dir/.git" ]; then
+        echo -e "\033[0;33mUpdating parent Pinokio wrapper repository...\033[0m"
+        git -C "$parent_dir" fetch origin 2>/dev/null || true
+        GIT_EDITOR=true git -C "$parent_dir" rebase origin/main 2>/dev/null || true
+        echo -e "\033[0;32m✓ Parent Pinokio wrapper repository updated.\033[0m\n"
+    fi
+
+    # Update Python dependencies
+    echo -e "\033[0;33m[4/4] Updating Python dependencies from requirements.txt...\033[0m"
+    local uv_bin=""
+    for u in "uv" "$HOME/.local/bin/uv" "/usr/local/bin/uv"; do
+        if command -v "$u" >/dev/null 2>&1; then
+            uv_bin="$(command -v "$u")"
+            break
+        elif [ -x "$u" ]; then
+            uv_bin="$u"
+            break
+        fi
+    done
+
+    if [ -n "$uv_bin" ] && [ -x "$uv_bin" ] && [ -x "$PYTHON_BIN" ]; then
+        echo -e "Using uv binary: \033[1;36m$uv_bin\033[0m"
+        "$uv_bin" pip install --python "$PYTHON_BIN" -r "$APP_DIR/requirements.txt" --index-strategy unsafe-best-match || {
+            echo -e "\033[0;33mWarning: uv pip install encountered an issue; falling back to python -m pip...\033[0m"
+            "$PYTHON_BIN" -m pip install -r "$APP_DIR/requirements.txt" || true
+        }
+    elif [ -x "$PYTHON_BIN" ]; then
+        echo -e "Using pip via: \033[1;36m$PYTHON_BIN -m pip\033[0m"
+        "$PYTHON_BIN" -m pip install -r "$APP_DIR/requirements.txt" || true
+    else
+        echo -e "\033[0;33mWarning: Could not find Python binary to install dependencies.\033[0m"
+    fi
+
+    local current_head
+    current_head=$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    local commit_info
+    commit_info=$(git -C "$APP_DIR" log -1 --format="%s (%cd)" --date=short 2>/dev/null || echo "")
+
+    echo ""
+    echo -e "\033[1;32m==================================================\033[0m"
+    echo -e "\033[1;32m✓ WAN2GP UPDATE COMPLETE!\033[0m"
+    echo -e "  Current Commit: \033[1;36m$current_head\033[0m"
+    echo -e "  Description:    \033[0;36m$commit_info\033[0m"
+    echo -e "\033[1;32m==================================================\033[0m"
+    return 0
+}
+
 if [ "$ACTION" = "stop" ]; then
     stop_wan2gp
     exit 0
 elif [ "$ACTION" = "status" ]; then
     status_wan2gp
     exit 0
+elif [ "$ACTION" = "update" ]; then
+    update_wan2gp
+    exit $?
 elif [ "$ACTION" = "restart" ]; then
     stop_wan2gp
     shift
@@ -152,12 +276,7 @@ if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet systemd-o
     sudo systemctl mask systemd-oomd 2>/dev/null || true
 fi
 
-# Resolve WAN2GP App Root
-APP_DIR="${WAN2GP_DIR:-}"
-[ -z "$APP_DIR" ] && [ -d "X:/WAN2GP/Wan2GP" ] && APP_DIR="X:/WAN2GP/Wan2GP"
-[ -z "$APP_DIR" ] && [ -d "D:/WAN2GP/Wan2GP" ] && APP_DIR="D:/WAN2GP/Wan2GP"
-[ -z "$APP_DIR" ] && [ -d "/var/home/mplanetarian/pinokio/api/wan.git/app" ] && APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
-[ -z "$APP_DIR" ] && [ -d "$HOME/pinokio/api/wan.git/app" ] && APP_DIR="$HOME/pinokio/api/wan.git/app"
+resolve_wan2gp_paths
 
 if [ -z "$APP_DIR" ] || [ ! -d "$APP_DIR" ]; then
     echo -e "\033[0;31m[-] Error: WAN2GP application directory not found!\033[0m"
