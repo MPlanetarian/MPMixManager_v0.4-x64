@@ -464,6 +464,10 @@ class AudioEngine:
         self.recent_mono_buffer = np.zeros(512, dtype=np.float32)
         self.rms_level, self.peak_db = 0.0, -60.0
         self.track_ended, self.pending_seek_sec = False, None
+        self.hanning_window = np.hanning(1024).astype(np.float32)
+        self.fft_scale = 1024.0 / 2.0
+        self._cached_bt_info: Dict[str, Any] = {}
+        self._last_bt_query: float = 0.0
         self._ensure_stream()
 
         self.auto_bluetooth = auto_bluetooth
@@ -485,6 +489,12 @@ class AudioEngine:
             self.output_device_name = f"{device_name}{badge}"
         else:
             self.output_device_name = device_name
+        if getattr(self, "bt_router", None):
+            try:
+                self._cached_bt_info = self.bt_router.get_status(force_probe=True)
+                self._last_bt_query = time.time()
+            except Exception:
+                pass
         self._ensure_stream()
         self._sync_state_file()
 
@@ -717,9 +727,8 @@ class AudioEngine:
             m = np.pad(mono_data, (0, max(0, fft_size - len(mono_data))))[:fft_size]
             l = np.pad(stereo_data[:, 0], (0, max(0, fft_size - len(stereo_data))))[:fft_size]
             r = np.pad(stereo_data[:, 1], (0, max(0, fft_size - len(stereo_data))))[:fft_size]
-            w = np.hanning(fft_size)
-
-            scale = fft_size / 2
+            w = self.hanning_window
+            scale = self.fft_scale
             m_fft, l_fft, r_fft = np.abs(np.fft.rfft(m * w)) / scale, np.abs(np.fft.rfft(l * w)) / scale, np.abs(np.fft.rfft(r * w)) / scale
 
             for b in range(self.num_bands):
@@ -835,7 +844,17 @@ class AudioEngine:
 
     def get_status_dict(self) -> Dict[str, Any]:
         pct = round((self.position_sec / self.duration_sec * 100.0), 1) if self.duration_sec > 0 else 0.0
-        bt_info = self.bt_router.get_status() if getattr(self, "bt_router", None) else {}
+        now = time.time()
+        if getattr(self, "bt_router", None):
+            if not self._cached_bt_info or (now - self._last_bt_query > 1.0):
+                try:
+                    self._cached_bt_info = self.bt_router.get_status()
+                    self._last_bt_query = now
+                except Exception:
+                    pass
+            bt_info = self._cached_bt_info
+        else:
+            bt_info = {}
         is_bt = bool(bt_info.get("bluetooth_connected", False))
         bt_dev = str(bt_info.get("bluetooth_device", ""))
         bt_codec = str(bt_info.get("bluetooth_codec", ""))
@@ -1562,37 +1581,19 @@ class TerminalPlayerUI:
 
     def _get_status(self) -> Dict[str, Any]:
         if self.is_remote:
-            loaded_fresh = False
             if STATE_FILE.exists():
                 try:
                     data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
                     if isinstance(data, dict) and data.get("title") and data.get("title") != "Loading...":
                         self.cached_status = data
-                        loaded_fresh = True
-                except Exception: pass
-            if not loaded_fresh:
+                except Exception:
+                    pass
+            elif not self.cached_status.get("title") or self.cached_status.get("title") == "Loading...":
                 res = send_ipc_command("status")
                 if res and isinstance(res.get("data"), dict):
                     self.cached_status = res["data"]
-            st = self.cached_status
-        else:
-            st = self.engine.get_status_dict() if self.engine else self.cached_status
-
-        if not st.get("bluetooth_connected") or not st.get("bluetooth_device"):
-            bt_file = CONFIG_DIR / "mp_bluetooth_state.json"
-            if bt_file.exists():
-                try:
-                    bt_data = json.loads(bt_file.read_text(encoding="utf-8"))
-                    if bt_data.get("bluetooth_connected"):
-                        st["bluetooth_connected"] = True
-                        st["bluetooth_device"] = bt_data.get("bluetooth_device", "")
-                        st["bluetooth_codec"] = bt_data.get("bluetooth_codec", "")
-                        codec = bt_data.get("bluetooth_codec", "")
-                        c_str = f" [Bluetooth {codec}]" if codec else " [Bluetooth]"
-                        st["output_device"] = f"{bt_data.get('bluetooth_device')}{c_str}"
-                except Exception:
-                    pass
-        return st
+            return self.cached_status
+        return self.engine.get_status_dict() if self.engine else self.cached_status
 
     def _sync_initial_selection(self, status: Dict[str, Any]):
         cp = status.get("path")
@@ -1731,7 +1732,7 @@ class TerminalPlayerUI:
             while self.running:
                 if not self.is_remote and self.engine: self.engine.check_track_end()
                 self._draw_frame()
-                time.sleep(0.025)
+                time.sleep(0.02)
         except (KeyboardInterrupt, SystemExit): pass
         finally:
             self.running = False

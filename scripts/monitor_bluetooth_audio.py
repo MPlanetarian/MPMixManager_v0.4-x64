@@ -72,6 +72,8 @@ class BluetoothAudioRouter:
         self.fallback_sink: Optional[Dict[str, Any]] = None
         self.last_routed_sink_name: Optional[str] = None
         self.last_switch_time: float = 0.0
+        self._cached_status: Dict[str, Any] = {}
+        self._last_status_probe: float = 0.0
 
     def log(self, msg: str):
         if self.logger:
@@ -523,6 +525,8 @@ class BluetoothAudioRouter:
                 if self.active_bt_sink is not None:
                     self.log(f"Bluetooth device disconnected ({self.active_bt_sink.get('description', '')}). Reverting audio...")
                     self.route_to_fallback()
+            self.probe_and_update_status()
+            self._save_state()
         except Exception as e:
             self.log(f"Error in check_and_route: {e}")
 
@@ -609,7 +613,7 @@ class BluetoothAudioRouter:
                     pass
                 self._subscribe_proc = None
 
-    def get_status(self) -> Dict[str, Any]:
+    def probe_and_update_status(self) -> Dict[str, Any]:
         bt_sinks, other_sinks = self.probe_sinks()
         default_sink = self._get_default_sink_name()
         connected = len(bt_sinks) > 0
@@ -620,7 +624,7 @@ class BluetoothAudioRouter:
         if active_bt and inputs:
             player_routed_bt = all(inp.get("sink") == active_bt.get("index") for inp in inputs)
 
-        return {
+        st = {
             "bluetooth_connected": connected,
             "bluetooth_device": active_bt.get("description", "") if active_bt else "",
             "bluetooth_codec": active_bt.get("codec", "") if active_bt else "",
@@ -631,8 +635,19 @@ class BluetoothAudioRouter:
             "auto_switch_enabled": self.auto_switch,
             "player_streams_count": len(inputs),
             "player_streams_on_bluetooth": player_routed_bt,
-            "last_switch_time": self.last_switch_time
+            "last_switch_time": self.last_switch_time,
+            "last_probe_time": time.time()
         }
+        with self._lock:
+            self._cached_status = st
+            self._last_status_probe = time.time()
+        return st
+
+    def get_status(self, force_probe: bool = False, max_age: float = 1.0) -> Dict[str, Any]:
+        with self._lock:
+            if not force_probe and self._cached_status and (self.running or (time.time() - self._last_status_probe < max_age)):
+                return dict(self._cached_status)
+        return self.probe_and_update_status()
 
     def _save_state(self):
         try:
