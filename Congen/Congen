@@ -61,6 +61,17 @@ set_theme_colors() {
             CYAN='\033[38;2;153;153;255m'     # Soft Lilac / Process Blue (#9999ff)
             CURRENT_THEME="dreamworlds_ultra"
             ;;
+        cosmic_supernova|supernova|cosmic|cosmic_supernova_mp_mix_manager|"Cosmic Supernova MP Mix Manager"|"Cosmic Supernova"|"Cosmic Supernova [Special]"|"Cosmic Supernova [Special Edition]")
+            # Cosmic Supernova [Special Edition]
+            # Radiant 24-bit TrueColor interstellar celestial palette
+            RED='\033[38;2;255;51;102m'     # Supernova Crimson (#ff3366)
+            GREEN='\033[38;2;0;245;212m'    # Aurora Borealis Aquamarine (#00f5d4)
+            YELLOW='\033[38;2;254;228;64m'  # Solar Flare Gold (#fee440)
+            BLUE='\033[38;2;94;96;206m'     # Hyper-space Deep Indigo (#5e60ce)
+            MAGENTA='\033[38;2;224;86;253m' # Luminous Nebula Orchid (#e056fd)
+            CYAN='\033[38;2;76;201;240m'    # Pulsar Starlight Cyan (#4cc9f0)
+            CURRENT_THEME="cosmic_supernova"
+            ;;
         cyberpunk)
             RED='\033[38;5;196m'     # Cyberpunk Neon Red
             GREEN='\033[38;5;48m'    # Cyberpunk Acid Green
@@ -686,6 +697,16 @@ show_banner() {
         echo -e "${CYAN}║${RESET}"
         echo -e "${CYAN}║${RESET}   ${BOLD}\033[38;2;166;77;255m✦ \033[38;2;102;102;255mD \033[38;2;0;255;0mR \033[38;2;204;255;102mE \033[38;2;255;153;51mA \033[38;2;255;0;0mM \033[38;2;153;153;255mW \033[38;2;166;77;255mO \033[38;2;102;102;255mR \033[38;2;0;255;0mL \033[38;2;204;255;102mD \033[38;2;255;153;51mS   \033[38;2;255;0;0mU \033[38;2;153;153;255mL \033[38;2;166;77;255mT \033[38;2;102;102;255mR \033[38;2;0;255;0mA   \033[38;2;204;255;102mP \033[38;2;255;153;51mR \033[38;2;255;0;0mO \033[38;2;153;153;255mD \033[38;2;166;77;255mU \033[38;2;102;102;255mC \033[38;2;0;255;0mT \033[38;2;204;255;102mI \033[38;2;255;153;51mO \033[38;2;255;0;0mN \033[38;2;153;153;255mS \033[38;2;166;77;255m✦${RESET}"
         echo -e "${CYAN}║${RESET}   ${BOLD}${WHITE}KDE Connect Commands Generator${RESET}  ${DIM}MPlanetarian Dreamworlds Ultra Edition${RESET}"
+    elif [ "${CURRENT_THEME}" = "cosmic_supernova" ]; then
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m  ██████╗ \033[38;2;76;201;240m██████╗ \033[38;2;0;245;212m███╗   ██╗ \033[38;2;254;228;64m██████╗ \033[38;2;255;51;102m███████╗\033[38;2;94;96;206m███╗   ██╗${RESET}\n"
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m ██╔════╝\033[38;2;76;201;240m██╔═══██╗\033[38;2;0;245;212m████╗  ██║\033[38;2;254;228;64m██╔════╝ \033[38;2;255;51;102m██╔════╝\033[38;2;94;96;206m████╗  ██║${RESET}\n"
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m ██║     \033[38;2;76;201;240m██║   ██║\033[38;2;0;245;212m██╔██╗ ██║\033[38;2;254;228;64m██║  ███╗\033[38;2;255;51;102m█████╗  \033[38;2;94;96;206m██╔██╗ ██║${RESET}\n"
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m ██║     \033[38;2;76;201;240m██║   ██║\033[38;2;0;245;212m██║╚██╗██║\033[38;2;254;228;64m██║   ██║\033[38;2;255;51;102m██╔══╝  \033[38;2;94;96;206m██║╚██╗██║${RESET}\n"
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m ╚██████╗\033[38;2;76;201;240m╚██████╔╝\033[38;2;0;245;212m██║ ╚████║\033[38;2;254;228;64m╚██████╔╝\033[38;2;255;51;102m███████╗\033[38;2;94;96;206m██║ ╚████║${RESET}\n"
+        printf "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m  ╚═════╝ \033[38;2;76;201;240m╚═════╝ \033[38;2;0;245;212m╚═╝  ╚═══╝ \033[38;2;254;228;64m╚═════╝ \033[38;2;255;51;102m╚══════╝\033[38;2;94;96;206m╚═╝  ╚═══╝${RESET}\n"
+        echo -e "${CYAN}║${RESET}"
+        echo -e "${CYAN}║${RESET}   ${BOLD}\033[38;2;224;86;253m✧ \033[38;2;76;201;240mC \033[38;2;0;245;212mO \033[38;2;254;228;64mS \033[38;2;255;51;102mM \033[38;2;94;96;206mI \033[38;2;224;86;253mC   \033[38;2;76;201;240mS \033[38;2;0;245;212mU \033[38;2;254;228;64mP \033[38;2;255;51;102mE \033[38;2;94;96;206mR \033[38;2;224;86;253mN \033[38;2;76;201;240mO \033[38;2;0;245;212mV \033[38;2;254;228;64mA   \033[38;2;255;51;102mE \033[38;2;94;96;206mD \033[38;2;224;86;253mI \033[38;2;76;201;240mT \033[38;2;0;245;212mI \033[38;2;254;228;64mO \033[38;2;255;51;102mN ✧${RESET}"
+        echo -e "${CYAN}║${RESET}   ${BOLD}${WHITE}KDE Connect Commands Generator${RESET}  ${DIM}MPlanetarian Cosmic Supernova Edition${RESET}"
     else
         printf "${CYAN}║${RESET}   ${BOLD}${MAGENTA}%s${RESET}\n" \
             "  ██████╗ ██████╗ ███╗   ██╗ ██████╗ ███████╗███╗   ██╗"
@@ -5091,13 +5112,14 @@ congen_themes_menu() {
         echo -e "  ${DIM}Select a theme palette to customize the visual aesthetic of Congen.${RESET}"
         echo ""
 
-        local theme_dreamworlds_badge="" theme_ultra_badge="" theme_cyberpunk_badge="" theme_dracula_badge=""
+        local theme_dreamworlds_badge="" theme_ultra_badge="" theme_cosmic_badge="" theme_cyberpunk_badge="" theme_dracula_badge=""
         local theme_nord_badge="" theme_matrix_badge="" theme_solarized_badge=""
         local theme_tokyo_badge="" theme_monokai_badge="" theme_gruvbox_badge=""
         local theme_emerald_badge="" theme_classic_badge=""
 
         [ "$CURRENT_THEME" = "dreamworlds" ]       && theme_dreamworlds_badge=" ${GREEN}★ ACTIVE (DEFAULT)${RESET}"
         [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && theme_ultra_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "cosmic_supernova" ]  && theme_cosmic_badge=" ${GREEN}★ ACTIVE (SPECIAL)${RESET}"
         [ "$CURRENT_THEME" = "cyberpunk" ]         && theme_cyberpunk_badge=" ${GREEN}★ ACTIVE${RESET}"
         [ "$CURRENT_THEME" = "dracula" ]           && theme_dracula_badge=" ${GREEN}★ ACTIVE${RESET}"
         [ "$CURRENT_THEME" = "nord" ]              && theme_nord_badge=" ${GREEN}★ ACTIVE${RESET}"
@@ -5121,11 +5143,12 @@ congen_themes_menu() {
         echo -e "    ${YELLOW}[10]${RESET} Gruvbox                             ${DIM}[Retro Warm Earth, Dusty Rose, Rust & Gold]${RESET}${theme_gruvbox_badge}"
         echo -e "    ${YELLOW}[11]${RESET} Emerald Isle                        ${DIM}[Deep Ocean, Spring Emerald & Mint Cyan]${RESET}${theme_emerald_badge}"
         echo -e "    ${YELLOW}[12]${RESET} Classic ANSI                        ${DIM}[Standard 16-Color Terminal Fallback]${RESET}${theme_classic_badge}"
+        echo -e "    ${YELLOW}[13]${RESET} Cosmic Supernova [Special Edition]  ${DIM}[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${RESET}${theme_cosmic_badge}"
         echo ""
         echo -e "    ${YELLOW}[b]${RESET}  Back to Main Menu"
         echo ""
 
-        read -rp "  $(echo -e "${BOLD}Select theme [1–12 or b]: ${RESET}")" topt || topt="b"
+        read -rp "  $(echo -e "${BOLD}Select theme [1–13 or b]: ${RESET}")" topt || topt="b"
 
         case "${topt,,}" in
             1|dreamworlds|default)
@@ -5188,11 +5211,16 @@ congen_themes_menu() {
                 echo -e "\n  ${GREEN}✓ Theme switched to Classic ANSI!${RESET}"
                 sleep 0.8
                 ;;
+            13|cosmic|supernova|cosmic_supernova)
+                save_theme "cosmic_supernova"
+                echo -e "\n  ${GREEN}✓ Theme switched to Cosmic Supernova [Special Edition]!${RESET}"
+                sleep 0.8
+                ;;
             b|back|q|quit)
                 return
                 ;;
             *)
-                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–12 or b."
+                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–13 or b."
                 sleep 1
                 ;;
         esac
@@ -5691,7 +5719,7 @@ cli_theme() {
         local -a all_themes=(
             "dreamworlds" "dreamworlds_ultra" "cyberpunk" "dracula"
             "nord" "matrix" "solarized" "tokyo" "monokai" "gruvbox"
-            "emerald" "classic"
+            "emerald" "classic" "cosmic_supernova"
         )
         for t in "${all_themes[@]}"; do
             if [[ "$t" == "${CURRENT_THEME}" ]]; then
@@ -5741,6 +5769,9 @@ cli_theme() {
             ;;
         12|classic)
             save_theme "classic"
+            ;;
+        13|cosmic|supernova|cosmic_supernova)
+            save_theme "cosmic_supernova"
             ;;
         *)
             echo -e "${RED}Error:${RESET} Unknown theme '${target_theme}'." >&2

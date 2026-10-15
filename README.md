@@ -83,8 +83,8 @@ flowchart TD
 - 🌈 **MPlanetarian Dreamworlds Palette**: Hand-crafted 24-bit TrueColor RGB scheme matching KDE Plasma Sweet / Nice themes.
 - ⚡ **Sub-20ms Redraw Latency**: Slashed main menu redraw latency from ~1.7s down to **<20ms** via intelligent TTL caching for audio sinks, telemetry, alarm states, and planetary ephemeris.
 - ⌨️ **Interactive Arrow-Key Navigation**: Navigate effortlessly using `Up` and `Down` arrow keys, jump with `Home` and `End`, type numbers or letters to quick-search, press `Enter` to select, and press `Esc` to instantly return to the previous screen.
-- 🔊 **System Sound Feedback**: Plays soothing system audio chimes via PipeWire / ALSA when switching to Dreamworlds or configuring mix archive storage locations.
-- 🎭 **12 Built-in Themes**: Dreamworlds (Default), Dreamworlds Ultra (BTOP HotPurpleTrafficLight), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI.
+- 🔊 **System Sound Feedback**: Plays soothing system audio chimes via PipeWire / ALSA when switching to Dreamworlds or Cosmic Supernova, or when configuring mix archive storage locations.
+- 🎭 **13 Built-in Themes**: Dreamworlds (Default), Dreamworlds Ultra (BTOP HotPurpleTrafficLight), Cosmic Supernova (Interstellar 24-bit TrueColor Celestial Special Edition with companion BTOP theme & Equalizer visualizer gradient), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI.
 
 ---
 
@@ -563,7 +563,7 @@ chmod +x manager_freebsd.sh install.sh
 | **31**| **Monitor System Processes and Bash Commands with System Info** | Real-time terminal diagnostic monitor (`MP_Monitor_Bash.sh`): opens a dedicated terminal tab tracking system vitals, active CPU load, RAM usage, and Bash execution history. |
 | **32**| **AI Assistant & Local LLM Servers Suite** | Complete AI control center (`manage_ai_and_servers`): Antigravity CLI AI assistant sessions (Claude Sonnet/Opus, GPT-OSS, Gemini); Ollama local LLM server (:11434); Open WebUI web chat harness (:42004 / :8080); MP Harmony AI Agent with background daemon and Voice Chat CLI `local-voice-talk` (:11435); DeepSeek Harness mobile web server (:3080); WAN2GP AI Video & Text-to-Speech (TTS) batch suite (`wan2gp_tts_batch.py`); and Beszel server monitoring hub & agent (:8090). |
 | **33**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
-| **34**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch between 12 TrueColor terminal themes; manage installation paths, snapshot backups, and portable config bundle export/import (`manage_installation_config.sh`); execute interactive Bash CLI commands; automated manager updater (`update_manager.sh`); and cross-platform reboot. |
+| **34**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch between 13 TrueColor terminal themes (including MPlanetarian Dreamworlds, Dreamworlds Ultra, and the new Cosmic Supernova Special Edition); manage installation paths, snapshot backups, and portable config bundle export/import (`manage_installation_config.sh`); execute interactive Bash CLI commands; automated manager updater (`update_manager.sh`); and cross-platform reboot. |
 | **35**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
 
 ---
@@ -756,7 +756,7 @@ MP_Mix_Manager_v0.3/
 ├── scripts/                     # Synchronized canonical script repository
 ├── tests/
 │   └── run_tests.sh             # Automated verification test suite (243+ tests)
-├── themes/                      # Terminal color palettes (Dreamworlds, Dreamworlds Ultra...)
+├── themes/                      # Terminal color palettes (Dreamworlds, Dreamworlds Ultra, Cosmic Supernova...)
 ├── mplanetarians-alarm-clock/   # Standalone morning alarm clock package
 ├── Congen/                      # Congen - KDE Connect commands generator & remote control
 ├── assets/                      # Artwork templates, promo contact book, publishing calendars

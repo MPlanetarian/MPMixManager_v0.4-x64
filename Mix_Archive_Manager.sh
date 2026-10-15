@@ -112,6 +112,16 @@ set_theme_colors() {
             RED='\033[38;2;255;0;0m' GREEN='\033[38;2;0;255;0m' YELLOW='\033[38;2;255;153;51m'
             BLUE='\033[38;2;102;102;255m' MAGENTA='\033[38;2;166;77;255m' CYAN='\033[38;2;153;153;255m'
             CURRENT_THEME="dreamworlds_ultra" ;;
+        cosmic_supernova|supernova|cosmic|cosmic_supernova_mp_mix_manager|"Cosmic Supernova MP Mix Manager"|"Cosmic Supernova"|"Cosmic Supernova [Special]"|"Cosmic Supernova [Special Edition]")
+            # Cosmic Supernova [Special Edition]
+            # Interstellar 24-bit TrueColor celestial palette
+            RED='\033[38;2;255;51;102m'     # Supernova Crimson (#ff3366)
+            GREEN='\033[38;2;0;245;212m'    # Aurora Borealis Aquamarine (#00f5d4)
+            YELLOW='\033[38;2;254;228;64m'  # Solar Flare Gold (#fee440)
+            BLUE='\033[38;2;94;96;206m'     # Hyper-space Deep Indigo (#5e60ce)
+            MAGENTA='\033[38;2;224;86;253m' # Luminous Nebula Orchid (#e056fd)
+            CYAN='\033[38;2;76;201;240m'    # Pulsar Starlight Cyan (#4cc9f0)
+            CURRENT_THEME="cosmic_supernova" ;;
         dracula)
             RED='\033[38;5;212m' GREEN='\033[38;5;84m' YELLOW='\033[38;5;228m'
             BLUE='\033[38;5;62m' MAGENTA='\033[38;5;141m' CYAN='\033[38;5;117m'
@@ -440,12 +450,21 @@ highlight_menu_line() {
     local c_mod=$(( (color_idx % 4 + 4) % 4 ))
     local bg fg_key fg_lbl fg_ext ptr_col ptr rst
 
-    case "$c_mod" in
-        0) bg="\033[48;2;247;37;133m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;5;20m"; ptr_col="\033[1;38;2;247;37;133m"; ;;
-        1) bg="\033[48;2;0;229;255m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;0;35;45m"; ptr_col="\033[1;38;2;0;229;255m"; ;;
-        2) bg="\033[48;2;255;140;0m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;45;20;0m"; ptr_col="\033[1;38;2;255;140;0m"; ;;
-        3) bg="\033[48;2;88;98;118m"; fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;238m"; ptr_col="\033[1;38;2;160;175;205m"; ;;
-    esac
+    if [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then
+        case "$c_mod" in
+            0) bg="\033[48;2;224;86;253m"; fg_key="\033[1;38;2;10;5;20m"; fg_lbl="\033[1;38;2;10;5;20m"; fg_ext="\033[0;38;2;30;0;40m"; ptr_col="\033[1;38;2;224;86;253m"; ;;
+            1) bg="\033[48;2;0;245;212m"; fg_key="\033[1;38;2;0;20;20m"; fg_lbl="\033[1;38;2;0;20;20m"; fg_ext="\033[0;38;2;0;35;35m"; ptr_col="\033[1;38;2;0;245;212m"; ;;
+            2) bg="\033[48;2;254;228;64m"; fg_key="\033[1;38;2;30;20;0m"; fg_lbl="\033[1;38;2;30;20;0m"; fg_ext="\033[0;38;2;50;35;0m"; ptr_col="\033[1;38;2;254;228;64m"; ;;
+            3) bg="\033[48;2;94;96;206m"; fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;255m"; ptr_col="\033[1;38;2;140;160;255m"; ;;
+        esac
+    else
+        case "$c_mod" in
+            0) bg="\033[48;2;247;37;133m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;5;20m"; ptr_col="\033[1;38;2;247;37;133m"; ;;
+            1) bg="\033[48;2;0;229;255m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;0;35;45m"; ptr_col="\033[1;38;2;0;229;255m"; ;;
+            2) bg="\033[48;2;255;140;0m"; fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;45;20;0m"; ptr_col="\033[1;38;2;255;140;0m"; ;;
+            3) bg="\033[48;2;88;98;118m"; fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;238m"; ptr_col="\033[1;38;2;160;175;205m"; ;;
+        esac
+    fi
 
     rst="\033[0m"
     ptr="${ptr_col} ▶ ❯${rst}"
@@ -1249,7 +1268,7 @@ save_theme() {
     mkdir -p "$HOME/.config/mix-manager" 2>/dev/null
     echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null
     set_theme_colors "$new_theme"
-    if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ]; then
+    if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ]; then
         play_sound_effect "dreamworlds"
     fi
     if [ "$new_theme" = "dreamworlds_ultra" ]; then
@@ -1258,6 +1277,14 @@ save_theme() {
             [ -f "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" ] && cp -p "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" "$HOME/.config/btop/themes/" 2>/dev/null
             if [ -f "$HOME/.config/btop/btop.conf" ]; then
                 sed -i 's|^color_theme = .*|color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"|' "$HOME/.config/btop/btop.conf" 2>/dev/null
+            fi
+        fi
+    elif [ "$new_theme" = "cosmic_supernova" ]; then
+        if [ -d "$HOME/.config/btop" ]; then
+            mkdir -p "$HOME/.config/btop/themes" 2>/dev/null
+            [ -f "$SCRIPT_DIR/themes/Cosmic_Supernova_MP_Mix_Manager.theme" ] && cp -p "$SCRIPT_DIR/themes/Cosmic_Supernova_MP_Mix_Manager.theme" "$HOME/.config/btop/themes/" 2>/dev/null
+            if [ -f "$HOME/.config/btop/btop.conf" ]; then
+                sed -i 's|^color_theme = .*|color_theme = "Cosmic_Supernova_MP_Mix_Manager"|' "$HOME/.config/btop/btop.conf" 2>/dev/null
             fi
         fi
     fi
@@ -9519,6 +9546,19 @@ manage_system_process_monitors() {
                                 sed -i 's|^color_theme = .*|color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"|' "$btop_conf" 2>/dev/null
                             fi
                         fi
+                    elif [ "$CURRENT_THEME" = "cosmic_supernova" ]; then
+                        local btop_dir="$HOME/.config/btop"
+                        local btop_conf="$btop_dir/btop.conf"
+                        local theme_src="$SCRIPT_DIR/themes/Cosmic_Supernova_MP_Mix_Manager.theme"
+                        mkdir -p "$btop_dir/themes" 2>/dev/null
+                        [ -f "$theme_src" ] && cp -p "$theme_src" "$btop_dir/themes/" 2>/dev/null
+                        if [ -f "$btop_conf" ]; then
+                            local conf_data
+                            conf_data=$(<"$btop_conf")
+                            if [[ "$conf_data" != *'color_theme = "Cosmic_Supernova_MP_Mix_Manager"'* ]]; then
+                                sed -i 's|^color_theme = .*|color_theme = "Cosmic_Supernova_MP_Mix_Manager"|' "$btop_conf" 2>/dev/null
+                            fi
+                        fi
                     fi
                     btop
                 else
@@ -9603,7 +9643,7 @@ run_bash_cli() {
 
 manage_themes() {
     while true; do
-        local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12=""
+        local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13=""
         case "$CURRENT_THEME" in
             dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;;
             dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;;
@@ -9617,6 +9657,7 @@ manage_themes() {
             gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;;
             emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;;
             classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;;
+            cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;;
         esac
 
         local opts=(
@@ -9632,6 +9673,7 @@ manage_themes() {
             "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}"
             "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}"
             "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}"
+            "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}"
             "0|Return to Main Menu|(or Esc / q)"
         )
         run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0
@@ -9695,6 +9737,11 @@ manage_themes() {
             12|classic)
                 save_theme "classic"
                 echo -e "\n${GREEN}✓ Theme switched to Classic ANSI!${NC}"
+                sleep 0.8
+                ;;
+            13|cosmic|supernova|cosmic_supernova|"cosmic supernova"|"Cosmic Supernova"|"Cosmic Supernova [Special Edition]"|"Cosmic Supernova MP Mix Manager")
+                save_theme "cosmic_supernova"
+                echo -e "\n${BOLD}${GREEN}✓ Theme switched to Cosmic Supernova [Special Edition]!${NC}"
                 sleep 0.8
                 ;;
             0|[bB]|[qQ]|ESC)
@@ -13386,6 +13433,12 @@ while true; do
                     [ -f "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" ] && cp -p "$SCRIPT_DIR/themes/Dreamworlds_Ultra_MP_Mix_Manager.theme" "$HOME/.config/btop/themes/" 2>/dev/null
                     if [ -f "$HOME/.config/btop/btop.conf" ] && ! grep -q 'color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"' "$HOME/.config/btop/btop.conf" 2>/dev/null; then
                         sed -i 's|^color_theme = .*|color_theme = "Dreamworlds_Ultra_MP_Mix_Manager"|' "$HOME/.config/btop/btop.conf" 2>/dev/null
+                    fi
+                elif [ "$CURRENT_THEME" = "cosmic_supernova" ]; then
+                    mkdir -p "$HOME/.config/btop/themes" 2>/dev/null
+                    [ -f "$SCRIPT_DIR/themes/Cosmic_Supernova_MP_Mix_Manager.theme" ] && cp -p "$SCRIPT_DIR/themes/Cosmic_Supernova_MP_Mix_Manager.theme" "$HOME/.config/btop/themes/" 2>/dev/null
+                    if [ -f "$HOME/.config/btop/btop.conf" ] && ! grep -q 'color_theme = "Cosmic_Supernova_MP_Mix_Manager"' "$HOME/.config/btop/btop.conf" 2>/dev/null; then
+                        sed -i 's|^color_theme = .*|color_theme = "Cosmic_Supernova_MP_Mix_Manager"|' "$HOME/.config/btop/btop.conf" 2>/dev/null
                     fi
                 fi
                 btop

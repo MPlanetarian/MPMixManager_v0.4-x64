@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.6 Beta] - 2026-10-15
+
+- **New Special Theme — Cosmic Supernova [Special Edition]** (`Mix_Archive_Manager.sh`, `themes/Cosmic_Supernova_MP_Mix_Manager.theme`, `MP_Audio_Player.py`, `Congen/Congen`):
+  - **Interstellar 24-Bit TrueColor Palette**: Designed a bespoke deep-space celestial aesthetic inspired by uplifting space trance and astrophysics:
+    - Supernova Crimson / Flare Red (`#ff3366` / `\033[38;2;255;51;102m`)
+    - Aurora Borealis Aquamarine / Mint (`#00f5d4` / `\033[38;2;0;245;212m`)
+    - Solar Flare Gold / Starfire Amber (`#fee440` / `\033[38;2;254;228;64m`)
+    - Hyper-space Deep Indigo (`#5e60ce` / `\033[38;2;94;96;206m`)
+    - Luminous Electric Nebula Orchid (`#e056fd` / `\033[38;2;224;86;253m`)
+    - Pulsar Starlight Cyan (`#4cc9f0` / `\033[38;2;76;201;240m`)
+  - **Companion BTOP System Monitor Theme**: Hand-crafted dedicated BTOP theme file `themes/Cosmic_Supernova_MP_Mix_Manager.theme` with deep interstellar void background (`#0a0814`), glowing nebula borders, and smooth aurora-to-supernova telemetry meters. Auto-installed and configured upon selecting the theme.
+  - **Dynamic Interactive Menu Highlighting**: Integrated theme-aware menu cursor selection styling in `highlight_menu_line()` that glows in radiant Nebula Orchid, Aurora Aquamarine, Solar Flare Gold, and Deep Cosmic Indigo with custom contrast and pointers (`▶ ❯`).
+  - **MP Audio Player Equalizer & High-Res Spectrum Integration**: Added `"cosmic_supernova"` to `EqualizerVisualizer.THEMES` with a custom 4-tier spectrum gradient (Aurora Mint -> Pulsar Cyan -> Nebula Orchid -> Supernova Crimson peak) and automatic active theme synchronization from `~/.config/mix-manager/theme`.
+  - **Congen Remote Control & CLI Suite Integration**: Added `cosmic_supernova` to Congen's 13-theme switcher, CLI command (`congen theme cosmic_supernova`), and custom starry ASCII banner (`✦ COSMIC SUPERNOVA PRODUCTIONS ✦`).
+  - **Auditory Feedback**: Automatically triggers soothing celestial audio chime feedback on theme switch via PipeWire / ALSA.
+
 ## [0.3.5] - 2026-10-09
 
 - **MP Audio Player — DREAMWORLDS ULTRA AUDIO MODE & Layout Polish** (`MP_Audio_Player.py`):

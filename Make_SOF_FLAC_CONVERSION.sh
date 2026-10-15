@@ -1205,9 +1205,16 @@ load_conversion_theme() {
         # Fallback: MPlanetarian Dreamworlds [Default] palette
         set_theme_colors() {
             NC='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
-            RED='\033[38;2;237;37;78m'; GREEN='\033[38;2;0;229;255m'; YELLOW='\033[38;2;255;170;0m'
-            BLUE='\033[38;2;155;89;182m'; MAGENTA='\033[38;2;247;37;133m'; CYAN='\033[38;2;0;193;228m'
-            CURRENT_THEME="dreamworlds"
+            local th="${1:-dreamworlds}"
+            if [ "$th" = "cosmic_supernova" ] || [ "$th" = "supernova" ] || [ "$th" = "cosmic" ]; then
+                RED='\033[38;2;255;51;102m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;254;228;64m'
+                BLUE='\033[38;2;94;96;206m'; MAGENTA='\033[38;2;224;86;253m'; CYAN='\033[38;2;76;201;240m'
+                CURRENT_THEME="cosmic_supernova"
+            else
+                RED='\033[38;2;237;37;78m'; GREEN='\033[38;2;0;229;255m'; YELLOW='\033[38;2;255;170;0m'
+                BLUE='\033[38;2;155;89;182m'; MAGENTA='\033[38;2;247;37;133m'; CYAN='\033[38;2;0;193;228m'
+                CURRENT_THEME="dreamworlds"
+            fi
         }
     fi
     if [ -f "$HOME/.config/mix-manager/theme" ]; then

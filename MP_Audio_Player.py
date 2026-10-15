@@ -434,14 +434,20 @@ class AudioEngine:
         self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
         self._next_stream_retry = 0.0
 
-        self.num_bands = 16
-        self.band_edges = np.logspace(np.log10(30), np.log10(18000), self.num_bands + 1)
+        self.num_bands = 24
+        self.band_edges = np.logspace(np.log10(28), np.log10(18500), self.num_bands + 1)
         self.levels = np.zeros(self.num_bands, dtype=np.float32)
         self.levels_left = np.zeros(self.num_bands, dtype=np.float32)
         self.levels_right = np.zeros(self.num_bands, dtype=np.float32)
         self.smoothed_levels = np.zeros(self.num_bands, dtype=np.float32)
+        self.smoothed_levels_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.smoothed_levels_right = np.zeros(self.num_bands, dtype=np.float32)
         self.peaks = np.zeros(self.num_bands, dtype=np.float32)
+        self.peaks_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.peaks_right = np.zeros(self.num_bands, dtype=np.float32)
         self.peak_decay_timers = np.zeros(self.num_bands, dtype=np.float32)
+        self.peak_decay_timers_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.peak_decay_timers_right = np.zeros(self.num_bands, dtype=np.float32)
         self.recent_mono_buffer = np.zeros(512, dtype=np.float32)
         self.rms_level, self.peak_db = 0.0, -60.0
         self.track_ended, self.pending_seek_sec = False, None
@@ -510,7 +516,7 @@ class AudioEngine:
                     channels=2,
                     dtype="float32",
                     callback=self._audio_callback,
-                    blocksize=2048,
+                    blocksize=1024,
                     latency="high"
                 )
                 if extra: kw["extra_settings"] = extra
@@ -679,22 +685,49 @@ class AudioEngine:
 
             for b in range(self.num_bands):
                 idx = self.band_indices[b]
-                boost = (1.0 + (1.2 / (1.0 + b * 0.4))) * 4.5
+                boost = (1.0 + (1.2 / (1.0 + b * 0.28))) * 4.6
                 self.levels[b] = min(1.0, max(0.0, float(np.mean(m_fft[idx]) * boost)))
                 self.levels_left[b] = min(1.0, max(0.0, float(np.mean(l_fft[idx]) * boost)))
                 self.levels_right[b] = min(1.0, max(0.0, float(np.mean(r_fft[idx]) * boost)))
 
+                # Mono responsive ballistics
                 if self.levels[b] > self.smoothed_levels[b]:
-                    self.smoothed_levels[b] = self.levels[b]
+                    self.smoothed_levels[b] = self.smoothed_levels[b] * 0.15 + self.levels[b] * 0.85
                 else:
-                    self.smoothed_levels[b] = self.smoothed_levels[b] * 0.82 + self.levels[b] * 0.18
+                    self.smoothed_levels[b] = self.smoothed_levels[b] * 0.80 + self.levels[b] * 0.20
 
                 if self.smoothed_levels[b] >= self.peaks[b]:
                     self.peaks[b], self.peak_decay_timers[b] = self.smoothed_levels[b], 0.0
                 else:
-                    self.peak_decay_timers[b] += 0.03
-                    if self.peak_decay_timers[b] > 0.2:
-                        self.peaks[b] = max(0.0, self.peaks[b] - 0.05)
+                    self.peak_decay_timers[b] += 0.025
+                    if self.peak_decay_timers[b] > 0.15:
+                        self.peaks[b] = max(0.0, self.peaks[b] - (0.035 + (self.peak_decay_timers[b] - 0.15) * 0.08))
+
+                # Left channel responsive ballistics
+                if self.levels_left[b] > self.smoothed_levels_left[b]:
+                    self.smoothed_levels_left[b] = self.smoothed_levels_left[b] * 0.15 + self.levels_left[b] * 0.85
+                else:
+                    self.smoothed_levels_left[b] = self.smoothed_levels_left[b] * 0.80 + self.levels_left[b] * 0.20
+
+                if self.smoothed_levels_left[b] >= self.peaks_left[b]:
+                    self.peaks_left[b], self.peak_decay_timers_left[b] = self.smoothed_levels_left[b], 0.0
+                else:
+                    self.peak_decay_timers_left[b] += 0.025
+                    if self.peak_decay_timers_left[b] > 0.15:
+                        self.peaks_left[b] = max(0.0, self.peaks_left[b] - (0.035 + (self.peak_decay_timers_left[b] - 0.15) * 0.08))
+
+                # Right channel responsive ballistics
+                if self.levels_right[b] > self.smoothed_levels_right[b]:
+                    self.smoothed_levels_right[b] = self.smoothed_levels_right[b] * 0.15 + self.levels_right[b] * 0.85
+                else:
+                    self.smoothed_levels_right[b] = self.smoothed_levels_right[b] * 0.80 + self.levels_right[b] * 0.20
+
+                if self.smoothed_levels_right[b] >= self.peaks_right[b]:
+                    self.peaks_right[b], self.peak_decay_timers_right[b] = self.smoothed_levels_right[b], 0.0
+                else:
+                    self.peak_decay_timers_right[b] += 0.025
+                    if self.peak_decay_timers_right[b] > 0.15:
+                        self.peaks_right[b] = max(0.0, self.peaks_right[b] - (0.035 + (self.peak_decay_timers_right[b] - 0.15) * 0.08))
 
             self.recent_mono_buffer = m[:512]
             self.rms_level = float(np.sqrt(np.mean(m ** 2)))
@@ -719,7 +752,11 @@ class AudioEngine:
     def stop_playback(self):
         self.state, self.position_sec = "stopped", 0.0
         self.smoothed_levels.fill(0)
+        self.smoothed_levels_left.fill(0)
+        self.smoothed_levels_right.fill(0)
         self.peaks.fill(0)
+        self.peaks_left.fill(0)
+        self.peaks_right.fill(0)
 
     def _step_track(self, direction: int):
         if not self.playlist: return
@@ -767,8 +804,9 @@ class AudioEngine:
             "output_rate": int(self.output_rate or 0), "output_device": str(self.output_device_name or ""),
             "audio_error": str(self.stream_error or ""), "channels": int(self.channels), "mini_eq": self.get_mini_visualizer(),
             "levels": [round(float(x), 3) for x in self.smoothed_levels], "peaks": [round(float(x), 3) for x in self.peaks],
-            "levels_left": [round(float(x), 3) for x in self.levels_left], "levels_right": [round(float(x), 3) for x in self.levels_right],
-            "peak_db": round(float(self.peak_db), 1), "pid": os.getpid()
+            "levels_left": [round(float(x), 3) for x in self.smoothed_levels_left], "levels_right": [round(float(x), 3) for x in self.smoothed_levels_right],
+            "peaks_left": [round(float(x), 3) for x in self.peaks_left], "peaks_right": [round(float(x), 3) for x in self.peaks_right],
+            "rms_level": round(float(self.rms_level), 4), "peak_db": round(float(self.peak_db), 1), "pid": os.getpid()
         }
 
 class PlayerIPCServer:
@@ -872,7 +910,7 @@ class PlayerIPCServer:
     def _state_sync_loop(self):
         while self.running:
             self.engine._sync_state_file()
-            time.sleep(0.04)
+            time.sleep(0.02)
 
 def send_ipc_command(cmd: str, **kwargs) -> Optional[Dict[str, Any]]:
     has_unix = hasattr(socket, "AF_UNIX")
@@ -1007,22 +1045,229 @@ def _present_frame(lines: List[str], width: int, height: int):
     sys.stdout.flush()
 
 class EqualizerVisualizer:
-    STYLES = ["stereo_eq", "master_spectrum", "analog_vu", "oscilloscope"]
-    THEMES = ["dreamworlds_ultra", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold"]
+    STYLES = ["stereo_eq", "neon_prism_eq", "master_spectrum", "analog_vu", "oscilloscope"]
+    STYLE_NAMES = {
+        "stereo_eq": "Dual Stereo (Default)",
+        "neon_prism_eq": "Neon Chroma Prism (Thin Hi-Res)",
+        "master_spectrum": "Master Spectrum (24-Band)",
+        "analog_vu": "Analog Studio VU",
+        "oscilloscope": "Oscilloscope Waveform",
+    }
+    THEMES = ["dreamworlds_ultra", "cosmic_supernova", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold"]
 
-    def __init__(self):
+    def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None):
         _ensure_numpy()
         self.style_idx = self.theme_idx = 0
+        try:
+            th_file = CONFIG_DIR / "theme"
+            if default_theme and default_theme in self.THEMES:
+                self.theme_idx = self.THEMES.index(default_theme)
+            elif th_file.is_file():
+                saved = th_file.read_text(encoding="utf-8").strip().lower()
+                if saved in self.THEMES:
+                    self.theme_idx = self.THEMES.index(saved)
+                elif saved in ("cosmic_supernova", "cosmic", "supernova"):
+                    self.theme_idx = self.THEMES.index("cosmic_supernova")
+                elif saved in ("dreamworlds_ultra", "dreamworlds"):
+                    self.theme_idx = self.THEMES.index("dreamworlds_ultra")
+        except Exception:
+            pass
+
+        try:
+            eq_file = CONFIG_DIR / "eq_style"
+            if default_style and default_style in self.STYLES:
+                self.style_idx = self.STYLES.index(default_style)
+            elif eq_file.is_file():
+                saved_eq = eq_file.read_text(encoding="utf-8").strip().lower()
+                if saved_eq in self.STYLES:
+                    self.style_idx = self.STYLES.index(saved_eq)
+                elif saved_eq in ("neon", "prism", "chroma", "neon_prism"):
+                    self.style_idx = self.STYLES.index("neon_prism_eq")
+        except Exception:
+            pass
 
     @property
     def style(self) -> str: return self.STYLES[self.style_idx]
     @property
     def theme(self) -> str: return self.THEMES[self.theme_idx]
-    def cycle_style(self): self.style_idx = (self.style_idx + 1) % len(self.STYLES)
-    def cycle_theme(self): self.theme_idx = (self.theme_idx + 1) % len(self.THEMES)
+    def cycle_style(self):
+        self.style_idx = (self.style_idx + 1) % len(self.STYLES)
+        try: (CONFIG_DIR / "eq_style").write_text(self.style, encoding="utf-8")
+        except Exception: pass
+
+    def cycle_theme(self):
+        self.theme_idx = (self.theme_idx + 1) % len(self.THEMES)
+        try: (CONFIG_DIR / "theme").write_text(self.theme, encoding="utf-8")
+        except Exception: pass
+
+    def get_style_display_name(self) -> str:
+        return self.STYLE_NAMES.get(self.style, self.style.replace("_", " ").title())
+
+    def _get_neon_prism_color(self, c_frac: float, r_frac: float, is_peak: bool = False, is_cap: bool = False) -> str:
+        t = self.theme
+        if is_peak:
+            if r_frac > 0.85:
+                return "\033[38;2;255;255;255m\033[1m"
+            elif r_frac > 0.5:
+                return "\033[38;2;255;235;120m\033[1m"
+            else:
+                return "\033[38;2;0;255;255m\033[1m"
+
+        if t == "cosmic_supernova":
+            # Interstellar Supernova: Aurora Mint -> Pulsar Cyan -> Nebula Orchid -> Supernova Crimson
+            if c_frac < 0.25:
+                s = c_frac / 0.25
+                r, g, b = 0.0, 0.96 - 0.17 * s, 0.83 + 0.11 * s
+            elif c_frac < 0.55:
+                s = (c_frac - 0.25) / 0.30
+                r, g, b = 0.30 + 0.58 * s, 0.79 - 0.45 * s, 0.94 + 0.05 * s
+            elif c_frac < 0.80:
+                s = (c_frac - 0.55) / 0.25
+                r, g, b = 0.88 + 0.12 * s, 0.34 - 0.14 * s, 0.99 - 0.59 * s
+            else:
+                s = (c_frac - 0.80) / 0.20
+                r, g, b = 1.0, 0.20 - 0.10 * s, 0.40 - 0.25 * s
+        elif t in ("dreamworlds_ultra", "dreamworlds"):
+            # Multi-stop chromatic rainbow: Magenta -> Electric Indigo -> Cyan -> Emerald -> Solar Gold -> Tangerine -> Hot Pink
+            h = (c_frac * 0.88 + 0.82) % 1.0
+            h6 = h * 6.0
+            i = int(h6)
+            f = h6 - i
+            q = 1.0 - f
+            if i == 0:   r, g, b = 1.0, f, 0.1
+            elif i == 1: r, g, b = q, 1.0, 0.1
+            elif i == 2: r, g, b = 0.1, 1.0, f
+            elif i == 3: r, g, b = 0.1, q, 1.0
+            elif i == 4: r, g, b = f, 0.1, 1.0
+            else:        r, g, b = 1.0, 0.1, q
+        elif t == "dreamworlds_neon":
+            # Cyber Neon: Electric Cyan -> Deep Lilac -> Hot Magenta -> Flame Orange
+            if c_frac < 0.33:
+                s = c_frac / 0.33
+                r, g, b = 0.0, 0.90 - 0.50 * s, 1.0
+            elif c_frac < 0.66:
+                s = (c_frac - 0.33) / 0.33
+                r, g, b = 0.70 * s + 0.20, 0.10, 1.0 - 0.20 * s
+            else:
+                s = (c_frac - 0.66) / 0.34
+                r, g, b = 1.0, 0.15 + 0.40 * s, 0.50 - 0.50 * s
+        elif t == "retro_studio":
+            # Japanese Studio Vintage: Emerald Green -> Amber Gold -> Ruby Red
+            if c_frac < 0.5:
+                s = c_frac / 0.5
+                r, g, b = 0.10 + 0.70 * s, 0.85 + 0.15 * s, 0.20 - 0.15 * s
+            else:
+                s = (c_frac - 0.5) / 0.5
+                r, g, b = 0.90 + 0.10 * s, 0.85 - 0.60 * s, 0.10
+        elif t == "cyber_neon":
+            r = 0.45 + 0.50 * math.sin(c_frac * math.pi)
+            g = 0.10 + 0.70 * c_frac
+            b = 0.95 - 0.20 * c_frac
+        elif t == "phosphor":
+            r, g, b = 0.10 * (1.0 - c_frac), 0.95, 0.20
+        else: # ice_cold
+            r = 0.10 + 0.75 * (c_frac ** 1.5)
+            g = 0.50 + 0.45 * c_frac
+            b = 1.0
+
+        v = 0.62 + 0.38 * r_frac
+        if is_cap and r_frac > 0.70:
+            r = min(1.0, r * 1.25 + 0.15)
+            g = min(1.0, g * 1.25 + 0.15)
+            b = min(1.0, b * 1.25 + 0.15)
+        else:
+            r, g, b = r * v, g * v, b * v
+
+        return f"\033[38;2;{int(r*255)};{int(g*255)};{int(b*255)}m"
+
+    def render_neon_prism_eq(self, levels_l: np.ndarray, levels_r: np.ndarray,
+                             peaks_l: np.ndarray, peaks_r: np.ndarray,
+                             width: int = 80, height: int = 7,
+                             rms: float = 0.0, peak_db: float = -60.0) -> List[str]:
+        lines = []
+        is_wide = (width >= 96)
+        n = 21 if is_wide else 16
+
+        # Resample levels & peaks across the n thin frequency bands
+        if len(levels_l) > 1:
+            x_in = np.linspace(0.0, 1.0, len(levels_l))
+            x_out = np.linspace(0.0, 1.0, n)
+            bl = np.interp(x_out, x_in, levels_l)
+            br = np.interp(x_out, x_in, levels_r)
+            pl = np.interp(x_out, x_in, peaks_l) if len(peaks_l) > 1 else bl
+            pr = np.interp(x_out, x_in, peaks_r) if len(peaks_r) > 1 else br
+        else:
+            bl = br = pl = pr = np.zeros(n)
+
+        # Dynamic transient beat pulse
+        is_beat = (rms > 0.13 or peak_db > -5.0)
+        bolt_col = f"\033[1;38;2;255;255;255m" if is_beat else (f"\033[1;38;2;255;215;0m" if rms > 0.07 else f"{COLOR_HOT_PURPLE}")
+        div_col = f"\033[1;38;2;247;37;133m" if is_beat else f"{COLOR_HOT_PURPLE}"
+
+        if is_wide:
+            header = f"╭── {bolt_col}⚡{NC}{BOLD}{MAGENTA} LEFT (21-BAND NEON PRISM) ───────────┬── {bolt_col}⚡{NC}{BOLD}{MAGENTA} RIGHT (21-BAND NEON PRISM) ──────────╮"
+        else:
+            header = f"╭── {bolt_col}⚡{NC}{BOLD}{MAGENTA} LEFT (16-BAND PRISM) ─────────┬── {bolt_col}⚡{NC}{BOLD}{MAGENTA} RIGHT (16-BAND PRISM) ────────╮"
+        lines.append(f"  {BOLD}{MAGENTA}{header}{NC}")
+
+        for r in range(height - 1, -1, -1):
+            r_frac = (r + 1) / float(height)
+
+            def _side(bands, pks):
+                parts = []
+                for c in range(n):
+                    frac = bands[c] * height - r
+                    c_frac = c / float(n - 1)
+                    pk = pks[c] if c < len(pks) else 0.0
+                    is_pk = (int(round(pk * height)) == r)
+
+                    if frac >= 1.0:
+                        col = self._get_neon_prism_color(c_frac, r_frac, is_cap=(frac < 2.0))
+                        ch = "█"
+                    elif frac > 0.0:
+                        col = self._get_neon_prism_color(c_frac, r_frac, is_cap=True)
+                        ch = UNICODE_BLOCKS[max(1, min(8, int(frac * 8)))]
+                    elif is_pk:
+                        if pk >= 0.90:
+                            col = "\033[38;2;255;255;255m\033[1m"
+                            ch = "✦" if (c % 2 == 0) else "◆"
+                        else:
+                            col = self._get_neon_prism_color(c_frac, r_frac, is_peak=True)
+                            ch = "━"
+                    else:
+                        ch = " "
+
+                    parts.append(f"{col}{ch}{NC} " if ch != " " else "  ")
+
+                if is_wide:
+                    return " " + "".join(parts)
+                else:
+                    return "  " + "".join(parts) + "  "
+
+            lines.append(f"  {BOLD}{MAGENTA}│{NC}{_side(bl, pl)}{div_col}│{NC}{_side(br, pr)}{BOLD}{MAGENTA}│{NC}")
+
+        if is_wide:
+            lbl = "│ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │"
+            bot = "╰───────────────────────────────────────────┴───────────────────────────────────────────╯"
+        else:
+            lbl = "│  32  64  125 250 500  1k  4k  16k  │  32  64  125 250 500  1k  4k  16k  │"
+            bot = "╰────────────────────────────────────┴────────────────────────────────────╯"
+
+        lines.extend([f"  {DIM}{CYAN}{lbl}{NC}", f"  {BOLD}{MAGENTA}{bot}{NC}"])
+        return lines
 
     def _get_bar_color(self, fraction: float) -> str:
         t = self.theme
+        if t == "cosmic_supernova":
+            # Interstellar Supernova: Aurora Mint (0-35%) -> Pulsar Cyan (35-65%) -> Nebula Orchid (65-85%) -> Supernova Crimson (85-100%)
+            if fraction < 0.35:
+                return "\033[38;2;0;245;212m"
+            elif fraction < 0.65:
+                return "\033[38;2;76;201;240m"
+            elif fraction < 0.85:
+                return "\033[38;2;224;86;253m"
+            else:
+                return "\033[38;2;255;51;102m"
         if t in ("dreamworlds_ultra", "dreamworlds"):
             return COLOR_TRAFFIC_GREEN if fraction < 0.60 else (COLOR_TRAFFIC_AMBER if fraction < 0.85 else COLOR_TRAFFIC_RED)
         if t == "dreamworlds_neon":
@@ -1038,8 +1283,14 @@ class EqualizerVisualizer:
         is_wide = (width >= 96)
         n = 12 if is_wide else 8
         widths = [3, 3, 4, 4, 4, 3, 3, 3, 3, 4, 4, 4] if is_wide else [2] * 8
-        bl = levels_l[:n] if len(levels_l) >= n else np.pad(levels_l, (0, max(0, n - len(levels_l))))
-        br = levels_r[:n] if len(levels_r) >= n else np.pad(levels_r, (0, max(0, n - len(levels_r))))
+        if len(levels_l) > n:
+            x_in = np.linspace(0.0, 1.0, len(levels_l))
+            x_out = np.linspace(0.0, 1.0, n)
+            bl = np.interp(x_out, x_in, levels_l)
+            br = np.interp(x_out, x_in, levels_r)
+        else:
+            bl = levels_l[:n] if len(levels_l) >= n else np.pad(levels_l, (0, max(0, n - len(levels_l))))
+            br = levels_r[:n] if len(levels_r) >= n else np.pad(levels_r, (0, max(0, n - len(levels_r))))
 
         header = f"╭── LEFT CHANNEL ({n}-BAND) " + ("─────────────────┬── RIGHT CHANNEL (12-BAND) ────────────────╮" if is_wide else "───────────┬── RIGHT CHANNEL (8-BAND) ──────────╮")
         lines.append(f"  {BOLD}{MAGENTA}{header}{NC}")
@@ -1160,14 +1411,26 @@ class EqualizerVisualizer:
         return f"{pfx}{_track(w, kpos, cpos)}{sfx}"
 
     def render(self, status: Dict[str, Any], width: int = 80, height: int = 7) -> List[str]:
-        levels = np.array(status.get("levels", [0.0]*16))
-        peaks = np.array(status.get("peaks", [0.0]*16))
-        ll, lr = np.array(status.get("levels_left", levels)), np.array(status.get("levels_right", levels))
+        levels = np.array(status.get("levels", [0.0]*24))
+        peaks = np.array(status.get("peaks", [0.0]*24))
+        ll = np.array(status.get("levels_left", levels))
+        lr = np.array(status.get("levels_right", levels))
+        pl = np.array(status.get("peaks_left", peaks))
+        pr = np.array(status.get("peaks_right", peaks))
+        rms = float(status.get("rms_level", 0.0))
+        peak_db = float(status.get("peak_db", -60.0))
+
         s = self.style
-        if s == "master_spectrum": lines = self.render_master_spectrum(levels, peaks, height=height)
-        elif s == "analog_vu": lines = self.render_analog_vu(status.get("peak_db", -60.0), ll, lr)
-        elif s == "oscilloscope": lines = self.render_oscilloscope(levels, height=min(5, height))
-        else: lines = self.render_stereo_eq(ll, lr, peaks, width=width, height=height)
+        if s == "neon_prism_eq":
+            lines = self.render_neon_prism_eq(ll, lr, pl, pr, width=width, height=height, rms=rms, peak_db=peak_db)
+        elif s == "master_spectrum":
+            lines = self.render_master_spectrum(levels, peaks, height=height)
+        elif s == "analog_vu":
+            lines = self.render_analog_vu(peak_db, ll, lr)
+        elif s == "oscilloscope":
+            lines = self.render_oscilloscope(levels, height=min(5, height))
+        else:
+            lines = self.render_stereo_eq(ll, lr, peaks, width=width, height=height)
 
         if width >= 122:
             faders = self.render_vertical_pitch_fader(int(status.get("pitch_percent", 0)), total_lines=len(lines))
@@ -1175,14 +1438,20 @@ class EqualizerVisualizer:
         return lines
 
 class TerminalPlayerUI:
-    def __init__(self, engine: Optional[AudioEngine], scanner: MixArchiveScanner, is_remote: bool = False):
+    def __init__(self, engine: Optional[AudioEngine], scanner: MixArchiveScanner, is_remote: bool = False,
+                 default_style: Optional[str] = None, default_theme: Optional[str] = None):
         self.engine, self.scanner, self.is_remote = engine, scanner, is_remote
-        self.visualizer, self.running = EqualizerVisualizer(), True
+        self.visualizer = EqualizerVisualizer(default_style=default_style, default_theme=default_theme)
+        self.running = True
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
                               "duration_fmt": "00:00", "progress_pct": 0.0, "volume": 85, "muted": False,
-                              "shuffle": False, "repeat": "all", "levels": [0.0]*16, "peaks": [0.0]*16}
+                              "shuffle": False, "repeat": "all",
+                              "levels": [0.0]*24, "peaks": [0.0]*24,
+                              "levels_left": [0.0]*24, "levels_right": [0.0]*24,
+                              "peaks_left": [0.0]*24, "peaks_right": [0.0]*24,
+                              "rms_level": 0.0, "peak_db": -60.0}
 
     def _get_status(self) -> Dict[str, Any]:
         if self.is_remote:
@@ -1332,7 +1601,7 @@ class TerminalPlayerUI:
             while self.running:
                 if not self.is_remote and self.engine: self.engine.check_track_end()
                 self._draw_frame()
-                time.sleep(0.04)
+                time.sleep(0.025)
         except (KeyboardInterrupt, SystemExit): pass
         finally:
             self.running = False
@@ -1440,8 +1709,16 @@ class TerminalPlayerUI:
         elif data in (b"m", b"M"): self._send_cmd("mute")
         elif data in (b"s", b"S"): self._send_cmd("shuffle")
         elif data in (b"r", b"R"): self._send_cmd("repeat")
-        elif data == b"e": self.visualizer.cycle_style()
-        elif data in (b"c", b"C"): self.visualizer.cycle_theme()
+        elif data == b"e":
+            self.visualizer.cycle_style()
+            st_name = self.visualizer.get_style_display_name()
+            self.notification_msg = f"Visualizer: {st_name}"
+            self.notification_time = time.time() + 2.5
+        elif data in (b"c", b"C"):
+            self.visualizer.cycle_theme()
+            th_name = self.visualizer.theme.replace("_", " ").title()
+            self.notification_msg = f"Color Theme: {th_name}"
+            self.notification_time = time.time() + 2.5
         elif data in (b"o", b"O"): self._open_audio_file()
         elif data in (b"t", b"T"): self._view_selected_tracklist()
         elif data in (b"E", b"w", b"W"): self._export_playlist()
@@ -1549,10 +1826,13 @@ class TerminalPlayerUI:
         pcol = COLOR_TRAFFIC_GREEN if pval == 0 else (COLOR_TRAFFIC_AMBER if pval > 0 else COLOR_INDIGO_BLUE)
         pbadge = f"{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}"
 
+        eq_name = self.visualizer.get_style_display_name()
+        th_name = self.visualizer.theme.replace("_", " ").title()
+
         lines.append(_fit_text_line([
-            f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  🎚 DJ Pitch: {BOLD}{pbadge}  │  🔀 Shuffle: {shuf}  │  🔁 Repeat: {rep}  │  🎨 Theme: {BOLD}{COLOR_HOT_PURPLE}Dreamworlds Ultra{NC}",
-            f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  Shuffle: {shuf}  │  Repeat: {rep}",
-            f"  Vol {vol}  Pitch {pbadge}  Shuf {shuf}  Rep {rep}"
+            f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  🎚 DJ Pitch: {BOLD}{pbadge}  │  🎛 EQ: {BOLD}{COLOR_NEON_PINK}{eq_name}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_name}{NC}",
+            f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  EQ: {BOLD}{COLOR_NEON_PINK}{eq_name}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
+            f"  Vol {vol}  Pitch {pbadge}  EQ {eq_name}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         lines.append(_fit_text_line([
             f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
@@ -1604,6 +1884,8 @@ def main():
     parser.add_argument("--open-file-manager", "-f", action="store_true", help="Open mix or archive in file manager")
     parser.add_argument("--tracklist", "-t", action="store_true", help="Open tracklist for mix")
     parser.add_argument("--export-playlist", "-e", nargs="?", const="default", help="Export playlist to .m3u")
+    parser.add_argument("--style", "--eq", type=str, choices=EqualizerVisualizer.STYLES, help="Set equalizer visualizer style")
+    parser.add_argument("--theme", type=str, choices=EqualizerVisualizer.THEMES, help="Set color theme")
     parser.add_argument("--cmd", type=str, help="Send arbitrary IPC command")
 
     args, _ = parser.parse_known_args()
@@ -1728,7 +2010,7 @@ def main():
                     break
         elif tf: send_ipc_command("play", file=tf)
 
-        TerminalPlayerUI(None, scanner, is_remote=True).run()
+        TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme).run()
         sys.exit(0)
 
     if args.daemon:
