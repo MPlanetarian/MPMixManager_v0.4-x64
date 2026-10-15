@@ -390,8 +390,34 @@ def pause_if_tty(prompt: str = "\nPress [Enter] to continue...") -> None:
 
 
 def get_voice_info(voice_id: str) -> Dict[str, str]:
-    """Retrieve voice info dictionary by ID or name."""
+    """Retrieve voice info dictionary by ID or name with alias mapping."""
     clean_id = voice_id.lower().strip()
+    alias_map = {
+        "morpheus": "morpheus",
+        "morpheus_master": "morpheus",
+        "morpheus master": "morpheus",
+        "laurence_fishburne": "morpheus",
+        "laurence fishburne": "morpheus",
+        "construct": "morpheus_construct",
+        "morpheus construct": "morpheus_construct",
+        "redpill": "morpheus_redpill",
+        "red pill": "morpheus_redpill",
+        "morpheus redpill": "morpheus_redpill",
+        "dojo": "morpheus_dojo",
+        "combat dojo": "morpheus_dojo",
+        "morpheus dojo": "morpheus_dojo",
+        "system": "morpheus_system",
+        "the system": "morpheus_system",
+        "morpheus system": "morpheus_system",
+        "smith": "agent_smith",
+        "agent smith": "agent_smith",
+        "elrond": "agent_smith",
+        "the one": "neo",
+        "the_one": "neo",
+    }
+    if clean_id in alias_map:
+        clean_id = alias_map[clean_id]
+
     for v in VOICES:
         if v["id"].lower() == clean_id or v["name"].lower() == clean_id:
             return v
@@ -907,6 +933,10 @@ def preview_voice(voice_id: str) -> None:
     matrix_previews = {
         "agent_smith": "Mr. Anderson. Welcome back. We missed you.",
         "morpheus": "Welcome to the real world. You take the blue pill, the story ends. You take the red pill, you stay in Wonderland.",
+        "morpheus_construct": "What is real? How do you define real? Real is simply electrical signals interpreted by your brain.",
+        "morpheus_redpill": "Remember, all I am offering is the truth. Nothing more. How deep does the rabbit hole go?",
+        "morpheus_dojo": "Do you believe that my being stronger or faster has anything to do with my muscles in this place? Free your mind.",
+        "morpheus_system": "The Matrix is a system, Neo. That system is our enemy. Inside the Matrix, they are everyone and no one.",
         "neo": "I know why you are here. I know what you have been doing. I know kung fu.",
         "trinity": "The answer is out there, Neo. It is looking for you, and it will find you if you want it to.",
         "oracle": "Everything that has a beginning has an end. Do not worry about the vase.",
@@ -1191,7 +1221,7 @@ def main():
     if args.list_voices:
         print(f"\n{BOLD}{CYAN}Available Text-to-Speech Voices:{RESET}\n")
         for idx, v in enumerate(VOICES, 1):
-            print(f"  {idx:2d}) {BOLD}{v['name']:18s}{RESET} [{v['gender']:6s}] {v['accent']:30s} ({v['id']})")
+            print(f"  {idx:2d}) {BOLD}{v['name']:36s}{RESET} [{v['gender']:6s}] {v['accent']:30s} ({v['id']})")
         return
 
     cfg = load_config()
