@@ -104,43 +104,25 @@ ensure_lan_bridge() {
 }
 
 is_dsh_running() {
-    # 1. Fast HTTP probe with curl (Any response code other than 000 indicates active server)
+    # 1. Fast HTTP probe with curl against localhost:DSH_PORT
     if command -v curl >/dev/null 2>&1; then
         local code
-        code=$(curl -s -m 2 -o /dev/null -w "%{http_code}" "http://${DSH_LAN_IP}:${DSH_PORT}/" 2>/dev/null || true)
-        if [ "$code" != "000" ] && [ -n "$code" ]; then
-            return 0
-        fi
         code=$(curl -s -m 2 -o /dev/null -w "%{http_code}" "http://127.0.0.1:${DSH_PORT}/" 2>/dev/null || true)
         if [ "$code" != "000" ] && [ -n "$code" ]; then
             return 0
         fi
     fi
 
-    # 2. Windows socket check via netstat.exe
+    # 2. Process check via pgrep for dsh web / bin.ts web (exclude socat bridge)
+    if command -v pgrep >/dev/null 2>&1; then
+        if pgrep -f "apps/cli/src/bin\.ts.*web|pnpm.*dsh.*web" >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    # 3. Windows socket check via netstat.exe
     if [ "$OS_TYPE" = "windows" ] && command -v netstat.exe >/dev/null 2>&1; then
         if netstat.exe -ano 2>/dev/null | grep -E ":${DSH_PORT}\s+.*LISTENING" >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-
-    # 3. Linux socket check via ss
-    if command -v ss >/dev/null 2>&1; then
-        if ss -tuln 2>/dev/null | grep -E ":${DSH_PORT}\s" >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-
-    # 4. macOS / Unix socket check via lsof
-    if command -v lsof >/dev/null 2>&1; then
-        if lsof -iTCP:"${DSH_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-
-    # 5. Process check via pgrep
-    if command -v pgrep >/dev/null 2>&1; then
-        if pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" >/dev/null 2>&1; then
             return 0
         fi
     fi
@@ -161,17 +143,40 @@ get_dsh_pids() {
         pids=$(powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { \$_.CommandLine -like '*apps/cli/src/bin.ts*web*' -or \$_.CommandLine -like '*dsh*web*' }).ProcessId" 2>/dev/null | tr -d '\r' | tr '\n' ' ')
     fi
 
-    # 3. pgrep process check
-    if [ -z "$pids" ] && command -v pgrep >/dev/null 2>&1; then
-        pids=$(pgrep -f "dsh.*web|apps/cli/src/bin\.ts.*web" 2>/dev/null | tr '\n' ' ')
+    # 3. systemd main PID if active on Linux
+    if [ -z "$pids" ] && [ "$OS_TYPE" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+        if systemctl --user is-active --quiet dsh-mobile.service 2>/dev/null; then
+            pids=$(systemctl --user show dsh-mobile.service -p MainPID --value 2>/dev/null | grep -v '^0$' || true)
+        fi
     fi
 
-    # 4. Unix lsof port check
-    if [ -z "$pids" ] && command -v lsof >/dev/null 2>&1; then
-        pids=$(lsof -ti:"${DSH_PORT}" 2>/dev/null | tr '\n' ' ')
+    # 4. pgrep process check for dsh web (strictly excludes socat bridge)
+    if [ -z "$pids" ] && command -v pgrep >/dev/null 2>&1; then
+        pids=$(pgrep -f "apps/cli/src/bin\.ts.*web|pnpm.*dsh.*web" 2>/dev/null | tr '\n' ' ')
     fi
 
     echo "$pids"
+}
+
+get_dsh_token() {
+    local token=""
+    if [ "$OS_TYPE" = "linux" ] && command -v journalctl >/dev/null 2>&1; then
+        token=$(journalctl --user -u dsh-mobile.service -n 50 --no-pager 2>/dev/null | grep -oE "token=[A-Za-z0-9_-]+" | tail -1 || true)
+    fi
+    if [ -z "$token" ]; then
+        local check_logs=("$LOG_FILE" "X:/DEEPSEEK/dsh-mobile.log" "/tmp/dsh-mobile.log")
+        for lf in "${check_logs[@]}"; do
+            if [ -f "$lf" ]; then
+                local tok
+                tok=$(grep -oE "token=[A-Za-z0-9_-]+" "$lf" 2>/dev/null | tail -1 || true)
+                if [ -n "$tok" ]; then
+                    token="$tok"
+                    break
+                fi
+            fi
+        done
+    fi
+    echo "$token"
 }
 
 start_dsh_window() {
@@ -223,16 +228,16 @@ start_dsh_window() {
             fi
         fi
     elif command -v konsole >/dev/null 2>&1; then
-        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
+        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --host 127.0.0.1 --port ${DSH_PORT} --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --trusted-host 127.0.0.1:${DSH_PORT} --trusted-host localhost:${DSH_PORT} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
         konsole --new-tab -p tabtitle="$TITLE" --workdir "$DSH_DIR" -e bash -c "$CMD" &
     elif command -v xdg-terminal-exec >/dev/null 2>&1; then
-        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
+        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --host 127.0.0.1 --port ${DSH_PORT} --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --trusted-host 127.0.0.1:${DSH_PORT} --trusted-host localhost:${DSH_PORT} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
         nohup xdg-terminal-exec bash -c "$CMD" >/dev/null 2>&1 &
     elif command -v gnome-terminal >/dev/null 2>&1; then
-        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
+        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --host 127.0.0.1 --port ${DSH_PORT} --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --trusted-host 127.0.0.1:${DSH_PORT} --trusted-host localhost:${DSH_PORT} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
         nohup gnome-terminal --title="$TITLE" --working-directory="$DSH_DIR" -- bash -c "$CMD" >/dev/null 2>&1 &
     elif command -v xterm >/dev/null 2>&1; then
-        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
+        local CMD="cd \"$DSH_DIR\" && pnpm dsh web --host 127.0.0.1 --port ${DSH_PORT} --trusted-host ${DSH_LAN_IP}:${DSH_PORT} --trusted-host ${DSH_LAN_IP} --trusted-host 127.0.0.1:${DSH_PORT} --trusted-host localhost:${DSH_PORT} --no-open; echo ''; echo 'dsh web finished. Press [Enter] to close...'; read -r"
         nohup xterm -T "$TITLE" -e bash -c "cd \"$DSH_DIR\" && $CMD" >/dev/null 2>&1 &
     else
         start_dsh_bg
@@ -309,12 +314,18 @@ EOFBAT
             cmd.exe /c start /b "" "X:\DEEPSEEK\start_dsh_bg.bat" >/dev/null 2>&1 &
         fi
     else
-        (cd "$DSH_DIR" && nohup pnpm dsh web --trusted-host "${DSH_LAN_IP}:${DSH_PORT}" --trusted-host "${DSH_LAN_IP}" --no-open >"$LOG_FILE" 2>&1 &)
+        if [ "$OS_TYPE" = "linux" ] && command -v systemctl >/dev/null 2>&1 && [ -f "$HOME/.config/systemd/user/dsh-mobile.service" ]; then
+            echo -e "Starting dsh-mobile via systemd user service..."
+            systemctl --user restart dsh-mobile.service >/dev/null 2>&1 || true
+        else
+            nohup bash -c "cd \"$DSH_DIR\" && exec node --import tsx/esm apps/cli/src/bin.ts web --host 127.0.0.1 --port \"$DSH_PORT\" --trusted-host \"$DSH_LAN_IP:$DSH_PORT\" --trusted-host \"$DSH_LAN_IP\" --trusted-host \"127.0.0.1:$DSH_PORT\" --trusted-host \"localhost:$DSH_PORT\" --no-open" >>"$LOG_FILE" 2>&1 &
+            disown $! 2>/dev/null || true
+        fi
     fi
 
     echo -e "Waiting for server to listen on port ${DSH_PORT}..."
     local ready=false
-    for _ in {1..20}; do
+    for _ in {1..30}; do
         if is_dsh_running; then
             ready=true
             break
@@ -325,19 +336,27 @@ EOFBAT
     if [ "$ready" = "true" ]; then
         local pids
         pids=$(get_dsh_pids)
+        local tok
+        tok=$(get_dsh_token)
+        local tok_url="${DSH_LAN_URL}"
+        [ -n "$tok" ] && tok_url="${DSH_LAN_URL}/?${tok}"
         echo -e "${BOLD}${GREEN}✓ dsh-mobile successfully started!${NC}"
         echo -e "  • Status:     ${GREEN}RUNNING${NC}"
         echo -e "  • PID(s):     ${YELLOW}${pids% }${NC}"
-        echo -e "  • Local URL:  ${BOLD}${CYAN}${DSH_LOCAL_URL}${NC}"
-        echo -e "  • Mobile LAN: ${BOLD}${GREEN}${DSH_LAN_URL}${NC}"
-        echo -e "  • Log File:   ${LOG_FILE}"
+        echo -e "  • Local URL:  ${BOLD}${CYAN}${DSH_LOCAL_URL}${tok:+/?$tok}${NC}"
+        echo -e "  • Mobile LAN: ${BOLD}${GREEN}${tok_url}${NC}"
+        [ -f "$LOG_FILE" ] && echo -e "  • Log File:   ${LOG_FILE}"
         if command -v notify-send >/dev/null 2>&1; then
             notify-send -a "DeepSeek Harness" -i "dialog-ok" "DeepSeek Harness" "✓ dsh-mobile is live on ${DSH_LAN_URL}" 2>/dev/null || true
         fi
         return 0
     else
-        echo -e "${RED}Warning: dsh-mobile did not bind port ${DSH_PORT} within 10s.${NC}"
-        echo -e "${YELLOW}Check logs with: tail -n 20 ${LOG_FILE}${NC}"
+        echo -e "${RED}Warning: dsh-mobile did not bind port ${DSH_PORT} within 15s.${NC}"
+        if [ "$OS_TYPE" = "linux" ] && command -v journalctl >/dev/null 2>&1; then
+            echo -e "${YELLOW}Check logs with: journalctl --user -u dsh-mobile.service -n 20${NC}"
+        else
+            echo -e "${YELLOW}Check logs with: tail -n 20 ${LOG_FILE}${NC}"
+        fi
         return 1
     fi
 }
@@ -368,6 +387,9 @@ stop_dsh() {
             powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { \$_.CommandLine -like '*apps/cli/src/bin.ts*web*' -or \$_.CommandLine -like '*dsh*web*' }).ProcessId | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1 || true
         fi
     else
+        if [ "$OS_TYPE" = "linux" ] && command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet dsh-mobile.service 2>/dev/null; then
+            systemctl --user stop dsh-mobile.service >/dev/null 2>&1 || true
+        fi
         for pid in $pids; do
             kill -TERM "$pid" 2>/dev/null || true
         done
@@ -424,17 +446,11 @@ open_dsh_browser() {
     fi
 
     local target_url="${DSH_LAN_URL}"
-    local check_logs=("$LOG_FILE" "X:/DEEPSEEK/dsh-mobile.log" "/tmp/dsh-mobile.log")
-    for lf in "${check_logs[@]}"; do
-        if [ -f "$lf" ]; then
-            local token_url
-            token_url=$(grep -oE "http[s]?://${DSH_LAN_IP}:${DSH_PORT}/\?token=[A-Za-z0-9_-]+" "$lf" 2>/dev/null | tail -1 || true)
-            if [ -n "$token_url" ]; then
-                target_url="$token_url"
-                break
-            fi
-        fi
-    done
+    local token
+    token=$(get_dsh_token)
+    if [ -n "$token" ]; then
+        target_url="http://${DSH_LAN_IP}:${DSH_PORT}/?${token}"
+    fi
 
     echo -e "Opening in browser: ${BOLD}${GREEN}${target_url}${NC}"
     if [ "$OS_TYPE" = "windows" ]; then
@@ -465,9 +481,15 @@ show_status() {
     local pids
     pids=$(get_dsh_pids)
     if is_dsh_running; then
+        local token_str=""
+        local tok
+        tok=$(get_dsh_token)
+        if [ -n "$tok" ]; then
+            token_str="/?${tok}"
+        fi
         echo -e "  Server Status:  ${BOLD}${GREEN}● RUNNING${NC} (PID: ${YELLOW}${pids% }${NC})"
-        echo -e "  Local URL:      ${BOLD}${CYAN}${DSH_LOCAL_URL}${NC}"
-        echo -e "  Mobile LAN URL: ${BOLD}${GREEN}${DSH_LAN_URL}${NC}  ${DIM}(LAN access active)${NC}"
+        echo -e "  Local URL:      ${BOLD}${CYAN}${DSH_LOCAL_URL}${token_str}${NC}"
+        echo -e "  Mobile LAN URL: ${BOLD}${GREEN}${DSH_LAN_URL}${token_str}${NC}  ${DIM}(LAN access active)${NC}"
         echo -e "  Listen Port:    ${CYAN}${DSH_PORT}/tcp${NC}"
     else
         echo -e "  Server Status:  ${BOLD}${RED}○ STOPPED${NC}"
@@ -489,21 +511,26 @@ show_status() {
 
 view_logs() {
     echo -e "\n${BOLD}${BLUE}=== DSH-MOBILE LOG FILE ===${NC}\n"
-    local found_log=""
-    if [ -f "$LOG_FILE" ]; then
-        found_log="$LOG_FILE"
-    elif [ -f "X:/DEEPSEEK/dsh-mobile.log" ]; then
-        found_log="X:/DEEPSEEK/dsh-mobile.log"
-    elif [ -f "/tmp/dsh-mobile.log" ]; then
-        found_log="/tmp/dsh-mobile.log"
-    fi
-
-    if [ -n "$found_log" ]; then
-        echo -e "Log file: ${found_log} (Last 50 lines):\n"
-        tail -n 50 "$found_log"
+    if [ "$OS_TYPE" = "linux" ] && command -v journalctl >/dev/null 2>&1 && [ -f "$HOME/.config/systemd/user/dsh-mobile.service" ]; then
+        echo -e "Displaying systemd service logs (last 50 lines):\n"
+        journalctl --user -u dsh-mobile.service -n 50 --no-pager
     else
-        echo -e "Log file does not exist yet (server may have been launched in a dedicated terminal window)."
-        echo -e "Target log path: ${LOG_FILE}"
+        local found_log=""
+        if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
+            found_log="$LOG_FILE"
+        elif [ -f "X:/DEEPSEEK/dsh-mobile.log" ] && [ -s "X:/DEEPSEEK/dsh-mobile.log" ]; then
+            found_log="X:/DEEPSEEK/dsh-mobile.log"
+        elif [ -f "/tmp/dsh-mobile.log" ] && [ -s "/tmp/dsh-mobile.log" ]; then
+            found_log="/tmp/dsh-mobile.log"
+        fi
+
+        if [ -n "$found_log" ]; then
+            echo -e "Log file: ${found_log} (Last 50 lines):\n"
+            tail -n 50 "$found_log"
+        else
+            echo -e "Log file is currently empty or does not exist yet."
+            echo -e "Target log path: ${LOG_FILE}"
+        fi
     fi
     echo ""
     [ -t 0 ] && read -r -p "Press Enter to return..."
