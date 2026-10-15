@@ -877,8 +877,14 @@ _menu_fast_paint_selection() {
         local player_banner=""
         local banner_lines=0
         if get_mp_audio_player_track_info 2>/dev/null; then
-            local st_sym="${BOLD}${MP_PLAYER_STATE = "paused" ? YELLOW : GREEN}▶ $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")${NC}"
-            local st_raw="${MP_PLAYER_STATE = "paused" ? "⏸" : "▶"} $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")"
+            local st_color="$GREEN"
+            local st_icon="▶"
+            if [ "$MP_PLAYER_STATE" = "paused" ]; then
+                st_color="$YELLOW"
+                st_icon="⏸"
+            fi
+            local st_sym="${BOLD}${st_color}${st_icon} $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")${NC}"
+            local st_raw="${st_icon} $(tr '[:upper:]' '[:lower:]' <<< "$MP_PLAYER_STATE")"
             local rem_dashes=$(( inner_w - 22 ))
             [ "$rem_dashes" -lt 0 ] && rem_dashes=0
             local p_top_dashes="${rem_dashes// /─}"
@@ -887,7 +893,10 @@ _menu_fast_paint_selection() {
             local max_t_len=$(( text_w - ${#pos_pct_str} - 16 ))
             [ "$max_t_len" -lt 4 ] && max_t_len=4
             [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"
-            local disp_title="${MP_PLAYER_TITLE:0:$((max_t_len - 3))}..."
+            local disp_title="$MP_PLAYER_TITLE"
+            if [ ${#disp_title} -gt "$max_t_len" ]; then
+                disp_title="${disp_title:0:$((max_t_len - 3))}..."
+            fi
             local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"
             local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"
             local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} ))

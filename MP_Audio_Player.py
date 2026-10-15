@@ -341,19 +341,22 @@ class MixArchiveScanner:
                       os.path.expanduser("~/GoogleDrive/MIX_ARCHIVE")):
                 add(p)
 
-        # Fallback audio discovery paths when user has not configured specific mix archives
-        for fallback in (self.base_dir, Path.cwd(), Path.home() / "Music"):
-            add(fallback)
+        # Fallback audio discovery paths only when user has not configured specific mix archives
+        if not dirs:
+            for fallback in (self.base_dir / "MIX_ARCHIVE", self.base_dir / "FLAC_CONVERTED_OUTPUTS",
+                             self.base_dir, Path.home() / "Music"):
+                if fallback != Path.home() and fallback != Path("/"):
+                    add(fallback)
 
         return dirs
 
     def _load_and_scan(self):
         seen, collected = set(), []
+        home_path = Path.home()
         for ad in self._get_archive_dirs():
-            if not ad.is_dir(): continue
-            for root, _, files in os.walk(ad):
-                norm = root.replace("\\", "/")
-                if "/." in norm or "__pycache__" in norm: continue
+            if not ad.is_dir() or ad == home_path or ad == Path("/"): continue
+            for root, subdirs, files in os.walk(ad):
+                subdirs[:] = [d for d in subdirs if not d.startswith('.') and d not in ('__pycache__', 'node_modules', '.git', 'venv', '.venv')]
                 for f in files:
                     ext = os.path.splitext(f)[1].lower()
                     if ext in AUDIO_EXTENSIONS:
@@ -1455,12 +1458,18 @@ class TerminalPlayerUI:
 
     def _get_status(self) -> Dict[str, Any]:
         if self.is_remote:
+            loaded_fresh = False
             if STATE_FILE.exists():
-                try: self.cached_status = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+                try:
+                    data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+                    if isinstance(data, dict) and data.get("title") and data.get("title") != "Loading...":
+                        self.cached_status = data
+                        loaded_fresh = True
                 except Exception: pass
-            else:
+            if not loaded_fresh:
                 res = send_ipc_command("status")
-                if res and "data" in res: self.cached_status = res["data"]
+                if res and isinstance(res.get("data"), dict):
+                    self.cached_status = res["data"]
             return self.cached_status
         return self.engine.get_status_dict() if self.engine else self.cached_status
 
@@ -2004,7 +2013,7 @@ def main():
             latest = scanner.get_latest_mix()
             init_file = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
             _spawn_player_daemon(init_file)
-            for _ in range(50):
+            for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running():
                     break
