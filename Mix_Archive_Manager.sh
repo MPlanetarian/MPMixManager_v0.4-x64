@@ -12990,7 +12990,7 @@ manage_network_and_internet() {
             4) unblock_internet ;;
             5)
                 echo -e "\n${BOLD}${BLUE}=== LAUNCHING STUDIO & DJ BOOTH MOBILE WEB COMPANION ===${NC}\n"
-                launch_in_terminal "DJ Booth Web Companion" "python3 '$SCRIPT_DIR/scripts/mix_web_companion.py'" "window"
+                launch_in_terminal "DJ Booth Web Companion" "CURRENT_THEME='$CURRENT_THEME' python3 '$SCRIPT_DIR/scripts/mix_web_companion.py' --theme '$CURRENT_THEME'" "window"
                 press_enter
                 ;;
             0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
