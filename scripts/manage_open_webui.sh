@@ -173,7 +173,11 @@ update_open_webui() {
             MSYS_NO_PATHCONV=1 cmd.exe /c "C:\ProgramData\anaconda3\condabin\conda.bat activate X:\OPENWEBUI\env && python -m pip install --upgrade open-webui"
         fi
     else
-        pip install --upgrade open-webui
+        echo -e "${CYAN}Pulling latest Open WebUI image (ghcr.io/open-webui/open-webui:main)...${NC}\n"
+        podman pull ghcr.io/open-webui/open-webui:main
+        echo -e "\n${CYAN}Restarting open-webui.service to pick up new image...${NC}\n"
+        systemctl --user restart open-webui.service
+        echo -e "\n${GREEN}✓ Open WebUI update completed and service restarted.${NC}"
     fi
     press_enter
 }
@@ -200,7 +204,11 @@ if [ "$WEBUI_RUNNING" = "true" ]; then
     echo -e "  ${BOLD}${CYAN}3)${NC} Stop Server (${RED}taskkill / stop${NC})"
     echo -e "  ${BOLD}${CYAN}4)${NC} Restart Server"
     echo -e "  ${BOLD}${CYAN}5)${NC} View Server Logs / Console Output"
-    echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates (${GREEN}pip install --upgrade${NC})"
+    if [ "$OS_TYPE" = "windows" ]; then
+        echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates (${GREEN}pip install --upgrade${NC})"
+    else
+        echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates (${GREEN}podman pull :main${NC})"
+    fi
     echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
     echo ""
     read -r -p "Enter choice [0-6]: " ow_opt

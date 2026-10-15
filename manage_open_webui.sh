@@ -1,1 +1,0 @@
-scripts/manage_open_webui.sh

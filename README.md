@@ -221,7 +221,7 @@ flowchart TD
 
 ### 🧠 AI Suite Capabilities:
 - 🎙️ **MP Harmony AI Agent** (`manage_harmony_agent.sh` / Option 32.4): Autonomous engineering agent and voice bridge running on port 11435. Includes background daemon with setsid detachment, zero-lag port readiness wait, and interactive **Voice Chat CLIs** (`local-voice-talk` via Option 32.4.2 for Harmony Agent or Option 32.4.3 for local Ollama models).
-- 🌐 **Open WebUI Web Chat** (`manage_open_webui.sh` / Option 32.3): Browser-based chat interface connected to local models on port 42004 / 8080.
+- 🌐 **Open WebUI Web Chat** (`scripts/manage_open_webui.sh` / Option 32.3): Browser-based chat interface connected to local models on port 42004 / 8080.
 - 🦙 **Ollama Server & Models** (`manage_ollama.sh` / Option 32.2): Distrobox container / host controller on port 11434 with GPU CUDA monitoring, background daemon modes, model puller (`qwen2.5`, `llama3.1`, `nemotron`), and CLI interactive chat.
 - 📱 **DeepSeek Harness (`dsh-mobile`)** (`scripts/dsh_mobile.sh` / Option 32.5): Web chat harness on port 3080 optimized for mobile devices with trusted host flags.
 - 🎥 **WAN2GP AI Video & TTS Suite** (`wan2gp.sh`, `wan2gp_tts_batch.py`, `wan2gp_flux_batch.py`, `wan2gp_ltx_batch.py`):
@@ -712,7 +712,6 @@ MP_Mix_Manager_v0.3/
 ├── shop_music.sh                # Parallel music store quick-launcher (Beatport, Apple, Bandcamp)
 │
 ├── manage_harmony_agent.sh      # MP Harmony AI Agent manager & Voice Chat CLI (:11435)
-├── manage_open_webui.sh         # Open WebUI web chat harness controller (:42004 / :8080)
 ├── manage_ollama.sh             # Ollama server (distrobox), models manager & chat CLI (:11434)
 ├── dsh_mobile.sh                # DeepSeek Harness mobile web server (:3080)
 ├── wan2gp.sh                    # WAN2GP AI Video server runner (Profiles 2 & 4.5)
