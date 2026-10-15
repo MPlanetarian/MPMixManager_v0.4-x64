@@ -173,11 +173,46 @@ update_open_webui() {
             MSYS_NO_PATHCONV=1 cmd.exe /c "C:\ProgramData\anaconda3\condabin\conda.bat activate X:\OPENWEBUI\env && python -m pip install --upgrade open-webui"
         fi
     else
-        echo -e "${CYAN}Pulling latest Open WebUI image (ghcr.io/open-webui/open-webui:main)...${NC}\n"
-        podman pull ghcr.io/open-webui/open-webui:main
-        echo -e "\n${CYAN}Restarting open-webui.service to pick up new image...${NC}\n"
-        systemctl --user restart open-webui.service
-        echo -e "\n${GREEN}✓ Open WebUI update completed and service restarted.${NC}"
+        local exec_line=""
+        if systemctl --user list-unit-files 2>/dev/null | grep -q "open-webui.service"; then
+            exec_line=$(systemctl --user show -p ExecStart --value open-webui.service 2>/dev/null)
+        fi
+
+        local venv_py=""
+        if echo "$exec_line" | grep -q "path="; then
+            local exec_path
+            exec_path=$(echo "$exec_line" | sed -n 's/.*path=\([^ ;]*\).*/\1/p')
+            if [ -f "$(dirname "$exec_path")/python" ]; then
+                venv_py="$(dirname "$exec_path")/python"
+            fi
+        fi
+
+        if [ -z "$venv_py" ] && [ -x "$HOME/pinokio/api/open-webui/app/env/bin/python" ]; then
+            venv_py="$HOME/pinokio/api/open-webui/app/env/bin/python"
+        fi
+
+        local uv_bin
+        uv_bin=$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")
+
+        if [ -n "$venv_py" ] && [ -x "$uv_bin" ]; then
+            echo -e "${CYAN}Updating Open WebUI virtual environment with uv...${NC}\n"
+            "$uv_bin" pip install --upgrade open-webui --python "$venv_py"
+        elif [ -n "$venv_py" ]; then
+            echo -e "${CYAN}Updating Open WebUI virtual environment...${NC}\n"
+            "$venv_py" -m pip install --upgrade open-webui 2>/dev/null || pip install --upgrade open-webui
+        elif command -v podman >/dev/null 2>&1; then
+            echo -e "${CYAN}Pulling latest Open WebUI image (ghcr.io/open-webui/open-webui:main)...${NC}\n"
+            podman pull ghcr.io/open-webui/open-webui:main
+        else
+            pip install --upgrade open-webui
+        fi
+
+        if systemctl --user list-unit-files 2>/dev/null | grep -q "open-webui.service"; then
+            echo -e "\n${CYAN}Restarting open-webui.service to pick up updates...${NC}\n"
+            systemctl --user restart open-webui.service
+        fi
+
+        echo -e "\n${GREEN}✓ Open WebUI update process completed.${NC}"
     fi
     press_enter
 }
@@ -204,11 +239,7 @@ if [ "$WEBUI_RUNNING" = "true" ]; then
     echo -e "  ${BOLD}${CYAN}3)${NC} Stop Server (${RED}taskkill / stop${NC})"
     echo -e "  ${BOLD}${CYAN}4)${NC} Restart Server"
     echo -e "  ${BOLD}${CYAN}5)${NC} View Server Logs / Console Output"
-    if [ "$OS_TYPE" = "windows" ]; then
-        echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates (${GREEN}pip install --upgrade${NC})"
-    else
-        echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates (${GREEN}podman pull :main${NC})"
-    fi
+    echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates"
     echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
     echo ""
     read -r -p "Enter choice [0-6]: " ow_opt
