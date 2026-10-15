@@ -8,6 +8,7 @@ if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"
 
 shopt -s checkwinsize 2>/dev/null || true
 export PYTHONIOENCODING="utf-8" PYTHONUTF8=1
@@ -11341,10 +11342,17 @@ manage_mix_scheduler() {
 
 get_manager_uptime() {
     local now="${EPOCHSECONDS:-$(date +%s)}"
-    local el=$(( now - MANAGER_START_EPOCH ))
+    local start="${MANAGER_START_EPOCH:-$now}"
+    (( start <= 0 )) && start="$now"
+    local el=$(( now - start ))
+    (( el < 0 )) && el=0
     local m_up="$((el % 60))s"
     (( el >= 60 )) && m_up="$(((el % 3600) / 60))m $m_up"
-    (( el >= 3600 )) && m_up="$((el / 3600))h $m_up"
+    if (( el >= 86400 )); then
+        m_up="$((el / 86400))d $(((el % 86400) / 3600))h $m_up"
+    elif (( el >= 3600 )); then
+        m_up="$((el / 3600))h $m_up"
+    fi
 
     local sys_up="N/A"
     if [ -r /proc/uptime ]; then

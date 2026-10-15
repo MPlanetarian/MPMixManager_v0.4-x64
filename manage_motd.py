@@ -203,7 +203,7 @@ fi
         try:
             with open(bashrc, "r", encoding="utf-8") as f:
                 content = f.read()
-            if hook_tag not in content:
+            if hook_tag not in content and "mix-manager/motd" not in content:
                 with open(bashrc, "a", encoding="utf-8") as f:
                     f.write(f"\n{hook_code}\n")
         except Exception:

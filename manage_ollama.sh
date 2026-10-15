@@ -613,22 +613,25 @@ run_voice_chat_cli() {
     local pids
     pids=$(get_ollama_pids)
 
+    export VOICE_AI_TTS_VOICE="${VOICE_AI_TTS_VOICE:-agent_smith}"
+
     echo -e "\n${BOLD}${GREEN}Starting real-time Voice Chat session with '${chosen_model}'...${NC}"
     echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
     echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
-    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + Local Voice AI (Piper / Neural TTS)${NC}"
+    echo -e "  • Voice:        ${BOLD}${MAGENTA}Agent Smith (The Matrix)${NC} [id: ${CYAN}agent_smith${NC}]"
+    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + Local Voice AI (Piper / Hugo Weaving Neural Baritone)${NC}"
     echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /quit to exit${NC}\n"
     sleep 1
 
     if [ -n "$voice_bin" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model"
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "agent_smith"
     elif [ -f "$voice_py" ] && [ -x "$voice_venv_py" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model"
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "agent_smith"
     elif [ "$OS_TYPE" = "windows" ]; then
         if command -v local-voice-talk >/dev/null 2>&1; then
-            OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model"
+            OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "agent_smith"
         elif [ -f "X:/voice-ai/local_voice_talk.py" ]; then
-            python "X:/voice-ai/local_voice_talk.py" --model "$chosen_model"
+            python "X:/voice-ai/local_voice_talk.py" --model "$chosen_model" --voice "agent_smith"
         else
             echo -e "${RED}Error: Voice Chat engine (local-voice-talk) not installed on Windows.${NC}"
             read -r -p "Press Enter to return..."
@@ -701,7 +704,7 @@ interactive_menu() {
         echo -e "  ${BOLD}${CYAN} 3)${NC} Stop Running Ollama Server"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Restart Ollama Server"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Chat with a Local Model (Interactive CLI: Qwen, LLaMA...)"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat Session with Local Models (Microphone & Neural Voice)"
+        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Agent Smith - The Matrix${NC})"
         echo -e "  ${BOLD}${CYAN} 7)${NC} View Server Log File (${LOG_FILE})"
         echo -e "  ${BOLD}${CYAN} 8)${NC} Return to Previous Menu\n"
         read -r -p "Enter choice [1-8, or q to return]: " o_choice
