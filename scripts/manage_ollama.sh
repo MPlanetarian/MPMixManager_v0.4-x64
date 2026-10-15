@@ -608,6 +608,27 @@ run_voice_chat_cli() {
         fi
     fi
 
+    echo -e "\nSelect a Matrix Voice character (or press Enter for Agent Smith):"
+    echo -e "  1) Agent Smith (The Matrix) [Default]"
+    echo -e "  2) Morpheus (The Matrix)"
+    echo -e "  3) Neo (The Matrix)"
+    echo -e "  4) Trinity (The Matrix)"
+    echo -e "  5) The Oracle (The Matrix)"
+    echo -e "  6) Zion (Councillor Hamann)"
+    echo ""
+    read -r -p "Enter voice choice [1-6, Enter=1]: " v_choice
+
+    local chosen_voice="agent_smith"
+    local chosen_voice_name="Agent Smith (The Matrix)"
+    case "$v_choice" in
+        2) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix)" ;;
+        3) chosen_voice="neo"; chosen_voice_name="Neo (The Matrix)" ;;
+        4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
+        5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
+        6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+        *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
+    esac
+
     # Locate Voice Chat Engine (local-voice-talk / local_voice_talk.py)
     local voice_bin=""
     for cand in \
@@ -627,20 +648,20 @@ run_voice_chat_cli() {
     local pids
     pids=$(get_ollama_pids)
 
-    export VOICE_AI_TTS_VOICE="${VOICE_AI_TTS_VOICE:-agent_smith}"
+    export VOICE_AI_TTS_VOICE="${chosen_voice}"
 
     echo -e "\n${BOLD}${GREEN}Starting real-time Voice Chat session with '${chosen_model}'...${NC}"
     echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
     echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
-    echo -e "  • Voice:        ${BOLD}${MAGENTA}Agent Smith (The Matrix)${NC} [id: ${CYAN}agent_smith${NC}]"
-    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + XTTS-v2 GPU Voice Clone (Hugo Weaving / Elrond / Agent Smith)${NC}"
-    echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /quit to exit${NC}\n"
+    echo -e "  • Voice:        ${BOLD}${MAGENTA}${chosen_voice_name}${NC} [id: ${CYAN}${chosen_voice}${NC}]"
+    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + XTTS-v2 Neural Voice Clone${NC}"
+    echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /voice to change, /quit to exit${NC}\n"
     sleep 1
 
     if [ -n "$voice_bin" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "agent_smith"
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "$chosen_voice"
     elif [ -f "$voice_py" ] && [ -x "$voice_venv_py" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "agent_smith"
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "$chosen_voice"
     elif [ "$OS_TYPE" = "windows" ]; then
         if command -v local-voice-talk >/dev/null 2>&1; then
             OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "agent_smith"
