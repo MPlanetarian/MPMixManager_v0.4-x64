@@ -294,13 +294,35 @@ launch_voice_chat_cli() {
         return 1
     fi
 
-    echo -e "  • Bridge URL: ${BOLD}${CYAN}http://127.0.0.1:${HARMONY_PORT}${NC}"
+    echo -e "\nSelect a Matrix Voice character (or press Enter for Agent Smith):"
+    echo -e "  1) Agent Smith (The Matrix) [Default]"
+    echo -e "  2) Morpheus (The Matrix)"
+    echo -e "  3) Neo (The Matrix)"
+    echo -e "  4) Trinity (The Matrix)"
+    echo -e "  5) The Oracle (The Matrix)"
+    echo -e "  6) Zion (Councillor Hamann)"
+    echo ""
+    read -r -p "Enter voice choice [1-6, Enter=1]: " v_choice
+
+    local chosen_voice="agent_smith"
+    local chosen_voice_name="Agent Smith (The Matrix)"
+    case "$v_choice" in
+        2) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix)" ;;
+        3) chosen_voice="neo"; chosen_voice_name="Neo (The Matrix)" ;;
+        4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
+        5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
+        6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+        *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
+    esac
+
+    echo -e "\n  • Bridge URL: ${BOLD}${CYAN}http://127.0.0.1:${HARMONY_PORT}${NC}"
     echo -e "  • Model:      ${BOLD}${YELLOW}${target_model}${NC}"
-    echo -e "  • Engine:     ${BOLD}${GREEN}Whisper STT + MP Harmony Voice Bridge${NC}"
-    echo -e "  • Command:    ${DIM}OLLAMA_URL=\"http://127.0.0.1:11435\" local-voice-talk --model ${target_model}${NC}\n"
+    echo -e "  • Voice:      ${BOLD}${MAGENTA}${chosen_voice_name}${NC} [id: ${CYAN}${chosen_voice}${NC}]"
+    echo -e "  • Engine:     ${BOLD}${GREEN}Whisper STT + XTTS-v2 Neural Voice Clone + MP Harmony Bridge${NC}"
+    echo -e "  • Command:    ${DIM}OLLAMA_URL=\"http://127.0.0.1:11435\" local-voice-talk --model ${target_model} --voice ${chosen_voice}${NC}\n"
     sleep 1
 
-    OLLAMA_URL="http://127.0.0.1:11435" "$voice_bin" --model "$target_model"
+    OLLAMA_URL="http://127.0.0.1:11435" "$voice_bin" --model "$target_model" --voice "$chosen_voice"
 }
 
 stop_harmony() {
@@ -475,7 +497,7 @@ interactive_menu() {
         echo -e "${BOLD}${MAGENTA}----------------------------------------------------------------------${NC}"
         echo -e "${BOLD}Select an MP Harmony Agent operation:${NC}\n"
         echo -e "  ${BOLD}${CYAN} 1)${NC} Launch Interactive Chat CLI with MP Harmony Agent (${BOLD}${GREEN}Terminal Console${NC})"
-        echo -e "  ${BOLD}${CYAN} 2)${NC} Launch Voice Chat CLI with MP Harmony Agent (${BOLD}${GREEN}Terminal Console${NC})"
+        echo -e "  ${BOLD}${CYAN} 2)${NC} Launch Voice Chat CLI with MP Harmony Agent (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion${NC})"
         echo -e "  ${BOLD}${CYAN} 3)${NC} Start MP Harmony Voice Bridge / Server (${BOLD}${GREEN}Background Daemon${NC}) [:11435]"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Start MP Harmony Voice Bridge in ${BOLD}${YELLOW}New Terminal Window${NC} (Live Logs)"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Stop Running MP Harmony Agent / Server"
