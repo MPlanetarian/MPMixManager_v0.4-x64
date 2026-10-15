@@ -319,16 +319,22 @@ launch_voice_chat_cli() {
     echo -e "  • Model:      ${BOLD}${YELLOW}${target_model}${NC}"
     echo -e "  • Voice:      ${BOLD}${MAGENTA}${chosen_voice_name}${NC} [id: ${CYAN}${chosen_voice}${NC}]"
     echo -e "  • Engine:     ${BOLD}${GREEN}Whisper STT + XTTS-v2 Neural Voice Clone + MP Harmony Bridge${NC}"
+    echo -e "  • Audio Archive:${BOLD}${CYAN}${AUDIO_DIR}${NC}"
     echo -e "  • Command:    ${DIM}OLLAMA_URL=\"http://127.0.0.1:11435\" local-voice-talk --model ${target_model} --voice ${chosen_voice}${NC}\n"
     sleep 1
 
-    OLLAMA_URL="http://127.0.0.1:11435" "$voice_bin" --model "$target_model" --voice "$chosen_voice"
+    export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
+    VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="http://127.0.0.1:11435" "$voice_bin" --model "$target_model" --voice "$chosen_voice"
 }
 
 launch_voice_chat_ollama() {
     echo -e "\n${BOLD}${MAGENTA}======================================================================${NC}"
     echo -e "${BOLD}${MAGENTA}          LAUNCH VOICE CHAT WITH OLLAMA MODELS (PORT ${OLLAMA_PORT})           ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+
+    export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
 
     local ollama_script=""
     for cand in \
@@ -342,7 +348,7 @@ launch_voice_chat_ollama() {
     done
 
     if [ -n "$ollama_script" ]; then
-        bash "$ollama_script" voice "$@"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" bash "$ollama_script" voice "$@"
     else
         # Ensure backend Ollama is running
         if ! is_ollama_running; then
@@ -360,7 +366,7 @@ launch_voice_chat_ollama() {
             return 1
         fi
 
-        "$voice_bin" "$@"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" "$voice_bin" "$@"
     fi
 }
 
@@ -468,8 +474,19 @@ view_audio_responses() {
         return 0
     fi
 
+    # Sync any recent recordings from voice-ai audio responses directory if present
+    local voice_ai_audio="/var/home/mplanetarian/voice-ai/audio_responses"
+    [ ! -d "$voice_ai_audio" ] && [ -d "$HOME/voice-ai/audio_responses" ] && voice_ai_audio="$HOME/voice-ai/audio_responses"
+    if [ -d "$voice_ai_audio" ] && [ -d "$AUDIO_DIR" ] && [ "$voice_ai_audio" != "$AUDIO_DIR" ]; then
+        cp -u "$voice_ai_audio"/*.wav "$voice_ai_audio"/*.txt "$AUDIO_DIR/" 2>/dev/null || true
+    fi
+
     local wavs=()
-    mapfile -t wavs < <(find "$AUDIO_DIR" -name "*.wav" -type f 2>/dev/null | sort -r | head -n 15)
+    if find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" >/dev/null 2>&1; then
+        mapfile -t wavs < <(find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2- | head -n 15)
+    else
+        mapfile -t wavs < <(ls -1t "$AUDIO_DIR"/*.wav 2>/dev/null | head -n 15)
+    fi
 
     if [ ${#wavs[@]} -eq 0 ]; then
         echo -e "No recorded audio responses found yet in ${AUDIO_DIR}."

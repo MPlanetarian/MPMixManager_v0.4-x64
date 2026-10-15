@@ -11806,6 +11806,7 @@ case "$1" in
     --open-webui|--webui|webui|open-webui|--openwebui) shift; run_sub_script "manage_open_webui.sh" "$@"; exit 0 ;;
     --harmony|--mp-harmony|harmony|mp-harmony|--harmony-agent) shift; run_sub_script "manage_harmony_agent.sh" "$@"; exit 0 ;;
     --harmony-voice|--voice-talk|voice-talk|--harmony-voice-chat) run_sub_script "manage_harmony_agent.sh" voice; exit 0 ;;
+    --harmony-audio|--harmony-recordings) run_sub_script "manage_harmony_agent.sh" audio; exit 0 ;;
     --dsh-mobile|--dsh|--dsh-start) run_sub_script "dsh_mobile.sh" start; exit 0 ;;
     --dsh-bg)                   run_sub_script "dsh_mobile.sh" start-bg; exit 0 ;;
     --dsh-web|--dsh-browser)    run_sub_script "dsh_mobile.sh" web; exit 0 ;;

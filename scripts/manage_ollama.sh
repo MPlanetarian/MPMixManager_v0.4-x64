@@ -80,7 +80,31 @@ if [ "$OS_TYPE" = "windows" ]; then
 else
     LOG_FILE="/tmp/ollama-serve.log"
 fi
-AUDIO_DIR="${OLLAMA_AUDIO_DIR:-/var/home/mplanetarian/voice-ai/audio_responses}"
+
+# Locate MP Harmony Agent Audio Speech Archive directory (Unified across Ollama and Harmony Agent)
+HARMONY_DIR="${HARMONY_DIR:-/var/home/mplanetarian/OpenAI/MP_Harmony_Agent}"
+if [ ! -d "$HARMONY_DIR" ] && [ -d "$HOME/OpenAI/MP_Harmony_Agent" ]; then
+    HARMONY_DIR="$HOME/OpenAI/MP_Harmony_Agent"
+elif [ ! -d "$HARMONY_DIR" ] && [ -d "$HOME/OpenAI/Harmony_Agent" ]; then
+    HARMONY_DIR="$HOME/OpenAI/Harmony_Agent"
+fi
+
+HARMONY_AUDIO_DIR="$HARMONY_DIR/audio_responses"
+VOICE_AI_AUDIO_DIR_FALLBACK="/var/home/mplanetarian/voice-ai/audio_responses"
+[ ! -d "$VOICE_AI_AUDIO_DIR_FALLBACK" ] && [ -d "$HOME/voice-ai/audio_responses" ] && VOICE_AI_AUDIO_DIR_FALLBACK="$HOME/voice-ai/audio_responses"
+
+if [ -n "${OLLAMA_AUDIO_DIR:-}" ]; then
+    AUDIO_DIR="$OLLAMA_AUDIO_DIR"
+elif [ -d "$HARMONY_AUDIO_DIR" ] || [ -d "$HARMONY_DIR" ]; then
+    AUDIO_DIR="$HARMONY_AUDIO_DIR"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
+elif [ -d "$VOICE_AI_AUDIO_DIR_FALLBACK" ]; then
+    AUDIO_DIR="$VOICE_AI_AUDIO_DIR_FALLBACK"
+else
+    AUDIO_DIR="${HARMONY_AUDIO_DIR}"
+fi
+export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+
 
 get_lan_ip() {
     local ip=""
@@ -669,22 +693,25 @@ run_voice_chat_cli() {
     pids=$(get_ollama_pids)
 
     export VOICE_AI_TTS_VOICE="${chosen_voice}"
+    export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
 
     echo -e "\n${BOLD}${GREEN}Starting real-time Voice Chat session with '${chosen_model}'...${NC}"
     echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
     echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
     echo -e "  • Voice:        ${BOLD}${MAGENTA}${chosen_voice_name}${NC} [id: ${CYAN}${chosen_voice}${NC}]"
     echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + XTTS-v2 Neural Voice Clone${NC}"
+    echo -e "  • Audio Archive:${BOLD}${CYAN}${AUDIO_DIR}${NC}"
     echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /voice to change, /quit to exit${NC}\n"
     sleep 1
 
     if [ -n "$voice_bin" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "$chosen_voice"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "$chosen_voice"
     elif [ -f "$voice_py" ] && [ -x "$voice_venv_py" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "$chosen_voice"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "$chosen_voice"
     elif [ "$OS_TYPE" = "windows" ]; then
         if command -v local-voice-talk >/dev/null 2>&1; then
-            OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "$chosen_voice"
+            VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "$chosen_voice"
         elif [ -f "X:/voice-ai/local_voice_talk.py" ]; then
             python "X:/voice-ai/local_voice_talk.py" --model "$chosen_model" --voice "$chosen_voice"
         else
@@ -703,7 +730,7 @@ run_voice_chat_cli() {
 view_audio_responses() {
     clear
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}              OLLAMA VOICE CHAT AUDIO SPEECH ARCHIVE                  ${NC}"
+    echo -e "${BOLD}${MAGENTA}              MP HARMONY AGENT AUDIO SPEECH ARCHIVE                   ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
     if [ ! -d "$AUDIO_DIR" ]; then
         echo -e "Audio responses directory does not exist: ${AUDIO_DIR}"
@@ -712,8 +739,19 @@ view_audio_responses() {
         return 0
     fi
 
+    # Sync any recent recordings from voice-ai audio responses directory if present
+    local voice_ai_audio="/var/home/mplanetarian/voice-ai/audio_responses"
+    [ ! -d "$voice_ai_audio" ] && [ -d "$HOME/voice-ai/audio_responses" ] && voice_ai_audio="$HOME/voice-ai/audio_responses"
+    if [ -d "$voice_ai_audio" ] && [ -d "$AUDIO_DIR" ] && [ "$voice_ai_audio" != "$AUDIO_DIR" ]; then
+        cp -u "$voice_ai_audio"/*.wav "$voice_ai_audio"/*.txt "$AUDIO_DIR/" 2>/dev/null || true
+    fi
+
     local wavs=()
-    mapfile -t wavs < <(find "$AUDIO_DIR" -name "*.wav" -type f 2>/dev/null | sort -r | head -n 15)
+    if find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" >/dev/null 2>&1; then
+        mapfile -t wavs < <(find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2- | head -n 15)
+    else
+        mapfile -t wavs < <(ls -1t "$AUDIO_DIR"/*.wav 2>/dev/null | head -n 15)
+    fi
 
     if [ ${#wavs[@]} -eq 0 ]; then
         echo -e "No recorded audio responses found yet in ${AUDIO_DIR}."
