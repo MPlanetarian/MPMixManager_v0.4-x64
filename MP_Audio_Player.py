@@ -202,7 +202,7 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None]) -> bool:
     if sys.platform.startswith(("linux", "freebsd")):
         if shutil.which("konsole") and v_sh.is_file():
             if _run_bg(["konsole", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title,
-                        "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "--geometry", "95x35", "-e", "bash", v_str, t_str]):
+                        "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "-p", "TerminalColumns=95", "-p", "TerminalRows=35", "-e", "bash", v_str, t_str]):
                 threading.Thread(target=lambda: (time.sleep(0.15), shutil.which("xprop") and subprocess.run(
                     ["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x2, 0x0, 0x0, 0x0, 0x0"], capture_output=True)), daemon=True).start()
                 return True

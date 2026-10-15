@@ -1699,7 +1699,8 @@ open_tracklist_window() {
                 --qwindowtitle "$tl_title" \
                 -p tabtitle="$tl_title" \
                 -p TerminalMargin=0 \
-                --geometry 95x35 \
+                -p TerminalColumns=95 \
+                -p TerminalRows=35 \
                 -e bash "$viewer_sh" "$target" >/dev/null 2>&1 &
             (sleep 0.15; command -v xprop >/dev/null 2>&1 && xprop -name "$tl_title" -f _MOTIF_WM_HINTS 32c -set _MOTIF_WM_HINTS "0x2, 0x0, 0x0, 0x0, 0x0" 2>/dev/null || true) &
             return 0
