@@ -234,9 +234,57 @@ VOICES: List[Dict[str, str]] = [
         "engine": "xtts",
         "xtts_voice": "morpheus",
         "voice_name": "en-US-ChristopherNeural",
-        "pitch": "-12Hz",
-        "rate": "-6%",
-        "desc": "Deep, philosophical, commanding resonance of Laurence Fishburne"
+        "pitch": "-4Hz",
+        "rate": "-3%",
+        "desc": "Deep, philosophical, commanding resonance of Laurence Fishburne (XTTS-v2 Master)"
+    },
+    {
+        "id": "morpheus_construct",
+        "name": "Morpheus (The Construct)",
+        "gender": "Male",
+        "accent": "The Matrix ('What is real?')",
+        "engine": "xtts",
+        "xtts_voice": "morpheus_construct",
+        "voice_name": "en-US-ChristopherNeural",
+        "pitch": "-4Hz",
+        "rate": "-3%",
+        "desc": "Expansive, contemplative philosophical delivery from the white Construct"
+    },
+    {
+        "id": "morpheus_redpill",
+        "name": "Morpheus (Red Pill)",
+        "gender": "Male",
+        "accent": "The Matrix ('Rabbit Hole')",
+        "engine": "xtts",
+        "xtts_voice": "morpheus_redpill",
+        "voice_name": "en-US-ChristopherNeural",
+        "pitch": "-4Hz",
+        "rate": "-3%",
+        "desc": "Intense, hypnotic cadence offering the red and blue pills"
+    },
+    {
+        "id": "morpheus_dojo",
+        "name": "Morpheus (Combat Dojo)",
+        "gender": "Male",
+        "accent": "The Matrix ('Free Your Mind')",
+        "engine": "xtts",
+        "xtts_voice": "morpheus_dojo",
+        "voice_name": "en-US-ChristopherNeural",
+        "pitch": "-4Hz",
+        "rate": "-3%",
+        "desc": "Commanding martial arts mentor pushing past perceived human limits"
+    },
+    {
+        "id": "morpheus_system",
+        "name": "Morpheus (The System)",
+        "gender": "Male",
+        "accent": "The Matrix ('Our Enemy')",
+        "engine": "xtts",
+        "xtts_voice": "morpheus_system",
+        "voice_name": "en-US-ChristopherNeural",
+        "pitch": "-4Hz",
+        "rate": "-3%",
+        "desc": "Tactical, solemn briefing on the nature of agents and the Matrix"
     },
     {
         "id": "neo",

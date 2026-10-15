@@ -294,27 +294,36 @@ launch_voice_chat_cli() {
         return 1
     fi
 
-    echo -e "\nSelect a Matrix Voice character (or press Enter for Agent Smith):"
-    echo -e "  1) Agent Smith (The Matrix) [Default]"
-    echo -e "  2) Morpheus (The Matrix)"
-    echo -e "  3) Neo (The Matrix)"
-    echo -e "  4) Trinity (The Matrix)"
-    echo -e "  5) The Oracle (The Matrix)"
-    echo -e "  6) Zion (Councillor Hamann)"
-    echo -e "  7) Stephen Hawking (Enters the Matrix)"
+    echo -e "\nSelect a Matrix Voice character (or press Enter for Morpheus):"
+    echo -e "  1) Morpheus (The Matrix - Master) [Default]"
+    echo -e "  2) Morpheus (The Construct - 'What is real?')"
+    echo -e "  3) Morpheus (Red Pill - 'Rabbit Hole')"
+    echo -e "  4) Morpheus (Combat Dojo - 'Free your mind')"
+    echo -e "  5) Morpheus (The System - 'Our enemy')"
+    echo -e "  6) Agent Smith (The Matrix)"
+    echo -e "  7) Neo (The Matrix)"
+    echo -e "  8) Trinity (The Matrix)"
+    echo -e "  9) The Oracle (The Matrix)"
+    echo -e " 10) Zion (Councillor Hamann)"
+    echo -e " 11) Stephen Hawking (Enters the Matrix)"
     echo ""
-    read -r -p "Enter voice choice [1-7, Enter=1]: " v_choice
+    read -r -p "Enter voice choice [1-11, Enter=1]: " v_choice
 
-    local chosen_voice="agent_smith"
-    local chosen_voice_name="Agent Smith (The Matrix)"
+    local chosen_voice="morpheus"
+    local chosen_voice_name="Morpheus (The Matrix - Master)"
     case "$v_choice" in
-        2) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix)" ;;
-        3) chosen_voice="neo"; chosen_voice_name="Neo (The Matrix)" ;;
-        4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
-        5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
-        6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
-        7) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
-        *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
+        1) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix - Master)" ;;
+        2) chosen_voice="morpheus_construct"; chosen_voice_name="Morpheus (The Construct - 'What is real?')" ;;
+        3) chosen_voice="morpheus_redpill"; chosen_voice_name="Morpheus (Red Pill - 'Rabbit Hole')" ;;
+        4) chosen_voice="morpheus_dojo"; chosen_voice_name="Morpheus (Combat Dojo - 'Free your mind')" ;;
+        5) chosen_voice="morpheus_system"; chosen_voice_name="Morpheus (The System - 'Our enemy')" ;;
+        6) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
+        7) chosen_voice="neo"; chosen_voice_name="Neo (The Matrix)" ;;
+        8) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
+        9) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
+        10) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+        11) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
+        *) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix - Master)" ;;
     esac
 
     echo -e "\n  • Bridge URL: ${BOLD}${CYAN}http://127.0.0.1:${HARMONY_PORT}${NC}"
