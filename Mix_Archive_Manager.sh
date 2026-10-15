@@ -5227,6 +5227,150 @@ run_wan2gp_tts_batch() {
     fi
 }
 
+run_wan2gp_output_monitor() {
+    local script="$SCRIPT_DIR/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"
+    [ ! -f "$script" ] && script="$SCRIPT_DIR/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"
+    [ ! -f "$script" ] && script="$HOME/MP_Mix_Manager_v0.3/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"
+    [ ! -f "$script" ] && script="$HOME/Downloads/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"
+
+    if [ ! -f "$script" ]; then
+        echo -e "${RED}Error: MP_Video_Image_Dir_WAN2GP_Output_Monitor.py not found!${NC}"
+        press_enter
+        return 1
+    fi
+    chmod +x "$script" 2>/dev/null || true
+
+    local target_dir="${1:-${WAN2GP_OUTPUTS:-}}"
+    if [ -z "$target_dir" ] || [ ! -d "$target_dir" ]; then
+        if [ -d "/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS" ]; then
+            target_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"
+        elif [ -d "$HOME/Documents/WAN2GP_OUTPUTS" ]; then
+            target_dir="$HOME/Documents/WAN2GP_OUTPUTS"
+        elif [ -d "$HOME/WAN2GP_OUTPUTS" ]; then
+            target_dir="$HOME/WAN2GP_OUTPUTS"
+        fi
+    fi
+
+    # Sub-menu allowing configuration of any output dir or direct launch
+    while true; do
+        clear
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}    MP VIDEO & IMAGE DIRECTORY OUTPUT MONITOR (FLUX / LTX / WAN2GP)   ${NC}"
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        echo -e "  ${DIM}Current Monitored Directory:${NC}  ${BOLD}${CYAN}${target_dir:-Not Configured}${NC}"
+        echo -e "  ${DIM}Default WAN2GP Outputs Dir:${NC}   ${BOLD}${GREEN}${WAN2GP_OUTPUTS:-Not Configured}${NC}"
+        echo ""
+        echo -e "${BOLD}Select an operation:${NC}"
+        echo -e "  ${BOLD}${CYAN}1)${NC} Launch Output Monitor in Current Terminal"
+        echo -e "  ${BOLD}${CYAN}2)${NC} Launch Output Monitor in a ${BOLD}${GREEN}New Terminal Window/Tab${NC}"
+        echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${YELLOW}Configure / Change Output Directory to Monitor${NC} (Select Any Directory)"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Set Current Selection as Default WAN2GP_OUTPUTS (Save to config.env)"
+        echo -e "  ${BOLD}${CYAN}0)${NC} Return to WAN2GP Menu (or 'q')\n"
+        read -r -p "Enter choice [1-4, 0 (Default: 1)], or type directory path directly: " mon_choice
+        mon_choice="${mon_choice#"${mon_choice%%[![:space:]]*}"}"
+        mon_choice="${mon_choice%"${mon_choice##*[![:space:]]}"}"
+
+        # If user directly typed a path (starts with / or ~ or relative dir exists)
+        local expanded_path="$mon_choice"
+        if [[ "$expanded_path" == "~"* ]]; then
+            expanded_path="${HOME}${expanded_path:1}"
+        fi
+        if [ -n "$expanded_path" ] && { [[ "$expanded_path" == "/"* ]] || [ -d "$expanded_path" ]; }; then
+            if [ ! -d "$expanded_path" ]; then
+                echo -e "${YELLOW}Directory does not exist: $expanded_path${NC}"
+                read -r -p "Create this directory? [y/N]: " cr_ans
+                if [[ "$cr_ans" =~ ^[yY] ]]; then
+                    mkdir -p "$expanded_path" 2>/dev/null && echo -e "${GREEN}Created directory: $expanded_path${NC}"
+                fi
+            fi
+            if [ -d "$expanded_path" ]; then
+                target_dir="$expanded_path"
+                mon_choice="1"
+            fi
+        fi
+
+        [ -z "$mon_choice" ] && mon_choice="1"
+
+        case "$mon_choice" in
+            1)
+                echo -e "\n${GREEN}Starting MP Video & Image Directory Output Monitor...${NC}\n"
+                export WAN2GP_OUTPUTS="$target_dir"
+                python3 "$script" --dir "$target_dir"
+                echo ""
+                read -r -p "Press [Enter] to return to the Monitor menu..."
+                ;;
+            2)
+                local title="MP Media Output Monitor"
+                local cmd="export WAN2GP_OUTPUTS=\"$target_dir\"; python3 \"$script\" --dir \"$target_dir\"; echo ''; echo 'Monitor stopped. Press [Enter] to exit...'; read -r"
+                if launch_in_terminal "$title" "$cmd" "tab"; then
+                    echo -e "\n${GREEN}✓ MP Video & Image Directory Output Monitor launched in a new terminal tab/window.${NC}"
+                    sleep 1.5
+                else
+                    echo -e "\n${YELLOW}Could not open new terminal window; running in current terminal...${NC}\n"
+                    export WAN2GP_OUTPUTS="$target_dir"
+                    python3 "$script" --dir "$target_dir"
+                    echo ""
+                    read -r -p "Press [Enter] to return to the Monitor menu..."
+                fi
+                ;;
+            3)
+                echo -e "\n${BOLD}${CYAN}Configure Output Directory to Monitor:${NC}"
+                echo -e "Enter path of any directory to monitor (e.g. /path/to/folder or ~/Documents/WAN2GP_OUTPUTS):"
+                read -r -e -p "Directory path: " new_dir
+                new_dir="${new_dir#"${new_dir%%[![:space:]]*}"}"
+                new_dir="${new_dir%"${new_dir##*[![:space:]]}"}"
+                if [[ "$new_dir" == "~"* ]]; then
+                    new_dir="${HOME}${new_dir:1}"
+                fi
+                if [ -n "$new_dir" ]; then
+                    if [ ! -d "$new_dir" ]; then
+                        echo -e "${YELLOW}Directory does not exist: $new_dir${NC}"
+                        read -r -p "Would you like to create this directory? [y/N]: " create_ans
+                        if [[ "$create_ans" =~ ^[yY] ]]; then
+                            mkdir -p "$new_dir" 2>/dev/null && echo -e "${GREEN}Created directory: $new_dir${NC}" || echo -e "${RED}Failed to create directory.${NC}"
+                        fi
+                    fi
+                    if [ -d "$new_dir" ]; then
+                        target_dir="$new_dir"
+                        echo -e "${GREEN}✓ Monitored directory set to: $target_dir${NC}"
+                        read -r -p "Also set this as the default WAN2GP_OUTPUTS in config.env? [y/N]: " save_ans
+                        if [[ "$save_ans" =~ ^[yY] ]]; then
+                            save_config_setting "WAN2GP_OUTPUTS" "$target_dir"
+                            WAN2GP_OUTPUTS="$target_dir"
+                            export WAN2GP_OUTPUTS
+                            echo -e "${GREEN}✓ Saved to config.env as WAN2GP_OUTPUTS.${NC}"
+                        fi
+                        sleep 1.2
+                    else
+                        echo -e "${RED}Path is not a valid directory.${NC}"
+                        sleep 1.5
+                    fi
+                fi
+                ;;
+            4)
+                if [ -n "$target_dir" ] && [ -d "$target_dir" ]; then
+                    save_config_setting "WAN2GP_OUTPUTS" "$target_dir"
+                    WAN2GP_OUTPUTS="$target_dir"
+                    export WAN2GP_OUTPUTS
+                    echo -e "\n${GREEN}✓ Successfully saved WAN2GP_OUTPUTS=\"$target_dir\" to config.env!${NC}"
+                    sleep 1.5
+                else
+                    echo -e "\n${RED}Current target directory is invalid or not found.${NC}"
+                    sleep 1.5
+                fi
+                ;;
+            0|[qQ]|[eE][xX][iI][tT])
+                return 0
+                ;;
+            *)
+                echo -e "\n${RED}Invalid option!${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+
 
 configure_wan2gp_directories() {
     clear
@@ -5459,10 +5603,11 @@ manage_wan2gp() {
         echo -e "  ${BOLD}${CYAN}23)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${GREEN}Clean Base / Video+Audio${NC}]"
         echo -e "  ${BOLD}${CYAN}24)${NC} Scan & Remove Byte-for-Byte Duplicate Images (${GREEN}remove_duplicate_images.py${NC})"
         echo -e "  ${BOLD}${CYAN}25)${NC} Text to Speech (TTS) Batch Converter & Audio Player (${GREEN}wan2gp_tts_batch.py${NC})"
+        echo -e "  ${BOLD}${CYAN}26)${NC} MP Video Image Directory Output Monitor (FLUX / LTX / WAN2GP)"
         echo -e "  ${BOLD}${CYAN}C)${NC}  ${YELLOW}Configure / Change Output & Batch Directory Paths${NC}"
-        echo -e "  ${BOLD}${CYAN}26)${NC} Return to Main Menu"
+        echo -e "  ${BOLD}${CYAN}27)${NC} Return to Main Menu"
         echo ""
-        read -r -p "Enter choice [1-26, C]: " w_choice
+        read -r -p "Enter choice [1-27, C]: " w_choice
 
         case $w_choice in
             1)
@@ -5580,10 +5725,13 @@ manage_wan2gp() {
             25)
                 run_wan2gp_tts_batch
                 ;;
-            [cC]|config|dirs|0)
+            26|monitor|output-monitor)
+                run_wan2gp_output_monitor
+                ;;
+            [cC]|config|dirs)
                 configure_wan2gp_directories
                 ;;
-            26|[qQ]|[eE][xX][iI][tT])
+            27|[qQ]|[eE][xX][iI][tT]|0)
                 return 0
                 ;;
             *)
@@ -6584,7 +6732,7 @@ manage_ai_models() {
         echo -e "  ${BOLD}${CYAN}5)${NC} Gemini 3.1 Pro (High)                ${GREEN}[gemini-3.1-pro-high]${NC}"
         echo ""
         echo -e "${BOLD}Local Ollama & AI Web Interfaces:${NC}"
-        echo -e "  ${BOLD}${CYAN}6)${NC} Manage Ollama Server & Local Models  ${GREEN}[ollama serve / chat / status]${NC}"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Manage Ollama Server & Local Models  ${GREEN}[ollama serve / chat / voice / status]${NC}"
         echo -e "  ${BOLD}${CYAN}7)${NC} Launch dsh-mobile Web Server         ${GREEN}[http://192.168.1.11:3080]${NC}"
         echo -e "  ${BOLD}${CYAN}8)${NC} Manage DeepSeek Harness Server       ${GREEN}[Start, Stop, Browser, Status]${NC}"
         echo ""
@@ -9248,9 +9396,10 @@ manage_live_monitors() {
         echo -e "  ${BOLD}${CYAN}3)${NC} Launch Live File Transfer Monitor (${GREEN}transfer-monitor${NC})"
         echo -e "  ${BOLD}${CYAN}4)${NC} Launch Chrome Upload Monitor (${GREEN}Podcast Connect / Web Uploads${NC})"
         echo -e "  ${BOLD}${CYAN}5)${NC} View Running Background Tasks (${GREEN}Track and inspect background jobs${NC})"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Live Audio & Video Output Conversion Monitor (${GREEN}MP_Mix_Manager_Audio_File_Output_Monitor.py${NC})"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
         echo ""
-        read -r -p "Enter choice [0-5]: " lm_choice
+        read -r -p "Enter choice [0-6]: " lm_choice
         case "$lm_choice" in
             1)
                 echo -e "\n${BOLD}${YELLOW}Launching Live Tracklist Monitor (Press Ctrl+C to return)...${NC}\n"
@@ -9302,6 +9451,16 @@ manage_live_monitors() {
             5)
                 view_tasks
                 press_enter
+                ;;
+            6)
+                local mon_py="$SCRIPT_DIR/scripts/MP_Mix_Manager_Audio_File_Output_Monitor.py"
+                [ ! -f "$mon_py" ] && mon_py="$SCRIPT_DIR/MP_Mix_Manager_Audio_File_Output_Monitor.py"
+                if [ -f "$mon_py" ]; then
+                    python3 "$mon_py"
+                else
+                    echo -e "${RED}Error: MP_Mix_Manager_Audio_File_Output_Monitor.py not found!${NC}"
+                    press_enter
+                fi
                 ;;
             0|[qQ])
                 return 0
@@ -11607,6 +11766,13 @@ case "$1" in
         launch_wan2gp_terminal "${2:-4.5}"; exit 0 ;;
     --wan2gp-stop)              run_sub_script "wan2gp.sh" stop; exit 0 ;;
     --tts|--wan2gp-tts)         shift; [ "${1:-}" = "25" ] && shift; run_wan2gp_tts_batch "$@"; exit 0 ;;
+    --wan2gp-monitor|--monitor-wan2gp|--output-monitor) shift; run_wan2gp_output_monitor "$@"; exit 0 ;;
+    --audio-monitor|--conversion-monitor|--media-monitor)
+        shift
+        _mon_py="$SCRIPT_DIR/scripts/MP_Mix_Manager_Audio_File_Output_Monitor.py"
+        [ ! -f "$_mon_py" ] && _mon_py="$SCRIPT_DIR/MP_Mix_Manager_Audio_File_Output_Monitor.py"
+        exec python3 "$_mon_py" "$@"
+        ;;
     --split-flac|--flac-split)  shift; split_flac_audio "$@"; exit 0 ;;
     --split-video|--split-mp4|--video-split) shift; split_video_clip "$@"; exit 0 ;;
     --cut-video)                shift; cut_video_clip "$@"; exit 0 ;;
@@ -11624,6 +11790,7 @@ case "$1" in
     --ollama-stop)              run_sub_script "manage_ollama.sh" stop; exit 0 ;;
     --ollama-restart)           run_sub_script "manage_ollama.sh" restart; exit 0 ;;
     --ollama-chat)              shift; run_sub_script "manage_ollama.sh" chat "$@"; exit 0 ;;
+    --ollama-voice|--ollama-voice-chat) shift; run_sub_script "manage_ollama.sh" voice "$@"; exit 0 ;;
     --ollama-logs)              run_sub_script "manage_ollama.sh" logs; exit 0 ;;
     --ollama-status)            run_sub_script "manage_ollama.sh" status; exit 0 ;;
     58) [ -z "$2" ] && manage_ollama || run_sub_script "manage_ollama.sh" "${2/1/start}"; exit 0 ;;

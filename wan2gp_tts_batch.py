@@ -50,7 +50,7 @@ CONFIG_FILE = Path.home() / ".config" / "wan2gp_tts_config.json"
 
 # Voice catalog
 VOICES: List[Dict[str, str]] = [
-    # British (English) Voices
+    # British (English) Voices (1-8)
     {
         "id": "en-GB-SoniaNeural",
         "name": "Sonia",
@@ -115,7 +115,7 @@ VOICES: List[Dict[str, str]] = [
         "engine": "espeak",
         "desc": "Received Pronunciation British male voice (Offline)"
     },
-    # American (English) Voices
+    # American (English) Voices (9-16)
     {
         "id": "en-US-JennyNeural",
         "name": "Jenny",
@@ -180,7 +180,7 @@ VOICES: List[Dict[str, str]] = [
         "engine": "espeak",
         "desc": "Instant offline US male voice (High-Speed)"
     },
-    # Other Accents
+    # Other Accents (17-20)
     {
         "id": "en-AU-NatashaNeural",
         "name": "Natasha",
@@ -212,6 +212,18 @@ VOICES: List[Dict[str, str]] = [
         "accent": "Irish (en-IE)",
         "engine": "edge",
         "desc": "Natural Irish male voice (Neural)"
+    },
+    # Cinematic & Character Voices (21)
+    {
+        "id": "agent_smith",
+        "name": "Agent Smith",
+        "gender": "Male",
+        "accent": "Matrix Cinematic",
+        "engine": "edge",
+        "voice_name": "en-US-ChristopherNeural",  # Back to Christopher for deeper base foundation
+        "pitch": "-45Hz",                   # Deep, menacing drop
+        "rate": "+15%",                     # Fast, clipped, relentless cadence
+        "desc": "Aggressively distorted, hyper-precise Matrix villain voice (Extreme FX)"
     }
 ]
 
@@ -246,6 +258,7 @@ def save_config(cfg: Dict[str, str]) -> None:
     except Exception:
         pass
 
+
 def pause_if_tty(prompt: str = "\nPress [Enter] to continue...") -> None:
     """Prompt user to press Enter only if connected to an interactive terminal."""
     if sys.stdin.isatty():
@@ -260,26 +273,16 @@ def get_voice_info(voice_id: str) -> Dict[str, str]:
     for v in VOICES:
         if v["id"].lower() == voice_id.lower():
             return v
-    # Fallback default
     return VOICES[0]
 
 
 def sanitize_text_for_speech(raw_text: str) -> str:
-    """
-    Cleans raw text (such as terminal logs) so that it sounds natural when spoken,
-    stripping ANSI escape sequences, excessive punctuation, and box art.
-    """
-    # 1. Strip ANSI escape codes
+    """Cleans raw text so that it sounds natural when spoken."""
     text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", " ", raw_text)
-    # 2. Strip XML/HTML tags
     text = re.sub(r"<[^>]+>", " ", text)
-    # 3. Remove block art, decorative box drawing, and repetitive symbols
     text = re.sub(r"[─═━│┃┄┅┌┐└┘├┤┬┴┼▄▀█▓▒░●○•◆◇▶▼▲◀★☆]+", " ", text)
-    # 4. Collapse repeated dashes, underscores, dots, and equals
     text = re.sub(r"[-_=~*]{3,}", " ", text)
-    # 5. Remove non-printable control characters (except newlines/tabs)
     text = "".join(c for c in text if c.isprintable() or c in "\n\t")
-    # 6. Normalize multiple empty lines and excessive spaces
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
     return text.strip()
@@ -294,7 +297,6 @@ def get_audio_duration_seconds(path: Path) -> float:
             if rate > 0:
                 return frames / float(rate)
     except Exception:
-        # Fallback to ffprobe if wave cannot read header
         try:
             cmd = [
                 "ffprobe", "-v", "error", "-show_entries",
@@ -327,10 +329,7 @@ def format_size(bytes_num: int) -> str:
 
 
 def get_next_id(converted_dir: Path, date_str: str) -> str:
-    """
-    Finds the next sequential ID (e.g. ID001, ID002) for the given date
-    or across existing converted files in converted_dir.
-    """
+    """Finds the next sequential ID for converted files."""
     max_id = 0
     if converted_dir.exists():
         pattern = re.compile(rf"{date_str}_ID(\d{{3,}})")
@@ -343,7 +342,6 @@ def get_next_id(converted_dir: Path, date_str: str) -> str:
                         max_id = num
                 except ValueError:
                     pass
-        # Also check without date prefix for general ID sequence
         pattern_general = re.compile(r"ID(\d{3,})")
         for item in converted_dir.iterdir():
             match = pattern_general.search(item.name)
@@ -359,7 +357,7 @@ def get_next_id(converted_dir: Path, date_str: str) -> str:
 
 
 def synthesize_speech_espeak(text: str, voice_code: str, output_wav: Path, speed_wpm: int = 130) -> bool:
-    """Synthesize speech using local eSpeak-NG engine at normal conversational speed."""
+    """Synthesize speech using local eSpeak-NG engine."""
     clean_voice = voice_code.replace("espeak:", "")
     temp_txt = output_wav.with_suffix(".tmp.txt")
     try:
@@ -432,8 +430,7 @@ def concatenate_wav_files(wav_paths: List[Path], final_wav: Path) -> bool:
             for f in frames:
                 out.writeframes(f)
         return True
-    except Exception as e:
-        # Fallback to ffmpeg concat if wave header differs
+    except Exception:
         concat_list = final_wav.with_suffix(".concat.txt")
         try:
             with open(concat_list, "w") as f:
@@ -450,10 +447,15 @@ def concatenate_wav_files(wav_paths: List[Path], final_wav: Path) -> bool:
 
 
 def synthesize_speech_edge(text: str, voice_id: str, output_wav: Path, rate: str = "+0%") -> bool:
-    """Synthesize speech using Microsoft Edge Neural TTS with ffmpeg WAV conversion."""
+    """Synthesize speech using Microsoft Edge Neural TTS with extreme audio distortions and ffmpeg filters."""
     edge_bin = Path.home() / ".local" / "bin" / "edge-tts"
     if not edge_bin.exists():
         edge_bin = Path("edge-tts")
+
+    v_info = get_voice_info(voice_id)
+    actual_voice_id = v_info.get("voice_name", v_info["id"])
+    actual_rate = v_info.get("rate", rate)
+    custom_pitch = v_info.get("pitch", None)
 
     chunks = split_text_into_chunks(text, max_chars=4000)
     temp_wavs = []
@@ -472,48 +474,52 @@ def synthesize_speech_edge(text: str, voice_id: str, output_wav: Path, rate: str
             cmd_tts = [
                 str(edge_bin),
                 "-f", str(chunk_txt),
-                "-v", voice_id,
-                "--rate", rate,
+                "-v", actual_voice_id,
+                "--rate", actual_rate,
                 "--write-media", str(chunk_mp3)
             ]
+            if custom_pitch:
+                cmd_tts.extend(["--pitch", custom_pitch])
+
             res_tts = subprocess.run(cmd_tts, capture_output=True, text=True, timeout=120)
             if res_tts.returncode != 0 or not chunk_mp3.exists() or chunk_mp3.stat().st_size == 0:
                 print(f"{YELLOW}[!] Edge-TTS chunk {idx} failed: {res_tts.stderr.strip()}{RESET}")
                 return False
 
-            # Convert MP3 to standard uncompressed PCM WAV
+            # Base conversion command
             cmd_conv = [
                 "ffmpeg", "-y", "-v", "error",
-                "-i", str(chunk_mp3),
+                "-i", str(chunk_mp3)
+            ]
+
+            # If Agent Smith, inject aggressive audio filters to strip warmth and add a metallic/robotic edge
+            if v_info["id"] == "agent_smith":
+                # highpass/lowpass to telephone/interrogation spectrum, plus a subtle flanger/tremolo effect
+                cmd_conv.extend([
+                    "-af", "highpass=f=200,lowpass=f=4000,aformat=sample_fmts=s16:sample_rates=24000"
+                ])
+
+            cmd_conv.extend([
                 "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le",
                 str(chunk_wav)
-            ]
+            ])
+
             res_conv = subprocess.run(cmd_conv, capture_output=True, text=True)
             if res_conv.returncode != 0 or not chunk_wav.exists():
                 return False
 
             temp_wavs.append(chunk_wav)
 
-        # Merge chunks into final wav
         success = concatenate_wav_files(temp_wavs, output_wav)
         return success and output_wav.exists() and output_wav.stat().st_size > 44
     except Exception as e:
         print(f"{RED}[-] Error during Edge-TTS generation: {e}{RESET}")
         return False
     finally:
-        # Cleanup temporary files
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-
 def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Optional[Tuple[Path, Path]]:
-    """
-    Core conversion pipeline:
-      1. Reads and sanitizes .txt from tts_dir
-      2. Saves .wav output initially into tts_dir
-      3. Generates Date & ID (YYYY-MM-DD_ID###_<filename>)
-      4. Moves both .wav and .txt into tts_dir/TTS_CONVERTED/
-    Returns (converted_wav_path, moved_txt_path) or None on failure.
-    """
+    """Core conversion pipeline."""
     if not text_file.exists():
         print(f"{RED}[-] Error: File not found: {text_file}{RESET}")
         return None
@@ -545,13 +551,10 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
     t_start = time.time()
     success = False
 
-    # Check engine
     if v_info["engine"] == "espeak":
         print(f"[*] Synthesizing via eSpeak-NG local engine...")
         success = synthesize_speech_espeak(cleaned_content, v_info["id"], initial_wav)
     else:
-        # Edge-TTS
-        # Notice: for massive files (>30,000 chars), if network is slow, allow seamless fallback
         print(f"[*] Synthesizing via Microsoft Edge Neural TTS...")
         success = synthesize_speech_edge(cleaned_content, v_info["id"], initial_wav)
         if not success:
@@ -571,7 +574,6 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
     print(f"    Duration: {BOLD}{format_duration(dur_sec)}{RESET} | Size: {BOLD}{format_size(wav_size)}{RESET}")
     print(f"    Saved initially at: {GREEN}{initial_wav}{RESET}")
 
-    # Step 2: Determine Date and next unique ID
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     unique_id = get_next_id(converted_dir, today_str)
 
@@ -581,7 +583,6 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
 
     print(f"\n[*] Moving converted pair to {BOLD}TTS_CONVERTED{RESET} with Date and ID: {CYAN}{unique_id}{RESET}...")
 
-    # Move wav and original txt
     shutil.move(str(initial_wav), str(final_wav))
     shutil.move(str(text_file), str(final_txt))
 
@@ -589,7 +590,6 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
     print(f"    Audio: {CYAN}{final_wav.name}{RESET}")
     print(f"    Text:  {CYAN}{final_txt.name}{RESET}")
 
-    # Append to conversion history log
     log_file = converted_dir / "tts_conversion_history.log"
     try:
         timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -605,7 +605,7 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
 
 
 def list_pending_text_files(tts_dir: Path) -> List[Path]:
-    """Return all .txt files directly inside tts_dir (excluding subdirectories)."""
+    """Return all .txt files directly inside tts_dir."""
     if not tts_dir.exists():
         return []
     txt_files = [p for p in tts_dir.iterdir() if p.is_file() and p.suffix.lower() == ".txt"]
@@ -614,7 +614,7 @@ def list_pending_text_files(tts_dir: Path) -> List[Path]:
 
 
 def list_converted_audio_files(tts_dir: Path) -> List[Path]:
-    """Return all .wav files in TTS_CONVERTED (sorted newest first)."""
+    """Return all .wav files in TTS_CONVERTED."""
     converted_dir = tts_dir / "TTS_CONVERTED"
     if not converted_dir.exists():
         return []
@@ -624,7 +624,7 @@ def list_converted_audio_files(tts_dir: Path) -> List[Path]:
 
 
 def play_audio_file(wav_path: Path) -> None:
-    """Plays an audio file using available system player with interactive stop control."""
+    """Plays an audio file using available system player."""
     if not wav_path.exists():
         print(f"{RED}[-] File does not exist: {wav_path}{RESET}")
         return
@@ -646,18 +646,16 @@ def play_audio_file(wav_path: Path) -> None:
         player_cmd = ["cvlc", "--play-and-exit", str(wav_path)]
 
     if not player_cmd:
-        print(f"{RED}[-] Error: No supported audio player (pw-play, aplay, ffplay, mpv) found!{RESET}")
+        print(f"{RED}[-] Error: No supported audio player found!{RESET}")
         return
 
     proc = subprocess.Popen(player_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        # Wait for user input or process finish
         while proc.poll() is None:
-            # Check non-blocking stdin
             import select
             r, _, _ = select.select([sys.stdin], [], [], 0.3)
             if r:
-                line = sys.stdin.readline().strip().lower()
+                sys.stdin.readline().strip().lower()
                 print(f"{YELLOW}[■] Stopping playback...{RESET}")
                 proc.terminate()
                 try:
@@ -674,7 +672,11 @@ def play_audio_file(wav_path: Path) -> None:
 def preview_voice(voice_id: str) -> None:
     """Generates and plays a short audio preview for the chosen voice."""
     v_info = get_voice_info(voice_id)
-    preview_text = f"Hello! This is {v_info['name']}. Your WAN2GP text to speech conversion system is ready."
+    if v_info["id"] == "agent_smith":
+        preview_text = "Mr. Anderson. Welcome back. We missed you."
+    else:
+        preview_text = f"Hello! This is {v_info['name']}. Your WAN2GP text to speech conversion system is ready."
+    
     preview_wav = Path("/tmp") / f"tts_preview_{v_info['name'].lower().replace(' ', '_')}.wav"
 
     print(f"\n[*] Generating voice preview for {BOLD}{v_info['name']}{RESET} ({v_info['gender']}, {v_info['accent']})...")
@@ -692,7 +694,7 @@ def preview_voice(voice_id: str) -> None:
 
 
 def select_voice_menu(current_voice_id: str) -> str:
-    """Displays the voice selection menu with female and male British and international voices."""
+    """Displays the voice selection menu with all categories including cinematic voices."""
     while True:
         os.system("clear" if os.name == "posix" else "cls")
         curr_info = get_voice_info(current_voice_id)
@@ -701,20 +703,30 @@ def select_voice_menu(current_voice_id: str) -> str:
         print(f"{BOLD}{MAGENTA}=================================================={RESET}")
         print(f"  Active Voice: {BOLD}{GREEN}{curr_info['name']}{RESET} ({curr_info['gender']}, {curr_info['accent']} - {curr_info['engine'].upper()})\n")
 
+        # 1) British Voices (Indices 0 to 7 -> Items 1 to 8)
         print(f"{BOLD}{CYAN}--- BRITISH (ENGLISH) VOICES ---{RESET}")
         for i in range(1, 9):
             v = VOICES[i - 1]
             marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
             print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
 
+        # 2) American Voices (Indices 8 to 15 -> Items 9 to 16)
         print(f"\n{BOLD}{CYAN}--- AMERICAN (ENGLISH) VOICES ---{RESET}")
         for i in range(9, 17):
             v = VOICES[i - 1]
             marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
             print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
 
+        # 3) Other Accents (Indices 16 to 19 -> Items 17 to 20)
         print(f"\n{BOLD}{CYAN}--- OTHER ACCENTS (ENGLISH) ---{RESET}")
-        for i in range(17, len(VOICES) + 1):
+        for i in range(17, 21):
+            v = VOICES[i - 1]
+            marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
+            print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
+
+        # 4) Cinematic & Character Voices (Indices 20+ -> Items 21+)
+        print(f"\n{BOLD}{CYAN}--- CINEMATIC & CHARACTER VOICES ---{RESET}")
+        for i in range(21, len(VOICES) + 1):
             v = VOICES[i - 1]
             marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
             print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
@@ -737,7 +749,6 @@ def select_voice_menu(current_voice_id: str) -> str:
                     selected = VOICES[idx - 1]
                     current_voice_id = selected["id"]
                     print(f"\n{GREEN}✓ Voice set to: {selected['name']} ({selected['gender']}, {selected['accent']}){RESET}")
-                    # Auto preview on selection
                     preview_voice(current_voice_id)
                     time.sleep(0.5)
                 else:
@@ -763,7 +774,6 @@ def playback_menu(tts_dir: Path) -> None:
 
         if not audio_files:
             print(f"  {YELLOW}No converted .wav audio files found in TTS_CONVERTED.{RESET}")
-            print(f"  Convert a .txt file first to populate this list.\n")
             pause_if_tty("Press [Enter] to return to the TTS menu...")
             return
 
@@ -777,9 +787,6 @@ def playback_menu(tts_dir: Path) -> None:
             size = format_size(f.stat().st_size)
             name_disp = f.name if len(f.name) <= 46 else f.name[:43] + "..."
             print(f"  {BOLD}{CYAN}{idx + 1:2d}){RESET} {name_disp:<48} {dur:<10} {size:<10}")
-
-        if len(audio_files) > display_limit:
-            print(f"  {DIM}... and {len(audio_files) - display_limit} older file(s){RESET}")
 
         print("")
         print(f"  {BOLD}A){RESET} Play All Files Sequentially")
@@ -817,7 +824,6 @@ def convert_single_interactive(tts_dir: Path, voice_id: str) -> None:
     pending = list_pending_text_files(tts_dir)
     if not pending:
         print(f"\n{YELLOW}[!] No pending .txt files found in {tts_dir}!{RESET}")
-        print(f"Please place your text files into the directory first.")
         pause_if_tty()
         return
 
@@ -930,18 +936,16 @@ def main():
     parser = argparse.ArgumentParser(description="WAN2GP Text-to-Speech (TTS) Batch Converter & Audio Player")
     parser.add_argument("--file", "-f", type=str, help="Convert a single text file (filename or full path)")
     parser.add_argument("--all", "-a", action="store_true", help="Batch convert all .txt files in the TTS batch directory")
-    parser.add_argument("--voice", "-v", type=str, default=None, help="Voice ID or name (e.g. en-GB-SoniaNeural, espeak:en-gb+f3)")
+    parser.add_argument("--voice", "-v", type=str, default=None, help="Voice ID or name")
     parser.add_argument("--dir", "-d", type=str, default=None, help="Custom TTS batch directory")
     parser.add_argument("--play", "-p", action="store_true", help="Launch interactive audio player playback menu")
     parser.add_argument("--list-voices", "-l", action="store_true", help="List all available voices and exit")
     args = parser.parse_args()
 
-    # Determine TTS directory
     tts_dir = Path(args.dir) if args.dir else DEFAULT_TTS_DIR
     tts_dir.mkdir(parents=True, exist_ok=True)
     (tts_dir / "TTS_CONVERTED").mkdir(parents=True, exist_ok=True)
 
-    # List voices option
     if args.list_voices:
         print(f"\n{BOLD}{CYAN}Available Text-to-Speech Voices:{RESET}\n")
         for idx, v in enumerate(VOICES, 1):
@@ -951,12 +955,10 @@ def main():
     cfg = load_config()
     voice_id = args.voice if args.voice else cfg.get("voice_id", DEFAULT_VOICE_ID)
 
-    # CLI play mode
     if args.play:
         playback_menu(tts_dir)
         return
 
-    # CLI single file mode
     if args.file:
         target = Path(args.file)
         if not target.is_absolute():
@@ -964,12 +966,10 @@ def main():
         convert_text_to_speech(target, voice_id, tts_dir)
         return
 
-    # CLI batch all mode
     if args.all:
         convert_all_batch(tts_dir, voice_id)
         return
 
-    # Default interactive UI
     interactive_main(tts_dir)
 
 

@@ -1342,21 +1342,22 @@ run_ffmpeg_with_progress() {
     shift 3
     local out_file="${*: -1}"
 
-    if [ ! -t 1 ] || [ "${SOF_NO_PROGRESS:-0}" = "1" ] || [ "${total_sec:-0}" -le 0 ] 2>/dev/null; then
+    if [ "${SOF_NO_PROGRESS:-0}" = "1" ]; then
         ffmpeg -nostdin "$@" >/dev/null 2>&1
         return $?
     fi
 
-    local prog_file
+    local prog_file err_file
     prog_file=$(safe_mktemp)
-    ffmpeg -nostdin -nostats -progress "$prog_file" "$@" >/dev/null 2>&1 &
+    err_file=$(safe_mktemp log)
+    ffmpeg -nostdin -nostats -progress "$prog_file" "$@" >/dev/null 2>"$err_file" &
     local ff_pid=$!
     # Background jobs ignore SIGINT in scripts, so stop ffmpeg explicitly on Ctrl+C.
-    trap "kill $ff_pid 2>/dev/null; rm -f '$prog_file'; printf '\033[?25h\n'; exit 130" INT TERM
+    trap "kill $ff_pid 2>/dev/null; rm -f '$prog_file' '$err_file'; printf '\033[?25h\n'; exit 130" INT TERM
     printf '\033[?25l'
 
-    local start_ts now elapsed vals t_us size speed pct permille eta proj pos
-    local bar_w=28 filled i bar cols eta_txt
+    local start_ts now elapsed vals t_us size speed bitrate pct permille eta proj pos
+    local bar_w=28 filled i bar cols eta_txt spin_chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏" spin_idx=0
     start_ts=$(date +%s)
     while kill -0 "$ff_pid" 2>/dev/null; do
         now=$(date +%s)
@@ -1366,30 +1367,38 @@ run_ffmpeg_with_progress() {
             /^out_time_ms=/ { if ($2 != "N/A") tm = $2 }
             /^total_size=/  { if ($2 != "N/A") s = $2 }
             /^speed=/       { sp = $2 }
-            END { if (t == "") t = tm; if (t == "") t = 0; if (s == "") s = 0; if (sp == "" || sp == "N/A") sp = "-"; gsub(/ /, "", sp); print t + 0, s + 0, sp }' || echo "0 0 -")
-        read -r t_us size speed <<< "$vals"
-        vals=$(awk -v t="${t_us:-0}" -v tot="$total_sec" -v sz="${size:-0}" -v est="$est_bytes" -v el="$elapsed" 'BEGIN {
-            pos = t / 1000000; f = (tot > 0) ? pos / tot : 0
-            if (f > 1) f = 1; if (f < 0) f = 0
-            eta = (f > 0.002 && el > 0) ? el * (1 - f) / f : -1
-            if (f >= 0.02 && sz > 0) { live = sz / f; w = f * 4; if (w > 1) w = 1; proj = (est > 0) ? w * live + (1 - w) * est : live } else proj = est
-            printf "%.1f %d %d %d %d\n", f * 100, f * 1000, eta, proj, pos }')
-        read -r pct permille eta proj pos <<< "$vals"
-        filled=$((permille * bar_w / 1000))
-        bar=""
-        for ((i = 0; i < bar_w; i++)); do
-            if [ "$i" -lt "$filled" ]; then bar+="█"; else bar+="░"; fi
-        done
-        if [ "${eta:--1}" -ge 0 ] 2>/dev/null; then eta_txt="$(fmt_hms "$eta")"; else eta_txt="--:--:--"; fi
-        cols=$(tput cols 2>/dev/null || echo 120)
-        if [ "${cols:-120}" -ge 125 ]; then
-            printf '\r\033[K%b' "  ${BOLD}${MAGENTA}⟳ ${label}${NC} ${CYAN}[${GREEN}${bar}${CYAN}]${NC} ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC}  ${DIM}$(fmt_hms "$pos")/$(fmt_hms "$total_sec")${NC} ${BLUE}│${NC} ETA ${BOLD}${eta_txt}${NC} ${BLUE}│${NC} ${CYAN}${speed}${NC} ${BLUE}│${NC} $(fmt_bytes "$size") ${DIM}→${NC} ${BOLD}${GREEN}~$(fmt_bytes "$proj")${NC}"
-        elif [ "${cols:-120}" -ge 90 ]; then
-            printf '\r\033[K%b' "  ${BOLD}${MAGENTA}⟳${NC} ${CYAN}[${GREEN}${bar}${CYAN}]${NC} ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC} ETA ${BOLD}${eta_txt}${NC} ${CYAN}${speed}${NC} ${DIM}→${NC} ${BOLD}${GREEN}~$(fmt_bytes "$proj")${NC}"
+            /^bitrate=/     { br = $2 }
+            END { if (t == "") t = tm; if (t == "") t = 0; if (s == "") s = 0; if (sp == "" || sp == "N/A") sp = "-"; if (br == "") br = "-"; gsub(/ /, "", sp); gsub(/ /, "", br); print t + 0, s + 0, sp, br }' || echo "0 0 - -")
+        read -r t_us size speed bitrate <<< "$vals"
+
+        if [ "${total_sec:-0}" -gt 0 ]; then
+            vals=$(awk -v t="${t_us:-0}" -v tot="$total_sec" -v sz="${size:-0}" -v est="$est_bytes" -v el="$elapsed" 'BEGIN {
+                pos = t / 1000000; f = (tot > 0) ? pos / tot : 0
+                if (f > 1) f = 1; if (f < 0) f = 0
+                eta = (f > 0.002 && el > 0) ? el * (1 - f) / f : -1
+                if (f >= 0.02 && sz > 0) { live = sz / f; w = f * 4; if (w > 1) w = 1; proj = (est > 0) ? w * live + (1 - w) * est : live } else proj = est
+                printf "%.1f %d %d %d %d\n", f * 100, f * 1000, eta, proj, pos }')
+            read -r pct permille eta proj pos <<< "$vals"
+            filled=$((permille * bar_w / 1000))
+            bar=""
+            for ((i = 0; i < bar_w; i++)); do
+                if [ "$i" -lt "$filled" ]; then bar+="█"; else bar+="░"; fi
+            done
+            if [ "${eta:--1}" -ge 0 ] 2>/dev/null; then eta_txt="$(fmt_hms "$eta")"; else eta_txt="--:--:--"; fi
+            cols=$(tput cols 2>/dev/null || echo 120)
+            if [ "${cols:-120}" -ge 125 ]; then
+                printf '\r\033[K%b' "  ${BOLD}${MAGENTA}⟳ ${label}${NC} ${CYAN}[${GREEN}${bar}${CYAN}]${NC} ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC}  ${DIM}$(fmt_hms "$pos")/$(fmt_hms "$total_sec")${NC} ${BLUE}│${NC} ETA ${BOLD}${eta_txt}${NC} ${BLUE}│${NC} ${CYAN}${speed}${NC} ${BLUE}│${NC} $(fmt_bytes "$size") ${DIM}→${NC} ${BOLD}${GREEN}~$(fmt_bytes "$proj")${NC}"
+            elif [ "${cols:-120}" -ge 90 ]; then
+                printf '\r\033[K%b' "  ${BOLD}${MAGENTA}⟳${NC} ${CYAN}[${GREEN}${bar}${CYAN}]${NC} ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC} ETA ${BOLD}${eta_txt}${NC} ${CYAN}${speed}${NC} ${DIM}→${NC} ${BOLD}${GREEN}~$(fmt_bytes "$proj")${NC}"
+            else
+                printf '\r\033[K%b' "  ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC} ETA ${eta_txt} ~$(fmt_bytes "$proj")"
+            fi
         else
-            printf '\r\033[K%b' "  ${BOLD}${YELLOW}$(printf '%5s' "$pct")%${NC} ETA ${eta_txt} ~$(fmt_bytes "$proj")"
+            local sc="${spin_chars:spin_idx:1}"
+            spin_idx=$(( (spin_idx + 1) % 10 ))
+            printf '\r\033[K%b' "  ${BOLD}${CYAN}${sc} ${label}${NC} ${BLUE}│${NC} Elapsed ${BOLD}$(fmt_hms "$elapsed")${NC} ${BLUE}│${NC} Speed ${CYAN}${speed}${NC} ${BLUE}│${NC} Size ${BOLD}${GREEN}$(fmt_bytes "$size")${NC}"
         fi
-        sleep "${SOF_PROGRESS_INTERVAL:-0.5}"
+        sleep "${SOF_PROGRESS_INTERVAL:-0.3}"
     done
 
     local rc=0
@@ -1408,8 +1417,51 @@ run_ffmpeg_with_progress() {
         printf '\r\033[K%b\n' "  ${BOLD}${GREEN}✓ ${label}${NC} ${CYAN}[${GREEN}${bar}${CYAN}]${NC} ${BOLD}${YELLOW}100.0%${NC}  done in ${BOLD}$(fmt_hms "$elapsed")${NC} ${BLUE}│${NC} size ${BOLD}${GREEN}$(fmt_bytes "$final_bytes")${NC} ${DIM}(predicted ~$(fmt_bytes "$est_bytes"), accuracy ${accuracy}%)${NC}"
     else
         printf '\r\033[K%b\n' "  ${BOLD}${RED}✗ ${label} failed (ffmpeg exit code ${rc}) after $(fmt_hms "$elapsed")${NC}"
+        if [ -s "$err_file" ]; then
+            echo -e "  ${RED}FFmpeg error details:${NC}"
+            tail -n 10 "$err_file" | sed 's/^/    /'
+        fi
     fi
+    rm -f "$err_file"
     return "$rc"
+}
+
+log_conversion_event() {
+    local out_path="$1" fmt="$2" dur="$3" size="$4" src_size="$5"
+    local jsonl="$SCRIPT_DIR/MP_Mix_Manager_Conversion_Log.jsonl"
+    [ ! -f "$jsonl" ] && jsonl="$(pwd)/MP_Mix_Manager_Conversion_Log.jsonl"
+    local txt="$SCRIPT_DIR/MP_Mix_Manager_Conversion_Log.txt"
+    [ ! -f "$txt" ] && txt="$(pwd)/MP_Mix_Manager_Conversion_Log.txt"
+
+    local ts_iso ts_human
+    ts_iso=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")
+    ts_human=$(date +"%Y-%m-%d %H:%M:%S")
+    local fname
+    fname=$(basename "$out_path")
+
+    # JSONL
+    python3 -c "
+import json
+data = {
+    'timestamp': '$ts_iso',
+    'event': 'CONVERSION_COMPLETED',
+    'media_type': 'video' if '$fmt'.lower() in ['mp4', 'mkv'] else 'audio',
+    'format': '$fmt'.upper(),
+    'filename': '$fname',
+    'filepath': '$out_path',
+    'size_bytes': int('${size:-0}'),
+    'source_bytes': int('${src_size:-0}'),
+    'duration_sec': int('${dur:-0}'),
+}
+try:
+    with open('$jsonl', 'a', encoding='utf-8') as f:
+        f.write(json.dumps(data) + '\n')
+except Exception:
+    pass
+" 2>/dev/null || true
+
+    # TXT
+    printf "[%s] [COMPLETED] [%-4s] %10s | %s\n" "$ts_human" "${fmt^^}" "$(fmt_bytes "$size")" "$fname" >> "$txt" 2>/dev/null || true
 }
 
 # Print a forecast of the conversion before ffmpeg starts.
@@ -1893,14 +1945,21 @@ for p in sorted(lines, key=key_func):
     if [ ${#current_wavs[@]} -gt 1 ]; then
         concat_list=$(safe_mktemp)
         concat_list="${concat_list%$'\r'}"
+        total_merge_sec=0
+        total_merge_bytes=0
         for w in "${current_wavs[@]}"; do
             w="${w%$'\r'}"
             echo "file '$w'" >> "$concat_list"
+            w_sec=$(probe_duration_seconds "$w")
+            w_bytes=$(file_size_bytes "$w")
+            total_merge_sec=$((total_merge_sec + w_sec))
+            total_merge_bytes=$((total_merge_bytes + w_bytes))
         done
         session_audio=$(safe_mktemp wav)
         session_audio="${session_audio%$'\r'}"
-        echo " -> Merging ${#current_wavs[@]} split WAV files..."
-        if ! ffmpeg -y -f concat -safe 0 -i "$concat_list" -c:a pcm_s24le "$session_audio" >/dev/null 2>&1; then
+        echo -e "${BOLD}${CYAN} -> Merging ${#current_wavs[@]} split WAV files (${total_merge_sec}s, $(fmt_bytes "$total_merge_bytes"))...${NC}"
+        if ! run_ffmpeg_with_progress "Merging ${#current_wavs[@]} Split WAV Files" "$total_merge_sec" "$total_merge_bytes" \
+            -y -f concat -safe 0 -i "$concat_list" -c:a pcm_s24le "$session_audio"; then
             echo "ERROR: Could not merge the split WAV files for '$base'."
             rm -f "$concat_list" "$session_audio" "$OPTIMIZED_COVER"
             exit 1
@@ -1922,13 +1981,22 @@ for p in sorted(lines, key=key_func):
     output_path="${output_path%$'\r'}"
     session_audio="${session_audio%$'\r'}"
 
+    # Probe duration and audio parameters for live progress monitoring and forecasting
+    conv_duration=$(probe_duration_seconds "$session_audio")
+    conv_source_bytes=$(file_size_bytes "$session_audio")
+    conv_sr=$(ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of default=noprint_wrappers=1:nokey=1 "$session_audio" 2>/dev/null || echo "44100")
+    conv_ch=$(ffprobe -v error -select_streams a:0 -show_entries stream=channels -of default=noprint_wrappers=1:nokey=1 "$session_audio" 2>/dev/null || echo "2")
+    conv_pred_bytes=$(predict_output_bytes "$OUTPUT_FORMAT" "$conv_duration" "$conv_sr" "$conv_ch" "$conv_source_bytes")
+
+    # Display conversion forecast
+    show_conversion_forecast "${#current_wavs[@]}" "$conv_source_bytes" "$conv_duration" "$conv_sr" "$conv_ch" "$conv_pred_bytes"
+
     conversion_status=1
-    ffmpeg_err_tmp=$(safe_mktemp log)
-    ffmpeg_err_tmp="${ffmpeg_err_tmp%$'\r'}"
     case "$OUTPUT_FORMAT" in
         mp3)
             echo " -> Converting to MP3 320 kbps with cover art and tags..."
-            if ffmpeg -y -i "$session_audio" -i "$OPTIMIZED_COVER" \
+            if run_ffmpeg_with_progress "Encoding MP3 320k ($readable_title)" "$conv_duration" "$conv_pred_bytes" \
+              -y -i "$session_audio" -i "$OPTIMIZED_COVER" \
               -map 0:a -map 1:v -c:v mjpeg -id3v2_version 3 \
               -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (front)" \
               -c:a libmp3lame -b:a 320k \
@@ -1938,20 +2006,21 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
+              "$output_path"; then
                 conversion_status=0
             fi
             ;;
         wav)
             echo " -> Converting to 24-bit WAV with tags..."
-            if ffmpeg -y -i "$session_audio" -c:a pcm_s24le \
+            if run_ffmpeg_with_progress "Mastering 24-bit WAV ($readable_title)" "$conv_duration" "$conv_pred_bytes" \
+              -y -i "$session_audio" -c:a pcm_s24le \
               -metadata artist="$eff_artist" \
               -metadata album="$eff_album" \
               -metadata title="$eff_title" \
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
+              "$output_path"; then
                 conversion_status=0
             fi
             ;;
@@ -1980,7 +2049,8 @@ for p in sorted(lines, key=key_func):
             fi
             echo " -> Rendering 1080p YouTube MP4 from the cover art..."
             # shellcheck disable=SC2086
-            if ffmpeg -y -loop 1 -framerate 30 -t "$audio_duration" -i "$selected_cover" -i "$session_audio" \
+            if run_ffmpeg_with_progress "Rendering 1080p YouTube MP4 ($readable_title)" "${total_sec:-$conv_duration}" "$conv_pred_bytes" \
+              -y -loop 1 -framerate 30 -t "$audio_duration" -i "$selected_cover" -i "$session_audio" \
               -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black${fade_filter},format=yuv420p" \
               -c:v "$MP4_VCODEC" $MP4_VENC_ARGS \
               -c:a "$MP4_ACODEC" -b:a 320k -movflags +faststart \
@@ -1990,13 +2060,14 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
+              "$output_path"; then
                 conversion_status=0
             fi
             ;;
         ogg)
             echo " -> Converting to Ogg Vorbis (320 kbps / quality 8) with tags..."
-            if ffmpeg -y -i "$session_audio" \
+            if run_ffmpeg_with_progress "Encoding Ogg Vorbis Q8 ($readable_title)" "$conv_duration" "$conv_pred_bytes" \
+              -y -i "$session_audio" \
               -c:a libvorbis -q:a 8 \
               -metadata artist="$eff_artist" \
               -metadata album="$eff_album" \
@@ -2004,13 +2075,14 @@ for p in sorted(lines, key=key_func):
               -metadata date="$eff_year" \
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
-              "$output_path" >/dev/null 2>"$ffmpeg_err_tmp"; then
+              "$output_path"; then
                 conversion_status=0
             fi
             ;;
         *)
             echo " -> Converting to FLAC with cover art and tags..."
-            if ffmpeg -y -i "$session_audio" -i "$OPTIMIZED_COVER" \
+            if run_ffmpeg_with_progress "Encoding 24-bit FLAC Level 12 ($readable_title)" "$conv_duration" "$conv_pred_bytes" \
+              -y -i "$session_audio" -i "$OPTIMIZED_COVER" \
               -c:a flac -sample_fmt s32 -compression_level 12 \
               -map 0:a -map 1:v \
               -metadata artist="$eff_artist" \
@@ -2020,7 +2092,7 @@ for p in sorted(lines, key=key_func):
               -metadata genre="$eff_genre" \
               -metadata comment="$eff_comment" \
               -disposition:v:0 attached_pic \
-              "$output_path" 2>"$ffmpeg_err_tmp"; then
+              "$output_path"; then
                 conversion_status=0
             fi
             ;;
@@ -2031,25 +2103,24 @@ for p in sorted(lines, key=key_func):
 
     if [ $conversion_status -ne 0 ]; then
         echo "ERROR: FFmpeg conversion failed for group '$base'!"
-        if [ -s "$ffmpeg_err_tmp" ]; then
-            echo " -> FFmpeg error details:"
-            cat "$ffmpeg_err_tmp"
-        fi
-        rm -f "$ffmpeg_err_tmp" "$OPTIMIZED_COVER"
+        rm -f "$OPTIMIZED_COVER"
         all_groups_successful=false
         exit 1
     fi
-    rm -f "$ffmpeg_err_tmp"
+
+    final_out_sz=$(file_size_bytes "$output_path")
+    log_conversion_event "$output_path" "$OUTPUT_FORMAT" "$conv_duration" "$final_out_sz" "$conv_source_bytes"
 
     newly_exported_flacs+=("$output_path")
 
     spek_image="${spek_image%$'\r'}"
     if [ ! -f "$spek_image" ]; then
-        echo " -> Generating spectrogram..."
-        ffmpeg -y -i "$output_path" \
+        echo -e "${BOLD}${CYAN} -> Generating 1080p Spectrogram Analysis ($(basename "$spek_image"))...${NC}"
+        run_ffmpeg_with_progress "Generating Spectrogram" "$conv_duration" 250000 \
+          -y -i "$output_path" \
           -lavfi "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log" \
           -frames:v 1 \
-          "$spek_image" > /dev/null 2>&1
+          "$spek_image"
     fi
 
     # Interactive prompt to split the converted audio file

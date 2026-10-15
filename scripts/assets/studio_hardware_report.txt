@@ -1,0 +1,33 @@
+======================================================================
+             STUDIO HARDWARE & AUDIO SOFTWARE DIAGNOSTIC              
+               Generated: 2026-10-14 23:04:09.908111
+======================================================================
+
+[1] AUDIO SUBSYSTEM & DRIVERS:
+  Server Engine:     PipeWire (WirePlumber Session Manager)
+  Current Volume:    Volume: 0.90
+  Default Sink:      Unknown
+  ALSA Physical Cards:
+    • 0 [MPKmini2       ]: USB-Audio - MPKmini2 | AKAI MPKmini2 at usb-0000:00:14.0-5.1, full speed
+
+[2] MIDI KEYBOARDS, MIXERS & SURFACE CONTROLLERS (5 Detected):
+   1) MPKmini2 MIDI 1 [Hardware MIDI Port (amidi)] (hw:0,0,0)
+   2) Arturia MiniLab mkII MIDI 1 [Hardware MIDI Port (amidi)] (hw:1,0,0)
+   3) PipeWire-RT-Event [ALSA Sequencer Client] (client 145)
+   4) 0715 AKAI MPKmini2 [USB Surface / Audio Device] (USB)
+   5) c215 Logitech, Inc. Extreme 3D Pro [USB Surface / Audio Device] (USB)
+
+[3] INSTALLED MUSIC & AUDIO APPLICATIONS (11 Detected):
+   1) REAPER                 | Category: DAW                      | Flatpak (fm.reaper.Reaper)
+   2) Audacity               | Category: Audio Editor             | System Binary (/usr/bin/audacity)
+   3) LosslessCut            | Category: Audio/Video Cutter       | Flatpak (no.mifi.losslesscut)
+   4) Spek                   | Category: Acoustic Spectrogram     | Flatpak (cc.spek.Spek)
+   5) SoX                    | Category: Signal Processor & Spectrogram | System Binary (/home/linuxbrew/.linuxbrew/bin/sox)
+   6) cliamp                 | Category: Retro Terminal Player    | System Binary (/home/mplanetarian/.local/bin/cliamp)
+   7) Strawberry             | Category: Hi-Fi Music Player       | System Binary (/home/mplanetarian/.local/bin/strawberry)
+   8) VLC Media Player       | Category: Media Player             | System Binary (/usr/bin/vlc)
+   9) Haruna                 | Category: Media Player             | Flatpak (org.kde.haruna)
+  10) Kodi                   | Category: Media Center             | Flatpak (tv.kodi.Kodi)
+  11) MusicBrainz Picard     | Category: Meta Tag Editor          | System Binary (/home/mplanetarian/.local/bin/picard)
+
+======================================================================

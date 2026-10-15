@@ -149,6 +149,9 @@ start_ollama_bg() {
         export OLLAMA_MODELS="${OLLAMA_MODELS:-X:\OLLAMA\models}"
         export OLLAMA_ORIGINS="${OLLAMA_ORIGINS:-*}"
         export OLLAMA_HOST="${OLLAMA_BIND}"
+        export OLLAMA_FLASH_ATTENTION="1"
+        export OLLAMA_KV_CACHE_TYPE="q8_0"
+        export OLLAMA_CONTEXT_LENGTH="16384"
         [ -d "X:/OLLAMA/models" ] || mkdir -p "X:/OLLAMA/models" 2>/dev/null || true
         [ -d "X:/OLLAMA" ] || mkdir -p "X:/OLLAMA" 2>/dev/null || true
 
@@ -164,6 +167,9 @@ start_ollama_bg() {
 set OLLAMA_MODELS=${win_models}
 set OLLAMA_ORIGINS=*
 set OLLAMA_HOST=${OLLAMA_BIND}
+set OLLAMA_FLASH_ATTENTION=1
+set OLLAMA_KV_CACHE_TYPE=q8_0
+set OLLAMA_CONTEXT_LENGTH=16384
 if not exist "${win_models}" mkdir "${win_models}"
 cd /d "X:\OLLAMA"
 "${win_bin}" serve > "${win_log}" 2> "${win_err}"
@@ -178,7 +184,15 @@ EOFBAT
     else
         ensure_container_started
         echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
-        nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env OLLAMA_HOST="${OLLAMA_BIND}" OLLAMA_ORIGINS="*" ollama serve >"$LOG_FILE" 2>&1 &
+        nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env \
+            OLLAMA_HOST="${OLLAMA_BIND}" \
+            OLLAMA_ORIGINS="*" \
+            OLLAMA_FLASH_ATTENTION="1" \
+            OLLAMA_KV_CACHE_TYPE="q8_0" \
+            OLLAMA_CONTEXT_LENGTH="16384" \
+            OLLAMA_GPU_OVERHEAD="1610612736" \
+            OLLAMA_VULKAN="0" \
+            ollama serve >"$LOG_FILE" 2>&1 &
     fi
 
     echo -e "Waiting for Ollama API endpoint to become responsive..."
@@ -510,6 +524,124 @@ run_chat_cli() {
     fi
 }
 
+run_voice_chat_cli() {
+    local target_model="${1:-}"
+
+    if ! is_ollama_running; then
+        echo -e "\n${YELLOW}Ollama server is not running. Starting server first...${NC}"
+        start_ollama_bg
+        sleep 1
+    fi
+
+    echo -e "\n${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}          VOICE CHAT SESSION WITH LOCAL OLLAMA MODELS                 ${NC}"
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+
+    local models=()
+    if is_ollama_running && command -v jq >/dev/null 2>&1; then
+        mapfile -t models < <(curl -s "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null | jq -r '.models[]?.name' 2>/dev/null)
+    fi
+
+    if [ ${#models[@]} -eq 0 ]; then
+        if [ "$OS_TYPE" = "windows" ]; then
+            mapfile -t models < <("$OLLAMA_BIN" list 2>/dev/null | awk 'NR>1 {print $1}')
+        else
+            mapfile -t models < <(distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+        fi
+    fi
+
+    if [ ${#models[@]} -eq 0 ]; then
+        local manifest_dir="X:/OLLAMA/models/manifests"
+        [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        if [ -d "$manifest_dir" ]; then
+            while IFS= read -r mf; do
+                [ -z "$mf" ] && continue
+                local tag="$(basename "$mf")"
+                local parent="$(dirname "$mf")"
+                local mname="$(basename "$parent")"
+                models+=("${mname}:${tag}")
+            done < <(find "$manifest_dir" -type f 2>/dev/null)
+        fi
+    fi
+
+    if [ ${#models[@]} -eq 0 ]; then
+        echo -e "${RED}No local models found in Ollama.${NC}"
+        read -r -p "Press Enter to return..."
+        return 1
+    fi
+
+    local chosen_model="$target_model"
+    if [ -z "$chosen_model" ]; then
+        echo "Select a local model to start voice chat with:"
+        local idx=1
+        for m in "${models[@]}"; do
+            printf "  %2d) %s\n" "$idx" "$m"
+            ((idx++))
+        done
+        echo "   0) Cancel"
+        echo ""
+        read -r -p "Enter choice [1-${#models[@]}]: " m_choice
+        if [ "$m_choice" = "0" ] || [ -z "$m_choice" ]; then
+            return 0
+        fi
+
+        if [[ "$m_choice" =~ ^[0-9]+$ ]] && [ "$m_choice" -ge 1 ] && [ "$m_choice" -le ${#models[@]} ]; then
+            chosen_model="${models[$((m_choice - 1))]}"
+        else
+            echo -e "${RED}Invalid selection.${NC}"
+            sleep 1
+            return 1
+        fi
+    fi
+
+    # Locate Voice Chat Engine (local-voice-talk / local_voice_talk.py)
+    local voice_bin=""
+    for cand in \
+        "$(command -v local-voice-talk 2>/dev/null)" \
+        "$HOME/bin/local-voice-talk" \
+        "/var/home/mplanetarian/bin/local-voice-talk" \
+        "$HOME/.local/bin/local-voice-talk"; do
+        if [ -n "$cand" ] && [ -x "$cand" ]; then
+            voice_bin="$cand"
+            break
+        fi
+    done
+
+    local voice_py="/var/home/mplanetarian/voice-ai/local_voice_talk.py"
+    local voice_venv_py="/var/home/mplanetarian/voice-ai/bin/python"
+
+    local pids
+    pids=$(get_ollama_pids)
+
+    echo -e "\n${BOLD}${GREEN}Starting real-time Voice Chat session with '${chosen_model}'...${NC}"
+    echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
+    echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
+    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + Local Voice AI (Piper / Neural TTS)${NC}"
+    echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /quit to exit${NC}\n"
+    sleep 1
+
+    if [ -n "$voice_bin" ]; then
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model"
+    elif [ -f "$voice_py" ] && [ -x "$voice_venv_py" ]; then
+        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model"
+    elif [ "$OS_TYPE" = "windows" ]; then
+        if command -v local-voice-talk >/dev/null 2>&1; then
+            OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model"
+        elif [ -f "X:/voice-ai/local_voice_talk.py" ]; then
+            python "X:/voice-ai/local_voice_talk.py" --model "$chosen_model"
+        else
+            echo -e "${RED}Error: Voice Chat engine (local-voice-talk) not installed on Windows.${NC}"
+            read -r -p "Press Enter to return..."
+            return 1
+        fi
+    else
+        echo -e "${RED}Error: Voice Chat engine not found!${NC}"
+        echo -e "${YELLOW}Expected executable: ${HOME}/bin/local-voice-talk or ${voice_py}${NC}"
+        read -r -p "Press Enter to return..."
+        return 1
+    fi
+}
+
 view_logs() {
     clear
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
@@ -569,9 +701,10 @@ interactive_menu() {
         echo -e "  ${BOLD}${CYAN} 3)${NC} Stop Running Ollama Server"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Restart Ollama Server"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Chat with a Local Model (Interactive CLI: Qwen, LLaMA...)"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} View Server Log File (${LOG_FILE})"
-        echo -e "  ${BOLD}${CYAN} 7)${NC} Return to Previous Menu\n"
-        read -r -p "Enter choice [1-7, or q to return]: " o_choice
+        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat Session with Local Models (Microphone & Neural Voice)"
+        echo -e "  ${BOLD}${CYAN} 7)${NC} View Server Log File (${LOG_FILE})"
+        echo -e "  ${BOLD}${CYAN} 8)${NC} Return to Previous Menu\n"
+        read -r -p "Enter choice [1-8, or q to return]: " o_choice
 
         case "$o_choice" in
             1)
@@ -598,9 +731,12 @@ interactive_menu() {
                 run_chat_cli
                 ;;
             6)
+                run_voice_chat_cli
+                ;;
+            7)
                 view_logs
                 ;;
-            7|[qQ])
+            8|[qQ])
                 return 0
                 ;;
             *)
@@ -650,6 +786,10 @@ case "${1:-}" in
             run_chat_cli
         fi
         ;;
+    voice|voice-chat|talk|voice-talk)
+        shift
+        run_voice_chat_cli "$@"
+        ;;
     logs)
         view_logs
         ;;
@@ -657,7 +797,7 @@ case "${1:-}" in
         interactive_menu
         ;;
     *)
-        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|logs}"
+        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|voice|logs}"
         exit 1
         ;;
 esac
