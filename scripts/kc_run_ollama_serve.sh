@@ -22,7 +22,14 @@ if ! podman ps --filter "name=ollama-container" --format "{{.Names}}" 2>/dev/nul
 fi
 
 TITLE="Ollama Server (ollama-container)"
-CMD="distrobox enter ollama-container -- env OLLAMA_HOST=0.0.0.0:11434 OLLAMA_ORIGINS=\"*\" ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
+OLLAMA_ENV="LD_LIBRARY_PATH=/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-} OLLAMA_HOST=0.0.0.0:11434 OLLAMA_ORIGINS=* OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=4096 OLLAMA_NUM_PARALLEL=1 OLLAMA_GPU_OVERHEAD=536870912 OLLAMA_VULKAN=0"
+CMD="distrobox enter ollama-container -- env $OLLAMA_ENV ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
+
+if systemctl --user is-enabled ollama.service >/dev/null 2>&1; then
+    systemctl --user restart ollama.service >/dev/null 2>&1 || true
+    notify-send -a "KDE Connect" -i "dialog-ok" "Ollama Server" "✓ Ollama server started via systemd." 2>/dev/null || true
+    exit 0
+fi
 
 if command -v konsole >/dev/null 2>&1; then
     konsole --new-tab -p tabtitle="$TITLE" -e bash -c "$CMD" &
@@ -33,22 +40,5 @@ elif command -v gnome-terminal >/dev/null 2>&1; then
 elif command -v xterm >/dev/null 2>&1; then
     nohup xterm -T "$TITLE" -e bash -c "$CMD" >/dev/null 2>&1 &
 else
-    nohup distrobox enter -T ollama-container -- env OLLAMA_HOST=0.0.0.0:11434 OLLAMA_ORIGINS="*" ollama serve >/tmp/ollama-serve.log 2>&1 &
+    nohup distrobox enter -T ollama-container -- env $OLLAMA_ENV ollama serve >/tmp/ollama-serve.log 2>&1 &
 fi
-
-# # TEMP FOR NEW MODEL (TO BE REVERTED DONT PUSH TO GIT)
-# TITLE="Ollama Server (ollama-container)"
-# OLLAMA_ENV="OLLAMA_HOST=0.0.0.0:11434 OLLAMA_ORIGINS=* OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_VULKAN=0"
-# CMD="distrobox enter ollama-container -- env $OLLAMA_ENV ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
-
-# if command -v konsole >/dev/null 2>&1; then
-#     konsole --new-tab -p tabtitle="$TITLE" -e bash -c "$CMD" &
-# elif command -v xdg-terminal-exec >/dev/null 2>&1; then
-#     nohup xdg-terminal-exec bash -c "$CMD" >/dev/null 2>&1 &
-# elif command -v gnome-terminal >/dev/null 2>&1; then
-#     nohup gnome-terminal --title="$TITLE" -- bash -c "$CMD" >/dev/null 2>&1 &
-# elif command -v xterm >/dev/null 2>&1; then
-#     nohup xterm -T "$TITLE" -e bash -c "$CMD" >/dev/null 2>&1 &
-# else
-#     nohup distrobox enter -T ollama-container -- env $OLLAMA_ENV ollama serve >/tmp/ollama-serve.log 2>&1 &
-# fi

@@ -169,7 +169,10 @@ set OLLAMA_ORIGINS=*
 set OLLAMA_HOST=${OLLAMA_BIND}
 set OLLAMA_FLASH_ATTENTION=1
 set OLLAMA_KV_CACHE_TYPE=q8_0
-set OLLAMA_CONTEXT_LENGTH=16384
+set OLLAMA_CONTEXT_LENGTH=4096
+set OLLAMA_NUM_PARALLEL=1
+set OLLAMA_GPU_OVERHEAD=536870912
+set OLLAMA_VULKAN=0
 if not exist "${win_models}" mkdir "${win_models}"
 cd /d "X:\OLLAMA"
 "${win_bin}" serve > "${win_log}" 2> "${win_err}"
@@ -183,16 +186,23 @@ EOFBAT
         fi
     else
         ensure_container_started
-        echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
-        nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env \
-            OLLAMA_HOST="${OLLAMA_BIND}" \
-            OLLAMA_ORIGINS="*" \
-            OLLAMA_FLASH_ATTENTION="1" \
-            OLLAMA_KV_CACHE_TYPE="q8_0" \
-            OLLAMA_CONTEXT_LENGTH="16384" \
-            OLLAMA_GPU_OVERHEAD="1610612736" \
-            OLLAMA_VULKAN="0" \
-            ollama serve >"$LOG_FILE" 2>&1 &
+        if systemctl --user is-enabled ollama.service >/dev/null 2>&1; then
+            echo -e "Starting Ollama Server via systemd service (ollama.service)..."
+            systemctl --user restart ollama.service >/dev/null 2>&1 || true
+        else
+            echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
+            nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env \
+                LD_LIBRARY_PATH="/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-}" \
+                OLLAMA_HOST="${OLLAMA_BIND}" \
+                OLLAMA_ORIGINS="*" \
+                OLLAMA_FLASH_ATTENTION="1" \
+                OLLAMA_KV_CACHE_TYPE="q8_0" \
+                OLLAMA_CONTEXT_LENGTH="4096" \
+                OLLAMA_NUM_PARALLEL="1" \
+                OLLAMA_GPU_OVERHEAD="536870912" \
+                OLLAMA_VULKAN="0" \
+                ollama serve >"$LOG_FILE" 2>&1 &
+        fi
     fi
 
     echo -e "Waiting for Ollama API endpoint to become responsive..."
@@ -270,7 +280,8 @@ start_ollama_window() {
     ensure_container_started
 
     local TITLE="Ollama Server (${OLLAMA_CONTAINER})"
-    local CMD="distrobox enter ${OLLAMA_CONTAINER} -- env OLLAMA_HOST=${OLLAMA_BIND} OLLAMA_ORIGINS=\"*\" ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
+    local OLLAMA_ENV="LD_LIBRARY_PATH=/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-} OLLAMA_HOST=${OLLAMA_BIND} OLLAMA_ORIGINS=\"*\" OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=4096 OLLAMA_NUM_PARALLEL=1 OLLAMA_GPU_OVERHEAD=536870912 OLLAMA_VULKAN=0"
+    local CMD="distrobox enter ${OLLAMA_CONTAINER} -- env ${OLLAMA_ENV} ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
 
     echo -e "Opening terminal window for 'ollama serve' [listening on ${OLLAMA_BIND}]..."
     if command -v konsole >/dev/null 2>&1; then
@@ -338,6 +349,9 @@ stop_ollama() {
             return 1
         fi
     else
+        if systemctl --user is-active --quiet ollama.service 2>/dev/null; then
+            systemctl --user stop ollama.service >/dev/null 2>&1 || true
+        fi
         # Graceful TERM on Linux
         distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -TERM -f "ollama serve" 2>/dev/null || true
         pkill -TERM -f "ollama serve" 2>/dev/null || true
