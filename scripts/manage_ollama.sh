@@ -633,7 +633,7 @@ run_voice_chat_cli() {
     echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
     echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
     echo -e "  • Voice:        ${BOLD}${MAGENTA}Agent Smith (The Matrix)${NC} [id: ${CYAN}agent_smith${NC}]"
-    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + Hugo Weaving (Elrond / Agent Smith) Neural Baritone${NC}"
+    echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + XTTS-v2 GPU Voice Clone (Hugo Weaving / Elrond / Agent Smith)${NC}"
     echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /quit to exit${NC}\n"
     sleep 1
 
