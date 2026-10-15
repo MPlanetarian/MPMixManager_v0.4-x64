@@ -1362,10 +1362,20 @@ class EqualizerVisualizer:
     def render_vertical_pitch_fader(self, pitch_pct: int, total_lines: int = 10) -> List[str]:
         p = max(-20, min(20, int(pitch_pct)))
         frows = max(3, total_lines - 2)
-        krow, crow = int(round((1.0 - (p + 20) / 40.0) * (frows - 1))), frows // 2
+        has_hint = (frows % 2 == 0)
+        track_rows = (frows - 1) if has_hint else frows
+        crow = track_rows // 2
+
+        if p == 0:
+            krow = crow
+        elif p > 0:
+            krow = crow - int(round((p / 20.0) * crow))
+        else:
+            krow = crow + int(round((-p / 20.0) * (track_rows - 1 - crow)))
+
         lines = [f"{COLOR_HOT_PURPLE}╭── DJ PITCH ────────────╮{NC}"]
 
-        for r in range(frows):
+        for r in range(track_rows):
             if r == krow and r == crow:
                 tag = f"{BOLD}{COLOR_TRAFFIC_GREEN}◄ 0.0% [CENTER]{NC}"
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_TRAFFIC_GREEN}[▓█0█▓]{NC} {tag}{COLOR_HOT_PURPLE}│{NC}")
@@ -1377,25 +1387,37 @@ class EqualizerVisualizer:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC} {COLOR_INDIGO_BLUE}─── 0 ───{NC} {DIM}{COLOR_LILAC}CENTER (0%){NC}  {COLOR_HOT_PURPLE}│{NC}")
             elif r == 0:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_TRAFFIC_AMBER}▲{NC}     {DIM}+20% MAX{NC}      {COLOR_HOT_PURPLE}│{NC}")
-            elif r == frows - 1:
+            elif r == track_rows - 1:
                 lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}▼{NC}     {DIM}-20% MIN{NC}      {COLOR_HOT_PURPLE}│{NC}")
             else:
-                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}{' ' * 19}{COLOR_HOT_PURPLE}│{NC}")
+                sp = " " * 19
+                lines.append(f"{COLOR_HOT_PURPLE}│{NC}    {COLOR_INDIGO_BLUE}│{NC}{sp}{COLOR_HOT_PURPLE}│{NC}")
+
+        if has_hint:
+            lines.append(f"{COLOR_HOT_PURPLE}│{NC}  {DIM}[+/-: 1% • 0: Reset]{NC}  {COLOR_HOT_PURPLE}│{NC}")
+
         lines.append(f"{COLOR_HOT_PURPLE}╰────────────────────────╯{NC}")
         return lines
 
     def render_horizontal_pitch_bar(self, pitch_pct: int, width: int = 36, max_cols: Optional[int] = None) -> str:
         p = max(-20, min(20, int(pitch_pct)))
-        w = max(12, width)
-        kpos, cpos = int(round(((p + 20) / 40.0) * (w - 1))), w // 2
+        w = max(11, width)
+        if w % 2 == 0:
+            w -= 1
+        cpos = w // 2
+        kpos = cpos if p == 0 else max(0, min(w - 1, cpos + int(round((p / 20.0) * cpos))))
 
         def _track(tw, kp, cp):
             chars = []
             for i in range(tw):
-                if i == kp: chars.append(f"{BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}●{NC}")
-                elif i == cp: chars.append(f"{COLOR_TRAFFIC_GREEN}┼{NC}")
-                elif i < cp: chars.append(f"{DIM}━{NC}" if (i < kp and p < 0) else (f"{COLOR_INDIGO_BLUE}━{NC}" if kp <= i < cp else f"{DIM}─{NC}"))
-                else: chars.append(f"{COLOR_TRAFFIC_AMBER}━{NC}" if cp < i <= kp else f"{DIM}─{NC}")
+                if i == kp:
+                    chars.append(f"{BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}●{NC}")
+                elif i == cp:
+                    chars.append(f"{COLOR_TRAFFIC_GREEN}┼{NC}")
+                elif i < cp:
+                    chars.append(f"{DIM}━{NC}" if (i < kp and p < 0) else (f"{COLOR_INDIGO_BLUE}━{NC}" if kp <= i < cp else f"{DIM}─{NC}"))
+                else:
+                    chars.append(f"{COLOR_TRAFFIC_AMBER}━{NC}" if cp < i <= kp else f"{DIM}─{NC}")
             return "".join(chars)
 
         stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
@@ -1408,8 +1430,11 @@ class EqualizerVisualizer:
                 sfx = f"] {DIM}+20%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
             avail = max_cols - _display_width(pfx) - _display_width(sfx)
             if avail < w:
-                w = max(8, avail)
-                kpos, cpos = int(round(((p + 20) / 40.0) * (w - 1))) if w > 1 else 0, w // 2
+                w = max(7, avail)
+                if w % 2 == 0:
+                    w -= 1
+                cpos = w // 2
+                kpos = cpos if p == 0 else max(0, min(w - 1, cpos + int(round((p / 20.0) * cpos))))
 
         return f"{pfx}{_track(w, kpos, cpos)}{sfx}"
 
