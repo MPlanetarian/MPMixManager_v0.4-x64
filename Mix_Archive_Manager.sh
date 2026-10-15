@@ -3415,7 +3415,7 @@ manage_mp_audio_player() {
     local py_script="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
     if [ -f "$py_script" ]; then
-        python3 "$py_script" --interactive
+        python3 "$py_script" --interactive "$@"
     else
         echo -e "${RED}Error: MP_Audio_Player.py not found!${NC}"
         press_enter
@@ -8772,12 +8772,10 @@ execute_startup_autoplay() {
     local selected_mix=""
     selected_mix="$(select_startup_mix)" || true
     if [ -z "$selected_mix" ] || [ ! -s "$selected_mix" ]; then
-        if is_mix_archive_configured; then
-            local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-            [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-            if [ -f "$mp_py" ]; then
-                selected_mix=$(python3 "$mp_py" --get-latest-mix 2>/dev/null || true)
-            fi
+        local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
+        [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+        if [ -f "$mp_py" ]; then
+            selected_mix=$(python3 "$mp_py" --get-latest-mix 2>/dev/null || true)
         fi
     fi
     if [ -z "$selected_mix" ] || [ ! -s "$selected_mix" ]; then
