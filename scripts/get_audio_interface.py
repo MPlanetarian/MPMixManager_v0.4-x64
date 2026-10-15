@@ -57,7 +57,6 @@ def _probe_linux(info):
                     m = re.search(r'node\.description\s*=\s*\"([^\"]+)\"', line)
                     if m:
                         info["interface"] = m.group(1).strip()
-                        break
                 elif 'media.name =' in line and info["interface"] == "Default Audio Output":
                     m = re.search(r'media\.name\s*=\s*\"([^\"]+)\"', line)
                     if m:
@@ -257,7 +256,22 @@ def _probe_freebsd(info):
             info["interface"] = "FreeBSD OSS Audio"
 
 def main():
+    if '--route-bluetooth' in sys.argv or '--switch-bluetooth' in sys.argv:
+        try:
+            from monitor_bluetooth_audio import BluetoothAudioRouter
+            router = BluetoothAudioRouter()
+            ok = router.route_to_bluetooth()
+            print("✓ Routed audio to Bluetooth" if ok else "✗ No Bluetooth audio device available")
+            sys.exit(0 if ok else 1)
+        except Exception as e:
+            print(f"Error routing to Bluetooth: {e}")
+            sys.exit(1)
+
     info = get_audio_info()
+
+    if '--bluetooth' in sys.argv or '--bt' in sys.argv:
+        print("yes" if "bluetooth" in info.get("details", "").lower() or "bluez" in info.get("interface", "").lower() else "no")
+        return
 
     if '--json' in sys.argv:
         print(json.dumps(info, indent=2))
@@ -277,11 +291,13 @@ def main():
 
     if '--full' in sys.argv:
         # Full formatted one-liner
-        print(f"{info['interface']}  │  Latency: {info['latency_str']}  │  Mode: {info['sound_system']}")
+        dt = f" ({info['details']})" if info.get('details') else ""
+        print(f"{info['interface']}{dt}  │  Latency: {info['latency_str']}  │  Mode: {info['sound_system']}")
         return
 
     # Default output
-    print(f"{info['interface']}|{info['latency_str']}|{info['sound_system']}")
+    dt = f" ({info['details']})" if info.get('details') else ""
+    print(f"{info['interface']}{dt}|{info['latency_str']}|{info['sound_system']}")
 
 if __name__ == '__main__':
     main()

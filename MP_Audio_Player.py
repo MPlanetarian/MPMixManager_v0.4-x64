@@ -78,6 +78,16 @@ def get_base_dir() -> Path:
     p = Path(__file__).resolve()
     return p.parent.parent if p.parent.name == "scripts" else p.parent
 
+try:
+    _scripts_dir = str(get_base_dir() / "scripts")
+    if _scripts_dir not in sys.path:
+        sys.path.insert(0, _scripts_dir)
+    from monitor_bluetooth_audio import BluetoothAudioRouter, get_bluetooth_audio_status
+except Exception:
+    BluetoothAudioRouter = None
+    get_bluetooth_audio_status = None
+
+
 def parse_env_file(filepath: Path) -> Dict[str, str]:
     env = {}
     if filepath.is_file():
@@ -422,7 +432,7 @@ class AudioResampler:
         return out
 
 class AudioEngine:
-    def __init__(self, playlist: List[Dict[str, Any]]):
+    def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True):
         _ensure_audio_backends()
         self.playlist = playlist
         self.current_index = 0
@@ -455,6 +465,28 @@ class AudioEngine:
         self.rms_level, self.peak_db = 0.0, -60.0
         self.track_ended, self.pending_seek_sec = False, None
         self._ensure_stream()
+
+        self.auto_bluetooth = auto_bluetooth
+        self.bt_router: Optional[Any] = None
+        if BluetoothAudioRouter is not None:
+            try:
+                self.bt_router = BluetoothAudioRouter(
+                    target_pid=os.getpid(),
+                    on_route_change=self._on_bt_route_change,
+                    auto_switch=self.auto_bluetooth
+                )
+                self.bt_router.start()
+            except Exception:
+                pass
+
+    def _on_bt_route_change(self, device_name: str, is_bluetooth: bool, action: str, codec: Optional[str] = None):
+        if is_bluetooth:
+            badge = f" [Bluetooth {codec}]" if codec else " [Bluetooth]"
+            self.output_device_name = f"{device_name}{badge}"
+        else:
+            self.output_device_name = device_name
+        self._ensure_stream()
+        self._sync_state_file()
 
     def set_pitch(self, pitch_pct: int):
         self.pitch_percent = max(-20, min(20, int(pitch_pct)))
@@ -754,6 +786,9 @@ class AudioEngine:
     def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
     def stop_playback(self):
         self.state, self.position_sec = "stopped", 0.0
+        if getattr(self, "bt_router", None):
+            try: self.bt_router.stop()
+            except Exception: pass
         self.smoothed_levels.fill(0)
         self.smoothed_levels_left.fill(0)
         self.smoothed_levels_right.fill(0)
@@ -796,6 +831,13 @@ class AudioEngine:
 
     def get_status_dict(self) -> Dict[str, Any]:
         pct = round((self.position_sec / self.duration_sec * 100.0), 1) if self.duration_sec > 0 else 0.0
+        bt_info = self.bt_router.get_status() if getattr(self, "bt_router", None) else {}
+        is_bt = bool(bt_info.get("bluetooth_connected", False))
+        bt_dev = str(bt_info.get("bluetooth_device", ""))
+        bt_codec = str(bt_info.get("bluetooth_codec", ""))
+        cur_out = str(self.output_device_name or "")
+        if is_bt and bt_dev and "bluetooth" not in cur_out.lower():
+            cur_out = f"{bt_dev} [Bluetooth {bt_codec}]" if bt_codec else f"{bt_dev} [Bluetooth]"
         return {
             "running": True, "state": str(self.state), "index": int(self.current_index),
             "total_tracks": len(self.playlist), "title": str(self.current_track["name"] if self.current_track else "No Track Loaded"),
@@ -804,7 +846,9 @@ class AudioEngine:
             "duration_fmt": format_seconds(self.duration_sec), "progress_pct": float(pct), "volume": int(self.volume * 100),
             "pitch_percent": int(self.pitch_percent), "pitch_factor": round(float(self.pitch_factor), 3), "muted": bool(self.muted),
             "shuffle": bool(self.shuffle), "repeat": str(self.repeat_mode), "sample_rate": int(self.sample_rate),
-            "output_rate": int(self.output_rate or 0), "output_device": str(self.output_device_name or ""),
+            "output_rate": int(self.output_rate or 0), "output_device": cur_out,
+            "bluetooth_connected": is_bt, "bluetooth_device": bt_dev, "bluetooth_codec": bt_codec,
+            "bluetooth_auto_route": bool(getattr(self, "auto_bluetooth", True)),
             "audio_error": str(self.stream_error or ""), "channels": int(self.channels), "mini_eq": self.get_mini_visualizer(),
             "levels": [round(float(x), 3) for x in self.smoothed_levels], "peaks": [round(float(x), 3) for x in self.peaks],
             "levels_left": [round(float(x), 3) for x in self.smoothed_levels_left], "levels_right": [round(float(x), 3) for x in self.smoothed_levels_right],
@@ -901,6 +945,35 @@ class PlayerIPCServer:
             elif cmd in ("open_file_manager", "reveal"):
                 tf = req.get("file") or (self.engine.current_track.get("path") if self.engine.current_track else str(get_base_dir()))
                 res["success"] = open_in_file_manager(tf)
+            elif cmd in ("route_bluetooth", "switch_bluetooth"):
+                if getattr(self.engine, "bt_router", None):
+                    ok = self.engine.bt_router.route_to_bluetooth()
+                    res["routed"] = ok
+                    res["bluetooth"] = self.engine.bt_router.get_status()
+                else:
+                    res["status"] = "error"
+                    res["message"] = "Bluetooth router not available"
+            elif cmd in ("revert_audio", "fallback_audio"):
+                if getattr(self.engine, "bt_router", None):
+                    ok = self.engine.bt_router.route_to_fallback()
+                    res["reverted"] = ok
+                    res["bluetooth"] = self.engine.bt_router.get_status()
+                else:
+                    res["status"] = "error"
+                    res["message"] = "Bluetooth router not available"
+            elif cmd == "bluetooth_status":
+                if getattr(self.engine, "bt_router", None):
+                    res["bluetooth"] = self.engine.bt_router.get_status()
+                else:
+                    res["bluetooth"] = {"bluetooth_connected": False}
+            elif cmd == "toggle_bluetooth_auto":
+                if getattr(self.engine, "bt_router", None):
+                    self.engine.auto_bluetooth = not getattr(self.engine, "auto_bluetooth", True)
+                    self.engine.bt_router.auto_switch = self.engine.auto_bluetooth
+                    res["auto_switch"] = self.engine.auto_bluetooth
+                else:
+                    res["status"] = "error"
+
 
             conn.sendall(json.dumps(res, default=float).encode('utf-8'))
         except Exception as e:
@@ -1473,6 +1546,8 @@ class TerminalPlayerUI:
         self.running = True
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
+        self._last_seen_bt_device: Optional[str] = None
+        self._last_seen_bt_state: Optional[bool] = None
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
                               "duration_fmt": "00:00", "progress_pct": 0.0, "volume": 85, "muted": False,
                               "shuffle": False, "repeat": "all",
@@ -1495,8 +1570,25 @@ class TerminalPlayerUI:
                 res = send_ipc_command("status")
                 if res and isinstance(res.get("data"), dict):
                     self.cached_status = res["data"]
-            return self.cached_status
-        return self.engine.get_status_dict() if self.engine else self.cached_status
+            st = self.cached_status
+        else:
+            st = self.engine.get_status_dict() if self.engine else self.cached_status
+
+        if not st.get("bluetooth_connected") or not st.get("bluetooth_device"):
+            bt_file = CONFIG_DIR / "mp_bluetooth_state.json"
+            if bt_file.exists():
+                try:
+                    bt_data = json.loads(bt_file.read_text(encoding="utf-8"))
+                    if bt_data.get("bluetooth_connected"):
+                        st["bluetooth_connected"] = True
+                        st["bluetooth_device"] = bt_data.get("bluetooth_device", "")
+                        st["bluetooth_codec"] = bt_data.get("bluetooth_codec", "")
+                        codec = bt_data.get("bluetooth_codec", "")
+                        c_str = f" [Bluetooth {codec}]" if codec else " [Bluetooth]"
+                        st["output_device"] = f"{bt_data.get('bluetooth_device')}{c_str}"
+                except Exception:
+                    pass
+        return st
 
     def _sync_initial_selection(self, status: Dict[str, Any]):
         cp = status.get("path")
@@ -1752,7 +1844,24 @@ class TerminalPlayerUI:
             self.visualizer.cycle_theme()
             th_name = self.visualizer.theme.replace("_", " ").title()
             self.notification_msg = f"Color Theme: {th_name}"
-            self.notification_time = time.time() + 2.5
+        elif data in (b"a", b"A"):
+            if self.is_remote:
+                st_bt = send_ipc_command("route_bluetooth")
+                b_info = st_bt.get("bluetooth", {}) if st_bt else {}
+                if b_info.get("bluetooth_connected"):
+                    c_str = f" ({b_info.get('bluetooth_codec')})" if b_info.get('bluetooth_codec') else ""
+                    self.notification_msg = f"🎧 Bluetooth Audio Routed: {b_info.get('bluetooth_device')}{c_str}"
+                else:
+                    self.notification_msg = "No Bluetooth audio device connected. (Checked)"
+            elif self.engine and getattr(self.engine, "bt_router", None):
+                ok = self.engine.bt_router.route_to_bluetooth()
+                st_bt = self.engine.bt_router.get_status()
+                if st_bt.get("bluetooth_connected"):
+                    c_str = f" ({st_bt.get('bluetooth_codec')})" if st_bt.get('bluetooth_codec') else ""
+                    self.notification_msg = f"🎧 Bluetooth Audio Routed: {st_bt.get('bluetooth_device')}{c_str}"
+                else:
+                    self.notification_msg = "No Bluetooth audio device connected."
+            self.notification_time = time.time() + 3.5
         elif data in (b"o", b"O"): self._open_audio_file()
         elif data in (b"t", b"T"): self._view_selected_tracklist()
         elif data in (b"E", b"w", b"W"): self._export_playlist()
@@ -1772,6 +1881,21 @@ class TerminalPlayerUI:
         self._sync_initial_selection(st)
         lines = []
 
+        # Check for Bluetooth connect/disconnect notification
+        is_bt = bool(st.get("bluetooth_connected", False))
+        bt_dev = st.get("bluetooth_device", "")
+        if self._last_seen_bt_state is not None:
+            if is_bt and not self._last_seen_bt_state:
+                codec = st.get("bluetooth_codec", "")
+                c_str = f" ({codec})" if codec else ""
+                self.notification_msg = f"🎧 Auto-switched to Bluetooth: {bt_dev}{c_str}"
+                self.notification_time = time.time() + 4.0
+            elif not is_bt and self._last_seen_bt_state:
+                self.notification_msg = "🔊 Bluetooth disconnected — Reverted to System Audio"
+                self.notification_time = time.time() + 4.0
+        self._last_seen_bt_state = is_bt
+        self._last_seen_bt_device = bt_dev
+
         iw = 115 if w >= 122 else max(20, w - 6)
 
         btitle = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"[:max(0, iw - 1)]
@@ -1787,7 +1911,16 @@ class TerminalPlayerUI:
         badge = f"{BOLD}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{BOLD}{RED}⏹ STOPPED{NC}")
 
         lines.append(f"  {badge}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
-        lines.append(f"  {DIM}{CYAN}Format: {ext}{' Lossless' if w>=96 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  Archive: {'Configured' if w>=96 else 'OK'}{NC}")
+        out_name = bt_dev or st.get("output_device", "Speakers")
+        if is_bt or ("bluetooth" in str(out_name).lower()):
+            bt_badge = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_name}{NC}"
+        else:
+            bt_badge = f"{DIM}{CYAN}🔊 Output: {out_name}{NC}"
+
+        if w >= 106:
+            lines.append(f"  {DIM}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_badge}{NC}")
+        else:
+            lines.append(f"  {DIM}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_badge}{NC}")
 
         pct = float(st.get("progress_pct", 0.0))
         bw = max(20, min(54, iw - 42))
@@ -1869,15 +2002,16 @@ class TerminalPlayerUI:
             f"  Vol {vol}  Pitch {pbadge}  EQ {eq_name}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         lines.append(_fit_text_line([
-            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  O Open  b/q Exit{NC}"
+            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+            f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+            f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  a BT  O Open  b/q Exit{NC}"
         ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
 
-def _spawn_player_daemon(file_path: Optional[str] = None):
+def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True):
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
+    if not auto_bluetooth: cmd.append("--no-bluetooth-auto")
     if file_path: cmd.append(str(file_path))
     proc = subprocess.Popen(cmd,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -1921,6 +2055,9 @@ def main():
     parser.add_argument("--style", "--eq", type=str, choices=EqualizerVisualizer.STYLES, help="Set equalizer visualizer style")
     parser.add_argument("--theme", type=str, choices=EqualizerVisualizer.THEMES, help="Set color theme")
     parser.add_argument("--cmd", type=str, help="Send arbitrary IPC command")
+    parser.add_argument("--no-bluetooth-auto", action="store_true", help="Disable automatic Bluetooth audio routing")
+    parser.add_argument("--bluetooth-status", action="store_true", help="Print current Bluetooth audio router status")
+    parser.add_argument("--bluetooth-route", action="store_true", help="Route active audio to connected Bluetooth headphones")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -1936,6 +2073,28 @@ def main():
         sys.exit(0)
 
     daemon_running = is_player_daemon_running()
+
+    if args.bluetooth_status:
+        if daemon_running:
+            res = send_ipc_command("bluetooth_status")
+            print(json.dumps(res.get("bluetooth", {}) if res else {}, indent=2))
+        elif get_bluetooth_audio_status:
+            print(json.dumps(get_bluetooth_audio_status(), indent=2))
+        else:
+            print(json.dumps({"bluetooth_connected": False, "error": "Router unavailable"}, indent=2))
+        sys.exit(0)
+
+    if args.bluetooth_route:
+        if daemon_running:
+            res = send_ipc_command("route_bluetooth")
+            ok = bool(res and res.get("routed"))
+            print("✔ Sent route command to player daemon:" if ok else "✖ Failed to route to Bluetooth:")
+            print(json.dumps(res or {}, indent=2))
+        elif BluetoothAudioRouter:
+            r = BluetoothAudioRouter()
+            ok = r.route_to_bluetooth()
+            print("✔ Routed system audio to Bluetooth" if ok else "✖ Failed to route to Bluetooth")
+        sys.exit(0)
 
     if args.open_file_manager or args.tracklist:
         tp = None
@@ -2037,7 +2196,7 @@ def main():
         if not daemon_running:
             latest = scanner.get_latest_mix()
             init_file = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
-            _spawn_player_daemon(init_file)
+            _spawn_player_daemon(init_file, auto_bluetooth=(not args.no_bluetooth_auto))
             for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running():
@@ -2065,7 +2224,7 @@ def main():
                                  "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()})
                 init_idx = 0
 
-    engine = AudioEngine(mixes)
+    engine = AudioEngine(mixes, auto_bluetooth=(not args.no_bluetooth_auto))
     PlayerIPCServer(engine).start()
     if mixes:
         engine.load_track(init_idx, True)

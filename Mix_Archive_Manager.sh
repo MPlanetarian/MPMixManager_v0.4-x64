@@ -9260,6 +9260,48 @@ configure_audio_player_and_startup() {
     done
 }
 
+manage_bluetooth_audio() {
+    clear
+    echo -e "${BOLD}${MAGENTA}====================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}       BLUETOOTH AUDIO & INTELLIGENT STREAM ROUTER  ${NC}"
+    echo -e "${BOLD}${MAGENTA}====================================================${NC}\n"
+    
+    local bt_py="$SCRIPT_DIR/scripts/monitor_bluetooth_audio.py"
+    [ ! -f "$bt_py" ] && bt_py="$SCRIPT_DIR/monitor_bluetooth_audio.py"
+    
+    if [ ! -f "$bt_py" ]; then
+        echo -e "${RED}Error: monitor_bluetooth_audio.py not found!${NC}"
+        press_enter
+        return 1
+    fi
+
+    python3 "$bt_py" --status
+    echo ""
+    echo -e "${BOLD}Select an action:${NC}"
+    echo -e "  ${BOLD}${CYAN}1)${NC} Intelligently Route / Switch to Bluetooth Audio Now"
+    echo -e "  ${BOLD}${CYAN}2)${NC} Revert Audio to Primary Fallback Output (HDMI / Speakers)"
+    echo -e "  ${BOLD}${CYAN}3)${NC} Run Live Bluetooth Audio Monitor in Terminal"
+    echo -e "  ${BOLD}${CYAN}0)${NC} Return"
+    echo ""
+    read -r -p "Enter choice [0-3]: " bt_opt
+    case "$bt_opt" in
+        1)
+            python3 "$bt_py" --route
+            press_enter
+            ;;
+        2)
+            python3 "$bt_py" --revert
+            press_enter
+            ;;
+        3)
+            python3 "$bt_py" --monitor
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
 manage_audio_players() {
     while true; do
         clear
@@ -9338,9 +9380,10 @@ manage_audio_players() {
         echo -e "  ${BOLD}${CYAN}13)${NC} Show Connected USB MIDI Devices (${GREEN}list-midi-devices${NC})"
         echo -e "  ${BOLD}${CYAN}14)${NC} Configure Default Audio Player & Startup Autoplay (${GREEN}Current: ${DEFAULT_AUDIO_PLAYER:-mp_audio_player}${NC})"
         echo -e "  ${BOLD}${CYAN}15)${NC} View Playing Mix Audio Specifications & Stream Metadata (${GREEN}Bit Depth, Sample Rate, Codec, Title${NC})"
+        echo -e "  ${BOLD}${CYAN}16)${NC} Manage Bluetooth Audio & Auto Stream Routing (${GREEN}Intelligent BT Monitor, Auto-Switch${NC})"
         echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"
         echo ""
-        read -r -p "Enter choice [0-15]: " p_choice
+        read -r -p "Enter choice [0-16]: " p_choice
 
         case "$p_choice" in
             1|mp|mp_player|mpplayer|p|P)
@@ -9387,6 +9430,9 @@ manage_audio_players() {
                 ;;
             15|meta|metadata)
                 inspect_playing_audio_file
+                ;;
+            16|bt|bluetooth|"bluetooth audio")
+                manage_bluetooth_audio
                 ;;
             0|[qQ])
                 return 0

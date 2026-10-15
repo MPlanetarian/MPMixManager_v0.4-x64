@@ -108,6 +108,7 @@ flowchart LR
 - 📐 **Full-Width 118-Column Panoramic Grid**: The top Banner box and the central **MP MIX ARCHIVE PLAYLIST** box are widened dynamically to 117 characters (inner width 115) aligning flush with the right boundary of the DJ Pitch Window (column 118) for a seamless console visualizer layout.
 - 📜 **Instant Tracklist Viewer (`T` / `t` / `--tracklist`)**: Press `T` during playback or browsing to automatically locate and launch the matching mix tracklist (`.txt`) in a dedicated borderless console window (`scripts/view_tracklist_console.sh` with Konsole/Alacritty/Kitty/XFCE/xterm support).
 - 💾 **Universal Playlist Exporter (`E` / `w` / `--export-playlist`)**: Export the entire 1,000+ mix archive playlist to any directory strictly as a standard `.m3u` file (`#EXTM3U` format with `#EXTINF` track descriptions). Seamlessly launches native KDE `kdialog` or GNOME `zenity` file-save dialogs, with automatic terminal prompt and CLI fallbacks.
+- 🎧 **Intelligent Bluetooth Audio Auto-Routing**: Automatically detects connected Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose) in real-time via event subscription (`pactl subscribe`) with a 1.2s polling fallback heartbeat. Instantly switches system default output (`wpctl set-default` / `pactl set-default-sink`) and migrates the active MP Audio Player stream live (`pactl move-sink-input`) without interrupting playback. Gracefully reverts to primary speakers/HDMI when headphones disconnect. Press `[a]` to inspect or force route Bluetooth audio anytime.
 - 🎚️ **DJ Pitch & Tempo Engine**: Real-time tempo adjustment from -20% to +20% via `[` / `]` with single-key reset via `\` and instant live visualizer pitch fader readout.
 - 📊 **Animated TrueColor Spectrum Visualizer**: Dynamic multi-band frequency visualizer and stereo level meters rendered live inside your terminal using Dreamworlds TrueColor gradients.
 - ⌨️ **Unbuffered Zero-Lag Keyboard Controls**:
@@ -116,6 +117,7 @@ flowchart LR
   - `Up` / `Down` arrows: Volume control (0%–100%).
   - `[` / `]`: Adjust DJ pitch (-20% to +20%).
   - `\`: Reset pitch to 0.00%.
+  - `a` / `A`: Route / check Bluetooth audio output status.
   - `T` / `t`: Open tracklist for currently selected or playing mix in dedicated window.
   - `E` / `w` / `W`: Export entire mix playlist to `.m3u` file.
   - `n` / `p`: Next / Previous track in mix catalog.

@@ -184,6 +184,18 @@ def detect_audio_subsystem():
             pass
     info["alsa_cards"] = alsa_cards
     
+    # Check Bluetooth Audio Devices
+    try:
+        scripts_dir = Path(__file__).resolve().parent
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from monitor_bluetooth_audio import get_bluetooth_audio_status
+        bt_st = get_bluetooth_audio_status()
+        if bt_st.get("bluetooth_connected"):
+            info["bluetooth"] = f"{bt_st.get('bluetooth_device')} (Codec: {bt_st.get('bluetooth_codec', 'AAC')})"
+    except Exception:
+        pass
+
     return info
 
 def detect_midi_and_controllers():
@@ -266,6 +278,8 @@ def generate_studio_report():
     ]
     if audio.get("default_sink"):
         report_lines.append(f"  Default Sink:      {audio['default_sink']}")
+    if audio.get("bluetooth"):
+        report_lines.append(f"  Bluetooth Output:  {audio['bluetooth']} [Active]")
     if audio.get("details"):
         report_lines.append("  Active Playback Sinks:")
         for s in audio["details"]:

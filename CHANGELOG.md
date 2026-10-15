@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.6 Beta] - 2026-10-15
 
+- **Intelligent Bluetooth Audio Auto-Routing & Hardware Output Monitor** (`MP_Audio_Player.py`, `scripts/monitor_bluetooth_audio.py`, `scripts/monitor_bluetooth_audio.sh`, `monitor_bluetooth_audio.sh`, `scripts/get_audio_interface.py`, `Mix_Archive_Manager.sh`):
+  - **Zero-Interruption Bluetooth Auto-Switching**: MP Audio Player now intelligently monitors for Bluetooth headphone connections (e.g., Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose) in real-time via high-efficiency event subscription (`pactl subscribe`) paired with a 1.2s failsafe polling heartbeat.
+  - **Automated System Default Output Migration**: Automatically switches the Linux PipeWire / WirePlumber / PulseAudio default sound output (`wpctl set-default` and `pactl set-default-sink`) upon Bluetooth headset connection, eliminating the need to manually change system output settings in KDE Plasma or GNOME.
+  - **Live Stream Migration (`pactl move-sink-input`)**: Intelligently identifies active MP Audio Player audio streams (`PipeWire ALSA [python]`, matched by process PID and client profile) and seamlessly migrates playback to the Bluetooth sink live without interrupting the mix or dropping frames.
+  - **Automatic Fallback Output Recovery**: Detects Bluetooth disconnections and instantly reverts system default sink and audio streams to the primary hardware output (GA102 HDMI / motherboard speakers) with automatic stream health recovery (`_ensure_stream()`).
+  - **TUI & Status Display**: Real-time display of active audio output device in the MP Audio Player panoramic header (`🎧 Output: Crusher ANC 2 [Bluetooth AAC]` or `🔊 Output: Speakers`), new key binding `[a]` to force route or inspect Bluetooth audio status, and on-screen toast notifications (`🎧 Auto-switched to Bluetooth: Crusher ANC 2 (AAC)`).
+  - **Audio Launchers Suite Integration**: Added Option 16 to `Mix_Archive_Manager.sh` Audio Players menu for Bluetooth device inspection, manual routing, and launching the live monitor.
+  - **Standalone Daemon & CLI Control**: Created `scripts/monitor_bluetooth_audio.py` / `.sh` with `--daemon`, `--monitor`, `--route`, `--revert`, and `--status` options.
+
 - **New Special Theme — Cosmic Supernova [Special Edition]** (`Mix_Archive_Manager.sh`, `themes/Cosmic_Supernova_MP_Mix_Manager.theme`, `MP_Audio_Player.py`, `Congen/Congen`):
   - **Interstellar 24-Bit TrueColor Palette**: Designed a bespoke deep-space celestial aesthetic inspired by uplifting space trance and astrophysics:
     - Supernova Crimson / Flare Red (`#ff3366` / `\033[38;2;255;51;102m`)
