@@ -565,6 +565,10 @@ class AudioEngine:
                     didx = s.device[-1] if isinstance(s.device, (list, tuple)) else s.device
                     self.output_device_name = str(sd.query_devices(didx)["name"])
                 except Exception: self.output_device_name = "default"
+                if getattr(self, "bt_router", None):
+                    try:
+                        threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
+                    except Exception: pass
                 return True
             except Exception as exc:
                 errors.append(f"{dev}@{rate}: {exc}")

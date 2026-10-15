@@ -64,7 +64,7 @@ class BluetoothAudioRouter:
         self.logger = logger or (lambda msg: None)
 
         self.running = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._subscribe_proc: Optional[subprocess.Popen] = None
         self._threads: List[threading.Thread] = []
 
