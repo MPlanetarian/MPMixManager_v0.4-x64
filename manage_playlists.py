@@ -1,33 +1,6 @@
 #!/usr/bin/env python3
-"""
-MP_Mix_Manager_v0.3 - Custom Playlists Creator & Multi-Player Launcher
-Allows users to:
-  - Create and edit custom playlists (.m3u, .m3u8, .xspf) from mixes in the archive
-  - Search, filter, and add audio mixes by title, episode number, or date
-  - Re-order or remove tracks within playlists
-  - Launch any installed audio player (cliamp, Strawberry, VLC, MPV, foobar2000, Kodi)
-    directly loaded with the custom playlist!
-"""
-
-import os
-import sys
-import subprocess
-import shutil
-import re
-import argparse
+import os, sys, subprocess, shutil, argparse, re, time
 from pathlib import Path
-
-# --- ANSI Colors ---
-BOLD = "\033[1m"
-DIM = "\033[2m"
-GREEN = "\033[0;32m"
-YELLOW = "\033[0;33m"
-RED = "\033[0;31m"
-BLUE = "\033[0;34m"
-MAGENTA = "\033[0;35m"
-CYAN = "\033[0;36m"
-WHITE = "\033[1;37m"
-NC = "\033[0m"
 
 AUDIO_EXTS = ['.flac', '.wav', '.mp3', '.m4a', '.aif', '.ogg']
 
@@ -43,14 +16,7 @@ def list_archive_mixes():
     base_dir = get_base_dir()
     env_dir = os.environ.get("MIX_ARCHIVE_DIR")
     arch_dir = Path(env_dir) if env_dir and Path(env_dir).is_dir() else (base_dir / "MIX_ARCHIVE")
-    scan_paths = [
-        arch_dir / "FLAC_CONVERTED_OUTPUTS",
-        arch_dir,
-        base_dir / "MIX_ARCHIVE" / "FLAC_CONVERTED_OUTPUTS",
-        base_dir / "FLAC_CONVERTED_OUTPUTS",
-        base_dir / "CONVERTED_WAV_FILES",
-        base_dir
-    ]
+    scan_paths = [arch_dir / "FLAC_CONVERTED_OUTPUTS", arch_dir, base_dir / "MIX_ARCHIVE" / "FLAC_CONVERTED_OUTPUTS", base_dir / "FLAC_CONVERTED_OUTPUTS", base_dir]
     extra_env = os.environ.get("EXTRA_MIX_ARCHIVE_DIRS")
     if not extra_env:
         cfg = base_dir / "config.env"
@@ -64,7 +30,6 @@ def list_archive_mixes():
                 pass
     if extra_env:
         raw_extra = extra_env.strip()
-        extras = []
         for sep in ('\n', ';', ','):
             if sep in raw_extra:
                 extras = [x.strip().strip('"').strip("'") for x in raw_extra.split(sep) if x.strip().strip('"').strip("'")]
@@ -95,11 +60,7 @@ def list_archive_mixes():
                     if any(lower.endswith(ext) for ext in AUDIO_EXTS):
                         if entry.name not in seen and entry.stat().st_size >= 20 * 1024 * 1024:
                             seen.add(entry.name)
-                            mixes.append({
-                                "filename": entry.name,
-                                "path": entry.path,
-                                "size": entry.stat().st_size
-                            })
+                            mixes.append({"filename": entry.name, "path": entry.path, "size": entry.stat().st_size})
         except Exception:
             pass
     mixes.sort(key=lambda x: x["filename"].lower())
@@ -153,15 +114,12 @@ def write_m3u(file_path, track_paths):
         f.write("#EXTM3U\n")
         for t in track_paths:
             title = Path(t).stem
-            f.write(f"#EXTINF:-1,{title}\n")
-            f.write(f"{t}\n")
+            f.write(f"#EXTINF:-1,{title}\n{t}\n")
 
 def launch_playlist_in_player(playlist_path, player="cliamp"):
     playlist_path = Path(playlist_path).resolve()
-    print(f"\n{BOLD}{GREEN}Launching {player} with playlist: {playlist_path.name}...{NC}")
-    
+    print(f"\nLaunching {player} with playlist: {playlist_path.name}...")
     if player == "cliamp":
-        # Launch cliamp with playlist
         cliamp_bin = shutil.which("cliamp") or (get_base_dir() / "bin" / "cliamp")
         if os.name == 'posix' and shutil.which("konsole"):
             subprocess.Popen(["konsole", "--hold", "-e", str(cliamp_bin), str(playlist_path)])
@@ -185,7 +143,6 @@ def launch_playlist_in_player(playlist_path, player="cliamp"):
         elif shutil.which("flatpak"):
             subprocess.Popen(["flatpak", "run", "tv.kodi.Kodi", str(playlist_path)])
     else:
-        # Fallback to system default
         if sys.platform == "darwin":
             subprocess.Popen(["open", str(playlist_path)])
         elif sys.platform == "win32":
@@ -193,131 +150,21 @@ def launch_playlist_in_player(playlist_path, player="cliamp"):
         else:
             subprocess.Popen(["xdg-open", str(playlist_path)])
 
-def interactive_ui():
-    while True:
-        os.system('clear' if os.name == 'posix' else 'cls')
-        playlists = list_playlists()
-        
-        print(f"{BOLD}{MAGENTA}======================================================================{NC}")
-        print(f"{BOLD}{MAGENTA}        Custom Playlists Creator & Audio Player Launcher              {NC}")
-        print(f"{BOLD}{MAGENTA}======================================================================{NC}")
-        print(f"  Playlist Directory: {CYAN}{get_playlists_dir()}{NC}")
-        print(f"  Saved Playlists:    {WHITE}{len(playlists)}{NC}")
-        print(f"{BOLD}{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        
-        if playlists:
-            print(f"{BOLD}Existing Playlists:{NC}")
-            for idx, p in enumerate(playlists, start=1):
-                tracks = parse_m3u(p)
-                print(f"  {BOLD}{CYAN}{idx:2d}){NC} {p.name:<36} {DIM}({len(tracks)} mix tracks){NC}")
-            print("")
-        else:
-            print(f"  {DIM}No playlists created yet.{NC}\n")
-            
-        print(f"{BOLD}Playlist Operations:{NC}")
-        print(f"  {BOLD}{CYAN} C){NC} Create New Custom Playlist (.m3u8)")
-        print(f"  {BOLD}{CYAN} G){NC} {BOLD}{GREEN}Generate Mix Archive Folder Playlists (from Configured Storage Folders){NC}")
-        print(f"  {BOLD}{CYAN} L){NC} Launch a Playlist in Audio Player (cliamp, Strawberry, VLC, etc.)")
-        print(f"  {BOLD}{CYAN} E){NC} Edit / Re-order Tracks in Existing Playlist")
-        print(f"  {BOLD}{CYAN} D){NC} Delete a Playlist")
-        if sys.platform == "darwin":
-            print(f"  {BOLD}{CYAN} T){NC} Generate Traktor Playlist from History Files (macOS)")
-        print(f"\n  {BOLD}{CYAN} 0){NC} Return to Main Menu {DIM}(or 'q'){NC}")
-        print(f"{BOLD}{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        
-        cmd = input(f"{BOLD}Enter choice: {NC}").strip()
-        if cmd in ('0', 'q', 'exit', 'quit'):
-            break
-            
-        if cmd.lower() == 'c':
-            create_playlist_wizard()
-        elif cmd.lower() == 'g':
-            gen_script = get_base_dir() / "scripts" / "generate_archive_folder_playlists.py"
-            if not gen_script.is_file():
-                gen_script = get_base_dir() / "generate_archive_folder_playlists.py"
-            if gen_script.is_file():
-                subprocess.run([sys.executable, str(gen_script)])
-            else:
-                print(f"{RED}Error: generate_archive_folder_playlists.py not found!{NC}")
-                time.sleep(1)
-        elif cmd.lower() == 't' and sys.platform == "darwin":
-            traktor_script = get_base_dir() / "generate_traktor_playlist_from_history.py"
-            if traktor_script.is_file():
-                subprocess.run([sys.executable, str(traktor_script)])
-            else:
-                print(f"{RED}Error: generate_traktor_playlist_from_history.py not found!{NC}")
-                time.sleep(1)
-        elif cmd.lower() == 'l':
-            if not playlists:
-                print(f"{YELLOW}No playlists available.{NC}")
-                time.sleep(1)
-                continue
-            sel = input(f"Select playlist to launch [1-{len(playlists)}]: ").strip()
-            if sel.isdigit() and 1 <= int(sel) <= len(playlists):
-                p_file = playlists[int(sel) - 1]
-                print(f"\nSelect Audio Player:")
-                print(f"  1) cliamp (Terminal Player)")
-                print(f"  2) Strawberry Music Player")
-                print(f"  3) VLC Media Player")
-                print(f"  4) MPV Player")
-                print(f"  5) Kodi Media Center")
-                p_sel = input("Select player [1-5, default 1]: ").strip() or "1"
-                p_map = {"1": "cliamp", "2": "strawberry", "3": "vlc", "4": "mpv", "5": "kodi"}
-                player_name = p_map.get(p_sel, "cliamp")
-                launch_playlist_in_player(p_file, player_name)
-                time.sleep(1)
-        elif cmd.lower() == 'e':
-            if not playlists:
-                continue
-            sel = input(f"Select playlist to edit [1-{len(playlists)}]: ").strip()
-            if sel.isdigit() and 1 <= int(sel) <= len(playlists):
-                edit_playlist_wizard(playlists[int(sel) - 1])
-        elif cmd.lower() == 'd':
-            if not playlists:
-                continue
-            sel = input(f"Select playlist to delete [1-{len(playlists)}]: ").strip()
-            if sel.isdigit() and 1 <= int(sel) <= len(playlists):
-                to_del = playlists[int(sel) - 1]
-                conf = input(f"Delete {to_del.name}? [y/N]: ").strip().lower()
-                if conf in ('y', 'yes'):
-                    to_del.unlink()
-                    print(f"{RED}✓ Playlist deleted.{NC}")
-                    time.sleep(0.8)
-
 def create_playlist_wizard():
-    print(f"\n{BOLD}{MAGENTA}--- Create New Custom Playlist ---{NC}")
+    print("\n--- Create New Custom Playlist ---")
     name = input("Enter Playlist Name (e.g. Best_Of_SOF): ").strip()
     if not name:
         return
     if not name.lower().endswith(('.m3u', '.m3u8')):
         name += ".m3u8"
-        
     p_file = get_playlists_dir() / name
     all_mixes = list_archive_mixes()
     selected_paths = []
-    
-    filter_q = ""
     while True:
-        os.system('clear' if os.name == 'posix' else 'cls')
-        filtered = [m for m in all_mixes if not filter_q or filter_q.lower() in m["filename"].lower()]
-        
-        print(f"{BOLD}{MAGENTA}Creating Playlist: {name}{NC}")
-        print(f"Selected Tracks: {GREEN}{len(selected_paths)}{NC} mixes in playlist")
-        if filter_q:
-            print(f"Active Filter: {CYAN}{filter_q}{NC}")
-        print(f"{BOLD}{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        
-        for idx, m in enumerate(filtered[:25], start=1):
-            fname = m["filename"]
-            if len(fname) > 55:
-                fname = fname[:52] + "..."
-            in_list = f"{GREEN}★ ADDED{NC}" if m["path"] in selected_paths else ""
-            print(f"  {idx:2d}) {fname:<55} {in_list}")
-            
-        print(f"{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        print("Options: Enter numbers (e.g. 1,3,5), '/<query>' to filter, 'save' to finish, 'cancel' to exit")
-        cmd = input(f"{BOLD}Select: {NC}").strip()
-        
+        print(f"Creating Playlist: {name}")
+        print(f"Selected Tracks: {len(selected_paths)} mixes in playlist")
+        print("\nOptions: Enter numbers (e.g. 1,3,5), '/<query>' to filter, 'save' to finish, 'cancel' to exit")
+        cmd = input("Select: ").strip()
         if cmd.lower() == 'cancel':
             return
         elif cmd.lower() == 'save':
@@ -325,7 +172,28 @@ def create_playlist_wizard():
                 write_m3u(p_file, selected_paths)
                 alt_file = p_file.with_suffix('.m3u8') if p_file.suffix.lower() == '.m3u' else p_file.with_suffix('.m3u')
                 write_m3u(alt_file, selected_paths)
-                print(f"\n{GREEN}✓ Playlist successfully created with {len(selected_paths)} tracks (.m3u & .m3u8):{NC} {p_file.name}, {alt_file.name}")
+                print(f"\n✓ Playlist successfully created with {len(selected_paths)} tracks (.m3u & .m3u8): {p_file.name}, {alt_file.name}")
+                input("Press Enter to continue...")
+            return
+        elif cmd.startswith('/'):
+            filter_q = cmd[1:].strip()
+            filtered = [m for m in all_mixes if filter_q.lower() in m["filename"].lower()]
+        else:
+            filtered = all_mixes
+            filter_q = ""
+        print("Available Tracks:")
+        for idx, m in enumerate(filtered[:25], start=1):
+            print(f"  {idx}) {m['filename']}")
+        print("\nOptions: Enter numbers (e.g. 1,3,5), '/<query>' to filter, 'save' to finish, 'cancel' to exit")
+        cmd = input("Select: ").strip()
+        if cmd.lower() == 'cancel':
+            return
+        elif cmd.lower() == 'save':
+            if selected_paths:
+                write_m3u(p_file, selected_paths)
+                alt_file = p_file.with_suffix('.m3u8') if p_file.suffix.lower() == '.m3u' else p_file.with_suffix('.m3u')
+                write_m3u(alt_file, selected_paths)
+                print(f"\n✓ Playlist successfully created with {len(selected_paths)} tracks (.m3u & .m3u8): {p_file.name}, {alt_file.name}")
                 input("Press Enter to continue...")
             return
         elif cmd.startswith('/'):
@@ -348,15 +216,10 @@ def create_playlist_wizard():
 def edit_playlist_wizard(p_file):
     tracks = parse_m3u(p_file)
     while True:
-        os.system('clear' if os.name == 'posix' else 'cls')
-        print(f"{BOLD}{MAGENTA}Editing Playlist: {p_file.name}{NC}")
+        print(f"Editing Playlist: {p_file.name}")
         print(f"Total Tracks: {len(tracks)}")
-        print(f"{BOLD}{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        for idx, t in enumerate(tracks, start=1):
-            print(f"  {idx:2d}) {Path(t).name}")
-        print(f"{BLUE}──────────────────────────────────────────────────────────────────────{NC}")
-        print("Options: 'r <index>' to remove track, 'add' to append tracks, 'save' to finish, '0' to cancel")
-        cmd = input(f"{BOLD}Select: {NC}").strip()
+        print("\nOptions: 'r <index>' to remove track, 'add' to append tracks, 'save' to finish, '0' to cancel")
+        cmd = input("Select: ").strip()
         if cmd in ('0', 'cancel'):
             return
         elif cmd == 'save':
@@ -364,7 +227,7 @@ def edit_playlist_wizard(p_file):
             alt_file = p_file.with_suffix('.m3u8') if p_file.suffix.lower() == '.m3u' else p_file.with_suffix('.m3u')
             if alt_file.is_file():
                 write_m3u(alt_file, tracks)
-            print(f"{GREEN}✓ Playlist updated (.m3u / .m3u8).{NC}")
+            print("✓ Playlist updated (.m3u / .m3u8).")
             time.sleep(1)
             return
         elif cmd.startswith('r '):
@@ -375,7 +238,7 @@ def edit_playlist_wizard(p_file):
             mixes = list_archive_mixes()
             print("\nSelect mix to append:")
             for i, m in enumerate(mixes[:15], start=1):
-                print(f"  {i:2d}) {m['filename']}")
+                print(f"  {i}) {m['filename']}")
             asel = input(f"Select [1-{min(15, len(mixes))}]: ").strip()
             if asel.isdigit() and 1 <= int(asel) <= min(15, len(mixes)):
                 tracks.append(mixes[int(asel) - 1]["path"])
@@ -387,7 +250,6 @@ def main():
     parser.add_argument("--launch", help="Playlist path or name to launch")
     parser.add_argument("--player", default="cliamp", help="Audio player to launch")
     args = parser.parse_args()
-    
     if args.generate_archive_playlists:
         gen_script = get_base_dir() / "scripts" / "generate_archive_folder_playlists.py"
         if not gen_script.is_file():
@@ -400,7 +262,83 @@ def main():
     elif args.launch:
         launch_playlist_in_player(args.launch, args.player)
     else:
-        interactive_ui()
+        while True:
+            playlists = list_playlists()
+            print("Custom Playlists Creator & Audio Player Launcher")
+            print(f"Playlist Directory: {get_playlists_dir()}")
+            print(f"Saved Playlists: {len(playlists)}")
+            if playlists:
+                for idx, p in enumerate(playlists, start=1):
+                    tracks = parse_m3u(p)
+                    print(f"  {idx}) {p.name} ({len(tracks)} mix tracks)")
+            else:
+                print("  No playlists created yet.")
+            print("\nPlaylist Operations:")
+            print("  C) Create New Custom Playlist")
+            print("  G) Generate Mix Archive Folder Playlists (from Configured Storage Folders)")
+            print("  L) Launch a Playlist in Audio Player")
+            print("  E) Edit / Re-order Tracks in Existing Playlist")
+            print("  D) Delete a Playlist")
+            if sys.platform == "darwin":
+                print("  T) Generate Traktor Playlist from History Files (macOS)")
+            print("\n  0) Return to Main Menu (or 'q')")
+            cmd = input("Enter choice: ").strip()
+            if cmd in ('0', 'q', 'exit', 'quit'):
+                break
+            if cmd.lower() == 'c':
+                create_playlist_wizard()
+            elif cmd.lower() == 'g':
+                gen_script = get_base_dir() / "scripts" / "generate_archive_folder_playlists.py"
+                if not gen_script.is_file():
+                    gen_script = get_base_dir() / "generate_archive_folder_playlists.py"
+                if gen_script.is_file():
+                    subprocess.run([sys.executable, str(gen_script)])
+                else:
+                    print("Error: generate_archive_folder_playlists.py not found!")
+                    time.sleep(1)
+            elif cmd.lower() == 't' and sys.platform == "darwin":
+                traktor_script = get_base_dir() / "generate_traktor_playlist_from_history.py"
+                if traktor_script.is_file():
+                    subprocess.run([sys.executable, str(traktor_script)])
+                else:
+                    print("Error: generate_traktor_playlist_from_history.py not found!")
+                    time.sleep(1)
+            elif cmd.lower() == 'l':
+                if not playlists:
+                    print("No playlists available.")
+                    time.sleep(1)
+                    continue
+                sel = input(f"Select playlist to launch [1-{len(playlists)}]: ").strip()
+                if sel.isdigit() and 1 <= int(sel) <= len(playlists):
+                    p_file = playlists[int(sel) - 1]
+                    print("\nSelect Audio Player:")
+                    print("  1) cliamp (Terminal Player)")
+                    print("  2) Strawberry Music Player")
+                    print("  3) VLC Media Player")
+                    print("  4) MPV Player")
+                    print("  5) Kodi Media Center")
+                    p_sel = input("Select player [1-5, default 1]: ").strip() or "1"
+                    p_map = {"1": "cliamp", "2": "strawberry", "3": "vlc", "4": "mpv", "5": "kodi"}
+                    player_name = p_map.get(p_sel, "cliamp")
+                    launch_playlist_in_player(p_file, player_name)
+                    time.sleep(1)
+            elif cmd.lower() == 'e':
+                if not playlists:
+                    continue
+                sel = input(f"Select playlist to edit [1-{len(playlists)}]: ").strip()
+                if sel.isdigit() and 1 <= int(sel) <= len(playlists):
+                    edit_playlist_wizard(playlists[int(sel) - 1])
+            elif cmd.lower() == 'd':
+                if not playlists:
+                    continue
+                sel = input(f"Select playlist to delete [1-{len(playlists)}]: ").strip()
+                if sel.isdigit() and 1 <= int(sel) <= len(playlists):
+                    to_del = playlists[int(sel) - 1]
+                    conf = input(f"Delete {to_del.name}? [y/N]: ").strip().lower()
+                    if conf in ('y', 'yes'):
+                        to_del.unlink()
+                        print("✓ Playlist deleted.")
+                        time.sleep(0.8)
 
 if __name__ == "__main__":
     try:

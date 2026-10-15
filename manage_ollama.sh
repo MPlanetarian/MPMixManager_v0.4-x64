@@ -81,6 +81,31 @@ else
     LOG_FILE="/tmp/ollama-serve.log"
 fi
 
+# Locate MP Harmony Agent Audio Speech Archive directory (Unified across Ollama and Harmony Agent)
+HARMONY_DIR="${HARMONY_DIR:-/var/home/mplanetarian/OpenAI/MP_Harmony_Agent}"
+if [ ! -d "$HARMONY_DIR" ] && [ -d "$HOME/OpenAI/MP_Harmony_Agent" ]; then
+    HARMONY_DIR="$HOME/OpenAI/MP_Harmony_Agent"
+elif [ ! -d "$HARMONY_DIR" ] && [ -d "$HOME/OpenAI/Harmony_Agent" ]; then
+    HARMONY_DIR="$HOME/OpenAI/Harmony_Agent"
+fi
+
+HARMONY_AUDIO_DIR="$HARMONY_DIR/audio_responses"
+VOICE_AI_AUDIO_DIR_FALLBACK="/var/home/mplanetarian/voice-ai/audio_responses"
+[ ! -d "$VOICE_AI_AUDIO_DIR_FALLBACK" ] && [ -d "$HOME/voice-ai/audio_responses" ] && VOICE_AI_AUDIO_DIR_FALLBACK="$HOME/voice-ai/audio_responses"
+
+if [ -n "${OLLAMA_AUDIO_DIR:-}" ]; then
+    AUDIO_DIR="$OLLAMA_AUDIO_DIR"
+elif [ -d "$HARMONY_AUDIO_DIR" ] || [ -d "$HARMONY_DIR" ]; then
+    AUDIO_DIR="$HARMONY_AUDIO_DIR"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
+elif [ -d "$VOICE_AI_AUDIO_DIR_FALLBACK" ]; then
+    AUDIO_DIR="$VOICE_AI_AUDIO_DIR_FALLBACK"
+else
+    AUDIO_DIR="${HARMONY_AUDIO_DIR}"
+fi
+export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+
+
 get_lan_ip() {
     local ip=""
     if [ "$OS_TYPE" = "windows" ] && command -v ipconfig.exe >/dev/null 2>&1; then
@@ -431,6 +456,13 @@ show_status() {
         [ -n "$gpu_info" ] && echo -e "  Hardware Accel:   ${GREEN}${gpu_info}${NC} (CUDA Enabled)"
     fi
 
+    # Audio responses archive
+    if [ -d "$AUDIO_DIR" ]; then
+        local wav_count
+        wav_count=$(find "$AUDIO_DIR" -name "*.wav" 2>/dev/null | wc -l)
+        echo -e "  Audio Archive:    ${CYAN}${AUDIO_DIR}${NC} (${wav_count} responses recorded)"
+    fi
+
     echo ""
     echo -e "${BOLD}Installed Local Models in Ollama:${NC}"
     if is_ollama_running; then
@@ -618,6 +650,7 @@ run_voice_chat_cli() {
             trinity) chosen_voice_name="Trinity (The Matrix)" ;;
             oracle|the_oracle) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
             zion|hamann) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+            stephen_hawking|hawking|stephen_hawking_matrix) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
             *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
         esac
     else
@@ -628,8 +661,9 @@ run_voice_chat_cli() {
         echo -e "  4) Trinity (The Matrix)"
         echo -e "  5) The Oracle (The Matrix)"
         echo -e "  6) Zion (Councillor Hamann)"
+        echo -e "  7) Stephen Hawking (Enters the Matrix)"
         echo ""
-        read -r -p "Enter voice choice [1-6, Enter=1]: " v_choice
+        read -r -p "Enter voice choice [1-7, Enter=1]: " v_choice
 
         case "$v_choice" in
             2) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix)" ;;
@@ -637,6 +671,7 @@ run_voice_chat_cli() {
             4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
             5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
             6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+            7) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
             *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
         esac
     fi
@@ -661,22 +696,25 @@ run_voice_chat_cli() {
     pids=$(get_ollama_pids)
 
     export VOICE_AI_TTS_VOICE="${chosen_voice}"
+    export VOICE_AI_AUDIO_DIR="${AUDIO_DIR}"
+    mkdir -p "$AUDIO_DIR" 2>/dev/null || true
 
     echo -e "\n${BOLD}${GREEN}Starting real-time Voice Chat session with '${chosen_model}'...${NC}"
     echo -e "  • Model:        ${BOLD}${YELLOW}${chosen_model}${NC}"
     echo -e "  • Ollama URL:   ${BOLD}${CYAN}${OLLAMA_CHECK_URL}${NC}${pids:+ (PID: ${pids% })}"
     echo -e "  • Voice:        ${BOLD}${MAGENTA}${chosen_voice_name}${NC} [id: ${CYAN}${chosen_voice}${NC}]"
     echo -e "  • Voice Engine: ${BOLD}${CYAN}Whisper STT + XTTS-v2 Neural Voice Clone${NC}"
+    echo -e "  • Audio Archive:${BOLD}${CYAN}${AUDIO_DIR}${NC}"
     echo -e "  • Controls:     ${DIM}Press [Enter] to speak via mic, type text to query, /voice to change, /quit to exit${NC}\n"
     sleep 1
 
     if [ -n "$voice_bin" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "$chosen_voice"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_bin" --model "$chosen_model" --voice "$chosen_voice"
     elif [ -f "$voice_py" ] && [ -x "$voice_venv_py" ]; then
-        OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "$chosen_voice"
+        VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" "$voice_venv_py" "$voice_py" --model "$chosen_model" --voice "$chosen_voice"
     elif [ "$OS_TYPE" = "windows" ]; then
         if command -v local-voice-talk >/dev/null 2>&1; then
-            OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "$chosen_voice"
+            VOICE_AI_AUDIO_DIR="${AUDIO_DIR}" OLLAMA_URL="${OLLAMA_CHECK_URL}" local-voice-talk --model "$chosen_model" --voice "$chosen_voice"
         elif [ -f "X:/voice-ai/local_voice_talk.py" ]; then
             python "X:/voice-ai/local_voice_talk.py" --model "$chosen_model" --voice "$chosen_voice"
         else
@@ -689,6 +727,75 @@ run_voice_chat_cli() {
         echo -e "${YELLOW}Expected executable: ${HOME}/bin/local-voice-talk or ${voice_py}${NC}"
         read -r -p "Press Enter to return..."
         return 1
+    fi
+}
+
+view_audio_responses() {
+    clear
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}              MP HARMONY AGENT AUDIO SPEECH ARCHIVE                   ${NC}"
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+    if [ ! -d "$AUDIO_DIR" ]; then
+        echo -e "Audio responses directory does not exist: ${AUDIO_DIR}"
+        echo ""
+        read -r -p "Press Enter to return..."
+        return 0
+    fi
+
+    # Sync any recent recordings from voice-ai audio responses directory if present
+    local voice_ai_audio="/var/home/mplanetarian/voice-ai/audio_responses"
+    [ ! -d "$voice_ai_audio" ] && [ -d "$HOME/voice-ai/audio_responses" ] && voice_ai_audio="$HOME/voice-ai/audio_responses"
+    if [ -d "$voice_ai_audio" ] && [ -d "$AUDIO_DIR" ] && [ "$voice_ai_audio" != "$AUDIO_DIR" ]; then
+        cp -u "$voice_ai_audio"/*.wav "$voice_ai_audio"/*.txt "$AUDIO_DIR/" 2>/dev/null || true
+    fi
+
+    local wavs=()
+    if find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" >/dev/null 2>&1; then
+        mapfile -t wavs < <(find "$AUDIO_DIR" -maxdepth 1 -name "*.wav" -type f -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2- | head -n 15)
+    else
+        mapfile -t wavs < <(ls -1t "$AUDIO_DIR"/*.wav 2>/dev/null | head -n 15)
+    fi
+
+    if [ ${#wavs[@]} -eq 0 ]; then
+        echo -e "No recorded audio responses found yet in ${AUDIO_DIR}."
+        echo ""
+        read -r -p "Press Enter to return..."
+        return 0
+    fi
+
+    echo -e "Recent Audio Speech Responses (Latest 15):\n"
+    local idx=1
+    for w in "${wavs[@]}"; do
+        local bname txt_file txt_snippet
+        bname=$(basename "$w")
+        txt_file="${w%.*}.txt"
+        txt_snippet=""
+        if [ -f "$txt_file" ]; then
+            txt_snippet=$(head -n 1 "$txt_file" | cut -c 1-60)
+            [ -n "$txt_snippet" ] && txt_snippet=" - \"${txt_snippet}...\""
+        fi
+        printf "  %2d) %s%s\n" "$idx" "$bname" "$txt_snippet"
+        ((idx++))
+    done
+    echo ""
+    echo -e "Enter number [1-${#wavs[@]}] to play with audio player, or press Enter to return:"
+    read -r -p "Choice: " a_choice
+    if [[ "$a_choice" =~ ^[0-9]+$ ]] && [ "$a_choice" -ge 1 ] && [ "$a_choice" -le ${#wavs[@]} ]; then
+        local chosen_wav="${wavs[$((a_choice - 1))]}"
+        echo -e "\n${BOLD}${CYAN}Playing: ${chosen_wav}${NC}"
+        if command -v paplay >/dev/null 2>&1; then
+            paplay "$chosen_wav"
+        elif command -v pw-play >/dev/null 2>&1; then
+            pw-play "$chosen_wav"
+        elif command -v aplay >/dev/null 2>&1; then
+            aplay -q "$chosen_wav"
+        elif command -v mpv >/dev/null 2>&1; then
+            mpv --no-video "$chosen_wav"
+        else
+            xdg-open "$chosen_wav" >/dev/null 2>&1 || true
+        fi
+        echo ""
+        read -r -p "Press Enter to return..."
     fi
 }
 
@@ -751,10 +858,11 @@ interactive_menu() {
         echo -e "  ${BOLD}${CYAN} 3)${NC} Stop Running Ollama Server"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Restart Ollama Server"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Chat with a Local Model (Interactive CLI: Qwen, LLaMA...)"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion${NC})"
-        echo -e "  ${BOLD}${CYAN} 7)${NC} View Server Log File (${LOG_FILE})"
-        echo -e "  ${BOLD}${CYAN} 8)${NC} Return to Previous Menu\n"
-        read -r -p "Enter choice [1-8, or q to return]: " o_choice
+        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion, Hawking${NC})"
+        echo -e "  ${BOLD}${CYAN} 7)${NC} View Archived Audio Responses & Transcripts (${AUDIO_DIR})"
+        echo -e "  ${BOLD}${CYAN} 8)${NC} View Server Log File (${LOG_FILE})"
+        echo -e "  ${BOLD}${CYAN} 9)${NC} Return to Previous Menu\n"
+        read -r -p "Enter choice [1-9, or q to return]: " o_choice
 
         case "$o_choice" in
             1)
@@ -784,9 +892,12 @@ interactive_menu() {
                 run_voice_chat_cli
                 ;;
             7)
+                view_audio_responses
+                ;;
+            8)
                 view_logs
                 ;;
-            8|[qQ])
+            9|[qQ])
                 return 0
                 ;;
             *)
@@ -840,6 +951,9 @@ case "${1:-}" in
         shift
         run_voice_chat_cli "$@"
         ;;
+    audio|recordings|responses)
+        view_audio_responses
+        ;;
     logs)
         view_logs
         ;;
@@ -847,7 +961,7 @@ case "${1:-}" in
         interactive_menu
         ;;
     *)
-        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|voice|logs}"
+        echo "Usage: $(basename "$0") {start|start-window|stop|restart|status|models|chat|voice|audio|logs}"
         exit 1
         ;;
 esac

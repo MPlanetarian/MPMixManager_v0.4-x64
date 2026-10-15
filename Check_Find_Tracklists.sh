@@ -276,10 +276,13 @@ for current_out in "${flac_scan_dirs[@]}"; do
         tracklist_path="${current_out}/${flac_base}.txt"
         
         if [ "$FORCE_REGENERATE" != "true" ] && [ -f "$tracklist_path" ]; then
-            continue
+            track_count=$(grep -cE '^[0-9]{2}\. ' "$tracklist_path" 2>/dev/null || echo 0)
+            if [ "$track_count" -ge 2 ]; then
+                continue
+            fi
         fi
         
-        echo "Found FLAC without tracklist: $flac_base"
+        echo "Found FLAC without tracklist (or fallback placeholder): $flac_base"
         
         # Try to extract base name matching the session ID pattern
         session_id=$(echo "$flac_base" | sed 's/^MPlanetarian - Stream of Frequency - //')
@@ -291,6 +294,9 @@ for current_out in "${flac_scan_dirs[@]}"; do
         # Explicit alignment for verified episodes
         if [[ "$flac_base" =~ (Mix_093|Episode_093|Episode 093|_093_) || "$flac_base" == *"093"* ]]; then
             matched_history="$LOCAL_HISTORY_DIR/history_2026y05m21d_10h48m35s.nml"
+        fi
+        if [[ "$flac_base" == *"081"* && "$flac_base" =~ [Jj]orn ]] || [[ "$flac_base" == *"2026-10-14_12h31m53"* ]]; then
+            matched_history="$LOCAL_HISTORY_DIR/history_2026y10m14d_14h59m14s.nml"
         fi
 
         # Locate any source WAV files that match this session ID from the pre-cached index

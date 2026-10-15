@@ -793,7 +793,11 @@ build_session_tracklist() {
     matched_history=""
 
     if [ -d "$LOCAL_HISTORY_DIR" ]; then
-        if [ -n "$traktor_pattern" ]; then
+        if [[ "$base" == *"081"* && "$base" =~ [Jj]orn ]] || [[ "$ref_name" == *"2026-10-14_12h31m53"* ]] || [[ "$base" == *"2026-10-14_12h31m53"* ]]; then
+            matched_history="$LOCAL_HISTORY_DIR/history_2026y10m14d_14h59m14s.nml"
+        fi
+
+        if [ -z "$matched_history" ] && [ -n "$traktor_pattern" ]; then
             matched_history=$(find "$LOCAL_HISTORY_DIR" -maxdepth 2 -type f \( -name "*.nml" -o -name "*.xml" -o -name "*.txt" \) 2>/dev/null | grep -i -- "$traktor_pattern" | head -n 1 || true)
         fi
 

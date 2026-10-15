@@ -650,6 +650,7 @@ run_voice_chat_cli() {
             trinity) chosen_voice_name="Trinity (The Matrix)" ;;
             oracle|the_oracle) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
             zion|hamann) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+            stephen_hawking|hawking|stephen_hawking_matrix) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
             *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
         esac
     else
@@ -660,8 +661,9 @@ run_voice_chat_cli() {
         echo -e "  4) Trinity (The Matrix)"
         echo -e "  5) The Oracle (The Matrix)"
         echo -e "  6) Zion (Councillor Hamann)"
+        echo -e "  7) Stephen Hawking (Enters the Matrix)"
         echo ""
-        read -r -p "Enter voice choice [1-6, Enter=1]: " v_choice
+        read -r -p "Enter voice choice [1-7, Enter=1]: " v_choice
 
         case "$v_choice" in
             2) chosen_voice="morpheus"; chosen_voice_name="Morpheus (The Matrix)" ;;
@@ -669,6 +671,7 @@ run_voice_chat_cli() {
             4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
             5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
             6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+            7) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
             *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
         esac
     fi
@@ -855,7 +858,7 @@ interactive_menu() {
         echo -e "  ${BOLD}${CYAN} 3)${NC} Stop Running Ollama Server"
         echo -e "  ${BOLD}${CYAN} 4)${NC} Restart Ollama Server"
         echo -e "  ${BOLD}${CYAN} 5)${NC} Chat with a Local Model (Interactive CLI: Qwen, LLaMA...)"
-        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion${NC})"
+        echo -e "  ${BOLD}${CYAN} 6)${NC} Start Voice Chat with Local Models (${BOLD}${MAGENTA}Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion, Hawking${NC})"
         echo -e "  ${BOLD}${CYAN} 7)${NC} View Archived Audio Responses & Transcripts (${AUDIO_DIR})"
         echo -e "  ${BOLD}${CYAN} 8)${NC} View Server Log File (${LOG_FILE})"
         echo -e "  ${BOLD}${CYAN} 9)${NC} Return to Previous Menu\n"

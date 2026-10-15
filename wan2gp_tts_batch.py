@@ -213,17 +213,90 @@ VOICES: List[Dict[str, str]] = [
         "engine": "edge",
         "desc": "Natural Irish male voice (Neural)"
     },
-    # Cinematic & Character Voices (21)
+    # The Matrix Cast & Cinematic Voices (21 to 26)
     {
         "id": "agent_smith",
         "name": "Agent Smith",
         "gender": "Male",
-        "accent": "Matrix Cinematic",
-        "engine": "edge",
-        "voice_name": "en-US-ChristopherNeural",  # Back to Christopher for deeper base foundation
-        "pitch": "-45Hz",                   # Deep, menacing drop
-        "rate": "+15%",                     # Fast, clipped, relentless cadence
-        "desc": "Aggressively distorted, hyper-precise Matrix villain voice (Extreme FX)"
+        "accent": "The Matrix (Hugo Weaving)",
+        "engine": "xtts",
+        "xtts_voice": "agent_smith",
+        "voice_name": "en-GB-ThomasNeural",
+        "pitch": "-10Hz",
+        "rate": "-4%",
+        "desc": "Cold, menacing, hyper-precise Matrix agent voice (Hugo Weaving zero-shot XTTS-v2)"
+    },
+    {
+        "id": "morpheus",
+        "name": "Morpheus",
+        "gender": "Male",
+        "accent": "The Matrix (Laurence Fishburne)",
+        "engine": "xtts",
+        "xtts_voice": "morpheus",
+        "voice_name": "en-US-ChristopherNeural",
+        "pitch": "-12Hz",
+        "rate": "-6%",
+        "desc": "Deep, philosophical, commanding resonance of Laurence Fishburne"
+    },
+    {
+        "id": "neo",
+        "name": "Neo",
+        "gender": "Male",
+        "accent": "The Matrix (Keanu Reeves)",
+        "engine": "xtts",
+        "xtts_voice": "neo",
+        "voice_name": "en-US-BrianNeural",
+        "pitch": "-4Hz",
+        "rate": "-2%",
+        "desc": "Calm, contemplative, determined voice of Keanu Reeves (The One)"
+    },
+    {
+        "id": "trinity",
+        "name": "Trinity",
+        "gender": "Female",
+        "accent": "The Matrix (Carrie-Anne Moss)",
+        "engine": "xtts",
+        "xtts_voice": "trinity",
+        "voice_name": "en-US-AvaNeural",
+        "pitch": "+0Hz",
+        "rate": "+0%",
+        "desc": "Focused, sharp, fearless cadence of Carrie-Anne Moss"
+    },
+    {
+        "id": "oracle",
+        "name": "The Oracle",
+        "gender": "Female",
+        "accent": "The Matrix (Gloria Foster)",
+        "engine": "xtts",
+        "xtts_voice": "oracle",
+        "voice_name": "en-US-JennyNeural",
+        "pitch": "-6Hz",
+        "rate": "-6%",
+        "desc": "Warm, motherly, enigmatic wisdom of Gloria Foster"
+    },
+    {
+        "id": "zion",
+        "name": "Councillor Hamann",
+        "gender": "Male",
+        "accent": "The Matrix (Anthony Zerbe)",
+        "engine": "xtts",
+        "xtts_voice": "zion",
+        "voice_name": "en-US-RogerNeural",
+        "pitch": "-8Hz",
+        "rate": "-5%",
+        "desc": "Wise, solemn elder statesman of Zion (Anthony Zerbe)"
+    },
+    {
+        "id": "stephen_hawking_matrix",
+        "name": "Stephen Hawking (Enters the Matrix)",
+        "gender": "Male",
+        "accent": "The Matrix (Robotic / Synth)",
+        "engine": "espeak",
+        "voice_code": "en-us+m3",
+        "pitch_val": 19,
+        "speed_wpm": 110,
+        "af_filter": "bass=g=12:f=95:w=0.6, equalizer=f=2400:t=q:w=1.2:g=2, aecho=0.8:0.7:50|100:0.3|0.2",
+        "desc": "Robotic synth entering the Matrix (Deep pitch -p 19, -s 110, bass boost & reverb)"
     }
 ]
 
@@ -269,9 +342,13 @@ def pause_if_tty(prompt: str = "\nPress [Enter] to continue...") -> None:
 
 
 def get_voice_info(voice_id: str) -> Dict[str, str]:
-    """Retrieve voice info dictionary by ID."""
+    """Retrieve voice info dictionary by ID or name."""
+    clean_id = voice_id.lower().strip()
     for v in VOICES:
-        if v["id"].lower() == voice_id.lower():
+        if v["id"].lower() == clean_id or v["name"].lower() == clean_id:
+            return v
+    for v in VOICES:
+        if clean_id in v["id"].lower() or clean_id in v["name"].lower():
             return v
     return VOICES[0]
 
@@ -356,32 +433,60 @@ def get_next_id(converted_dir: Path, date_str: str) -> str:
     return f"ID{next_num:03d}"
 
 
-def synthesize_speech_espeak(text: str, voice_code: str, output_wav: Path, speed_wpm: int = 130) -> bool:
-    """Synthesize speech using local eSpeak-NG engine."""
-    clean_voice = voice_code.replace("espeak:", "")
+def synthesize_speech_espeak(text: str, voice_code_or_id: str, output_wav: Path, speed_wpm: int = 130) -> bool:
+    """Synthesize speech using local eSpeak-NG engine with optional pitch, speed, and audio filtering."""
+    v_info = get_voice_info(voice_code_or_id)
+    if v_info and (v_info["id"].lower() == voice_code_or_id.lower() or v_info.get("voice_code", "").lower() == voice_code_or_id.lower()):
+        clean_voice = v_info.get("voice_code", v_info["id"]).replace("espeak:", "")
+        pitch_val = str(v_info.get("pitch_val", 50))
+        wpm = str(v_info.get("speed_wpm", speed_wpm))
+        af_filter = v_info.get("af_filter", None)
+    else:
+        clean_voice = voice_code_or_id.replace("espeak:", "")
+        pitch_val = "50"
+        wpm = str(speed_wpm)
+        af_filter = None
+
     temp_txt = output_wav.with_suffix(".tmp.txt")
+    raw_wav = output_wav.with_suffix(".raw.wav") if af_filter else output_wav
+    espeak_bin = "espeak-ng" if shutil.which("espeak-ng") else ("espeak" if shutil.which("espeak") else "espeak-ng")
+
     try:
         temp_txt.write_text(text, encoding="utf-8")
         cmd = [
-            "espeak-ng",
+            espeak_bin,
             "-v", clean_voice,
-            "-s", str(speed_wpm),
-            "-p", "50",
+            "-s", wpm,
+            "-p", pitch_val,
             "-f", str(temp_txt),
-            "-w", str(output_wav)
+            "-w", str(raw_wav)
         ]
         res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode == 0 and output_wav.exists() and output_wav.stat().st_size > 44:
-            return True
-        else:
+        if res.returncode != 0 or not raw_wav.exists() or raw_wav.stat().st_size <= 44:
             print(f"{RED}[-] eSpeak-NG failed: {res.stderr.strip()}{RESET}")
             return False
+
+        if af_filter:
+            cmd_filter = [
+                "ffmpeg", "-y", "-v", "error",
+                "-i", str(raw_wav),
+                "-af", af_filter,
+                str(output_wav)
+            ]
+            res_filter = subprocess.run(cmd_filter, capture_output=True, text=True)
+            if res_filter.returncode != 0 or not output_wav.exists() or output_wav.stat().st_size <= 44:
+                print(f"{RED}[-] FFmpeg filter failed: {res_filter.stderr.strip()}{RESET}")
+                return False
+
+        return True
     except Exception as e:
         print(f"{RED}[-] Error during eSpeak-NG synthesis: {e}{RESET}")
         return False
     finally:
         if temp_txt.exists():
             temp_txt.unlink()
+        if af_filter and raw_wav.exists() and raw_wav != output_wav:
+            raw_wav.unlink(missing_ok=True)
 
 
 def split_text_into_chunks(text: str, max_chars: int = 4000) -> List[str]:
@@ -492,11 +597,10 @@ def synthesize_speech_edge(text: str, voice_id: str, output_wav: Path, rate: str
                 "-i", str(chunk_mp3)
             ]
 
-            # If Agent Smith, inject aggressive audio filters to strip warmth and add a metallic/robotic edge
+            # If Agent Smith Edge fallback, ensure clean 24kHz clarity
             if v_info["id"] == "agent_smith":
-                # highpass/lowpass to telephone/interrogation spectrum, plus a subtle flanger/tremolo effect
                 cmd_conv.extend([
-                    "-af", "highpass=f=200,lowpass=f=4000,aformat=sample_fmts=s16:sample_rates=24000"
+                    "-af", "aformat=sample_fmts=s16:sample_rates=24000"
                 ])
 
             cmd_conv.extend([
@@ -517,6 +621,76 @@ def synthesize_speech_edge(text: str, voice_id: str, output_wav: Path, rate: str
         return False
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def synthesize_speech_xtts(text: str, voice_id: str, output_wav: Path, speed: float = 1.0) -> bool:
+    """Synthesize speech using local XTTS-v2 microservice on port 8020."""
+    v_info = get_voice_info(voice_id)
+    xtts_voice = v_info.get("xtts_voice", v_info["id"])
+    xtts_url = os.environ.get("XTTS_URL", "http://127.0.0.1:8020")
+    
+    # Check if XTTS service is responding
+    try:
+        import urllib.request
+        req_health = urllib.request.Request(f"{xtts_url}/health")
+        with urllib.request.urlopen(req_health, timeout=1.5) as h_resp:
+            if h_resp.status != 200:
+                return False
+    except Exception:
+        return False
+
+    # Split text into sentences for maximum XTTS quality
+    import re
+    text_clean = re.sub(r'\b(Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|e\.g|i\.e)\.', r'\1<DOT>', text)
+    raw_sentences = [s.strip().replace('<DOT>', '.') for s in re.split(r'(?<=[.!?])\s+', text_clean) if s.strip()]
+    sentences = []
+    for s in raw_sentences:
+        if sentences and len(sentences[-1].split()) < 4:
+            sentences[-1] = sentences[-1] + " " + s
+        else:
+            sentences.append(s)
+    if not sentences:
+        sentences = [text.strip()]
+
+    temp_wavs = []
+    temp_dir = output_wav.parent / ".tts_tmp_xtts"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        for idx, sentence in enumerate(sentences, 1):
+            if len(sentences) > 1:
+                print(f"  {CYAN}Generating neural chunk {idx}/{len(sentences)} ({len(sentence)} chars)...{RESET}")
+            chunk_wav = temp_dir / f"xtts_chunk_{idx}.wav"
+            payload = json.dumps({
+                "text": sentence,
+                "voice": xtts_voice,
+                "speed": speed
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                f"{xtts_url}/synthesize",
+                data=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                if resp.status != 200:
+                    return False
+                audio_bytes = resp.read()
+                if len(audio_bytes) < 100:
+                    return False
+                with open(chunk_wav, "wb") as f_out:
+                    f_out.write(audio_bytes)
+
+            temp_wavs.append(chunk_wav)
+
+        success = concatenate_wav_files(temp_wavs, output_wav)
+        return success and output_wav.exists() and output_wav.stat().st_size > 44
+    except Exception as e:
+        print(f"{YELLOW}[!] Error during XTTS synthesis: {e}{RESET}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Optional[Tuple[Path, Path]]:
     """Core conversion pipeline."""
@@ -554,6 +728,16 @@ def convert_text_to_speech(text_file: Path, voice_id: str, tts_dir: Path) -> Opt
     if v_info["engine"] == "espeak":
         print(f"[*] Synthesizing via eSpeak-NG local engine...")
         success = synthesize_speech_espeak(cleaned_content, v_info["id"], initial_wav)
+    elif v_info.get("engine") == "xtts" or v_info.get("xtts_voice"):
+        print(f"[*] Synthesizing via XTTS-v2 Matrix Neural Engine ({v_info['name']})...")
+        success = synthesize_speech_xtts(cleaned_content, v_info["id"], initial_wav)
+        if not success:
+            print(f"{YELLOW}[!] XTTS local engine unavailable. Falling back to Edge-TTS Neural...{RESET}")
+            success = synthesize_speech_edge(cleaned_content, v_info["id"], initial_wav)
+            if not success:
+                print(f"{YELLOW}[!] Neural generation encountered an issue. Falling back to eSpeak-NG...{RESET}")
+                fallback_voice = "en-gb+f3" if v_info["gender"] == "Female" else "en-gb"
+                success = synthesize_speech_espeak(cleaned_content, fallback_voice, initial_wav)
     else:
         print(f"[*] Synthesizing via Microsoft Edge Neural TTS...")
         success = synthesize_speech_edge(cleaned_content, v_info["id"], initial_wav)
@@ -672,16 +856,26 @@ def play_audio_file(wav_path: Path) -> None:
 def preview_voice(voice_id: str) -> None:
     """Generates and plays a short audio preview for the chosen voice."""
     v_info = get_voice_info(voice_id)
-    if v_info["id"] == "agent_smith":
-        preview_text = "Mr. Anderson. Welcome back. We missed you."
-    else:
-        preview_text = f"Hello! This is {v_info['name']}. Your WAN2GP text to speech conversion system is ready."
+    matrix_previews = {
+        "agent_smith": "Mr. Anderson. Welcome back. We missed you.",
+        "morpheus": "Welcome to the real world. You take the blue pill, the story ends. You take the red pill, you stay in Wonderland.",
+        "neo": "I know why you are here. I know what you have been doing. I know kung fu.",
+        "trinity": "The answer is out there, Neo. It is looking for you, and it will find you if you want it to.",
+        "oracle": "Everything that has a beginning has an end. Do not worry about the vase.",
+        "zion": "I like to be reminded this city survives because of these machines.",
+        "stephen_hawking_matrix": "Entering the Matrix. Remember to look up at the stars and not down at your feet."
+    }
+    preview_text = matrix_previews.get(v_info["id"], f"Hello! This is {v_info['name']}. Your WAN2GP text to speech conversion system is ready.")
     
-    preview_wav = Path("/tmp") / f"tts_preview_{v_info['name'].lower().replace(' ', '_')}.wav"
+    preview_wav = Path("/tmp") / f"tts_preview_{v_info['name'].lower().replace(' ', '_').replace('(', '').replace(')', '')}.wav"
 
     print(f"\n[*] Generating voice preview for {BOLD}{v_info['name']}{RESET} ({v_info['gender']}, {v_info['accent']})...")
     success = False
-    if v_info["engine"] == "espeak":
+    if v_info.get("engine") == "xtts" or v_info.get("xtts_voice"):
+        success = synthesize_speech_xtts(preview_text, v_info["id"], preview_wav)
+        if not success:
+            success = synthesize_speech_edge(preview_text, v_info["id"], preview_wav)
+    elif v_info["engine"] == "espeak":
         success = synthesize_speech_espeak(preview_text, v_info["id"], preview_wav)
     else:
         success = synthesize_speech_edge(preview_text, v_info["id"], preview_wav)
@@ -724,12 +918,12 @@ def select_voice_menu(current_voice_id: str) -> str:
             marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
             print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
 
-        # 4) Cinematic & Character Voices (Indices 20+ -> Items 21+)
-        print(f"\n{BOLD}{CYAN}--- CINEMATIC & CHARACTER VOICES ---{RESET}")
+        # 4) The Matrix Cast & Cinematic Voices (Indices 20+ -> Items 21+)
+        print(f"\n{BOLD}{CYAN}--- THE MATRIX CAST & CINEMATIC VOICES ---{RESET}")
         for i in range(21, len(VOICES) + 1):
             v = VOICES[i - 1]
             marker = f"{GREEN}●{RESET}" if v["id"] == current_voice_id else " "
-            print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:18s}{RESET} | {DIM}{v['desc']}{RESET}")
+            print(f" {marker} {BOLD}{CYAN}{i:2d}){RESET} [{v['gender']:6s}] {BOLD}{v['name']:36s}{RESET} | {DIM}{v['desc']}{RESET}")
 
         print("")
         print(f"  {BOLD}P){RESET} Preview Current Voice Sample")

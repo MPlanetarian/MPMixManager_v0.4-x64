@@ -301,8 +301,9 @@ launch_voice_chat_cli() {
     echo -e "  4) Trinity (The Matrix)"
     echo -e "  5) The Oracle (The Matrix)"
     echo -e "  6) Zion (Councillor Hamann)"
+    echo -e "  7) Stephen Hawking (Enters the Matrix)"
     echo ""
-    read -r -p "Enter voice choice [1-6, Enter=1]: " v_choice
+    read -r -p "Enter voice choice [1-7, Enter=1]: " v_choice
 
     local chosen_voice="agent_smith"
     local chosen_voice_name="Agent Smith (The Matrix)"
@@ -312,6 +313,7 @@ launch_voice_chat_cli() {
         4) chosen_voice="trinity"; chosen_voice_name="Trinity (The Matrix)" ;;
         5) chosen_voice="oracle"; chosen_voice_name="The Oracle (The Matrix)" ;;
         6) chosen_voice="zion"; chosen_voice_name="Zion (Councillor Hamann)" ;;
+        7) chosen_voice="stephen_hawking_matrix"; chosen_voice_name="Stephen Hawking (Enters the Matrix)" ;;
         *) chosen_voice="agent_smith"; chosen_voice_name="Agent Smith (The Matrix)" ;;
     esac
 
