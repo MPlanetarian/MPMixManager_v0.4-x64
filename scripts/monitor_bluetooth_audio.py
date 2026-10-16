@@ -74,6 +74,20 @@ class BluetoothAudioRouter:
         self.last_switch_time: float = 0.0
         self._cached_status: Dict[str, Any] = {}
         self._last_status_probe: float = 0.0
+        self.connected_bt_sink_names: set[str] = set()
+        self.user_opted_out_bt: bool = False
+        try:
+            bt_sinks, _ = self.probe_sinks()
+            self.connected_bt_sink_names = {s["name"] for s in bt_sinks if s.get("name")}
+            cur_def = self._get_default_sink_name()
+            if cur_def and cur_def in self.connected_bt_sink_names:
+                self.active_bt_sink = bt_sinks[0] if bt_sinks else None
+                self.user_opted_out_bt = False
+            else:
+                self.active_bt_sink = None
+                self.user_opted_out_bt = bool(self.connected_bt_sink_names)
+        except Exception:
+            pass
 
     def log(self, msg: str):
         if self.logger:
@@ -405,6 +419,7 @@ class BluetoothAudioRouter:
         Routes system default and active MP Audio Player stream to Bluetooth.
         """
         with self._lock:
+            self.user_opted_out_bt = False
             bt_sinks, other_sinks = self.probe_sinks()
             if not bt_sink:
                 if not bt_sinks:
@@ -458,6 +473,7 @@ class BluetoothAudioRouter:
         Reverts system default and active MP Audio Player stream to fallback sink.
         """
         with self._lock:
+            self.user_opted_out_bt = True
             _, other_sinks = self.probe_sinks()
             fallback = self.fallback_sink
             if not fallback or not any(o.get("name") == fallback.get("name") for o in other_sinks):
@@ -490,41 +506,77 @@ class BluetoothAudioRouter:
                     pass
             return True
 
+    def get_sink_description(self, sink_name: str) -> str:
+        try:
+            bt_sinks, other_sinks = self.probe_sinks()
+            for s in (bt_sinks + other_sinks):
+                if s.get("name") == sink_name:
+                    return s.get("description", sink_name)
+        except Exception:
+            pass
+        return sink_name
+
     def check_and_route(self):
         """
         Intelligently inspects current audio topology:
         - If a Bluetooth sink connected and we haven't routed to it, auto-routes to Bluetooth.
         - If the active Bluetooth sink disconnected, reverts to fallback sink.
-        - Ensures stream migration.
+        - Respects user manual selection: if the user switches to HDMI or another sink, does NOT override back to Bluetooth.
         """
         try:
             bt_sinks, other_sinks = self.probe_sinks()
+            current_bt_names = {s["name"] for s in bt_sinks if s.get("name")}
+            default_sink = self._get_default_sink_name()
 
-            # Bluetooth connected
-            if bt_sinks:
-                target_bt = bt_sinks[0]
-                # If auto-switch enabled
+            # Detect newly connected Bluetooth sinks
+            newly_connected = [s for s in bt_sinks if s["name"] not in self.connected_bt_sink_names]
+            # Detect disconnected Bluetooth sinks
+            disconnected = self.connected_bt_sink_names - current_bt_names
+
+            # Update tracked connected Bluetooth devices
+            self.connected_bt_sink_names = current_bt_names
+
+            # 1. New Bluetooth device connected
+            if newly_connected:
+                target_bt = newly_connected[0]
+                self.user_opted_out_bt = False
                 if self.auto_switch:
-                    is_new = (
-                        self.active_bt_sink is None
-                        or self.active_bt_sink.get("name") != target_bt.get("name")
-                        or self.last_routed_sink_name != target_bt.get("name")
-                    )
-                    # Check if stream is currently on this sink
-                    player_inputs = self.get_player_sink_inputs()
-                    needs_stream_move = any(
-                        inp.get("sink") != target_bt.get("index") for inp in player_inputs
-                    )
-                    default_sink = self._get_default_sink_name()
-                    needs_default_switch = (default_sink != target_bt.get("name"))
+                    self.log(f"New Bluetooth audio device connected: {target_bt.get('description', target_bt.get('name'))}")
+                    self.route_to_bluetooth(target_bt)
 
-                    if is_new or needs_stream_move or needs_default_switch:
-                        self.route_to_bluetooth(target_bt)
-            else:
-                # Bluetooth disconnected
-                if self.active_bt_sink is not None:
-                    self.log(f"Bluetooth device disconnected ({self.active_bt_sink.get('description', '')}). Reverting audio...")
+            # 2. Bluetooth device disconnected
+            elif disconnected:
+                if (self.active_bt_sink and self.active_bt_sink.get("name") in disconnected) or (not bt_sinks and self.active_bt_sink is not None):
+                    self.log(f"Bluetooth device disconnected. Reverting audio to fallback...")
                     self.route_to_fallback()
+                self.user_opted_out_bt = False
+
+            # 3. Steady state with Bluetooth present
+            elif bt_sinks:
+                target_bt = bt_sinks[0]
+                # If the system default sink is non-Bluetooth (user selected HDMI or speakers via audio tray/settings)
+                if default_sink and default_sink not in current_bt_names:
+                    # User manually chose a non-Bluetooth sink! Respect choice and do NOT revert to Bluetooth.
+                    if not self.user_opted_out_bt or self.active_bt_sink is not None:
+                        self.user_opted_out_bt = True
+                        self.active_bt_sink = None
+                        self.last_routed_sink_name = default_sink
+                        self.move_player_stream(default_sink)
+                        desc = self.get_sink_description(default_sink) or default_sink
+                        self.log(f"User manually switched to non-Bluetooth sink: {desc}. Respecting choice.")
+                        if self.on_route_change:
+                            try:
+                                self.on_route_change(desc, False, "manual_switch", None)
+                            except Exception:
+                                pass
+                elif not self.user_opted_out_bt:
+                    # Default sink is Bluetooth and user has not opted out
+                    self.active_bt_sink = target_bt
+                    player_inputs = self.get_player_sink_inputs()
+                    for inp in player_inputs:
+                        if inp.get("sink") != target_bt.get("index"):
+                            self.move_player_stream(target_bt["name"], target_bt.get("index"))
+
             self.probe_and_update_status()
             self._save_state()
         except Exception as e:
