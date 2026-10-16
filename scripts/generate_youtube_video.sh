@@ -375,19 +375,37 @@ echo -e "  Resolution:   ${BOLD}${WIDTH}x${HEIGHT} @ 30fps${NC}"
 echo -e "  Output Video: ${GREEN}$OUTPUT_FILE${NC}"
 echo -e "${BLUE}------------------------------------------------------------${NC}"
 
-# Get audio duration
-AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$AUDIO_FILE" 2>/dev/null || echo "")
+# Single ffprobe call to retrieve audio duration and bitrate
+AUDIO_DURATION=""
+RAW_BITRATE=""
+while IFS='=' read -r key val; do
+    val="${val%$'\r'}"
+    case "$key" in
+        duration) [ -z "$AUDIO_DURATION" ] && [ "$val" != "N/A" ] && AUDIO_DURATION="$val" ;;
+        bit_rate) [ -z "$RAW_BITRATE" ] && [ "$val" != "N/A" ] && [ "${val:-0}" -gt 0 ] 2>/dev/null && RAW_BITRATE="$val" ;;
+    esac
+done < <(ffprobe -v error -select_streams a:0 -show_entries stream=bit_rate -show_entries format=duration,bit_rate -of default=noprint_wrappers=1 "$AUDIO_FILE" 2>/dev/null || true)
 
 if [ -z "$AUDIO_DURATION" ]; then
     echo -e "${RED}Error: Could not retrieve duration from $AUDIO_FILE${NC}"
     exit 1
 fi
 
+if [[ ! "${RAW_BITRATE:-}" =~ ^[0-9]+$ ]] || [ "${RAW_BITRATE:-0}" -le 0 ]; then
+    FILE_BYTES=$(stat -c%s "$AUDIO_FILE" 2>/dev/null || stat -f%z "$AUDIO_FILE" 2>/dev/null || echo 0)
+    RAW_BITRATE=$(awk -v b="$FILE_BYTES" -v d="$AUDIO_DURATION" 'BEGIN { if (d > 0 && b > 0) printf "%.0f", (b * 8) / d; else print 320000 }')
+fi
+
+AUDIO_KBPS=$(( RAW_BITRATE / 1000 ))
+[ "$AUDIO_KBPS" -le 0 ] && AUDIO_KBPS=320
+AUDIO_BITRATE="${AUDIO_KBPS}k"
+
 TOTAL_SEC=$(printf "%.0f" "$AUDIO_DURATION")
 FADE_OUT_START=$((TOTAL_SEC - 5))
 [ "$FADE_OUT_START" -lt 0 ] && FADE_OUT_START=0
 
 echo -e "Audio Duration: ${BOLD}${AUDIO_DURATION}s${NC}"
+echo -e "Audio Bitrate:  ${BOLD}${AUDIO_KBPS} kbps${NC}"
 
 # Detect optimal Video Encoder
 VCODEC="libx264"
@@ -404,19 +422,20 @@ else
     echo -e "Video Encoder:  ${BOLD}${YELLOW}libx264 (CPU Software Encoder)${NC}"
 fi
 
-# Detect optimal Audio Encoder
+# Detect optimal Audio Encoder (avoid grep -q SIGPIPE under pipefail)
 ACODEC="aac"
-if ffmpeg -encoders 2>/dev/null | grep -q "libfdk_aac"; then
+if [[ "$(ffmpeg -hide_banner -encoders 2>/dev/null || true)" == *"libfdk_aac"* ]]; then
     ACODEC="libfdk_aac"
-    echo -e "Audio Codec:    ${BOLD}${GREEN}libfdk_aac @ 320 kbps (Pristine)${NC}"
+    echo -e "Audio Codec:    ${BOLD}${GREEN}libfdk_aac @ ${AUDIO_KBPS} kbps (Pristine)${NC}"
 else
-    echo -e "Audio Codec:    ${BOLD}${YELLOW}native aac @ 320 kbps${NC}"
+    echo -e "Audio Codec:    ${BOLD}${YELLOW}native aac @ ${AUDIO_KBPS} kbps${NC}"
 fi
 
 echo -e "Transitions:    ${BOLD}5s fade-in, 5s fade-out${NC}"
 echo -e "${BLUE}------------------------------------------------------------${NC}"
 echo -e "${YELLOW}Rendering ${RES_LABEL} with FFmpeg... Please wait.${NC}\n"
 
+STATUS=0
 ffmpeg -y \
   -err_detect ignore_err \
   -loop 1 -framerate 30 -t "$AUDIO_DURATION" -i "$IMAGE_FILE" \
@@ -425,11 +444,9 @@ ffmpeg -y \
   -c:v "$VCODEC" \
   "${VPRESET_ARGS[@]}" \
   -c:a "$ACODEC" \
-  -b:a 320k \
+  -b:a "$AUDIO_BITRATE" \
   -movflags +faststart \
-  "$OUTPUT_FILE"
-
-STATUS=$?
+  "$OUTPUT_FILE" || STATUS=$?
 
 echo -e "\n${BLUE}------------------------------------------------------------${NC}"
 if [ $STATUS -eq 0 ]; then

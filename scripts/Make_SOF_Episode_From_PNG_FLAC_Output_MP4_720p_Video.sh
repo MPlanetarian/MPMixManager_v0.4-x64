@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Make_SOF_Episode_From_PNG_FLAC_Output_MP4_720p_Video.sh
-# Generates 720p HD YouTube Video (1280x720 @ 30fps) from FLAC Audio & Cover Image
+# Generates 720p HD YouTube Video (1280x720 @ 30fps) from FLAC/WAV Audio & Cover Image
 # Hardware Accelerated (NVENC / VideoToolbox / libx264 fallback)
+# Uses dynamic audio bitrate matched directly to the source audio file.
 # ==============================================================================
 
 set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
 
-# Setup colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -24,61 +24,97 @@ OUTPUT_DIR="${3:-${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}}"
 
 if [ -z "$AUDIO_FILE" ]; then
     echo -e "${RED}Error: Audio file not specified!${NC}"
-    echo "Usage: $0 <path_to_audio.flac> [path_to_cover.png] [output_dir]"
+    echo "Usage: $0 <path_to_audio.flac|wav> [path_to_cover.png] [output_dir]"
     exit 1
 fi
 
+# Strip surrounding quotes
+AUDIO_FILE="${AUDIO_FILE#\"}"; AUDIO_FILE="${AUDIO_FILE%\"}"
+AUDIO_FILE="${AUDIO_FILE#\'}"; AUDIO_FILE="${AUDIO_FILE%\'}"
+IMAGE_FILE="${IMAGE_FILE#\"}"; IMAGE_FILE="${IMAGE_FILE%\"}"
+IMAGE_FILE="${IMAGE_FILE#\'}"; IMAGE_FILE="${IMAGE_FILE%\'}"
+OUTPUT_DIR="${OUTPUT_DIR#\"}"; OUTPUT_DIR="${OUTPUT_DIR%\"}"
+OUTPUT_DIR="${OUTPUT_DIR#\'}"; OUTPUT_DIR="${OUTPUT_DIR%\'}"
+
 # Locate audio file
 if [ ! -f "$AUDIO_FILE" ]; then
-    if [ -f "FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE" ]; then
-        AUDIO_FILE="FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE"
-    elif [ -f "WAV_CONVERTED_OUTPUTS/$AUDIO_FILE" ]; then
-        AUDIO_FILE="WAV_CONVERTED_OUTPUTS/$AUDIO_FILE"
-    elif [ -f "CONVERTED_WAV_FILES/$AUDIO_FILE" ]; then
-        AUDIO_FILE="CONVERTED_WAV_FILES/$AUDIO_FILE"
-    elif [ -f "$AUDIO_FILE.flac" ]; then
-        AUDIO_FILE="$AUDIO_FILE.flac"
-    elif [ -f "$AUDIO_FILE.wav" ]; then
-        AUDIO_FILE="$AUDIO_FILE.wav"
-    elif [ -f "FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE.flac" ]; then
-        AUDIO_FILE="FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE.flac"
-    elif [ -f "WAV_CONVERTED_OUTPUTS/$AUDIO_FILE.wav" ]; then
-        AUDIO_FILE="WAV_CONVERTED_OUTPUTS/$AUDIO_FILE.wav"
-    elif [ -f "$OUTPUT_DIR/$AUDIO_FILE" ]; then
-        AUDIO_FILE="$OUTPUT_DIR/$AUDIO_FILE"
-    else
+    found=0
+    for candidate in \
+        "FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE" \
+        "WAV_CONVERTED_OUTPUTS/$AUDIO_FILE" \
+        "CONVERTED_WAV_FILES/$AUDIO_FILE" \
+        "$AUDIO_FILE.flac" \
+        "$AUDIO_FILE.wav" \
+        "FLAC_CONVERTED_OUTPUTS/$AUDIO_FILE.flac" \
+        "WAV_CONVERTED_OUTPUTS/$AUDIO_FILE.wav" \
+        "$OUTPUT_DIR/$AUDIO_FILE" \
+        "FLAC_CORRUPTED_FILES/$AUDIO_FILE"; do
+        if [ -f "$candidate" ]; then
+            AUDIO_FILE="$candidate"
+            found=1
+            break
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
         echo -e "${RED}Error: Audio file '$AUDIO_FILE' not found!${NC}"
         exit 1
     fi
 fi
 
 # Locate image file
-if [ -z "$IMAGE_FILE" ]; then
-    IMAGE_FILE="Cover.png"
-fi
-
+[ -z "$IMAGE_FILE" ] && IMAGE_FILE="Cover.png"
 if [ ! -f "$IMAGE_FILE" ]; then
-    if [ -f "COVERS/$IMAGE_FILE" ]; then
-        IMAGE_FILE="COVERS/$IMAGE_FILE"
-    elif [ -f "Cover.png" ]; then
-        echo -e "${YELLOW}Warning: Cover file '$IMAGE_FILE' not found. Using default Cover.png.${NC}"
-        IMAGE_FILE="Cover.png"
-    elif [ -f "assets/Cover.png" ]; then
-        IMAGE_FILE="assets/Cover.png"
-    else
+    found_img=0
+    for candidate in "COVERS/$IMAGE_FILE" "Cover.png" "assets/Cover.png"; do
+        if [ -f "$candidate" ]; then
+            [ "$candidate" = "Cover.png" ] && [ "$IMAGE_FILE" != "Cover.png" ] && \
+                echo -e "${YELLOW}Warning: Cover file '$IMAGE_FILE' not found. Using default Cover.png.${NC}"
+            IMAGE_FILE="$candidate"
+            found_img=1
+            break
+        fi
+    done
+    if [ "$found_img" -eq 0 ]; then
         echo -e "${RED}Error: Cover image '$IMAGE_FILE' not found!${NC}"
         exit 1
     fi
 fi
 
 mkdir -p "$OUTPUT_DIR"
-AUDIO_BASE=$(basename "$AUDIO_FILE")
-OUTPUT_NAME="${AUDIO_BASE%.*}_720p.mp4"
-OUTPUT_FILE="$OUTPUT_DIR/$OUTPUT_NAME"
+AUDIO_BASE="${AUDIO_FILE##*/}"
+OUTPUT_FILE="$OUTPUT_DIR/${AUDIO_BASE%.*}_720p.mp4"
 
 FPS=30
 WIDTH=1280
 HEIGHT=720
+
+# Single ffprobe call to retrieve audio duration and bitrate
+AUDIO_DURATION=""
+RAW_BITRATE=""
+while IFS='=' read -r key val; do
+    val="${val%$'\r'}"
+    case "$key" in
+        duration) [ -z "$AUDIO_DURATION" ] && [ "$val" != "N/A" ] && AUDIO_DURATION="$val" ;;
+        bit_rate) [ -z "$RAW_BITRATE" ] && [ "$val" != "N/A" ] && [ "${val:-0}" -gt 0 ] 2>/dev/null && RAW_BITRATE="$val" ;;
+    esac
+done < <(ffprobe -v error -select_streams a:0 -show_entries stream=bit_rate -show_entries format=duration,bit_rate -of default=noprint_wrappers=1 "$AUDIO_FILE" 2>/dev/null || true)
+
+if [ -z "$AUDIO_DURATION" ]; then
+    echo -e "${RED}Error: Could not retrieve duration from $AUDIO_FILE${NC}"
+    exit 1
+fi
+
+# Fallback bitrate calculation from file size and duration if ffprobe bit_rate is N/A
+if [[ ! "${RAW_BITRATE:-}" =~ ^[0-9]+$ ]] || [ "${RAW_BITRATE:-0}" -le 0 ]; then
+    FILE_BYTES=$(stat -c%s "$AUDIO_FILE" 2>/dev/null || stat -f%z "$AUDIO_FILE" 2>/dev/null || echo 0)
+    RAW_BITRATE=$(awk -v b="$FILE_BYTES" -v d="$AUDIO_DURATION" 'BEGIN { if (d > 0 && b > 0) printf "%.0f", (b * 8) / d; else print 320000 }')
+fi
+
+AUDIO_KBPS=$(( RAW_BITRATE / 1000 ))
+[ "$AUDIO_KBPS" -le 0 ] && AUDIO_KBPS=320
+AUDIO_BITRATE="${AUDIO_KBPS}k"
+
+FADE_OUT_START=$(awk -v d="$AUDIO_DURATION" 'BEGIN { s = int(d + 0.5) - 5; print (s < 0 ? 0 : s) }')
 
 clear 2>/dev/null || true
 echo -e "${BOLD}${BLUE}============================================================${NC}"
@@ -88,20 +124,8 @@ echo -e "  Audio File:   ${GREEN}$AUDIO_FILE${NC}"
 echo -e "  Cover Image:  ${GREEN}$IMAGE_FILE${NC}"
 echo -e "  Output Video: ${GREEN}$OUTPUT_FILE${NC}"
 echo -e "${BLUE}------------------------------------------------------------${NC}"
-
-# Get audio duration
-AUDIO_DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$AUDIO_FILE" 2>/dev/null || echo "")
-
-if [ -z "$AUDIO_DURATION" ]; then
-    echo -e "${RED}Error: Could not retrieve duration from $AUDIO_FILE${NC}"
-    exit 1
-fi
-
-TOTAL_SEC=$(printf "%.0f" "$AUDIO_DURATION")
-FADE_OUT_START=$((TOTAL_SEC - 5))
-[ "$FADE_OUT_START" -lt 0 ] && FADE_OUT_START=0
-
 echo -e "Audio Duration: ${BOLD}${AUDIO_DURATION}s${NC}"
+echo -e "Audio Bitrate:  ${BOLD}${AUDIO_KBPS} kbps${NC}"
 echo -e "Resolution:     ${BOLD}${WIDTH}x${HEIGHT} (720p HD @ ${FPS}fps)${NC}"
 
 # Detect optimal Video Encoder
@@ -119,19 +143,20 @@ else
     echo -e "Video Encoder:  ${BOLD}${YELLOW}libx264 (CPU Software Encoder)${NC}"
 fi
 
-# Detect optimal Audio Encoder
+# Detect optimal Audio Encoder (avoid grep -q SIGPIPE under pipefail)
 ACODEC="aac"
-if ffmpeg -encoders 2>/dev/null | grep -q "libfdk_aac"; then
+if [[ "$(ffmpeg -hide_banner -encoders 2>/dev/null || true)" == *"libfdk_aac"* ]]; then
     ACODEC="libfdk_aac"
-    echo -e "Audio Codec:    ${BOLD}${GREEN}libfdk_aac @ 320 kbps (Pristine)${NC}"
+    echo -e "Audio Codec:    ${BOLD}${GREEN}libfdk_aac @ ${AUDIO_KBPS} kbps (Pristine)${NC}"
 else
-    echo -e "Audio Codec:    ${BOLD}${YELLOW}native aac @ 320 kbps${NC}"
+    echo -e "Audio Codec:    ${BOLD}${YELLOW}native aac @ ${AUDIO_KBPS} kbps${NC}"
 fi
 
 echo -e "Transitions:    ${BOLD}5s fade-in, 5s fade-out${NC}"
 echo -e "${BLUE}------------------------------------------------------------${NC}"
 echo -e "${YELLOW}Rendering 720p MP4 with FFmpeg... Please wait.${NC}\n"
 
+STATUS=0
 ffmpeg -y \
   -err_detect ignore_err \
   -loop 1 -framerate "$FPS" -t "$AUDIO_DURATION" -i "$IMAGE_FILE" \
@@ -140,17 +165,16 @@ ffmpeg -y \
   -c:v "$VCODEC" \
   "${VPRESET_ARGS[@]}" \
   -c:a "$ACODEC" \
-  -b:a 320k \
-  "$OUTPUT_FILE"
-
-STATUS=$?
+  -b:a "$AUDIO_BITRATE" \
+  -movflags +faststart \
+  "$OUTPUT_FILE" || STATUS=$?
 
 echo -e "\n${BLUE}------------------------------------------------------------${NC}"
-if [ $STATUS -eq 0 ]; then
+if [ "$STATUS" -eq 0 ]; then
     echo -e "${BOLD}${GREEN}✓ Successfully generated 720p video!${NC}"
     ls -lh "$OUTPUT_FILE"
 else
     echo -e "${BOLD}${RED}✗ Video rendering failed with exit code $STATUS!${NC}"
 fi
 echo -e "${BOLD}${BLUE}============================================================${NC}"
-exit $STATUS
+exit "$STATUS"
