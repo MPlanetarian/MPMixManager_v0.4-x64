@@ -119,6 +119,26 @@ check_and_run() {
             fi
         fi
     fi
+
+    # 4. DAILY CONSOLIDATED EMAIL DISPATCH (1:00 PM / 13:00)
+    local email_script="${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py"
+    if [ -f "$email_script" ]; then
+        local cur_hm="${current_time//:/}"
+        cur_hm=$((10#$cur_hm))
+        if [ "$cur_hm" -ge 1300 ]; then
+            python3 "$email_script" --send >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 5. DAILY AI BRAIN LOGS & MODELS REPORT CATCH-UP (10:05 AM or whenever launched)
+    local ai_script="${SCRIPT_DIR}/scripts/generate_ai_report_section.py"
+    if [ -f "$ai_script" ]; then
+        local cur_hm="${current_time//:/}"
+        cur_hm=$((10#$cur_hm))
+        if [ "$cur_hm" -ge 1005 ]; then
+            python3 "$ai_script" --daily >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 start_daemon() {
@@ -172,6 +192,13 @@ print_status() {
     else
         echo "  Daily Report Status:        ○ Disabled in configuration"
     fi
+    local email_script="${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py"
+    if [ -f "$email_script" ]; then
+        echo "----------------------------------------------------------------------"
+        echo "  Daily Consolidated Email:   ⚡ Scheduled at 13:00 (1:00 PM) Daily"
+        echo "  Email Rate Limit:           1 email per day (Strictly enforced)"
+        echo "  Recipients:                 mplanetarian@mplanetarian.com, serotine@gmail.com"
+    fi
     echo "======================================================================"
 }
 
@@ -193,6 +220,15 @@ case "${1:-}" in
     --force-yearly|yearly)
         run_report "yearly"
         save_setting "LAST_YEARLY_REPORT_DATE" "$(date +%Y)"
+        ;;
+    --email-status|email-status)
+        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --status
+        ;;
+    --email-send|email-send)
+        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --send
+        ;;
+    --email-force|email-force)
+        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --force
         ;;
     --status|status)
         print_status

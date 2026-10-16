@@ -1,0 +1,1 @@
+/var/home/mplanetarian/MP_REPORTER/mp_email_manager.sh
