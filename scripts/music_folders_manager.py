@@ -136,7 +136,14 @@ def mount_smb_share(share: str, config: Dict[str, Any]) -> Tuple[bool, str]:
         str(mount_dir),
         "--read-only",
         "--dir-cache-time", "24h",
-        "--vfs-cache-mode", "off"
+        "--vfs-cache-mode", "full",
+        "--vfs-cache-max-size", "15G",
+        "--vfs-cache-max-age", "24h",
+        "--vfs-read-chunk-size", "4M",
+        "--vfs-read-chunk-size-limit", "64M",
+        "--buffer-size", "16M",
+        "--no-modtime",
+        "--attr-timeout", "1h"
     ]
 
     try:

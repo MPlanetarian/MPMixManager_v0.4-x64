@@ -650,6 +650,42 @@ class AudioEngine:
         self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
         self._next_stream_retry = 0.0
 
+        self.num_bands = 24
+        self.band_edges = np.logspace(np.log10(28), np.log10(18500), self.num_bands + 1)
+        self.levels = np.zeros(self.num_bands, dtype=np.float32)
+        self.levels_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.levels_right = np.zeros(self.num_bands, dtype=np.float32)
+        self.smoothed_levels = np.zeros(self.num_bands, dtype=np.float32)
+        self.smoothed_levels_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.smoothed_levels_right = np.zeros(self.num_bands, dtype=np.float32)
+        self.peaks = np.zeros(self.num_bands, dtype=np.float32)
+        self.peaks_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.peaks_right = np.zeros(self.num_bands, dtype=np.float32)
+        self.peak_decay_timers = np.zeros(self.num_bands, dtype=np.float32)
+        self.peak_decay_timers_left = np.zeros(self.num_bands, dtype=np.float32)
+        self.peak_decay_timers_right = np.zeros(self.num_bands, dtype=np.float32)
+        self.recent_mono_buffer = np.zeros(512, dtype=np.float32)
+        self.rms_level, self.peak_db = 0.0, -60.0
+        self.track_ended, self.pending_seek_sec = False, None
+        self.hanning_window = np.hanning(1024).astype(np.float32)
+        self.fft_scale = 1024.0 / 2.0
+        self._cached_bt_info: Dict[str, Any] = {}
+        self._last_bt_query: float = 0.0
+        self._ensure_stream()
+
+        self.auto_bluetooth = auto_bluetooth
+        self.bt_router: Optional[Any] = None
+        if BluetoothAudioRouter is not None:
+            try:
+                self.bt_router = BluetoothAudioRouter(
+                    target_pid=os.getpid(),
+                    on_route_change=self._on_bt_route_change,
+                    auto_switch=self.auto_bluetooth
+                )
+                self.bt_router.start()
+            except Exception:
+                pass
+
     def get_track_cues(self, path: Optional[str] = None) -> Dict[str, Any]:
         p = path or (self.current_track.get("path") if self.current_track else "")
         return self.cue_mgr.get_cues(p) if p else {"cue": 0.0, "hot_cues": {}}
@@ -708,42 +744,6 @@ class AudioEngine:
         target = self.duration_sec * max(0.05, min(0.95, section_ratio))
         self.seek(target)
         return target
-
-        self.num_bands = 24
-        self.band_edges = np.logspace(np.log10(28), np.log10(18500), self.num_bands + 1)
-        self.levels = np.zeros(self.num_bands, dtype=np.float32)
-        self.levels_left = np.zeros(self.num_bands, dtype=np.float32)
-        self.levels_right = np.zeros(self.num_bands, dtype=np.float32)
-        self.smoothed_levels = np.zeros(self.num_bands, dtype=np.float32)
-        self.smoothed_levels_left = np.zeros(self.num_bands, dtype=np.float32)
-        self.smoothed_levels_right = np.zeros(self.num_bands, dtype=np.float32)
-        self.peaks = np.zeros(self.num_bands, dtype=np.float32)
-        self.peaks_left = np.zeros(self.num_bands, dtype=np.float32)
-        self.peaks_right = np.zeros(self.num_bands, dtype=np.float32)
-        self.peak_decay_timers = np.zeros(self.num_bands, dtype=np.float32)
-        self.peak_decay_timers_left = np.zeros(self.num_bands, dtype=np.float32)
-        self.peak_decay_timers_right = np.zeros(self.num_bands, dtype=np.float32)
-        self.recent_mono_buffer = np.zeros(512, dtype=np.float32)
-        self.rms_level, self.peak_db = 0.0, -60.0
-        self.track_ended, self.pending_seek_sec = False, None
-        self.hanning_window = np.hanning(1024).astype(np.float32)
-        self.fft_scale = 1024.0 / 2.0
-        self._cached_bt_info: Dict[str, Any] = {}
-        self._last_bt_query: float = 0.0
-        self._ensure_stream()
-
-        self.auto_bluetooth = auto_bluetooth
-        self.bt_router: Optional[Any] = None
-        if BluetoothAudioRouter is not None:
-            try:
-                self.bt_router = BluetoothAudioRouter(
-                    target_pid=os.getpid(),
-                    on_route_change=self._on_bt_route_change,
-                    auto_switch=self.auto_bluetooth
-                )
-                self.bt_router.start()
-            except Exception:
-                pass
 
     def _on_bt_route_change(self, device_name: str, is_bluetooth: bool, action: str, codec: Optional[str] = None):
         self._ensure_stream()
@@ -3148,7 +3148,7 @@ def main():
                     break
         else:
             if is_music:
-                send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=bool(tf))
+                send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
             if tf:
                 send_ipc_command("play", file=tf)
 
