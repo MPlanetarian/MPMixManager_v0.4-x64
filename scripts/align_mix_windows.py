@@ -1,670 +1,192 @@
 #!/usr/bin/env python3
-"""
-scripts/align_mix_windows.py - Cross-Platform Window Alignment for Mix Manager
-Positions windows according to active monitor configuration:
-- Multi-Display (> 1 displays active):
-  * MP Mix Archive Manager window is placed on the PRIMARY display (Main Screen) in windowed mode (not full screen).
-  * Strawberry Audio Player and Cover Art Viewer are placed ONLY on the SECONDARY display
-    side-by-side with zero overlap: Cover Art (square on left) and Strawberry (player on right).
-  * Any tracklist console window is minimized on multi-display so the primary display
-    remains dedicated to the MP Mix Archive Manager.
-- Single-Display (<= 1 display active):
-  * MP Mix Archive Manager window is displayed in windowed mode (not full screen).
-"""
+"""scripts/align_mix_windows.py - Cross-Platform Window Alignment for Mix Manager"""
+import sys, os, time, subprocess, argparse, json, tempfile
 
-import sys
-import os
-import time
-import platform
-import subprocess
-import argparse
-import tempfile
-import re
-import json
+def main():
+    args = get_args()
+    aligned = align_windows(timeout=args.timeout, mgr_pid=args.mgr_pid, parent_pid=args.parent_pid,
+                            expect_audacious=args.expect_audacious, expect_strawberry=args.expect_strawberry,
+                            expect_player=args.expect_player, expect_cover=args.expect_cover)
+    if not aligned and shutil_which('wmctrl'): aligned = align_x11(mgr_pid=args.mgr_pid)
+    sys.exit(0 if aligned else 1)
 
 def get_args():
-    parser = argparse.ArgumentParser(description="MP Mix Archive Manager Window & Display Aligner")
-    parser.add_argument("--mgr-pid", type=int, default=0, help="PID of MP Mix Archive Manager process")
-    parser.add_argument("--parent-pid", type=int, default=0, help="Parent/terminal PID of Manager")
-    parser.add_argument("--expect-audacious", action="store_true", help="Wait for Audacious window to appear")
-    parser.add_argument("--expect-strawberry", action="store_true", help="Wait for Strawberry window to appear (legacy)")
-    parser.add_argument("--expect-player", action="store_true", help="Wait for player window to appear")
-    parser.add_argument("--expect-cover", action="store_true", help="Wait for Cover window to appear")
-    parser.add_argument("--timeout", type=float, default=8.0, help="Timeout in seconds for window polling")
+    parser = argparse.ArgumentParser(description="MP Mix Archive Manager Window Aligner")
+    for opt in ['--mgr-pid', '--parent-pid']: parser.add_argument(opt, type=int, default=0)
+    for opt in ['--expect-audacious', '--expect-strawberry', '--expect-player', '--expect-cover']: parser.add_argument(opt, action='store_true')
+    parser.add_argument('--timeout', type=float, default=8.0)
     return parser.parse_known_args()[0]
 
-def is_proc_running(names):
-    """Check if any of the given process names are currently running (excluding own process)."""
+def shutil_which(cmd):
+    from shutil import which; return which(cmd) is not None
+
+def get_ancestor_pids(*pids):
+    ancestors = []
+    for start_pid in pids:
+        curr = start_pid
+        while curr and curr > 1:
+            ancestors.append(curr)
+            try:
+                with open(f"/proc/{curr}/stat", "r") as f: ppid = int(f.read().split()[3])
+                if ppid == curr or ppid <= 1:
+                    if ppid > 1: ancestors.append(ppid)
+                    break
+                curr = ppid
+            except Exception: break
+    return list(set(ancestors))
+
+def is_running(names):
     my_pid = os.getpid()
     for name in names:
         try:
             out = subprocess.check_output(['pgrep', '-i', name], stderr=subprocess.DEVNULL).decode()
-            pids = [int(p) for p in out.split() if p.isdigit() and int(p) != my_pid]
-            if pids:
-                return True
-        except Exception:
-            pass
+            if any(int(p) != my_pid for p in out.split() if p.isdigit()): return True
+        except Exception: pass
     return False
 
-def get_ancestor_pids(pid):
-    """Return list of ancestor PIDs for a process up to init (PID 1)."""
-    ancestors = []
-    curr = pid
-    while curr > 1:
-        ancestors.append(curr)
-        try:
-            with open(f"/proc/{curr}/stat", "r") as f:
-                ppid = int(f.read().split()[3])
-                if ppid == curr or ppid <= 1:
-                    if ppid > 1:
-                        ancestors.append(ppid)
-                    break
-                curr = ppid
-        except Exception:
-            break
-    return ancestors
-
 def get_display_priorities():
-    """Detect primary and secondary display names dynamically using kscreen-doctor."""
-    prim_name = None
-    sec_name = None
     try:
-        # Prefer JSON mode for accurate priority, position, and enabled status
-        try:
-            raw_json = subprocess.check_output(['kscreen-doctor', '-j'], stderr=subprocess.DEVNULL)
-            data = json.loads(raw_json)
-            enabled_outputs = []
-            for o in data.get('outputs', []):
-                if o.get('connected', True) and o.get('enabled', True):
-                    name = o.get('name', '')
-                    if name.lower().startswith('unknown'):
-                        continue
-                    priority = o.get('priority', 999)
-                    pos = o.get('pos', {})
-                    enabled_outputs.append({
-                        'name': name,
-                        'priority': priority,
-                        'x': pos.get('x', 0),
-                        'y': pos.get('y', 0)
-                    })
-            if enabled_outputs:
-                # Priority 1 is the primary display in KDE Plasma. Sort by priority, then X position.
-                enabled_outputs.sort(key=lambda x: (x['priority'], x['x']))
-                prim_name = enabled_outputs[0]['name']
-                if len(enabled_outputs) >= 2:
-                    sec_name = enabled_outputs[1]['name']
-                return prim_name, sec_name
-        except Exception:
-            pass
-
-        # Text fallback if -j is not supported
-        out = subprocess.check_output(['kscreen-doctor', '-o'], stderr=subprocess.DEVNULL, text=True)
-        clean = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', out)
+        raw = subprocess.check_output(['kscreen-doctor', '-j'], stderr=subprocess.DEVNULL)
         outputs = []
-        curr = None
-        for line in clean.splitlines():
-            ls = line.strip()
-            if ls.startswith('Output:'):
-                parts = ls.split()
-                if len(parts) >= 3:
-                    curr = {'name': parts[2], 'priority': 999, 'enabled': False}
-                    outputs.append(curr)
-            elif curr and ls.startswith('enabled'):
-                curr['enabled'] = True
-            elif curr and ls.startswith('priority '):
-                p_parts = ls.split()
-                if len(p_parts) >= 2 and p_parts[1].isdigit():
-                    curr['priority'] = int(p_parts[1])
+        for o in json.loads(raw).get('outputs', []):
+            if o.get('connected', True) and o.get('enabled', True):
+                name = o.get('name', '')
+                if not name.lower().startswith('unknown'):
+                    pos = o.get('pos', {})
+                    outputs.append({'name': name, 'priority': o.get('priority', 999), 'x': pos.get('x', 0), 'y': pos.get('y', 0)})
+        if outputs:
+            outputs.sort(key=lambda x: (x['priority'], x['x'], x['y']))
+            return outputs[0]['name'], (outputs[1]['name'] if len(outputs) > 1 else None)
+    except Exception: pass
+    return '', None
 
-        enabled_outputs = [o for o in outputs if o.get('enabled') and not o.get('name', '').lower().startswith('unknown')]
-        if not enabled_outputs:
-            enabled_outputs = outputs
-
-        enabled_outputs.sort(key=lambda x: x['priority'])
-        if len(enabled_outputs) >= 1:
-            prim_name = enabled_outputs[0]['name']
-        if len(enabled_outputs) >= 2:
-            sec_name = enabled_outputs[1]['name']
-    except Exception:
-        pass
-    return prim_name, sec_name
-
-def align_kwin(timeout_seconds=8.0, mgr_pid=0, parent_pid=0, expect_strawberry=False, expect_audacious=False, expect_player=False, expect_cover=False):
-    """Align windows using KDE Plasma 6 KWin Scripting DBus API."""
+def can_align_kwin():
     try:
         import dbus
-    except ImportError:
-        return False
+        bus = dbus.SessionBus()
+        bus.get_object('org.kde.KWin', '/Scripting')
+        return True
+    except Exception: return False
 
-    # Collect ancestor PIDs for Manager window identification
-    mgr_ancestors = []
-    if mgr_pid > 0:
-        mgr_ancestors.extend(get_ancestor_pids(mgr_pid))
-    if parent_pid > 0:
-        mgr_ancestors.extend(get_ancestor_pids(parent_pid))
-    mgr_ancestors = list(set(mgr_ancestors))
-
-    prim_name, sec_name = get_display_priorities()
+def align_windows(timeout=8.0, mgr_pid=0, parent_pid=0, expect_audacious=False,
+                  expect_strawberry=False, expect_player=False, expect_cover=False):
+    if not can_align_kwin(): return False
+    import dbus
     run_token = f"T{int(time.time() * 1000)}_{os.getpid()}"
+    mgr_ancestors = get_ancestor_pids(mgr_pid, parent_pid)
+    prim_name, sec_name = get_display_priorities()
+    start_time, aligned_any = time.time(), False
 
-    start_time = time.time()
-    poll_interval = 0.25
-    aligned_any = False
-
-    while time.time() - start_time < timeout_seconds:
-        player_proc = is_proc_running(['audacious', 'strawberry'])
-        cover_proc = is_proc_running(['gwenview', 'loupe', 'eog', 'feh'])
-
-        # Expect Player / Cover if flagged or if their process has launched
-        expect_straw = expect_strawberry or expect_audacious or expect_player or player_proc
-        expect_cover = expect_cover or cover_proc
-
+    while time.time() - start_time < timeout:
+        expect_straw = expect_strawberry or expect_audacious or expect_player or is_running(['audacious', 'strawberry'])
+        expect_cov = expect_cover or is_running(['gwenview', 'loupe', 'eog', 'feh'])
         try:
-            bus = dbus.SessionBus()
-            kwin_obj = bus.get_object('org.kde.KWin', '/Scripting')
+            kwin_obj = dbus.SessionBus().get_object('org.kde.KWin', '/Scripting')
             scripting = dbus.Interface(kwin_obj, 'org.kde.kwin.Scripting')
-
-            js_code = f'''
-(function() {{
-    var runToken = "{run_token}";
-    var mgrAncestorPids = {json.dumps(mgr_ancestors)};
-    var mgrPid = {mgr_pid};
-    var parentPid = {parent_pid};
-    var expectStraw = {str(expect_straw).lower()};
-    var expectCover = {str(expect_cover).lower()};
-    var primScreenName = "{prim_name or ''}";
-    var secScreenName = "{sec_name or ''}";
-
-    var screens = workspace.screenOrder;
-    if (!screens || screens.length === 0) {{
-        screens = workspace.screens;
-    }}
-    var numScreens = screens ? screens.length : 1;
-
-    var primScreen = null;
-    var secScreen = null;
-
-    if (primScreenName) {{
-        for (var s = 0; s < screens.length; s++) {{
-            if (screens[s].name === primScreenName) {{
-                primScreen = screens[s];
-                break;
-            }}
-        }}
-    }}
-    if (secScreenName) {{
-        for (var s = 0; s < screens.length; s++) {{
-            if (screens[s].name === secScreenName) {{
-                secScreen = screens[s];
-                break;
-            }}
-        }}
-    }}
-
-    if (!primScreen && screens && screens.length > 0) primScreen = screens[0];
-    if (!secScreen && screens && screens.length > 1) {{
-        secScreen = (screens[1] !== primScreen) ? screens[1] : screens[0];
-    }}
-
-    var wins = workspace.windowList();
-    var mgrWin = null;
-    var strawWin = null;
-    var coverWin = null;
-    var tlWin = null;
-
-    for (var i = 0; i < wins.length; i++) {{
-        var w = wins[i];
-        if (!w || !w.caption) continue;
-        var cap = w.caption;
-        var capLower = cap.toLowerCase();
-        var rClass = (w.resourceClass || '').toLowerCase();
-        var dName = (w.desktopFileName || '').toLowerCase();
-
-        // 1. Manager Window (Konsole / terminal running MP Mix Archive Manager)
-        if (!mgrWin) {{
-            if ((mgrAncestorPids && mgrAncestorPids.indexOf(w.pid) !== -1) ||
-                (mgrPid > 0 && w.pid === mgrPid) ||
-                (parentPid > 0 && w.pid === parentPid) ||
-                cap.indexOf('Mix Archive Manager') !== -1 ||
-                cap.indexOf('Mix_Archive_Manager') !== -1 ||
-                capLower.indexOf('mix manager') !== -1 ||
-                (rClass.indexOf('konsole') !== -1 && (capLower.indexOf('mix') !== -1 || capLower.indexOf('bash_scripts') !== -1))) {{
-                mgrWin = w;
-                continue;
-            }}
-        }}
-
-        // 2. Audio Player Window (Audacious / Strawberry)
-        if (!strawWin) {{
-            if (rClass.indexOf('audacious') !== -1 || 
-                capLower.indexOf('audacious') !== -1 || 
-                dName.indexOf('audacious') !== -1 ||
-                rClass.indexOf('strawberry') !== -1 || 
-                capLower.indexOf('strawberry') !== -1 || 
-                dName.indexOf('strawberry') !== -1) {{
-                strawWin = w;
-                continue;
-            }}
-        }}
-
-        // 3. Tracklist Console Window
-        if (!tlWin) {{
-            if (cap.indexOf('Mix Tracklist Viewer') !== -1 || 
-                (cap.indexOf('Tracklist') !== -1 && rClass.indexOf('konsole') !== -1)) {{
-                tlWin = w;
-                continue;
-            }}
-        }}
-
-        // 4. Cover Photo Window (Gwenview / feh / loupe / eog)
-        if (!coverWin) {{
-            if (cap.indexOf('Mix Cover Art Viewer') !== -1 || 
-                rClass.indexOf('gwenview') !== -1 || 
-                capLower.indexOf('gwenview') !== -1 || 
-                dName.indexOf('gwenview') !== -1 ||
-                rClass.indexOf('loupe') !== -1 ||
-                rClass.indexOf('eog') !== -1 ||
-                (rClass.indexOf('feh') !== -1 && capLower.indexOf('cover') !== -1) ||
-                capLower.indexOf('cover.png') !== -1 ||
-                capLower.indexOf('cover.jpg') !== -1 ||
-                (capLower.indexOf('cover') !== -1 && rClass.indexOf('konsole') === -1 && rClass.indexOf('sublime') === -1 && rClass.indexOf('dolphin') === -1 && rClass.indexOf('code') === -1)) {{
-                coverWin = w;
-                continue;
-            }}
-        }}
-    }}
-
-    var isDone = false;
-
-    // =========================================================================
-    // MULTI-DISPLAY LOGIC (Only if > 1 displays are active)
-    // =========================================================================
-    if (numScreens > 1 && primScreen && secScreen) {{
-        var pArea = workspace.clientArea(0, primScreen, workspace.currentDesktop);
-        var sArea = workspace.clientArea(0, secScreen, workspace.currentDesktop);
-
-        // A. Display the Manager on the PRIMARY display (Main Screen) in windowed mode (not in full screen)
-        if (mgrWin) {{
-            workspace.sendClientToScreen(mgrWin, primScreen);
-            workspace.raiseWindow(mgrWin);
-            workspace.activeWindow = mgrWin;
-        }}
-
-        // Minimize any tracklist console window so main screen has only the manager
-        if (tlWin) {{
-            tlWin.minimized = true;
-        }}
-
-        // B. Place Strawberry and Cover Photo onto the SECONDARY display (Second Screen)
-        var sX = Math.floor(sArea.x);
-        var sY = Math.floor(sArea.y);
-        var sW = Math.floor(sArea.width);
-        var sH = Math.floor(sArea.height);
-
-        // Check if we are still waiting for expected windows to map
-        if (expectStraw && !strawWin) {{
-            console.warn("MIX_ALIGN_RUN:" + runToken + " DONE:0 WAITING:strawberry");
-            return;
-        }}
-        if (expectCover && !coverWin) {{
-            console.warn("MIX_ALIGN_RUN:" + runToken + " DONE:0 WAITING:cover");
-            return;
-        }}
-
-        // Case 1: Both Cover and Strawberry are present on secondary display
-        if (coverWin && strawWin) {{
-            var gap = 16;
-            var coverW = Math.min(sH - 40, Math.floor(sW * 0.42));
-            var coverH = coverW;
-            var coverX = sX + 15;
-            var coverY = sY + Math.floor((sH - coverH) / 2);
-
-            coverWin.fullScreen = false;
-            if (typeof coverWin.setMaximize === 'function') coverWin.setMaximize(false, false);
-            if (typeof coverWin.quickTileMode !== 'undefined') coverWin.quickTileMode = 0;
-            workspace.sendClientToScreen(coverWin, secScreen);
-            coverWin.frameGeometry = {{ x: coverX, y: coverY, width: coverW, height: coverH }};
-            coverWin.keepAbove = true;
-            workspace.raiseWindow(coverWin);
-
-            var strawX = coverX + coverW + gap;
-            var strawW = (sX + sW) - strawX - 15;
-            var strawY = sY + 15;
-            var strawH = sH - 30;
-            strawWin.fullScreen = false;
-            if (typeof strawWin.setMaximize === 'function') strawWin.setMaximize(false, false);
-            if (typeof strawWin.quickTileMode !== 'undefined') strawWin.quickTileMode = 0;
-            workspace.sendClientToScreen(strawWin, secScreen);
-            strawWin.frameGeometry = {{ x: strawX, y: strawY, width: strawW, height: strawH }};
-            workspace.raiseWindow(strawWin);
-
-            isDone = true;
-        }} else if (strawWin && !expectCover) {{
-            // Only Strawberry open on secondary display
-            strawWin.fullScreen = false;
-            if (typeof strawWin.setMaximize === 'function') strawWin.setMaximize(false, false);
-            if (typeof strawWin.quickTileMode !== 'undefined') strawWin.quickTileMode = 0;
-            workspace.sendClientToScreen(strawWin, secScreen);
-            strawWin.frameGeometry = {{ x: sX + 20, y: sY + 20, width: sW - 40, height: sH - 40 }};
-            workspace.raiseWindow(strawWin);
-            isDone = true;
-        }} else if (coverWin && !expectStraw) {{
-            // Only Cover open on secondary display
-            var targetH = Math.min(sH - 40, Math.max(500, Math.floor(sH * 0.85)));
-            var coverW = Math.min(targetH, Math.floor(sW * 0.45));
-            coverWin.fullScreen = false;
-            if (typeof coverWin.setMaximize === 'function') coverWin.setMaximize(false, false);
-            if (typeof coverWin.quickTileMode !== 'undefined') coverWin.quickTileMode = 0;
-            workspace.sendClientToScreen(coverWin, secScreen);
-            coverWin.frameGeometry = {{
-                x: sX + Math.floor((sW - coverW) / 2),
-                y: sY + Math.floor((sH - targetH) / 2),
-                width: coverW,
-                height: targetH
-            }};
-            coverWin.keepAbove = true;
-            workspace.raiseWindow(coverWin);
-            isDone = true;
-        }} else if (!expectStraw && !expectCover) {{
-            // Neither player nor cover running, manager on primary display is aligned
-            isDone = true;
-        }}
-
-        console.warn("MIX_ALIGN_RUN:" + runToken + " DONE:" + (isDone ? "1" : "0") + " straw=" + (strawWin ? 1 : 0) + " cover=" + (coverWin ? 1 : 0) + " mgr=" + (mgrWin ? 1 : 0));
-        return;
-    }}
-
-    // =========================================================================
-    // SINGLE DISPLAY FALLBACK (<= 1 display active)
-    // Keep windows on the single display; center HUD floating above manager
-    // =========================================================================
-    var refWin = tlWin || coverWin || workspace.activeWindow;
-    var screen = (refWin && refWin.output) ? refWin.output : (primScreen || workspace.activeScreen);
-    var sArea = workspace.clientArea(0, screen, workspace.currentDesktop);
-    var sX = Math.floor(sArea.x);
-    var sY = Math.floor(sArea.y);
-    var sW = Math.floor(sArea.width);
-    var sH = Math.floor(sArea.height);
-
-    // Manager on single display in windowed mode (not in full screen)
-    if (mgrWin) {{
-        workspace.sendClientToScreen(mgrWin, screen);
-        workspace.raiseWindow(mgrWin);
-        workspace.activeWindow = mgrWin;
-    }}
-
-    if (!coverWin && !tlWin) {{
-        console.warn("MIX_ALIGN_RUN:" + runToken + " DONE:1 straw=0 cover=0 mgr=" + (mgrWin ? 1 : 0) + " screens=1");
-        return;
-    }}
-
-    var targetH = Math.min(760, Math.max(500, Math.floor(sH * 0.65)));
-    var coverW = coverWin ? Math.min(targetH, Math.floor(sW * 0.38)) : 0;
-    var tlW = tlWin ? Math.min(960, Math.max(680, Math.floor(sW * 0.44))) : 0;
-    var gap = (coverWin && tlWin) ? 24 : 0;
-
-    var totalW = coverW + gap + tlW;
-    if (totalW > sW - 40) {{
-        var scale = (sW - 60) / totalW;
-        coverW = Math.floor(coverW * scale);
-        tlW = Math.floor(tlW * scale);
-        targetH = Math.floor(targetH * scale);
-        totalW = coverW + gap + tlW;
-    }}
-
-    var startX = sX + Math.max(10, Math.floor((sW - totalW) / 2));
-    var startY = sY + Math.max(10, Math.floor((sH - targetH) / 2));
-
-    if (coverWin) {{
-        coverWin.fullScreen = false;
-        if (typeof coverWin.setMaximize === 'function') coverWin.setMaximize(false, false);
-        workspace.sendClientToScreen(coverWin, screen);
-        coverWin.keepAbove = true;
-        coverWin.frameGeometry = {{
-            x: startX,
-            y: startY,
-            width: coverW,
-            height: targetH
-        }};
-        workspace.raiseWindow(coverWin);
-    }}
-
-    if (tlWin) {{
-        var tlX = coverWin ? (startX + coverW + gap) : startX;
-        tlWin.fullScreen = false;
-        if (typeof tlWin.setMaximize === 'function') tlWin.setMaximize(false, false);
-        workspace.sendClientToScreen(tlWin, screen);
-        tlWin.keepAbove = true;
-        tlWin.noBorder = true;
-        tlWin.frameGeometry = {{
-            x: tlX,
-            y: startY,
-            width: tlW,
-            height: targetH
-        }};
-        workspace.raiseWindow(tlWin);
-    }}
-
-    console.warn("MIX_ALIGN_RUN:" + runToken + " DONE:1 straw=" + (strawWin ? 1 : 0) + " cover=" + (coverWin ? 1 : 0) + " mgr=" + (mgrWin ? 1 : 0) + " screens=1");
-}})();
-'''
-
+            code = js_code(prim_name or '', sec_name or '', mgr_ancestors, mgr_pid, parent_pid, expect_straw, expect_cov, run_token)
             with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as f:
-                f.write(js_code)
-                tmp_js = f.name
-
+                f.write(code); tmp_js = f.name
             pname = f"mix_align_{int(time.time() * 1000)}"
             try:
                 num = scripting.loadScript(tmp_js, pname, signature='ss')
                 if num >= 0:
-                    script_obj = bus.get_object('org.kde.KWin', f'/Scripting/Script{num}')
-                    script_obj.run()
+                    dbus.SessionBus().get_object('org.kde.KWin', f'/Scripting/Script{num}').run()
                     aligned_any = True
-                try:
-                    scripting.unloadScript(pname)
-                except Exception:
-                    pass
+                try: scripting.unloadScript(pname)
+                except Exception: pass
             finally:
-                if os.path.exists(tmp_js):
-                    os.remove(tmp_js)
+                if os.path.exists(tmp_js): os.remove(tmp_js)
 
-            # Check journalctl for completion token of this specific execution
             try:
-                res = subprocess.run(['journalctl', '--user', '-n', '25', '--no-pager'], capture_output=True, text=True)
+                res = subprocess.run(['journalctl', '--user', '-n', '20', '--no-pager'], capture_output=True, text=True)
                 for line in reversed(res.stdout.splitlines()):
-                    if f"MIX_ALIGN_RUN:{run_token}" in line:
-                        if "DONE:1" in line:
-                            return True
-                        break
-            except Exception:
-                pass
-
-        except Exception:
-            pass
-
-        time.sleep(poll_interval)
-
+                    if f"MIX_ALIGN_RUN:{run_token}" in line and "DONE:1" in line: return True
+            except Exception: pass
+        except Exception: pass
+        time.sleep(0.25)
     return aligned_any
 
+def js_code(prim_name, sec_name, mgr_ancestors, mgr_pid, parent_pid, expect_straw, expect_cover, run_token):
+    return f'''
+(function() {{
+  var runToken="{run_token}", mgrAncestorPids={json.dumps(mgr_ancestors)}, mgrPid={mgr_pid}, parentPid={parent_pid};
+  var expectStraw={json.dumps(expect_straw)}, expectCover={json.dumps(expect_cover)};
+  var primScreenName="{prim_name}", secScreenName="{sec_name or ''}";
+  var screens=workspace.screens||[], numScreens=screens.length, primScreen=null, secScreen=null;
+  for(var s=0;s<screens.length;s++) {{
+    if(screens[s].name===primScreenName && !primScreen) primScreen=screens[s];
+    if(screens[s].name===secScreenName && !secScreen) secScreen=screens[s];
+  }}
+  if(!primScreen&&screens.length>0) primScreen=screens[0];
+  if(!secScreen&&screens.length>1) {{
+    for(var s=0;s<screens.length;s++) {{ if(screens[s]!==primScreen) {{ secScreen=screens[s]; break; }} }}
+  }}
+  var wins=workspace.windowList(), mgrWin=null, strawWin=null, coverWin=null, tlWin=null;
+  for(var i=0;i<wins.length;i++) {{
+    var w=wins[i], cap=w.caption||'', capLower=cap.toLowerCase(), rClass=(w.resourceClass||'').toLowerCase();
+    if(!mgrWin && ((mgrAncestorPids&&mgrAncestorPids.indexOf(w.pid)!==-1)||(mgrPid>0&&w.pid===mgrPid)||(parentPid>0&&w.pid===parentPid)||cap.indexOf('Mix Archive Manager')!==-1||capLower.indexOf('mix manager')!==-1||(rClass.indexOf('konsole')!==-1&&(capLower.indexOf('mix')!==-1||capLower.indexOf('bash_scripts')!==-1)))) {{ mgrWin=w; continue; }}
+    if(!strawWin && (rClass.indexOf('audacious')!==-1||capLower.indexOf('audacious')!==-1||rClass.indexOf('strawberry')!==-1||capLower.indexOf('strawberry')!==-1)) {{ strawWin=w; continue; }}
+    if(!coverWin && (rClass.indexOf('gwenview')!==-1||capLower.indexOf('gwenview')!==-1||rClass.indexOf('loupe')!==-1||rClass.indexOf('eog')!==-1||capLower.indexOf('cover')!==-1)) {{ coverWin=w; continue; }}
+    if(!tlWin && (cap.indexOf('Tracklist')!==-1&&rClass.indexOf('konsole')!==-1)) {{ tlWin=w; continue; }}
+  }}
+  var isDone=false;
+  if(numScreens>1&&primScreen&&secScreen) {{
+    var pArea=workspace.clientArea(0,primScreen,workspace.currentDesktop);
+    var sArea=workspace.clientArea(0,secScreen,workspace.currentDesktop);
+    if(mgrWin) {{ workspace.sendClientToScreen(mgrWin,primScreen); workspace.raiseWindow(mgrWin); }}
+    if(tlWin) {{ tlWin.minimized=true; }}
+    if(expectStraw&&!strawWin) {{ console.warn("MIX_ALIGN_RUN:"+runToken+" DONE:0 WAIT:player"); return; }}
+    if(expectCover&&!coverWin) {{ console.warn("MIX_ALIGN_RUN:"+runToken+" DONE:0 WAIT:cover"); return; }}
+    if(coverWin&&strawWin) {{
+      var gap=16, coverW=Math.min(sArea.height-40,Math.floor(sArea.width*0.42)), coverH=coverW;
+      var coverX=sArea.x+15, coverY=sArea.y+Math.floor((sArea.height-coverH)/2);
+      coverWin.fullScreen=false; if(coverWin.setMaximize) coverWin.setMaximize(false,false);
+      workspace.sendClientToScreen(coverWin,secScreen); coverWin.frameGeometry={{x:coverX,y:coverY,width:coverW,height:coverH}};
+      coverWin.keepAbove=true; workspace.raiseWindow(coverWin);
+      var strawX=coverX+coverW+gap, strawW=(sArea.x+sArea.width)-strawX-15, strawY=sArea.y+15, strawH=sArea.height-30;
+      strawWin.fullScreen=false; if(strawWin.setMaximize) strawWin.setMaximize(false,false);
+      workspace.sendClientToScreen(strawWin,secScreen); strawWin.frameGeometry={{x:strawX,y:strawY,width:strawW,height:strawH}};
+      workspace.raiseWindow(strawWin); isDone=true;
+    }} else if(strawWin&&!expectCover) {{
+      strawWin.fullScreen=false; if(strawWin.setMaximize) strawWin.setMaximize(false,false);
+      workspace.sendClientToScreen(strawWin,secScreen); strawWin.frameGeometry={{x:sArea.x+20,y:sArea.y+20,width:sArea.width-40,height:sArea.height-40}};
+      workspace.raiseWindow(strawWin); isDone=true;
+    }} else if(coverWin&&!expectStraw) {{
+      var targetH=Math.min(sArea.height-40,Math.max(500,Math.floor(sArea.height*0.85))), coverW=Math.min(targetH,Math.floor(sArea.width*0.45));
+      coverWin.fullScreen=false; if(coverWin.setMaximize) coverWin.setMaximize(false,false);
+      workspace.sendClientToScreen(coverWin,secScreen); coverWin.frameGeometry={{x:sArea.x+Math.floor((sArea.width-coverW)/2),y:sArea.y+Math.floor((sArea.height-targetH)/2),width:coverW,height:targetH}};
+      coverWin.keepAbove=true; workspace.raiseWindow(coverWin); isDone=true;
+    }} else isDone=true;
+  }} else {{
+    var refWin=tlWin||coverWin||workspace.activeWindow;
+    var screen=(refWin&&refWin.output)?refWin.output:(primScreen||workspace.activeScreen);
+    var sArea=workspace.clientArea(0,screen,workspace.currentDesktop);
+    var sX=Math.floor(sArea.x), sY=Math.floor(sArea.y), sW=Math.floor(sArea.width), sH=Math.floor(sArea.height);
+    if(mgrWin) {{ workspace.sendClientToScreen(mgrWin,screen); workspace.raiseWindow(mgrWin); }}
+    var targetH=Math.min(760,Math.max(500,Math.floor(sH*0.65)));
+    var coverW=coverWin?Math.min(targetH,Math.floor(sW*0.38)):0, tlW=tlWin?Math.min(960,Math.max(680,Math.floor(sW*0.44))):0;
+    if(coverWin) {{ coverWin.fullScreen=false; if(coverWin.setMaximize) coverWin.setMaximize(false,false); workspace.sendClientToScreen(coverWin,screen); coverWin.keepAbove=true; coverWin.frameGeometry={{x:sX+10,y:sY+10,width:Math.floor((sW-40)/2),height:targetH}}; workspace.raiseWindow(coverWin); }}
+    if(tlWin) {{ tlWin.fullScreen=false; if(tlWin.setMaximize) tlWin.setMaximize(false,false); workspace.sendClientToScreen(tlWin,screen); tlWin.keepAbove=true; tlWin.noBorder=true; tlWin.frameGeometry={{x:sX+10,y:sY+10,width:Math.floor((sW-40)/2),height:targetH}}; workspace.raiseWindow(tlWin); }}
+    isDone=true;
+  }}
+  console.warn("MIX_ALIGN_RUN:"+runToken+" DONE:"+(isDone?1:0));
+}})();'''
+
 def align_x11(mgr_pid=0):
-    """Align windows using wmctrl / xdotool / xrandr on X11."""
-    if not (shutil_which('wmctrl') and shutil_which('xrandr')):
-        return False
     try:
-        out = subprocess.check_output(['xrandr', '--query'], text=True, errors='ignore')
-        screens = []
-        for line in out.splitlines():
-            if ' connected ' in line:
-                parts = line.split()
-                name = parts[0]
-                is_primary = 'primary' in line
-                geo_str = None
-                for p in parts[2:]:
-                    if 'x' in p and '+' in p:
-                        geo_str = p
-                        break
-                if geo_str:
-                    try:
-                        wh, x, y = geo_str.split('+')[0], int(geo_str.split('+')[1]), int(geo_str.split('+')[2])
-                        w, h = int(wh.split('x')[0]), int(wh.split('x')[1])
-                        screens.append({'name': name, 'primary': is_primary, 'x': x, 'y': y, 'w': w, 'h': h})
-                    except Exception:
-                        pass
-
-        if not screens:
-            return False
-
-        # Sort: primary first, then others
-        screens.sort(key=lambda s: 0 if s['primary'] else 1)
-        num_screens = len(screens)
-
-        # Query windows
         wm_out = subprocess.check_output(['wmctrl', '-l', '-p', '-G'], text=True, errors='ignore')
         mgr_win = None
-        cover_win = None
-        straw_win = None
-        tl_win = None
-
         for line in wm_out.splitlines():
             parts = line.split(maxsplit=8)
-            if len(parts) < 9:
-                continue
-            wid, dsk, pid_str, x, y, w, h, host, title = parts[0], parts[1], parts[2], int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6]), parts[7], parts[8]
-            pid = int(pid_str) if pid_str.isdigit() else 0
-            t_lower = title.lower()
-
-            if not mgr_win and ((mgr_pid > 0 and pid == mgr_pid) or 'mix archive manager' in t_lower or 'mix_archive_manager' in t_lower):
-                mgr_win = wid
-            elif not straw_win and ('audacious' in t_lower or 'strawberry' in t_lower):
-                straw_win = wid
-            elif not tl_win and ('mix tracklist viewer' in t_lower or 'tracklist' in t_lower):
-                tl_win = wid
-            elif not cover_win and ('mix cover' in t_lower or 'gwenview' in t_lower or 'cover' in t_lower):
-                cover_win = wid
-
-        if num_screens > 1:
-            prim = screens[0]
-            sec = screens[1] if len(screens) > 1 else screens[0]
-
-            # Manager -> Primary display in windowed mode (not in full screen)
-            if mgr_win:
-                subprocess.run(['wmctrl', '-i', '-a', mgr_win], check=False)
-
-            # Minimize tracklist window on multi-display
-            if tl_win:
-                subprocess.run(['wmctrl', '-i', '-r', tl_win, '-b', 'add,hidden'], check=False)
-
-            # Secondary display: Cover (left) + Strawberry (right)
-            s_x, s_y, s_w, s_h = sec['x'], sec['y'], sec['w'], sec['h']
-
-            if cover_win and straw_win:
-                gap = 16
-                cov_w = min(s_h - 40, int(s_w * 0.42))
-                cov_h = cov_w
-                cov_x = s_x + 15
-                cov_y = s_y + (s_h - cov_h) // 2
-
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-b', 'remove,maximized_vert,maximized_horz,fullscreen'], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-e', f"0,{cov_x},{cov_y},{cov_w},{cov_h}"], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-b', 'add,above'], check=False)
-
-                straw_x = cov_x + cov_w + gap
-                straw_w = (s_x + s_w) - straw_x - 15
-                straw_y = s_y + 15
-                straw_h = s_h - 30
-
-                subprocess.run(['wmctrl', '-i', '-r', straw_win, '-b', 'remove,maximized_vert,maximized_horz,fullscreen'], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', straw_win, '-e', f"0,{straw_x},{straw_y},{straw_w},{straw_h}"], check=False)
-
-            elif straw_win:
-                subprocess.run(['wmctrl', '-i', '-r', straw_win, '-b', 'remove,maximized_vert,maximized_horz,fullscreen'], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', straw_win, '-e', f"0,{s_x + 20},{s_y + 20},{s_w - 40},{s_h - 40}"], check=False)
-            elif cover_win:
-                cov_w = min(s_h - 40, int(s_w * 0.45))
-                cov_x = s_x + (s_w - cov_w) // 2
-                cov_y = s_y + (s_h - cov_w) // 2
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-b', 'remove,maximized_vert,maximized_horz,fullscreen'], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-e', f"0,{cov_x},{cov_y},{cov_w},{cov_w}"], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-b', 'add,above'], check=False)
-
-            return True
-
-        # Single-display fallback: Manager in windowed mode (not in full screen)
+            if len(parts) >= 9:
+                wid, pid_str, title = parts[0], parts[2], parts[8].lower()
+                if (mgr_pid > 0 and pid_str.isdigit() and int(pid_str) == mgr_pid) or 'mix archive manager' in title:
+                    mgr_win = wid; break
         if mgr_win:
             subprocess.run(['wmctrl', '-i', '-a', mgr_win], check=False)
-
-        if cover_win or tl_win:
-            s = screens[0]
-            target_h = min(720, max(500, int(s['h'] * 0.62)))
-            cov_w = target_h
-            tl_w = min(900, max(680, int(s['w'] * 0.42)))
-            gap = 20
-            total_w = cov_w + gap + tl_w
-            start_x = s['x'] + max(10, (s['w'] - total_w) // 2)
-            start_y = s['y'] + max(10, (s['h'] - target_h) // 2)
-
-            if cover_win:
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-e', f"0,{start_x},{start_y},{cov_w},{target_h}"], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', cover_win, '-b', 'add,above'], check=False)
-            if tl_win:
-                tl_x = start_x + cov_w + gap
-                subprocess.run(['wmctrl', '-i', '-r', tl_win, '-e', f"0,{tl_x},{start_y},{tl_w},{target_h}"], check=False)
-                subprocess.run(['wmctrl', '-i', '-r', tl_win, '-b', 'add,above'], check=False)
             return True
-
-    except Exception:
-        return False
+    except Exception: pass
     return False
-
-def shutil_which(cmd):
-    from shutil import which
-    return which(cmd) is not None
-
-def main():
-    args = get_args()
-    sys_name = platform.system().lower()
-
-    if sys_name == 'linux':
-        if align_kwin(timeout_seconds=args.timeout, mgr_pid=args.mgr_pid, parent_pid=args.parent_pid,
-                      expect_strawberry=args.expect_strawberry, expect_audacious=args.expect_audacious,
-                      expect_player=args.expect_player, expect_cover=args.expect_cover):
-            sys.exit(0)
-        align_x11(mgr_pid=args.mgr_pid)
-    elif sys_name == 'darwin':
-        ascript = '''
-tell application "Finder"
-    set b to bounds of window of desktop
-    set screenW to item 3 of b
-    set screenH to item 4 of b
-end tell
-set targetH to (screenH * 0.65) as integer
-set coverW to targetH
-set tlW to (screenW * 0.42) as integer
-set gap to 24
-set totalW to coverW + gap + tlW
-set startX to ((screenW - totalW) / 2) as integer
-set startY to ((screenH - targetH) / 2) as integer
-
-tell application "System Events"
-    if exists (process "Preview") then
-        tell process "Preview"
-            try
-                set position of window 1 to {startX, startY}
-                set size of window 1 to {coverW, targetH}
-            end try
-        end tell
-    end if
-    if exists (process "Terminal") then
-        tell process "Terminal"
-            try
-                set position of window 1 to {startX + coverW + gap, startY}
-                set size of window 1 to {tlW, targetH}
-            end try
-        end tell
-    end if
-end tell
-'''
-        subprocess.run(['osascript', '-e', ascript], check=False)
 
 if __name__ == '__main__':
     main()
