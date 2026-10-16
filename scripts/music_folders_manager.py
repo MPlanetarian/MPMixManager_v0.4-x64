@@ -270,6 +270,7 @@ def scrape_share_audio_tracks(share: str, config: Dict[str, Any], progress_cb=No
                     "subpath": line,
                     "ext": ext[1:].upper(),
                     "size_mb": 0.0,
+                    "duration_fmt": "00:00",
                     "mtime": time.time()
                 })
                 if progress_cb and count % 2000 == 0:
@@ -290,7 +291,8 @@ def save_playlist_files(tracks: List[Dict[str, Any]], target: str, config: Dict[
         f.write("#EXTM3U\n")
         f.write(f"#PLAYLIST:MP DJ Tracks Database - {target.upper()}\n")
         for t in tracks:
-            f.write(f"#EXTINF:-1,{t.get('title', t['name'])}\n")
+            d_sec = int(t.get("duration_sec", -1)) if t.get("duration_sec") else -1
+            f.write(f"#EXTINF:{d_sec},{t.get('title', t['name'])}\n")
             f.write(f"{t['path']}\n")
 
     # 2. Write JSON Cache

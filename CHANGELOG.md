@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     3. **Camelot Wheel Harmonic Matcher**: [K] filters the active playlist to only show harmonically compatible tracks (±1 semitone, relative major/minor).
     4. **DJ Drop Audition**: [D] skips intro directly to breakdown and drop (25% intro, 50% drop, 75% breakdown) for fast track vetting.
     5. **Track Tag Inspector HUD**: [I] displays full audio specs, bitrate, sample rate, key, BPM, and SMB source path.
+  - **Playlist Track Duration Presentation in MUSIC Mode**: Replaced the size field (`0MB`) in the playlist browser with track duration (`00:00`) when in MUSIC Mode. Includes asynchronous background duration resolution via `soundfile.info` for browsed tracks, live playback duration synchronization, and preservation of the flush 118-column panoramic layout.
 
 ## [0.3.6 Beta] - 2026-10-15
 

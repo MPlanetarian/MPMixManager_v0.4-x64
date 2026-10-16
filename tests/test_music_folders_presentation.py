@@ -66,6 +66,35 @@ class TestMusicFoldersPresentation(unittest.TestCase):
             header = f.readline().strip()
             self.assertEqual(header, "#EXTM3U", "Playlist header must be valid #EXTM3U")
 
+    def test_music_mode_duration_field_presentation(self):
+        """Verify that MP Audio Player presents track duration 00:00 instead of size in MUSIC mode."""
+        from MP_Audio_Player import MusicFolderPlaylistScanner, TerminalPlayerUI, _display_width
+
+        scanner = MusicFolderPlaylistScanner("MUSIC001")
+        mixes = scanner.get_mixes()
+        self.assertGreater(len(mixes), 0, "Tracks should be loaded in MusicFolderPlaylistScanner")
+        self.assertIn("duration_fmt", mixes[0], "Track should have duration_fmt property")
+        self.assertEqual(mixes[0]["duration_fmt"], "00:00")
+
+        ui = TerminalPlayerUI(None, scanner, is_remote=True, mode="MUSIC", folder_name="MUSIC001")
+        self.assertEqual(ui.mode, "MUSIC")
+
+        # Simulate rendering of a track row in MUSIC mode
+        iw = 115
+        avail_name = max(4, iw - 23)
+        m = mixes[0]
+        raw_name = str(m.get("name", ""))
+        mn = raw_name[:avail_name]
+        name_pad = " " * max(0, avail_name - _display_width(mn))
+        ext_str = f"{m.get('ext', ''):<4}"[:4]
+        dur = m.get("duration_fmt", "00:00")
+        field_str = f"{dur:>6s}"
+        inner_plain = f"   [   1] {mn}{name_pad} {ext_str} {field_str} "
+
+        self.assertEqual(_display_width(inner_plain), iw)
+        self.assertIn("00:00", inner_plain)
+        self.assertNotIn("0MB", inner_plain)
+
 
 if __name__ == "__main__":
     unittest.main()

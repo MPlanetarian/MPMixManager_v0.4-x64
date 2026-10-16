@@ -13,7 +13,7 @@ Features:
 """
 
 from __future__ import annotations
-import os, re, sys, time, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata
+import os, re, sys, time, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -441,6 +441,9 @@ class MusicFolderPlaylistScanner:
                 with open(self.playlist_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
+                        for m in data:
+                            if "duration_fmt" not in m:
+                                m["duration_fmt"] = "00:00"
                         self.mixes = data
                         return
             except Exception:
@@ -449,12 +452,23 @@ class MusicFolderPlaylistScanner:
         try:
             with open(self.playlist_path, "r", encoding="utf-8", errors="ignore") as f:
                 cur_title = ""
+                cur_dur = "00:00"
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     if line.startswith("#EXTINF:"):
-                        cur_title = line.split(",", 1)[1] if "," in line else ""
+                        payload = line[8:]
+                        if "," in payload:
+                            dur_part, cur_title = payload.split(",", 1)
+                            try:
+                                d_val = float(dur_part.strip())
+                                cur_dur = format_seconds(d_val) if d_val > 0 else "00:00"
+                            except ValueError:
+                                cur_dur = "00:00"
+                        else:
+                            cur_title = payload
+                            cur_dur = "00:00"
                     elif not line.startswith("#"):
                         ext = os.path.splitext(line)[1].lower()
                         bname = os.path.basename(line)
@@ -464,10 +478,12 @@ class MusicFolderPlaylistScanner:
                             "path": line,
                             "ext": ext[1:].upper() if ext else "AUDIO",
                             "size_mb": 0.0,
+                            "duration_fmt": cur_dur,
                             "mtime": time.time(),
                             "folder": self.folder_name
                         })
                         cur_title = ""
+                        cur_dur = "00:00"
         except Exception:
             pass
 
@@ -895,6 +911,8 @@ class AudioEngine:
             self.sample_rate = new_sf.samplerate
             self.channels = new_sf.channels
             self.duration_sec = float(new_sf.frames) / float(self.sample_rate)
+            self.current_track["duration_sec"] = self.duration_sec
+            self.current_track["duration_fmt"] = format_seconds(self.duration_sec)
             self.position_sec = 0.0
             self.resampler.reset()
 
@@ -2217,6 +2235,12 @@ class TerminalPlayerUI:
         self.inspector_hud_active = False
         self.drop_audition_step = 0
 
+        # Background Track Duration Resolver (MUSIC Mode)
+        self._duration_cache: Dict[str, str] = {}
+        self._duration_queue: Optional[queue.Queue] = None
+        self._duration_in_queue: set = set()
+        self._duration_worker_started = False
+
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
                               "duration_fmt": "00:00", "progress_pct": 0.0, "volume": 85, "muted": False,
                               "shuffle": False, "repeat": "all", "mode": self.mode,
@@ -2224,6 +2248,53 @@ class TerminalPlayerUI:
                               "levels_left": [0.0]*24, "levels_right": [0.0]*24,
                               "peaks_left": [0.0]*24, "peaks_right": [0.0]*24,
                               "rms_level": 0.0, "peak_db": -60.0}
+
+    def _start_duration_worker(self):
+        if self._duration_worker_started:
+            return
+        self._duration_worker_started = True
+        self._duration_queue = queue.Queue()
+
+        def _worker():
+            _ensure_audio_backends()
+            while self.running:
+                try:
+                    if not self._duration_queue:
+                        break
+                    item = self._duration_queue.get(timeout=0.4)
+                except Exception:
+                    continue
+                path, m_ref = item
+                if path in self._duration_cache:
+                    continue
+                try:
+                    if sf is not None and os.path.isfile(path):
+                        info = sf.info(path)
+                        dfmt = format_seconds(info.duration)
+                        self._duration_cache[path] = dfmt
+                        if isinstance(m_ref, dict):
+                            m_ref["duration_fmt"] = dfmt
+                            m_ref["duration_sec"] = info.duration
+                    else:
+                        self._duration_cache[path] = "00:00"
+                except Exception:
+                    self._duration_cache[path] = "00:00"
+                finally:
+                    if self._duration_queue:
+                        self._duration_queue.task_done()
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _request_duration(self, m: Dict[str, Any]):
+        p = m.get("path")
+        if not p or p in self._duration_cache or p in self._duration_in_queue:
+            return
+        if not self._duration_worker_started:
+            self._start_duration_worker()
+        self._duration_in_queue.add(p)
+        if self._duration_queue:
+            self._duration_queue.put((p, m))
 
     def _get_status(self) -> Dict[str, Any]:
         if self.is_remote:
@@ -2877,8 +2948,33 @@ class TerminalPlayerUI:
                     name_pad = " " * max(0, avail_name - _display_width(mn))
                     pfx = "▶ " if act else "  "
                     ext_str = f"{m.get('ext', ''):<4}"[:4]
-                    sz_str = f"{m.get('size_mb', 0):.0f}MB"
-                    inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
+                    if self.mode == "MUSIC":
+                        dur = m.get("duration_fmt")
+                        if not dur or dur == "00:00":
+                            if act and st.get("duration_fmt"):
+                                dur = st.get("duration_fmt")
+                                m["duration_fmt"] = dur
+                                self._duration_cache[m["path"]] = dur
+                            elif m.get("duration_sec"):
+                                dur = format_seconds(m["duration_sec"])
+                                m["duration_fmt"] = dur
+                                self._duration_cache[m["path"]] = dur
+                            elif m.get("path") in getattr(self, "_duration_cache", {}):
+                                dur = self._duration_cache[m["path"]]
+                                m["duration_fmt"] = dur
+                            else:
+                                dur = "00:00"
+                                self._request_duration(m)
+                        field_str = f"{dur:>6s}"
+                    else:
+                        sz_str = f"{m.get('size_mb', 0):.0f}MB"
+                        field_str = f"{sz_str:>6s}"
+
+                    if len(field_str) > 6:
+                        excess = len(field_str) - 6
+                        name_pad = name_pad[:-excess] if len(name_pad) >= excess else ""
+
+                    inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {field_str} "
                     curr_w = _display_width(inner_plain)
                     if curr_w < iw:
                         inner_plain += " " * (iw - curr_w)
@@ -3009,8 +3105,13 @@ def main():
         sys.exit(1)
 
     if args.list_mixes:
-        for m in MixArchiveScanner(base_dir).get_mixes():
-            print(f"{m['path']}\t{m['size_mb']:.1f}MB\t{m['name']}")
+        scanner = MusicFolderPlaylistScanner(folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
+        for m in scanner.get_mixes():
+            if is_music:
+                dur = m.get("duration_fmt", "00:00")
+                print(f"{m['path']}\t{dur}\t{m['name']}")
+            else:
+                print(f"{m['path']}\t{m['size_mb']:.1f}MB\t{m['name']}")
         sys.exit(0)
 
     daemon_running = is_player_daemon_running()
