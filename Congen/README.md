@@ -1,6 +1,6 @@
 # Congen v1.0.0 by Dreamworlds Productions (MPlanetarian)
 
-> 📅 **Last Updated:** October 9, 2026 • **Latest Release:** `v1.0.0 Stable` • **Platform:** Linux (KDE Plasma 6 & 5)
+> 📅 **Last Updated:** October 16, 2026 • **Latest Release:** `v1.0.0 Stable` • **Platform:** Linux (KDE Plasma 6 & 5)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20KDE%20Plasma%206%20%26%205-1D99F3.svg)](https://kde.org/plasma-desktop/)
@@ -8,9 +8,10 @@
 [![Shell](https://img.shields.io/badge/Shell-Bash%205.0%2B-green.svg)](https://www.gnu.org/software/bash/)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB.svg)](https://www.python.org/)
 [![Display](https://img.shields.io/badge/Display-Wayland%20%7C%20X11-purple.svg)](https://wayland.freedesktop.org/)
-[![Themes](https://img.shields.io/badge/Themes-12%20Palettes%20(TrueColor)-f72585.svg)](#-12-curated-themes--color-palettes)
+[![Themes](https://img.shields.io/badge/Themes-18%20Palettes%20(TrueColor)-f72585.svg)](#-18-curated-themes--color-palettes)
+[![Bridge](https://img.shields.io/badge/Bridge-MP%20Software%20Bridge%20v1.0-00f0ff.svg)](#-mp-software-bridge--workstation-status-integration)
 
-**Congen** is an enterprise-grade, terminal-based KDE Connect command orchestration suite and interactive CLI manager designed for Linux and KDE Plasma (Plasma 6 & 5). It bridges your desktop environment, custom scripts, application launchers, and hardware shortcuts with paired mobile devices (Android, iPhone / iOS, and secondary Linux machines), enabling seamless remote execution, automated scheduling, batch synchronization, and real-time auditory execution feedback.
+**Congen** is an enterprise-grade, terminal-based KDE Connect command orchestration suite and interactive CLI manager designed for Linux and KDE Plasma (Plasma 6 & 5). It bridges your desktop environment, custom scripts, application launchers, and hardware shortcuts with paired mobile devices (Android, iPhone / iOS, and secondary Linux machines), enabling seamless remote execution, automated scheduling, batch synchronization, real-time auditory execution feedback, and unified bidirectional workstation telemetry with **MP Mix Manager**.
 
 Whether used as a standalone terminal suite or integrated within the [MP Mix Manager](file:///var/home/mplanetarian/MP_Mix_Manager_v0.3/README.md) workstation console, Congen provides a complete management interface for your remote control ecosystem.
 
@@ -31,13 +32,19 @@ Whether used as a standalone terminal suite or integrated within the [MP Mix Man
 
  Service Status   :  ● Enabled  (systemd user session)
  Network Status   :  ● Up  — wlp2s0 (Wi-Fi)  [192.168.1.120]
- Commands Installed: 3
+ Commands Installed: 68
+ Paired Devices   :  ● MPlanetarian's iPhone (Active)
 
  ── Live Monitor ────────────────────────────────────────────
  Active Runs      :  ○ None
- Total Runs       :  18 recorded
- Last Success     :  2026-10-09 03:36:27 — Run Resident Evil 9
+ Total Runs       :  24 recorded
+ Last Success     :  2026-10-16 14:17:21 — Generate Daily Mix & System Report
  Last Failure     :  None recorded
+ ── MP Mix Manager Workstation Status & Bridge ──────────────
+ Manager Status   :  ● ACTIVE (PID: 49182, Uptime: 42m)
+ Current Menu     :  [28] Network Services, Congen & Internet Control
+ Audio Player     :  ▶ Strawberry: Stream of Frequency 081 [FLAC] (01:33:06 / 02:26:04)
+ Bridge Sync      :  ● Online (Roundtrip Latency: 38ms)
  ────────────────────────────────────────────────────────────
 
   Main Menu
@@ -52,7 +59,9 @@ Whether used as a standalone terminal suite or integrated within the [MP Mix Man
     [8]  Congen Alerts                         (sound notifications)
     [9]  Generate Command from Keyboard Shortcut
     [10] 🖥️  Desktop Shortcut Management         (Run, Bind Keys & Schedule — KDE Plasma)
-    [11] 🎨 Themes & Color Palette Switcher        (12 Themes: Dreamworlds, Dreamworlds Ultra...)
+    [11] 🎨 Themes & Color Palette Switcher        (18 Palettes: Dreamworlds, Neon, Retro...)
+    [12] 🌉 MP Mix Manager Bridge Suite          (Status, Diagnostics, Theme Sync & Launch)
+    [13] 🩺 Congen Doctor & Command Health Suite (Verify scripts, permissions & auto-repair)
     [q]  Quit
 ```
 
@@ -130,27 +139,37 @@ flowchart TD
 | **`[8]`** | **Auditory Alert Daemon** | Background daemon (`.congen_alert_daemon.sh`) that monitors KDE Connect command triggers and plays a pleasant two-tone chime (`.congen_alert.wav`, 1047 Hz → 1319 Hz). Generates audio algorithmically via standard Python `wave` with zero binary dependencies. |
 | **`[9]`** | **Keyboard Shortcut Generator** | Inspects active KDE global shortcuts (`~/.config/kglobalshortcutsrc`), creates standalone wrapper scripts using `xdotool` (X11) or `ydotool` (Wayland), and binds them into KDE Connect for mobile remote keyboard shortcut triggering. |
 | **`[10]`** | **Desktop Shortcut Management** | Native KDE Plasma desktop launcher control: scans `~/Desktop` and application directories, executes apps via `kioclient exec`, binds desktop launchers to global keyboard hotkeys via `kwriteconfig6`, and schedules app launches. |
-| **`[11]`** | **Themes & Color Switcher** | 12 hand-crafted TrueColor and ANSI-256 color palettes with persistent state (`.congen_theme`). Includes the signature *MPlanetarian Dreamworlds* neon palette and *Dreamworlds Ultra*. |
+| **`[11]`** | **Themes & Color Switcher** | 18 hand-crafted TrueColor and ANSI-256 color palettes with persistent state (`.congen_theme`). Includes direct 1-key synchronization with MP Mix Manager. |
+| **`[12]`** | **MP Mix Manager Bridge Suite** | Workstation telemetry bridge: real-time process monitoring, 5-step diagnostic health validation, on-demand manager launcher, theme sync, and quick mobile remote controls installer. |
+| **`[13]`** | **Congen Doctor & Health Suite** | Automated command health auditor: scans all installed commands across paired devices, validates filesystem targets, checks executable bits, and provides 1-click automatic permission repair. |
 
 ---
 
-## 🎨 12 Curated Themes & Color Palettes
+## 🎨 18 Curated Themes & Color Palettes
 
-Congen features a built-in theme engine that persists your aesthetic choice across sessions in `.congen_theme`:
+Congen features a built-in theme engine that persists your aesthetic choice across sessions in `.congen_theme` and can synchronize bidirectionally with MP Mix Manager (`~/.config/mix-manager/theme`):
 
 ```
-  [1]  MPlanetarian Dreamworlds   ★ ACTIVE (DEFAULT)  (Sweet Neon Red, Bright Aqua Cyan, Electric Amber, Soft Lavender, Hot Pink)
-  [2]  Dreamworlds Ultra MP Mix Manager               (Hot Purple, Traffic Danger Red, Go Green, Amber Warning, Lilac)
-  [3]  Cyberpunk                                      (Neon Red, Acid Green, High Voltage Yellow, Hot Pink, Cyan)
-  [4]  Dracula                                        (Coral Pink, Neon Green, Pale Gold, Lavender Blue, Purple, Sky Cyan)
-  [5]  Nord                                           (Nord Aurora Red, Sage Green, Polar Yellow, Slate Blue, Frost Cyan)
-  [6]  Matrix                                         (Pure Phosphor Green, Electric Yellow-Green, Dark Crimson, Mint)
-  [7]  Solarized                                      (Solarized Red, Green, Yellow, Blue, Magenta, Cyan)
-  [8]  Tokyo Night                                    (Tokyo Coral, Sage Green, Warm Sand, Soft Blue, Neon Purple, Cyan)
-  [9]  Monokai                                        (Pink/Red, Lime Green, Gold Yellow, Purple Blue, Orange, Cyan)
-  [10] Gruvbox                                        (Rust Red, Olive Green, Warm Yellow, Slate Blue, Dusty Rose, Aqua)
-  [11] Emerald                                        (Pure Spring Emerald, Soft Coral, Gold Amber, Deep Ocean, Mint)
-  [12] Classic ANSI                                   (Standard 16-color ANSI terminal palette)
+  [1]  MPlanetarian Dreamworlds   (Sweet Neon Red, Bright Aqua Cyan, Electric Amber, Soft Lavender, Hot Pink)
+  [2]  Dreamworlds Ultra          (Hot Purple, Traffic Danger Red, Go Green, Amber Warning, Lilac)
+  [3]  Cyberpunk                  (Neon Red, Acid Green, High Voltage Yellow, Hot Pink, Cyan)
+  [4]  Dracula                    (Coral Pink, Neon Green, Pale Gold, Lavender Blue, Purple, Sky Cyan)
+  [5]  Nord                       (Nord Aurora Red, Sage Green, Polar Yellow, Slate Blue, Frost Cyan)
+  [6]  Matrix                     (Pure Phosphor Green, Electric Yellow-Green, Dark Crimson, Mint)
+  [7]  Solarized                  (Solarized Red, Green, Yellow, Blue, Magenta, Cyan)
+  [8]  Tokyo Night                (Tokyo Coral, Sage Green, Warm Sand, Soft Blue, Neon Purple, Cyan)
+  [9]  Monokai                    (Pink/Red, Lime Green, Gold Yellow, Purple Blue, Orange, Cyan)
+  [10] Gruvbox                    (Rust Red, Olive Green, Warm Yellow, Slate Blue, Dusty Rose, Aqua)
+  [11] Emerald                    (Pure Spring Emerald, Soft Coral, Gold Amber, Deep Ocean, Mint)
+  [12] Classic ANSI               (Standard 16-color ANSI terminal palette)
+  [13] Cosmic Supernova           (Deep Space Purple, Neon Stellar Pink, Electric Violet)
+  [14] Dreamworlds Neon           (Vibrant Hot Pink, Cyber Cyan, Lime Acid)
+  [15] Retro Studio               (Vintage Amber CRT, Warm Studio Gold, Sepia Ochre)
+  [16] Cyber Neon                 (Electric Blue, Laser Magenta, Neon Violet)
+  [17] Phosphor Glow              (Classic Monochrome Green Terminal Phosphor P1)
+  [18] Ice Cold                   (Arctic Cyan, Glacial White, Deep Sub-Zero Navy)
+  ---------------------------------------------------------------------------------------------
+  [s]  Sync with MP Mix Manager   (Match active theme from ~/.config/mix-manager/theme)
 ```
 
 ---
@@ -283,7 +302,18 @@ congen ping
 
 # View themes or switch active palette directly
 congen theme
-congen theme dreamworlds_ultra
+congen theme cosmic_supernova
+congen theme sync
+
+# MP Mix Manager Workstation Bridge suite
+congen bridge status               # View live workstation status, audio player, & connection
+congen bridge validate             # Run 5-step diagnostic handshake & latency check
+congen bridge launch               # Launch MP Mix Manager in background / new terminal
+congen bridge sync                 # Bidirectionally synchronize theme with Mix Manager
+
+# Congen Doctor command health auditor
+congen doctor                      # Audit all installed commands for missing files / +x
+congen doctor --fix                # Auto-repair missing executable permissions (+x)
 
 # Query or control audio execution alerts daemon
 congen alert status
@@ -291,6 +321,35 @@ congen alert enable
 congen alert disable
 congen alert test
 ```
+
+---
+
+## 🌉 MP Software Bridge & Workstation Status Integration
+
+Congen connects to **MP Mix Manager** through the bidirectional **MP Software Bridge** (`scripts/mp_software_bridge.py` & `mp_software_bridge.sh`). This bridge creates unified real-time awareness between both applications:
+
+* **Live Status in Header Banner**: Congen renders the `── MP Mix Manager Workstation Status & Bridge ──` telemetry panel directly beneath the Live Monitor, displaying process liveness (Active / Standby), PID, uptime, active menu operation, audio player state (Strawberry / VLC / MPRIS track title and progress), and connection status.
+* **Menu Activity Tracking**: As users navigate MP Mix Manager menus (`[1]` Clean, `[2]` Conversion, `[28]` Network Services), the bridge registers the active menu and latest user action to `~/.config/mix-manager/bridge_status.json` and mirrors it to `~/.config/congen/bridge_status.json`.
+* **5-Step Connectivity Diagnostic Validation**: Option `[12]` → `[2]` (or `congen bridge validate`) executes:
+  1. **Process Liveness**: Inspects process table (`pgrep -f Mix_Archive_Manager.sh`) for active PID, CPU, and RAM.
+  2. **Storage Access**: Validates read/write capabilities for bridge state JSON.
+  3. **Binary & Symlinks**: Verifies integrity of `Congen/Congen` and system symlinks.
+  4. **KDE Connect Subsystem**: Validates configuration directories and counts paired device profiles.
+  5. **Bidirectional Handshake**: Performs real-time loopback handshake with millisecond latency measurement.
+* **Unified Theme Synchronization**: Congen and Mix Manager share the exact same 18 TrueColor palettes. Pressing `[s]` in either tool or running `congen theme sync` aligns both consoles instantly.
+
+---
+
+## 🩺 Congen Doctor & Command Health Suite
+
+Over time, scripts referenced by KDE Connect commands might be deleted, moved, or lose their executable permissions. **Congen Doctor** provides complete automated diagnostics and self-healing:
+
+* **Full-Catalog Scanning**: Audits all installed commands across all paired devices (Android, iPhone, etc.).
+* **Target Verification**: Confirms that script paths exist on disk or resolve in system `$PATH`.
+* **Permission Enforcement**: Identifies scripts missing executable (`+x`) permissions.
+* **1-Click Auto-Repair**: Interactively or via `congen doctor --fix`, automatically applies `chmod +x` to restore functionality.
+
+---
 
 ### ⚡ Performance & Safety Highlights
 
@@ -321,6 +380,7 @@ Congen/
 ├── .congen_alerts_enabled        # Daemon enable state flag
 ├── .congen_theme                 # Persistent active theme configuration file
 ├── .congen_jobs/                 # Internal job spool directory for scheduled runs
+├── mp_software_bridge.sh         # Symlink to workstation MP Software Bridge launcher
 ├── .gitignore                    # Runtime locks and cache ignore definitions
 └── README.md                     # Comprehensive system documentation
 ```

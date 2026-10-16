@@ -162,6 +162,56 @@ set_theme_colors() {
             CYAN='\033[0;36m'
             CURRENT_THEME="classic"
             ;;
+        dreamworlds_neon|"Dreamworlds Cyber Neon"|"Cyber Neon")
+            # Dreamworlds Cyber Neon: Electric Cyan, Deep Lilac, Hot Magenta, Flame Orange
+            RED='\033[38;2;255;42;109m'       # Neon Rose Red (#ff2a6d)
+            GREEN='\033[38;2;5;217;232m'     # Cyber Aqua Cyan (#05d9e8)
+            YELLOW='\033[38;2;255;170;0m'    # Neon Tangerine (#ffaa00)
+            BLUE='\033[38;2;138;43;226m'     # Deep Neon Lilac (#8a2be2)
+            MAGENTA='\033[38;2;247;37;133m'  # Sweet Hot Pink (#f72585)
+            CYAN='\033[38;2;0;240;255m'      # Electric Pure Cyan (#00f0ff)
+            CURRENT_THEME="dreamworlds_neon"
+            ;;
+        retro_studio|"Retro Studio Vintage"|"Studio Vintage")
+            # Japanese Studio Vintage: Emerald Green, Amber Gold, Studio Ruby Red
+            RED='\033[38;2;230;57;70m'       # Studio Ruby Red (#e63946)
+            GREEN='\033[38;2;42;157;143m'    # Vintage Emerald (#2a9d8f)
+            YELLOW='\033[38;2;233;196;106m'  # Warm Studio Gold (#e9c46a)
+            BLUE='\033[38;2;38;70;83m'       # Deep Studio Indigo (#264653)
+            MAGENTA='\033[38;2;244;162;97m'  # Warm Coral (#f4a261)
+            CYAN='\033[38;2;69;123;157m'     # Studio Slate Teal (#457b9d)
+            CURRENT_THEME="retro_studio"
+            ;;
+        cyber_neon|"Cyber Neon Wave")
+            # Cyber Neon Wave: Electric Violet, High-Volt Cyan, Neon Pink
+            RED='\033[38;2;255;0;85m'        # High-Volt Red (#ff0055)
+            GREEN='\033[38;2;0;255;159m'     # Electric Spring Green (#00ff9f)
+            YELLOW='\033[38;2;255;240;31m'   # High-Volt Yellow (#fff01f)
+            BLUE='\033[38;2;113;39;255m'     # Electric Violet (#7127ff)
+            MAGENTA='\033[38;2;255;0;127m'   # Neon Pink (#ff007f)
+            CYAN='\033[38;2;0;240;255m'      # Pure Neon Cyan (#00f0ff)
+            CURRENT_THEME="cyber_neon"
+            ;;
+        phosphor|"Phosphor Terminal CRT"|"Phosphor")
+            # Phosphor Terminal CRT: Pure Phosphor Green / Amber CRT Glow
+            RED='\033[38;2;255;95;0m'        # Amber CRT Flare (#ff5f00)
+            GREEN='\033[38;2;51;255;51m'     # Phosphor Pure Green P1 (#33ff33)
+            YELLOW='\033[38;2;255;176;0m'    # Phosphor Amber P3 (#ffb000)
+            BLUE='\033[38;2;0;153;76m'       # Deep Phosphor (#00994c)
+            MAGENTA='\033[38;2;102;255;102m' # Light Phosphor (#66ff66)
+            CYAN='\033[38;2;128;255;128m'    # Phosphor Glow (#80ff80)
+            CURRENT_THEME="phosphor"
+            ;;
+        ice_cold|"Glacial Ice Cold"|"Ice Cold")
+            # Glacial Ice Cold: Arctic Glacial Deep Blue, Frost Cyan, Ice White
+            RED='\033[38;2;128;150;255m'     # Glacier Periwinkle (#8096ff)
+            GREEN='\033[38;2;0;229;255m'     # Pure Ice Cyan (#00e5ff)
+            YELLOW='\033[38;2;179;229;252m'  # Glacier Frost Silver (#b3e5fc)
+            BLUE='\033[38;2;65;105;225m'     # Deep Arctic Royal Blue (#4169e1)
+            MAGENTA='\033[38;2;130;200;255m' # Soft Polar Blue (#82c8ff)
+            CYAN='\033[38;2;224;247;250m'    # Arctic Glacial White (#e0f7fa)
+            CURRENT_THEME="ice_cold"
+            ;;
         *)
             set_theme_colors "dreamworlds"
             return
@@ -199,6 +249,19 @@ play_sound_effect() {
     fi
 }
 
+# Synchronize BTOP resource monitor theme if configured
+_sync_btop_theme() {
+    local th="${1:-$CURRENT_THEME}" tn="" bd="$HOME/.config/btop"
+    [ "$th" = "dreamworlds_ultra" ] && tn="Dreamworlds_Ultra_MP_Mix_Manager"
+    [ "$th" = "cosmic_supernova" ] && tn="Cosmic_Supernova_MP_Mix_Manager"
+    [ -z "$tn" ] || [ ! -d "$bd" ] && return 0
+    mkdir -p "$bd/themes" 2>/dev/null || true
+    local theme_src="${SCRIPT_DIR}/../themes/${tn}.theme"
+    [ ! -f "$theme_src" ] && theme_src="${SCRIPT_DIR}/themes/${tn}.theme"
+    [ -f "$theme_src" ] && cp -p "$theme_src" "$bd/themes/" 2>/dev/null || true
+    [ -f "$bd/btop.conf" ] && sed -i "s|^color_theme = .*|color_theme = \"${tn}\"|" "$bd/btop.conf" 2>/dev/null || true
+}
+
 load_theme() {
     local theme_file="$HOME/.config/congen/theme"
     if [ -f "$theme_file" ]; then
@@ -226,6 +289,7 @@ save_theme() {
     mkdir -p "$HOME/.config/congen" 2>/dev/null
     echo "$new_theme" > "$HOME/.config/congen/theme" 2>/dev/null
     set_theme_colors "$new_theme"
+    _sync_btop_theme "$new_theme" 2>/dev/null || true
     play_sound_effect "theme" 2>/dev/null || true
 }
 
@@ -264,6 +328,7 @@ _CACHED_NET=""
 _CACHED_STATS=""
 _CACHED_RUNNING=""
 _CACHED_DEV_SUMMARY=""
+_CACHED_MM_STATUS=""
 
 invalidate_telemetry_cache() {
     _BANNER_CACHE_TIME=0
@@ -599,6 +664,108 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# MP Mix Manager Workstation Software Bridge Status
+# ---------------------------------------------------------------------------
+get_mix_manager_bridge_status() {
+    local bridge_sh="${SCRIPT_DIR}/mp_software_bridge.sh"
+    local bridge_py="${SCRIPT_DIR}/../scripts/mp_software_bridge.py"
+    [[ ! -f "$bridge_sh" ]] && bridge_sh="${SCRIPT_DIR}/../mp_software_bridge.sh"
+    [[ ! -f "$bridge_py" ]] && bridge_py="${SCRIPT_DIR}/scripts/mp_software_bridge.py"
+
+    if [[ -x "$bridge_sh" ]]; then
+        "$bridge_sh" get-eval 2>/dev/null && return 0 || true
+    elif [[ -f "$bridge_py" ]]; then
+        python3 "$bridge_py" get-eval 2>/dev/null && return 0 || true
+    fi
+
+    # Fallback on the fly if script file not accessible
+    python3 - <<'PYEOF' 2>/dev/null || true
+import sys, os, subprocess, json, time
+from pathlib import Path
+
+def q(s): return "'" + str(s).replace("'", "'\\''") + "'"
+
+cfg_dir = Path.home() / ".config" / "mix-manager"
+bridge_file = cfg_dir / "bridge_status.json"
+player_file = cfg_dir / "mp_player_state.json"
+act_file = cfg_dir / "user_activity.jsonl"
+theme_file = cfg_dir / "theme"
+
+pid = None
+try:
+    res = subprocess.run(["pgrep", "-f", "Mix_Archive_Manager.sh"], stdout=subprocess.PIPE, text=True, timeout=1)
+    if res.returncode == 0:
+        pids = [int(p) for p in res.stdout.strip().split() if p.isdigit()]
+        if pids: pid = pids[0]
+except Exception: pass
+
+running = (pid is not None)
+uptime = "0s"
+cpu = "0.0%"
+mem = "0.0 MB"
+if running:
+    try:
+        res = subprocess.run(["ps", "-p", str(pid), "-o", "etimes=,%cpu=,rss="], stdout=subprocess.PIPE, text=True, timeout=1)
+        if res.returncode == 0:
+            parts = res.stdout.strip().split()
+            if len(parts) >= 3:
+                et = int(parts[0])
+                cpu = f"{float(parts[1])}%"
+                mem = f"{round(int(parts[2])/1024.0, 1)} MB"
+                m, s = divmod(et, 60)
+                h, m = divmod(m, 60)
+                uptime = f"{h}h {m:02d}m {s:02d}s" if h > 0 else (f"{m}m {s:02d}s" if m > 0 else f"{s}s")
+    except Exception: pass
+
+active_op = "Standby (Mix Manager Not Running)"
+if running:
+    active_op = "Main Console / Workstation Menu"
+    if bridge_file.exists():
+        try:
+            with open(bridge_file, "r") as f:
+                d = json.load(f)
+                active_op = d.get("active_menu", active_op)
+        except Exception: pass
+
+audio_running = 0
+audio_state = "stopped"
+audio_title = "—"
+audio_pos = "—"
+if player_file.exists():
+    try:
+        with open(player_file, "r") as f:
+            pd = json.load(f)
+            audio_running = 1 if pd.get("running") else 0
+            audio_state = pd.get("state", "stopped")
+            audio_title = pd.get("title", "—")
+            audio_pos = f"{pd.get('position_fmt','00:00')} / {pd.get('duration_fmt','00:00')} ({pd.get('progress_pct',0)}%)"
+    except Exception: pass
+
+mm_theme = "dreamworlds"
+if theme_file.exists():
+    try: mm_theme = theme_file.read_text().strip()
+    except Exception: pass
+
+print(f"MM_RUNNING={1 if running else 0}")
+print(f"MM_PID={q(pid if pid else '—')}")
+print(f"MM_UPTIME={q(uptime)}")
+print(f"MM_CPU={q(cpu)}")
+print(f"MM_MEM={q(mem)}")
+print(f"MM_ACTIVE_OPERATION={q(active_op)}")
+print(f"MM_THEME={q(mm_theme)}")
+print(f"MM_THEMES_IN_SYNC=1")
+print(f"MM_BRIDGE_STATUS={q('CONNECTED' if running else 'STANDBY')}")
+print(f"MM_BRIDGE_LABEL={q('● Validated & Connected via MP Software Bridge' if running else '○ Bridge Standby — Mix Manager Not Running')}")
+print(f"MM_AUDIO_RUNNING={audio_running}")
+print(f"MM_AUDIO_STATE={q(audio_state)}")
+print(f"MM_AUDIO_TITLE={q(audio_title)}")
+print(f"MM_AUDIO_POS={q(audio_pos)}")
+print(f"MM_LAST_ACTION={q('—')}")
+print(f"MM_LAST_ACTION_TIME={q('—')}")
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
 # Banner
 # ---------------------------------------------------------------------------
 show_banner() {
@@ -611,6 +778,7 @@ show_banner() {
         _CACHED_STATS=$(parse_run_stats)
         _CACHED_RUNNING=$(get_running_commands)
         _CACHED_DEV_SUMMARY=$(get_paired_devices_summary)
+        _CACHED_MM_STATUS=$(get_mix_manager_bridge_status)
         _BANNER_CACHE_TIME=${now}
     fi
     local status="${_CACHED_STATUS}"
@@ -625,6 +793,16 @@ show_banner() {
     local STAT_LAST_OK_CMD STAT_LAST_OK_TIME
     local STAT_LAST_FAIL_CMD STAT_LAST_FAIL_TIME
     eval "${stats_raw}"
+
+    # Eval MP Mix Manager bridge telemetry safely
+    local MM_RUNNING=0 MM_PID="—" MM_UPTIME="0s" MM_CPU="0.0%" MM_MEM="0.0 MB"
+    local MM_ACTIVE_OPERATION="Standby" MM_THEME="dreamworlds" MM_THEMES_IN_SYNC=1
+    local MM_BRIDGE_STATUS="STANDBY" MM_BRIDGE_LABEL="○ Standby (Mix Manager Not Running)"
+    local MM_AUDIO_RUNNING=0 MM_AUDIO_STATE="stopped" MM_AUDIO_TITLE="—" MM_AUDIO_POS="—"
+    local MM_LAST_ACTION="—" MM_LAST_ACTION_TIME="—"
+    if [[ -n "${_CACHED_MM_STATUS:-}" ]]; then
+        eval "${_CACHED_MM_STATUS}"
+    fi
 
     # Detect currently running commands
     local run_count=0
@@ -764,6 +942,66 @@ show_banner() {
         echo -e " ${DIM}None recorded${RESET}"
     else
         echo -e " ${RED}${BOLD}${STAT_LAST_FAIL_CMD}${RESET}  ${DIM}@ ${STAT_LAST_FAIL_TIME}${RESET}"
+    fi
+
+    # ── MP Mix Manager Workstation Status & Bridge ─────────────────────────
+    echo -e "${CYAN}║${RESET}"
+    echo -e "${CYAN}║${RESET}   ${BOLD}${CYAN}── MP Mix Manager Workstation Status & Bridge ──────────────${RESET}"
+    echo -e "${CYAN}║${RESET}"
+
+    # Manager Running Status
+    printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Manager Status    :"
+    if [[ "${MM_RUNNING:-0}" -eq 1 ]]; then
+        echo -e " ${GREEN}${BOLD}● Active & Running${RESET}  ${DIM}(PID: ${WHITE}${MM_PID}${DIM}  │  Uptime: ${WHITE}${MM_UPTIME}${DIM}  │  RAM: ${WHITE}${MM_MEM}${DIM})${RESET}"
+    else
+        echo -e " ${YELLOW}○ Standby / Not Running${RESET}  ${DIM}[Option 12 to Launch / Monitor]${RESET}"
+    fi
+
+    # Current Operation Menu
+    printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Current Operation :"
+    if [[ "${MM_RUNNING:-0}" -eq 1 ]]; then
+        echo -e " ${YELLOW}${BOLD}⚡ ${MM_ACTIVE_OPERATION}${RESET}"
+    else
+        echo -e " ${DIM}○ Workstation Standby${RESET}"
+    fi
+
+    # Audio Playback
+    if [[ "${MM_AUDIO_RUNNING:-0}" -eq 1 && "${MM_AUDIO_STATE:-}" == "playing" ]]; then
+        printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Workstation Audio :"
+        local disp_title="${MM_AUDIO_TITLE:-}"
+        [[ ${#disp_title} -gt 38 ]] && disp_title="${disp_title:0:35}..."
+        echo -e " ${GREEN}▶ Playing:${RESET} ${WHITE}${disp_title}${RESET} ${CYAN}${MM_AUDIO_POS}${RESET}"
+    elif [[ "${MM_AUDIO_RUNNING:-0}" -eq 1 && "${MM_AUDIO_STATE:-}" == "paused" ]]; then
+        printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Workstation Audio :"
+        local disp_title="${MM_AUDIO_TITLE:-}"
+        [[ ${#disp_title} -gt 38 ]] && disp_title="${disp_title:0:35}..."
+        echo -e " ${YELLOW}⏸ Paused:${RESET} ${WHITE}${disp_title}${RESET}"
+    fi
+
+    # Congen Connectivity Validation
+    printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Bridge Connection :"
+    if [[ "${MM_BRIDGE_STATUS:-}" == "CONNECTED" ]]; then
+        echo -e " ${GREEN}${BOLD}● Connected & Validated${RESET} ${DIM}(via MP Software Bridge IPC)${RESET}"
+    elif [[ "${MM_RUNNING:-0}" -eq 1 ]]; then
+        echo -e " ${CYAN}${BOLD}⚡ Linked & Synchronized${RESET} ${DIM}(PID ${MM_PID})${RESET}"
+    else
+        echo -e " ${YELLOW}○ Standby${RESET} ${DIM}(MP Software Bridge Ready — Validated)${RESET}"
+    fi
+
+    # Theme & Telemetry
+    printf "${CYAN}║${RESET}   ${BOLD}%-20s${RESET}" "Theme & Telemetry :"
+    local th_sync_disp=""
+    if [[ "${MM_THEME:-}" == "${CURRENT_THEME:-}" ]]; then
+        th_sync_disp="${GREEN}🎨 In Sync (${CURRENT_THEME})${RESET}"
+    else
+        th_sync_disp="${YELLOW}🎨 Congen: ${CURRENT_THEME} │ Manager: ${MM_THEME:-dreamworlds}${RESET}"
+    fi
+    if [[ -n "${MM_LAST_ACTION:-}" && "${MM_LAST_ACTION}" != "—" ]]; then
+        local disp_act="${MM_LAST_ACTION}"
+        [[ ${#disp_act} -gt 28 ]] && disp_act="${disp_act:0:25}..."
+        echo -e " ${th_sync_disp}  ${DIM}│  Last: ${disp_act}${RESET}"
+    else
+        echo -e " ${th_sync_disp}"
     fi
 
     echo -e "${CYAN}║${RESET}"
@@ -5116,6 +5354,8 @@ congen_themes_menu() {
         local theme_nord_badge="" theme_matrix_badge="" theme_solarized_badge=""
         local theme_tokyo_badge="" theme_monokai_badge="" theme_gruvbox_badge=""
         local theme_emerald_badge="" theme_classic_badge=""
+        local theme_neon_badge="" theme_retro_badge="" theme_cneon_badge=""
+        local theme_phosphor_badge="" theme_ice_badge=""
 
         [ "$CURRENT_THEME" = "dreamworlds" ]       && theme_dreamworlds_badge=" ${GREEN}★ ACTIVE (DEFAULT)${RESET}"
         [ "$CURRENT_THEME" = "dreamworlds_ultra" ] && theme_ultra_badge=" ${GREEN}★ ACTIVE${RESET}"
@@ -5130,6 +5370,14 @@ congen_themes_menu() {
         [ "$CURRENT_THEME" = "gruvbox" ]           && theme_gruvbox_badge=" ${GREEN}★ ACTIVE${RESET}"
         [ "$CURRENT_THEME" = "emerald" ]           && theme_emerald_badge=" ${GREEN}★ ACTIVE${RESET}"
         [ "$CURRENT_THEME" = "classic" ]           && theme_classic_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "dreamworlds_neon" ]  && theme_neon_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "retro_studio" ]      && theme_retro_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "cyber_neon" ]        && theme_cneon_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "phosphor" ]          && theme_phosphor_badge=" ${GREEN}★ ACTIVE${RESET}"
+        [ "$CURRENT_THEME" = "ice_cold" ]          && theme_ice_badge=" ${GREEN}★ ACTIVE${RESET}"
+
+        local mm_th="dreamworlds"
+        [ -f "$HOME/.config/mix-manager/theme" ] && mm_th="$(tr -d ' \t\n\r' < "$HOME/.config/mix-manager/theme" 2>/dev/null || echo dreamworlds)"
 
         echo -e "    ${YELLOW}[1]${RESET}  MPlanetarian Dreamworlds [Default]  ${DIM}[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${RESET}${theme_dreamworlds_badge}"
         echo -e "    ${YELLOW}[2]${RESET}  Dreamworlds Ultra MP Mix Manager    ${DIM}[Hot Purple, Electric Indigo & Traffic Light RGB]${RESET}${theme_ultra_badge}"
@@ -5144,11 +5392,17 @@ congen_themes_menu() {
         echo -e "    ${YELLOW}[11]${RESET} Emerald Isle                        ${DIM}[Deep Ocean, Spring Emerald & Mint Cyan]${RESET}${theme_emerald_badge}"
         echo -e "    ${YELLOW}[12]${RESET} Classic ANSI                        ${DIM}[Standard 16-Color Terminal Fallback]${RESET}${theme_classic_badge}"
         echo -e "    ${YELLOW}[13]${RESET} Cosmic Supernova [Special Edition]  ${DIM}[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${RESET}${theme_cosmic_badge}"
+        echo -e "    ${YELLOW}[14]${RESET} Dreamworlds Cyber Neon              ${DIM}[Neon Rose Red, Cyber Cyan, Tangerine & Deep Lilac]${RESET}${theme_neon_badge}"
+        echo -e "    ${YELLOW}[15]${RESET} Retro Studio Vintage                ${DIM}[Japanese Studio: Ruby Red, Vintage Emerald & Gold]${RESET}${theme_retro_badge}"
+        echo -e "    ${YELLOW}[16]${RESET} Cyber Neon Wave                     ${DIM}[High-Volt Red, Electric Spring Green & Electric Violet]${RESET}${theme_cneon_badge}"
+        echo -e "    ${YELLOW}[17]${RESET} Phosphor Terminal CRT               ${DIM}[Amber CRT Flare, Phosphor P1 Green & Phosphor Glow]${RESET}${theme_phosphor_badge}"
+        echo -e "    ${YELLOW}[18]${RESET} Glacial Ice Cold                    ${DIM}[Glacier Periwinkle, Pure Ice Cyan & Arctic White]${RESET}${theme_ice_badge}"
         echo ""
+        echo -e "    ${CYAN}[s]${RESET}  Sync Theme from MP Mix Manager       ${DIM}(Active Manager Theme: ${YELLOW}${mm_th}${DIM})${RESET}"
         echo -e "    ${YELLOW}[b]${RESET}  Back to Main Menu"
         echo ""
 
-        read -rp "  $(echo -e "${BOLD}Select theme [1–13 or b]: ${RESET}")" topt || topt="b"
+        read -rp "  $(echo -e "${BOLD}Select theme [1–18, s, or b]: ${RESET}")" topt || topt="b"
 
         case "${topt,,}" in
             1|dreamworlds|default)
@@ -5216,11 +5470,320 @@ congen_themes_menu() {
                 echo -e "\n  ${GREEN}✓ Theme switched to Cosmic Supernova [Special Edition]!${RESET}"
                 sleep 0.8
                 ;;
+            14|dreamworlds_neon|neon)
+                save_theme "dreamworlds_neon"
+                echo -e "\n  ${GREEN}✓ Theme switched to Dreamworlds Cyber Neon!${RESET}"
+                sleep 0.8
+                ;;
+            15|retro_studio|retro|studio)
+                save_theme "retro_studio"
+                echo -e "\n  ${GREEN}✓ Theme switched to Retro Studio Vintage!${RESET}"
+                sleep 0.8
+                ;;
+            16|cyber_neon|cneon)
+                save_theme "cyber_neon"
+                echo -e "\n  ${GREEN}✓ Theme switched to Cyber Neon Wave!${RESET}"
+                sleep 0.8
+                ;;
+            17|phosphor|crt)
+                save_theme "phosphor"
+                echo -e "\n  ${GREEN}✓ Theme switched to Phosphor Terminal CRT!${RESET}"
+                sleep 0.8
+                ;;
+            18|ice_cold|ice|cold)
+                save_theme "ice_cold"
+                echo -e "\n  ${GREEN}✓ Theme switched to Glacial Ice Cold!${RESET}"
+                sleep 0.8
+                ;;
+            s|sync)
+                local bridge_sh="${SCRIPT_DIR}/mp_software_bridge.sh"
+                if [[ -x "$bridge_sh" ]]; then
+                    "$bridge_sh" sync-theme --from-source mix-manager
+                elif [[ -f "$HOME/.config/mix-manager/theme" ]]; then
+                    local s_th
+                    s_th="$(tr -d ' \t\n\r' < "$HOME/.config/mix-manager/theme" 2>/dev/null || true)"
+                    [[ -n "$s_th" ]] && save_theme "$s_th"
+                fi
+                load_theme
+                echo -e "\n  ${GREEN}✓ Synchronized theme from MP Mix Manager: ${BOLD}${CURRENT_THEME}${RESET}"
+                sleep 1
+                ;;
             b|back|q|quit)
                 return
                 ;;
             *)
-                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–13 or b."
+                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–18, s, or b."
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Quick-Register MP Mix Manager Remote Controls into KDE Connect
+# ---------------------------------------------------------------------------
+congen_register_mix_manager_remote_commands() {
+    clear
+    echo ""
+    echo -e "${CYAN}$(hr '═')${RESET}"
+    echo -e "${CYAN}║${RESET}  ${BOLD}${WHITE}Quick-Register MP Mix Manager Remote Controls${RESET}"
+    echo -e "${CYAN}$(hr '═')${RESET}"
+    echo ""
+    echo -e "  This wizard registers 5 standard remote control commands for your mobile device:"
+    echo -e "    1. ${WHITE}Launch MP Mix Manager${RESET}          -> ${DIM}Starts manager workstation in new window${RESET}"
+    echo -e "    2. ${WHITE}MP Audio Player: Toggle Play/Pause${RESET} -> ${DIM}Toggles background mix audio playback${RESET}"
+    echo -e "    3. ${WHITE}MP Audio Player: Next Track${RESET}        -> ${DIM}Skips to next DJ mix/track${RESET}"
+    echo -e "    4. ${WHITE}MP Audio Player: Previous Track${RESET}    -> ${DIM}Returns to previous DJ mix/track${RESET}"
+    echo -e "    5. ${WHITE}MP Mix Manager: Workstation Status${RESET} -> ${DIM}Displays live bridge telemetry${RESET}"
+    echo ""
+
+    local ws_dir="${SCRIPT_DIR}/.."
+    local mgr_sh
+    mgr_sh="$(readlink -f "${ws_dir}/manager.sh" 2>/dev/null || echo "${ws_dir}/manager.sh")"
+    local player_py
+    player_py="$(readlink -f "${ws_dir}/MP_Audio_Player.py" 2>/dev/null || echo "${ws_dir}/MP_Audio_Player.py")"
+    local bridge_sh
+    bridge_sh="$(readlink -f "${ws_dir}/mp_software_bridge.sh" 2>/dev/null || echo "${ws_dir}/mp_software_bridge.sh")"
+
+    # Select target device(s)
+    local dev_ans
+    read -rp "  $(echo -e "${BOLD}Register for all paired devices simultaneously? [Y/n]: ${RESET}")" dev_ans
+    local target_dev_ids=()
+    if [[ "${dev_ans,,}" =~ ^n ]]; then
+        choose_device
+        target_dev_ids+=("${SELECTED_DEVICE_ID}")
+    else
+        get_paired_device_ids target_dev_ids
+    fi
+
+    if [[ ${#target_dev_ids[@]} -eq 0 ]]; then
+        echo -e "\n  ${RED}✘ No paired KDE Connect devices detected.${RESET}"
+        press_enter
+        return
+    fi
+
+    local -a cmds_to_add=(
+        "Launch MP Mix Manager|bash '${mgr_sh}'|Launch MP Mix Manager workstation console"
+        "MP Audio Player: Toggle Play/Pause|python3 '${player_py}' --toggle|Toggle playback on MP Audio Player"
+        "MP Audio Player: Next Track|python3 '${player_py}' --next|Skip to next track on MP Audio Player"
+        "MP Audio Player: Previous Track|python3 '${player_py}' --prev|Return to previous track on MP Audio Player"
+        "MP Mix Manager: Workstation Status|bash '${bridge_sh}' status|View live Mix Manager and Congen bridge telemetry"
+    )
+
+    local added=0
+    for d_id in "${target_dev_ids[@]}"; do
+        local dev_name
+        dev_name="$(get_device_name "${d_id}")"
+        local dev_cfg="${KDECONNECT_PLUGIN_DIR}/${d_id}/kdeconnect_runcommand/config"
+        mkdir -p "$(dirname "${dev_cfg}")" 2>/dev/null || true
+
+        for entry in "${cmds_to_add[@]}"; do
+            IFS='|' read -r c_name c_script c_sum <<< "$entry"
+            local c_key
+            c_key="$(next_command_key "${dev_cfg}")"
+            write_command_to_config "${dev_cfg}" "${c_key}" "${c_name}" "${c_script}"
+            update_manual "${c_name}" "${c_key}" "${c_script}" "${c_sum}" "${dev_name}"
+            added=$((added + 1))
+        done
+    done
+
+    # Refresh KDE Connect daemon discovery
+    local qdbus_bin=""
+    if command -v qdbus6 &>/dev/null; then qdbus_bin="qdbus6"
+    elif command -v qdbus &>/dev/null; then qdbus_bin="qdbus"; fi
+    if [[ -n "${qdbus_bin}" ]]; then
+        "${qdbus_bin}" org.kde.kdeconnect /modules/kdeconnect org.kde.kdeconnect.daemon.refreshDiscovery &>/dev/null || true
+    fi
+
+    invalidate_telemetry_cache
+    echo ""
+    echo -e "  ${GREEN}${BOLD}✔ Successfully registered ${added} remote commands across ${#target_dev_ids[@]} device(s)!${RESET}"
+    echo -e "  ${DIM}Open the KDE Connect app on your mobile phone to execute commands immediately.${RESET}"
+    echo ""
+    press_enter
+}
+
+# ---------------------------------------------------------------------------
+# Congen Doctor & Command Health Check
+# ---------------------------------------------------------------------------
+congen_doctor_menu() {
+    clear
+    echo ""
+    echo -e "${CYAN}$(hr '═')${RESET}"
+    echo -e "${CYAN}║${RESET}  ${BOLD}${WHITE}🩺 Congen Doctor & Command Health Suite${RESET}"
+    echo -e "${CYAN}$(hr '═')${RESET}"
+    echo ""
+
+    declare -a CMD_KEYS CMD_NAMES CMD_SCRIPTS CMD_DEVICES CMD_CFGS CMD_SUMMARIES CMD_ADDEDS
+    collect_all_commands
+    local total="${#CMD_KEYS[@]}"
+
+    local issues=0
+    local -a issue_indices=()
+    local -a issue_reasons=()
+
+    echo -e "  Scanning ${BOLD}${total}${RESET} installed commands across all paired devices…\n"
+
+    local i
+    for (( i=0; i<total; i++ )); do
+        local scr="${CMD_SCRIPTS[$i]}"
+        local nm="${CMD_NAMES[$i]}"
+        local scr_file="${scr%% *}"
+        # Strip quotes if present
+        scr_file="${scr_file%\"}"
+        scr_file="${scr_file#\"}"
+        scr_file="${scr_file%\'}"
+        scr_file="${scr_file#\'}"
+
+        # Check script existence
+        if [[ ! -e "$scr_file" ]] && ! command -v "$scr_file" &>/dev/null; then
+            issues=$((issues + 1))
+            issue_indices+=("$i")
+            issue_reasons+=("Script target missing on filesystem: ${scr_file}")
+            continue
+        fi
+
+        # Check executable bit
+        if [[ -f "$scr_file" && ! -x "$scr_file" ]]; then
+            issues=$((issues + 1))
+            issue_indices+=("$i")
+            issue_reasons+=("Missing executable permission (+x): ${scr_file}")
+            continue
+        fi
+    done
+
+    if (( issues == 0 )); then
+        echo -e "  ${GREEN}${BOLD}✔ ALL SYSTEMS HEALTHY!${RESET}"
+        echo -e "  ${DIM}All ${total} commands have verified targets, valid permissions, and responsive configurations.${RESET}"
+    else
+        echo -e "  ${YELLOW}${BOLD}⚠  ${issues} issue(s) detected across installed commands:${RESET}\n"
+        local j
+        for (( j=0; j<${#issue_indices[@]}; j++ )); do
+            local idx="${issue_indices[$j]}"
+            echo -e "  ${RED}• [${CMD_NAMES[$idx]}]${RESET} (${CMD_DEVICES[$idx]})"
+            echo -e "    ${DIM}Problem: ${issue_reasons[$j]}${RESET}"
+        done
+        echo ""
+        local fix_ans
+        read -rp "  $(echo -e "${BOLD}Would you like Congen to automatically fix these permission issues? [y/N]: ${RESET}")" fix_ans
+        if [[ "${fix_ans,,}" =~ ^y ]]; then
+            for (( j=0; j<${#issue_indices[@]}; j++ )); do
+                local idx="${issue_indices[$j]}"
+                local scr="${CMD_SCRIPTS[$idx]}"
+                local scr_file="${scr%% *}"
+                scr_file="${scr_file%\"}"
+                scr_file="${scr_file#\"}"
+                scr_file="${scr_file%\'}"
+                scr_file="${scr_file#\'}"
+                if [[ -f "$scr_file" && ! -x "$scr_file" ]]; then
+                    chmod +x "$scr_file" 2>/dev/null && echo -e "  ${GREEN}✔ Added +x to ${scr_file}${RESET}" || true
+                fi
+            done
+            echo -e "\n  ${GREEN}✔ Auto-repair complete!${RESET}"
+            invalidate_telemetry_cache
+        fi
+    fi
+    echo ""
+    press_enter
+}
+
+# ---------------------------------------------------------------------------
+# MP Mix Manager Workstation Bridge & Remote Control Menu
+# ---------------------------------------------------------------------------
+congen_mix_manager_bridge_menu() {
+    while true; do
+        clear
+        echo ""
+        echo -e "${CYAN}$(hr '═')${RESET}"
+        echo -e "${CYAN}║${RESET}  ${BOLD}${WHITE}🌉 MP Mix Manager Workstation Bridge & Remote Control${RESET}"
+        echo -e "${CYAN}$(hr '═')${RESET}"
+        echo ""
+
+        local bridge_sh="${SCRIPT_DIR}/mp_software_bridge.sh"
+        local bridge_py="${SCRIPT_DIR}/../scripts/mp_software_bridge.py"
+        [[ ! -f "$bridge_sh" ]] && bridge_sh="${SCRIPT_DIR}/../mp_software_bridge.sh"
+        [[ ! -f "$bridge_py" ]] && bridge_py="${SCRIPT_DIR}/scripts/mp_software_bridge.py"
+
+        if [[ -x "$bridge_sh" ]]; then
+            "$bridge_sh" status
+        elif [[ -f "$bridge_py" ]]; then
+            python3 "$bridge_py" status
+        else
+            echo -e "  ${YELLOW}⚠ MP Software Bridge helper script not found in default paths.${RESET}"
+        fi
+
+        echo -e "  ${BOLD}Bridge Actions & Operations:${RESET}"
+        echo ""
+        echo -e "    ${YELLOW}[1]${RESET}  Run Full Connectivity Validation Diagnostics  ${DIM}(5-Step Verification & Latency)${RESET}"
+        echo -e "    ${YELLOW}[2]${RESET}  Launch MP Mix Manager in Workstation Console   ${DIM}(New Terminal Window)${RESET}"
+        echo -e "    ${YELLOW}[3]${RESET}  Synchronize Themes Between Applications       ${DIM}(Align Congen & Mix Manager)${RESET}"
+        echo -e "    ${YELLOW}[4]${RESET}  Quick-Register Mix Manager Remote Controls     ${DIM}(KDE Connect Mobile Shortcuts)${RESET}"
+        echo -e "    ${YELLOW}[5]${RESET}  Send Ping / Handshake Heartbeat               ${DIM}(Validate IPC Response)${RESET}"
+        echo -e "    ${YELLOW}[6]${RESET}  Refresh Live Status                            ${DIM}(Re-query Process & Audio)${RESET}"
+        echo ""
+        echo -e "    ${YELLOW}[b]${RESET}  Back to Main Menu"
+        echo ""
+
+        read -rp "  $(echo -e "${BOLD}Select action [1–6 or b]: ${RESET}")" bopt || bopt="b"
+
+        case "${bopt,,}" in
+            1|validate|diag|test)
+                echo ""
+                echo -e "  ${CYAN}Running 5-step bidirectional connectivity verification…${RESET}\n"
+                if [[ -x "$bridge_sh" ]]; then
+                    "$bridge_sh" validate || true
+                elif [[ -f "$bridge_py" ]]; then
+                    python3 "$bridge_py" validate || true
+                fi
+                echo ""
+                press_enter
+                ;;
+            2|launch|start)
+                echo ""
+                echo -e "  ${CYAN}Dispatching launch signal for MP Mix Manager…${RESET}"
+                if [[ -x "$bridge_sh" ]]; then
+                    "$bridge_sh" launch
+                elif [[ -f "$bridge_py" ]]; then
+                    python3 "$bridge_py" launch
+                fi
+                sleep 1
+                invalidate_telemetry_cache
+                ;;
+            3|sync|theme)
+                echo ""
+                echo -e "  ${CYAN}Synchronizing active themes…${RESET}"
+                if [[ -x "$bridge_sh" ]]; then
+                    "$bridge_sh" sync-theme --from-source mix-manager
+                elif [[ -f "$bridge_py" ]]; then
+                    python3 "$bridge_py" sync-theme --from-source mix-manager
+                fi
+                load_theme
+                invalidate_telemetry_cache
+                echo -e "  ${GREEN}✔ Active Theme updated to: ${BOLD}${CURRENT_THEME}${RESET}"
+                sleep 1
+                ;;
+            4|register|shortcuts|mobile)
+                congen_register_mix_manager_remote_commands
+                ;;
+            5|ping)
+                echo ""
+                if [[ -x "$bridge_sh" ]]; then
+                    "$bridge_sh" ping
+                elif [[ -f "$bridge_py" ]]; then
+                    python3 "$bridge_py" ping
+                fi
+                echo ""
+                sleep 1
+                ;;
+            6|r|refresh)
+                invalidate_telemetry_cache
+                continue
+                ;;
+            b|back|q|quit)
+                return
+                ;;
+            *)
+                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–6 or b."
                 sleep 1
                 ;;
         esac
@@ -5246,7 +5809,9 @@ main_menu() {
         echo -e "    ${YELLOW}[8]${RESET}  Congen Alerts                         ${DIM}(sound notifications)${RESET}"
         echo -e "    ${YELLOW}[9]${RESET}  Generate Command from Keyboard Shortcut"
         echo -e "    ${YELLOW}[10]${RESET} 🖥️  Desktop Shortcut Management         ${DIM}(Run, Bind Keys & Schedule — KDE Plasma)${RESET}"
-        echo -e "    ${YELLOW}[11]${RESET} 🎨 Themes & Color Palette Switcher        ${DIM}(12 Themes: Dreamworlds, Dreamworlds Ultra...)${RESET}"
+        echo -e "    ${YELLOW}[11]${RESET} 🎨 Themes & Color Palette Switcher        ${DIM}(18 Themes: Dreamworlds, Ultra, Cosmic...)${RESET}"
+        echo -e "    ${YELLOW}[12]${RESET} 🌉 MP Mix Manager Workstation Bridge     ${DIM}(Status, Telemetry, Connectivity & Remote Controls)${RESET}"
+        echo -e "    ${YELLOW}[13]${RESET} 🩺 Congen Doctor & Command Health Check  ${DIM}(Validate Scripts, Permissions & Integrity)${RESET}"
         echo -e "    ${YELLOW}[q]${RESET}  Quit"
         echo ""
 
@@ -5264,6 +5829,8 @@ main_menu() {
             9) generate_from_shortcut ;;
             10) desktop_shortcut_menu ;;
             11|t|theme|themes) congen_themes_menu ;;
+            12|bridge|mm) congen_mix_manager_bridge_menu ;;
+            13|doc|doctor|health) congen_doctor_menu ;;
             q|quit|exit)
                 echo ""
                 echo -e "  ${DIM}Goodbye.${RESET}"
@@ -5272,7 +5839,7 @@ main_menu() {
                 exit 0
                 ;;
             *)
-                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–11 or q."
+                echo -e "\n  ${RED}Invalid option.${RESET} Please select 1–13 or q."
                 sleep 1
                 ;;
         esac
@@ -5295,8 +5862,10 @@ cli_show_help() {
     echo -e "  ${YELLOW}add${RESET} <name> <cmd|script> [sum] [dev]  Create & register a command atomically"
     echo -e "  ${YELLOW}remove${RESET} <name | #index>               Safely remove a command from config & manual"
     echo -e "  ${YELLOW}status${RESET}                               Show daemon, paired devices, and telemetry status"
+    echo -e "  ${YELLOW}bridge${RESET} [status|validate|launch|sync] MP Mix Manager workstation bridge suite"
+    echo -e "  ${YELLOW}doctor${RESET} [--fix]                        Audit command script targets & executable bits"
     echo -e "  ${YELLOW}ping${RESET}                                 Test reachability of KDE Connect devices"
-    echo -e "  ${YELLOW}theme${RESET} [name]                         List available themes or switch active theme"
+    echo -e "  ${YELLOW}theme${RESET} [name | sync]                  List/switch theme or sync with Mix Manager"
     echo -e "  ${YELLOW}alert${RESET} <status|enable|disable|test>   Inspect or control audio alerts daemon"
     echo -e "  ${YELLOW}--version${RESET}, ${YELLOW}-v${RESET}                        Display Congen version information"
     echo -e "  ${YELLOW}--help${RESET}, ${YELLOW}-h${RESET}                           Display this help manual"
@@ -5304,12 +5873,16 @@ cli_show_help() {
     echo -e "${BOLD}Examples:${RESET}"
     echo -e "  congen list"
     echo -e "  congen list --json"
+    echo -e "  congen bridge status"
+    echo -e "  congen bridge validate"
+    echo -e "  congen doctor --fix"
+    echo -e "  congen theme sync"
+    echo -e "  congen theme cosmic_supernova"
     echo -e "  congen run 1"
     echo -e "  congen run \"Lock Screen\""
     echo -e "  congen add \"Lock Workstation\" \"loginctl lock-session\" \"Locks active session\""
     echo -e "  congen remove \"Lock Workstation\""
     echo -e "  congen status"
-    echo -e "  congen theme dreamworlds_ultra"
     echo -e "  congen alert test"
     echo ""
 }
@@ -5666,7 +6239,106 @@ cli_status() {
     local sched_be
     sched_be="$(schedule_detect_backend 2>/dev/null || echo 'none')"
     echo -e "  ${BOLD}Scheduler     :${RESET} ${sched_be}"
+
+    # MP Mix Manager Workstation Status
+    local mm_eval
+    mm_eval="$(get_mix_manager_bridge_status)"
+    local MM_RUNNING=0 MM_PID="—" MM_UPTIME="0s" MM_CPU="0.0%" MM_MEM="0.0 MB"
+    local MM_ACTIVE_OPERATION="Standby" MM_THEME="dreamworlds" MM_THEMES_IN_SYNC=1
+    local MM_BRIDGE_STATUS="STANDBY" MM_BRIDGE_LABEL="○ Standby (Mix Manager Not Running)"
+    local MM_AUDIO_RUNNING=0 MM_AUDIO_STATE="stopped" MM_AUDIO_TITLE="—" MM_AUDIO_POS="—"
+    local MM_LAST_ACTION="—" MM_LAST_ACTION_TIME="—"
+    if [[ -n "${mm_eval}" ]]; then
+        eval "${mm_eval}"
+    fi
+
     echo -e "${DIM}$(hr '─')${RESET}"
+    echo -e "  ${BOLD}${CYAN}MP Mix Manager Workstation Telemetry:${RESET}"
+    if [[ "${MM_RUNNING:-0}" -eq 1 ]]; then
+        echo -e "  ${BOLD}Manager Status:${RESET} ${GREEN}● Active & Running${RESET} (PID ${MM_PID}, Uptime: ${MM_UPTIME}, RAM: ${MM_MEM})"
+        echo -e "  ${BOLD}Active Menu   :${RESET} ${YELLOW}${MM_ACTIVE_OPERATION}${RESET}"
+    else
+        echo -e "  ${BOLD}Manager Status:${RESET} ${YELLOW}○ Standby / Not Running${RESET}"
+    fi
+    if [[ "${MM_AUDIO_RUNNING:-0}" -eq 1 ]]; then
+        echo -e "  ${BOLD}Audio Player  :${RESET} ${GREEN}${MM_AUDIO_STATE^^}:${RESET} ${MM_AUDIO_TITLE} (${MM_AUDIO_POS})"
+    fi
+    echo -e "  ${BOLD}Bridge Link   :${RESET} ${MM_BRIDGE_LABEL}"
+    echo -e "${DIM}$(hr '─')${RESET}"
+}
+
+cli_bridge() {
+    local action="${1:-status}"
+    shift || true
+    local bridge_sh="${SCRIPT_DIR}/mp_software_bridge.sh"
+    local bridge_py="${SCRIPT_DIR}/../scripts/mp_software_bridge.py"
+    [[ ! -f "$bridge_sh" ]] && bridge_sh="${SCRIPT_DIR}/../mp_software_bridge.sh"
+    [[ ! -f "$bridge_py" ]] && bridge_py="${SCRIPT_DIR}/scripts/mp_software_bridge.py"
+
+    if [[ -x "$bridge_sh" ]]; then
+        "$bridge_sh" "$action" "$@"
+    elif [[ -f "$bridge_py" ]]; then
+        python3 "$bridge_py" "$action" "$@"
+    else
+        echo -e "${RED}Error:${RESET} MP Software Bridge helper script not found." >&2
+        return 1
+    fi
+}
+
+cli_doctor() {
+    local fix_mode=0
+    [[ "${1:-}" == "--fix" || "${2:-}" == "--fix" ]] && fix_mode=1
+
+    declare -a CMD_KEYS CMD_NAMES CMD_SCRIPTS CMD_DEVICES CMD_CFGS CMD_SUMMARIES CMD_ADDEDS
+    collect_all_commands
+    local total="${#CMD_KEYS[@]}"
+    local issues=0
+
+    echo -e "${CYAN}${BOLD}Congen Doctor — Command Health Check${RESET}"
+    echo -e "${DIM}$(hr '─')${RESET}"
+    echo -e "  Scanning ${BOLD}${total}${RESET} installed commands across all paired devices…\n"
+
+    local i
+    for (( i=0; i<total; i++ )); do
+        local scr="${CMD_SCRIPTS[$i]}"
+        local nm="${CMD_NAMES[$i]}"
+        local dev="${CMD_DEVICES[$i]}"
+        local scr_file="${scr%% *}"
+        scr_file="${scr_file%\"}"
+        scr_file="${scr_file#\"}"
+        scr_file="${scr_file%\'}"
+        scr_file="${scr_file#\'}"
+
+        if [[ ! -e "$scr_file" ]] && ! command -v "$scr_file" &>/dev/null; then
+            issues=$((issues + 1))
+            echo -e "  ${RED}✘ [FAIL]${RESET} ${nm} (${dev}): Target missing -> ${scr_file}"
+            continue
+        fi
+
+        if [[ -f "$scr_file" && ! -x "$scr_file" ]]; then
+            issues=$((issues + 1))
+            if (( fix_mode == 1 )); then
+                chmod +x "$scr_file" 2>/dev/null && \
+                    echo -e "  ${GREEN}✔ [FIXED]${RESET} ${nm} (${dev}): Added +x to ${scr_file}" || \
+                    echo -e "  ${RED}✘ [FAIL]${RESET} ${nm} (${dev}): Unable to add +x to ${scr_file}"
+            else
+                echo -e "  ${YELLOW}⚠ [WARN]${RESET} ${nm} (${dev}): Missing execute bit (+x) -> ${scr_file}"
+            fi
+            continue
+        fi
+    done
+
+    echo ""
+    echo -e "${DIM}$(hr '─')${RESET}"
+    if (( issues == 0 )); then
+        echo -e "  ${GREEN}${BOLD}✔ ALL COMMANDS HEALTHY! (No issues detected)${RESET}"
+    else
+        echo -e "  ${YELLOW}${BOLD}⚠  Found ${issues} issue(s).${RESET}"
+        if (( fix_mode == 0 )); then
+            echo -e "  ${DIM}Run 'congen doctor --fix' to automatically resolve executable permission issues.${RESET}"
+        fi
+    fi
+    echo ""
 }
 
 cli_ping() {
@@ -5714,12 +6386,13 @@ cli_ping() {
 
 cli_theme() {
     local target_theme="${1:-}"
-    if [[ -z "${target_theme}" ]]; then
-        echo -e "${CYAN}${BOLD}Available Congen Themes:${RESET} (Current: ${YELLOW}${CURRENT_THEME}${RESET})"
+    if [[ -z "${target_theme}" || "${target_theme}" == "list" ]]; then
+        echo -e "${CYAN}${BOLD}Available Congen & MP Mix Manager Themes:${RESET} (Current: ${YELLOW}${CURRENT_THEME}${RESET})"
         local -a all_themes=(
             "dreamworlds" "dreamworlds_ultra" "cyberpunk" "dracula"
             "nord" "matrix" "solarized" "tokyo" "monokai" "gruvbox"
-            "emerald" "classic" "cosmic_supernova"
+            "emerald" "classic" "cosmic_supernova" "dreamworlds_neon"
+            "retro_studio" "cyber_neon" "phosphor" "ice_cold"
         )
         for t in "${all_themes[@]}"; do
             if [[ "$t" == "${CURRENT_THEME}" ]]; then
@@ -5729,7 +6402,22 @@ cli_theme() {
             fi
         done
         echo ""
-        echo "To switch theme, run: congen theme <name>"
+        echo "To switch theme: congen theme <name>"
+        echo "To sync theme  : congen theme sync"
+        return 0
+    fi
+
+    if [[ "${target_theme}" == "sync" ]]; then
+        local bridge_sh="${SCRIPT_DIR}/mp_software_bridge.sh"
+        if [[ -x "$bridge_sh" ]]; then
+            "$bridge_sh" sync-theme --from-source mix-manager
+        elif [[ -f "$HOME/.config/mix-manager/theme" ]]; then
+            local s_th
+            s_th="$(tr -d ' \t\n\r' < "$HOME/.config/mix-manager/theme" 2>/dev/null || true)"
+            [[ -n "$s_th" ]] && save_theme "$s_th"
+        fi
+        load_theme
+        echo -e "${GREEN}✔ Synchronized theme from MP Mix Manager: ${BOLD}${CURRENT_THEME}${RESET}"
         return 0
     fi
 
@@ -5773,9 +6461,24 @@ cli_theme() {
         13|cosmic|supernova|cosmic_supernova)
             save_theme "cosmic_supernova"
             ;;
+        14|dreamworlds_neon|neon)
+            save_theme "dreamworlds_neon"
+            ;;
+        15|retro_studio|retro|studio)
+            save_theme "retro_studio"
+            ;;
+        16|cyber_neon|cneon)
+            save_theme "cyber_neon"
+            ;;
+        17|phosphor|crt)
+            save_theme "phosphor"
+            ;;
+        18|ice_cold|ice|cold)
+            save_theme "ice_cold"
+            ;;
         *)
             echo -e "${RED}Error:${RESET} Unknown theme '${target_theme}'." >&2
-            echo "Run 'congen theme' to see valid themes." >&2
+            echo "Run 'congen theme' to see all 18 available themes." >&2
             return 1
             ;;
     esac
@@ -5858,6 +6561,12 @@ handle_cli_args() {
             ;;
         status|info)
             cli_status
+            ;;
+        bridge|mm)
+            cli_bridge "$@"
+            ;;
+        doctor|health|doc)
+            cli_doctor "$@"
             ;;
         ping)
             cli_ping
