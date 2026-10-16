@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.7 Beta] - 2026-10-17
+
+- **Menu Option Search by Pressing `/` in MP Mix Archive Manager** (`Mix_Archive_Manager.sh`, `tests/test_music_folders_presentation.py`):
+  - **Instant Menu Search Filtering (`/`)**: Added real-time text search filtering to `run_interactive_submenu()` in `Mix_Archive_Manager.sh`, providing the exact same intuitive search function implemented in MP Audio Player across the Main Page and submenus.
+  - **Dynamic Search Buffer & Match Navigation**: Typing after pressing `/` dynamically searches option keys, labels, and descriptions (`_find_menu_search_match`). Up and Down arrow keys cycle through matching options, Enter executes the currently highlighted match, and Esc clears the search query or exits search mode.
+  - **Interactive Status Bar Prompt**: Displays `Filter / Search: [query█] ▏ [Option N: Title] ▏ (Type to search, ↑/↓ Navigate, Enter: Select, Esc: Clear)` with clear guidance in both main menu and submenus.
+
+- **Streamlined Audio Player & Retained Track Audio Inspector HUD** (`MP_Audio_Player.py`, `scripts/music_folders_manager.py`, `tests/test_music_folders_presentation.py`):
+  - **Refocused Audio Player Architecture**: Dedicated the application strictly as an audio player playing music and mixes rather than a DJ tool, removing 4 DJ features:
+    1. **Removed Hot Cues System**: Cleaned out Hot Cues (Keys 1-4, Shift+1-4, C, `HotCueManager`, and `dj_hot_cues.json` handling).
+    2. **Removed BPM Tap & Pitch Nudge**: Reverted Key B to standard quit/back, removed tempo tapping and ±2% deck sync nudging.
+    3. **Removed Camelot Wheel Harmonic Matcher**: Removed `CAMELOT_WHEEL`, key extraction, and Key K filter toggle; restored standard up navigation.
+    4. **Removed DJ Drop Audition**: Removed Key D drop skip cycling to retain pure track playback.
+  - **Preserved & Polished Option I (Track Audio Inspector HUD)**: Retained the popular modal Inspector HUD (`I`), now focused purely on audio file fidelity and playback diagnostics: Track Title, Folder / SMB Share (`smb://192.168.1.138/`), Format / Codec (e.g. FLAC Lossless, 96.0 kHz Stereo), Time Position & Progress, Volume & Pitch status, Hardware Audio Output Engine, and Full Network Path.
+  - **Updated Music Folders Manager**: Updated Option 7 guide and menu options in `scripts/music_folders_manager.py` to highlight the Track Audio Inspector and Player Shortcuts.
+
 ## [0.3.7 Beta] - 2026-10-16
 
 - **MP Audio Player Option 1 Verified & Tested — Advanced MUSIC Mode & SMB Music Folders Presentation** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `scripts/music_folders_manager.py`, `tests/test_music_folders_presentation.py`):

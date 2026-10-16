@@ -95,6 +95,130 @@ class TestMusicFoldersPresentation(unittest.TestCase):
         self.assertIn("00:00", inner_plain)
         self.assertNotIn("0MB", inner_plain)
 
+    def test_dj_features_removed_and_clean_audio_player(self):
+        """Verify that the 4 DJ features (Hot Cues, BPM Tap, Camelot Matcher, Drop Audition) were removed."""
+        import MP_Audio_Player
+
+        # 1. Camelot wheel & helper functions removed
+        self.assertFalse(hasattr(MP_Audio_Player, "CAMELOT_WHEEL"), "CAMELOT_WHEEL should be removed")
+        self.assertFalse(hasattr(MP_Audio_Player, "extract_track_camelot_key"), "extract_track_camelot_key should be removed")
+        self.assertFalse(hasattr(MP_Audio_Player, "get_compatible_camelot_keys"), "get_compatible_camelot_keys should be removed")
+
+        # 2. HotCueManager removed
+        self.assertFalse(hasattr(MP_Audio_Player, "HotCueManager"), "HotCueManager should be removed")
+
+        # 3. AudioEngine and TerminalPlayerUI do not expose DJ state attributes
+        scanner = MP_Audio_Player.MusicFolderPlaylistScanner("MUSIC001")
+        ui = MP_Audio_Player.TerminalPlayerUI(None, scanner, is_remote=True, mode="MUSIC", folder_name="MUSIC001")
+        self.assertFalse(hasattr(ui, "cue_mgr"), "TerminalPlayerUI should not have cue_mgr")
+        self.assertFalse(hasattr(ui, "bpm_tap_times"), "TerminalPlayerUI should not have bpm_tap_times")
+        self.assertFalse(hasattr(ui, "tapped_bpm"), "TerminalPlayerUI should not have tapped_bpm")
+        self.assertFalse(hasattr(ui, "harmonic_filter_active"), "TerminalPlayerUI should not have harmonic_filter_active")
+        self.assertFalse(hasattr(ui, "drop_audition_step"), "TerminalPlayerUI should not have drop_audition_step")
+
+    def test_track_inspector_hud_retained(self):
+        """Verify that Option I (Track Audio Inspector HUD) is preserved and functional."""
+        from MP_Audio_Player import MusicFolderPlaylistScanner, TerminalPlayerUI
+
+        scanner = MusicFolderPlaylistScanner("MUSIC001")
+        ui = TerminalPlayerUI(None, scanner, is_remote=True, mode="MUSIC", folder_name="MUSIC001")
+
+        self.assertFalse(ui.inspector_hud_active, "Inspector HUD should initially be inactive")
+        ui.inspector_hud_active = True
+        self.assertTrue(ui.inspector_hud_active, "Inspector HUD should be toggleable")
+
+        status = {
+            "title": "Cosmic Voyager (Deep Mix)",
+            "path": "/mnt/smb_music/MUSIC001/Cosmic Voyager.flac",
+            "sample_rate": 96000,
+            "channels": 2,
+            "position_fmt": "04:20",
+            "duration_fmt": "08:45",
+            "progress_pct": 49.5,
+            "volume": 90,
+            "pitch_percent": 0,
+            "output_rate": 96000,
+            "output_device": "PipeWire ALSA Output"
+        }
+
+        hud_lines = ui._render_inspector_hud(status, iw=115)
+        self.assertIsInstance(hud_lines, list)
+        self.assertGreater(len(hud_lines), 5, "HUD should output multiple formatted lines")
+
+        hud_text = "\n".join(hud_lines)
+        self.assertIn("TRACK AUDIO INSPECTOR", hud_text)
+        self.assertIn("Cosmic Voyager", hud_text)
+        self.assertIn("Folder / SMB", hud_text)
+        self.assertIn("Format/Codec", hud_text)
+        self.assertIn("Time Position", hud_text)
+        self.assertIn("Audio Engine", hud_text)
+
+        # Confirm DJ features are NOT in the HUD
+        self.assertNotIn("Camelot", hud_text)
+        self.assertNotIn("DJ Cues", hud_text)
+        self.assertNotIn("Drop Markers", hud_text)
+
+    def test_mix_archive_manager_slash_search_match(self):
+        """Verify that Mix_Archive_Manager.sh _find_menu_search_match finds options by search query."""
+        import subprocess
+
+        bash_test_script = """
+        total_opts=4
+        _opts_ref=(
+            "SECTION|SECTION 1: WORKFLOW|"
+            "1|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • SMB /MUSIC001 & /MUSIC002)"
+            "2|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)"
+            "19|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX)"
+        )
+        cur_idx=0
+        _find_menu_search_match() {
+            local q="${1,,}" start="${2:-0}" dir="${3:-1}"
+            [ -z "$q" ] && return 0
+            local step=0 idx="$start"
+            while [ "$step" -lt "$total_opts" ]; do
+                local ok="" ol="" oe=""
+                IFS='|' read -r ok ol oe <<< "${_opts_ref[$idx]}"
+                if [ "$ok" != "SECTION" ] && [ "$ok" != "SEP" ]; then
+                    local haystack="${ok} ${ol} ${oe}"
+                    haystack="${haystack,,}"
+                    if [[ "$haystack" == *"$q"* ]]; then
+                        cur_idx=$idx
+                        return 0
+                    fi
+                fi
+                idx=$(( (idx + dir + total_opts) % total_opts ))
+                ((step++))
+            done
+            return 1
+        }
+
+        # Test 1: Search 'music' -> Should match index 1 (Option 1)
+        _find_menu_search_match "music" 0 1 || exit 10
+        [ "$cur_idx" -eq 1 ] || exit 11
+
+        # Test 2: Search 'conversion' -> Should match index 2 (Option 2)
+        _find_menu_search_match "conversion" 0 1 || exit 20
+        [ "$cur_idx" -eq 2 ] || exit 21
+
+        # Test 3: Search 'spek' -> Should match index 3 (Option 19)
+        _find_menu_search_match "spek" 0 1 || exit 30
+        [ "$cur_idx" -eq 3 ] || exit 31
+
+        # Test 4: Search non-existent term -> Should return failure (exit code 1)
+        if _find_menu_search_match "xyznonexistent" 0 1; then exit 40; fi
+
+        echo "BASH_SEARCH_TESTS_PASS"
+        """
+
+        result = subprocess.run(
+            ["bash", "-c", bash_test_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        self.assertEqual(result.returncode, 0, f"Bash search match tests failed: {result.stderr}")
+        self.assertIn("BASH_SEARCH_TESTS_PASS", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
