@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.7 Beta] - 2026-10-16
+
+- **MP Audio Player Option 1 Verified & Tested — Advanced MUSIC Mode & SMB Music Folders Presentation** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `scripts/music_folders_manager.py`, `tests/test_music_folders_presentation.py`):
+  - **Option 1 Tested & Verified**: MP Audio Player Option 1 ("Play Tracks from MUSIC Folders using MP Audio Player — Advanced Mode") has been tested and verified, confirming correct presentation of remote SMB music folders.
+  - **SMB Music Folders Presentation**: Successfully mounted and presented remote network shares `/MUSIC001` (11,687 tracks) and `/MUSIC002` (19,584 tracks) from host `192.168.1.138`, presenting an aggregate collection of 31,271 DJ tracks.
+  - **Instant Playlists & Metadata Cache**: Pre-cached high-speed playlists (`DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8`, `DJ_Tracks_MUSIC001.m3u8`, `DJ_Tracks_MUSIC002.m3u8`) and JSON metadata caches load instantaneously without network directory traversal delays.
+  - **VFS Full Cache Optimization**: Enabled rclone VFS full cache mode (`--vfs-cache-mode full`, `--vfs-read-chunk-size 4M`, `--buffer-size 16M`) ensuring smooth audio streaming, instant seek times, and preventing playback stalls over CIFS/SMB.
+  - **5 Exclusive DJ Mode Features**:
+    1. **DJ Hot Cues**: 4 instant hot cue pads ([1]-[4], [Shift+1]-[4]) plus CDJ Main Cue ([C]) with persistent disk storage in `dj_hot_cues.json`.
+    2. **Live BPM Tap & Pitch Nudge**: Tap [B] for tempo counter; [,] / [.] for subtle ±2% deck sync nudging.
+    3. **Camelot Wheel Harmonic Matcher**: [K] filters the active playlist to only show harmonically compatible tracks (±1 semitone, relative major/minor).
+    4. **DJ Drop Audition**: [D] skips intro directly to breakdown and drop (25% intro, 50% drop, 75% breakdown) for fast track vetting.
+    5. **Track Tag Inspector HUD**: [I] displays full audio specs, bitrate, sample rate, key, BPM, and SMB source path.
+
 ## [0.3.6 Beta] - 2026-10-15
 
 - **Intelligent Bluetooth Audio Auto-Routing & Hardware Output Monitor** (`MP_Audio_Player.py`, `scripts/monitor_bluetooth_audio.py`, `scripts/monitor_bluetooth_audio.sh`, `monitor_bluetooth_audio.sh`, `scripts/get_audio_interface.py`, `Mix_Archive_Manager.sh`):
