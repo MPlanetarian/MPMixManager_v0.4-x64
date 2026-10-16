@@ -43,6 +43,7 @@ fi
 
 START_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 NEW_TRACKLISTS_COUNT=0
+total_flacs_audited=0
 
 FORCE_REGENERATE="${FORCE_REGENERATE:-false}"
 for arg in "$@"; do
@@ -256,8 +257,87 @@ done
 
 trap 'rm -f "$temp_py_parser" "$history_cache_file" "$wav_cache_file"' EXIT
 
-total_flacs_audited=0
+# Function to extract date/time components from target string
+extract_date_time() {
+    local target="$1"
+    session_year=$(echo "$target" | grep -oE '20[0-9]{2}' | head -n 1)
+    session_month=$(echo "$target" | grep -oE '20[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
+    if [ -z "$session_month" ]; then
+        session_month=$(echo "$target" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
+    fi
+    session_day=$(echo "$target" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $3}')
+    session_hour=$(echo "$target" | grep -oE '[0-9]{1,2}h' | head -n 1 | tr -d 'h')
+    if [ -n "$session_hour" ] && [ ${#session_hour} -eq 1 ]; then
+        session_hour="0${session_hour}"
+    fi
+    session_min=$(echo "$target" | grep -oE '[0-9]{2}m' | head -n 1 | tr -d 'm')
+}
 
+# Function to find matching Traktor history file
+find_matching_history() {
+    local s_year="$1"
+    local s_month="$2"
+    local s_day="$3"
+    local s_hour="$4"
+    local s_min="$5"
+    local f_base="$6"
+    local matched=""
+
+    # 1. Explicit alignment for verified episodes
+    if [[ "$f_base" =~ (Mix_093|Episode_093|Episode 093|_093_) || "$f_base" == *"093"* ]]; then
+        if [ -s "$history_cache_file" ]; then
+            matched=$(grep -i "history_2026y05m21d_10h48m35s.nml" "$history_cache_file" | head -n 1)
+            [ -n "$matched" ] && { echo "$matched"; return 0; }
+        fi
+        if [ -f "$LOCAL_HISTORY_DIR/history_2026y05m21d_10h48m35s.nml" ]; then
+            echo "$LOCAL_HISTORY_DIR/history_2026y05m21d_10h48m35s.nml"
+            return 0
+        fi
+    fi
+    if [[ "$f_base" == *"081"* && "$f_base" =~ [Jj]orn ]] || [[ "$f_base" == *"2026-10-14_12h31m53"* ]]; then
+        if [ -s "$history_cache_file" ]; then
+            matched=$(grep -i "history_2026y10m14d_14h59m14s.nml" "$history_cache_file" | head -n 1)
+            [ -n "$matched" ] && { echo "$matched"; return 0; }
+        fi
+        if [ -f "$LOCAL_HISTORY_DIR/history_2026y10m14d_14h59m14s.nml" ]; then
+            echo "$LOCAL_HISTORY_DIR/history_2026y10m14d_14h59m14s.nml"
+            return 0
+        fi
+    fi
+
+    if [ ! -s "$history_cache_file" ]; then
+        return 0
+    fi
+
+    # 2. Match exact hour and minute
+    if [ -n "$s_year" ] && [ -n "$s_month" ] && [ -n "$s_day" ] && [ -n "$s_hour" ] && [ -n "$s_min" ]; then
+        local pat="history_${s_year}y${s_month}m${s_day}d_${s_hour}h${s_min}"
+        matched=$(grep -i -E -- "$pat" "$history_cache_file" | head -n 1)
+        [ -n "$matched" ] && { echo "$matched"; return 0; }
+    fi
+
+    # 3. Match exact hour
+    if [ -n "$s_year" ] && [ -n "$s_month" ] && [ -n "$s_day" ] && [ -n "$s_hour" ]; then
+        local pat="history_${s_year}y${s_month}m${s_day}d_${s_hour}h"
+        matched=$(grep -i -E -- "$pat" "$history_cache_file" | head -n 1)
+        [ -n "$matched" ] && { echo "$matched"; return 0; }
+    fi
+
+    # 4. Fallback: match day or date pattern
+    if [ -n "$s_year" ] && [ -n "$s_month" ] && [ -n "$s_day" ]; then
+        local fb_pat="history_${s_year}y${s_month}m${s_day}d"
+        matched=$(grep -i -E -- "$fb_pat" "$history_cache_file" | sort | tail -n 1)
+        [ -n "$matched" ] && { echo "$matched"; return 0; }
+
+        local s_date="${s_year}-${s_month}-${s_day}"
+        matched=$(grep -i -E -- "$s_date" "$history_cache_file" | sort | tail -n 1)
+        [ -n "$matched" ] && { echo "$matched"; return 0; }
+    fi
+
+    return 0
+}
+
+# Process each FLAC directory
 for current_out in "${flac_scan_dirs[@]}"; do
     if [ ! -d "$current_out" ]; then
         continue
@@ -284,21 +364,10 @@ for current_out in "${flac_scan_dirs[@]}"; do
         
         echo "Found FLAC without tracklist (or fallback placeholder): $flac_base"
         
-        # Try to extract base name matching the session ID pattern
+        # Extract base name matching the session ID pattern
         session_id=$(echo "$flac_base" | sed 's/^MPlanetarian - Stream of Frequency - //')
         readable_title=$(echo "$session_id" | sed 's/_/ /g')
         
-        matched_history=""
-        tracklist_found=false
-
-        # Explicit alignment for verified episodes
-        if [[ "$flac_base" =~ (Mix_093|Episode_093|Episode 093|_093_) || "$flac_base" == *"093"* ]]; then
-            matched_history="$LOCAL_HISTORY_DIR/history_2026y05m21d_10h48m35s.nml"
-        fi
-        if [[ "$flac_base" == *"081"* && "$flac_base" =~ [Jj]orn ]] || [[ "$flac_base" == *"2026-10-14_12h31m53"* ]]; then
-            matched_history="$LOCAL_HISTORY_DIR/history_2026y10m14d_14h59m14s.nml"
-        fi
-
         # Locate any source WAV files that match this session ID from the pre-cached index
         declare -a source_wavs=()
         if [ -s "$wav_cache_file" ]; then
@@ -308,17 +377,8 @@ for current_out in "${flac_scan_dirs[@]}"; do
         fi
 
         # Extract date/time components for Traktor history matching
-        session_year=$(echo "$session_id" | grep -oE '20[0-9]{2}' | head -n 1)
-        session_month=$(echo "$session_id" | grep -oE '20[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-        if [ -z "$session_month" ]; then
-            session_month=$(echo "$session_id" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-        fi
-        session_day=$(echo "$session_id" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $3}')
-        session_hour=$(echo "$session_id" | grep -oE '[0-9]{1,2}h' | head -n 1 | tr -d 'h')
-        if [ -n "$session_hour" ] && [ ${#session_hour} -eq 1 ]; then
-            session_hour="0${session_hour}"
-        fi
-        session_min=$(echo "$session_id" | grep -oE '[0-9]{2}m' | head -n 1 | tr -d 'm')
+        session_year="" session_month="" session_day="" session_hour="" session_min=""
+        extract_date_time "$session_id"
 
         # Check sibling FLAC in current output folder if date missing
         if [ -z "$session_year" ]; then
@@ -327,64 +387,18 @@ for current_out in "${flac_scan_dirs[@]}"; do
                 for sib in "$current_out"/*"${ep_token}"*.flac; do
                     [ ! -f "$sib" ] && continue
                     sib_base=$(basename "$sib" .flac)
-                    s_yr=$(echo "$sib_base" | grep -oE '20[0-9]{2}' | head -n 1)
-                    if [ -n "$s_yr" ]; then
-                        session_year="$s_yr"
-                        session_month=$(echo "$sib_base" | grep -oE '20[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-                        [ -z "$session_month" ] && session_month=$(echo "$sib_base" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-                        session_day=$(echo "$sib_base" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $3}')
-                        session_hour=$(echo "$sib_base" | grep -oE '[0-9]{1,2}h' | head -n 1 | tr -d 'h')
-                        [ -n "$session_hour" ] && [ ${#session_hour} -eq 1 ] && session_hour="0${session_hour}"
-                        session_min=$(echo "$sib_base" | grep -oE '[0-9]{2}m' | head -n 1 | tr -d 'm')
-                        break
-                    fi
+                    extract_date_time "$sib_base"
+                    [ -n "$session_year" ] && break
                 done
             fi
         fi
 
         # Fallback: if filename lacked date/time, inspect source WAV
         if [ -z "$session_year" ] && [ ${#source_wavs[@]} -gt 0 ]; then
-            src_sample="${source_wavs[0]}"
-            session_year=$(echo "$src_sample" | grep -oE '20[0-9]{2}' | head -n 1)
-            session_month=$(echo "$src_sample" | grep -oE '20[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-            [ -z "$session_month" ] && session_month=$(echo "$src_sample" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $2}')
-            session_day=$(echo "$src_sample" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | awk -F'-' '{print $3}')
-            session_hour=$(echo "$src_sample" | grep -oE '[0-9]{1,2}h' | head -n 1 | tr -d 'h')
-            [ -n "$session_hour" ] && [ ${#session_hour} -eq 1 ] && session_hour="0${session_hour}"
-            session_min=$(echo "$src_sample" | grep -oE '[0-9]{2}m' | head -n 1 | tr -d 'm')
+            extract_date_time "${source_wavs[0]}"
         fi
 
-        if [ -z "$matched_history" ] && [ -s "$history_cache_file" ]; then
-            if [ -n "$session_year" ] && [ -n "$session_month" ] && [ -n "$session_day" ]; then
-                session_date="${session_year}-${session_month}-${session_day}"
-                fallback_pattern="history_${session_year}y${session_month}m${session_day}d"
-            else
-                session_date=""
-                fallback_pattern=""
-            fi
-
-            if [ -n "$session_hour" ] && [ -n "$session_min" ] && [ -n "$fallback_pattern" ]; then
-                traktor_pattern="history_${session_year}y${session_month}m${session_day}d_${session_hour}h${session_min}"
-            else
-                traktor_pattern=""
-            fi
-
-            if [ -n "$traktor_pattern" ]; then
-                matched_history=$(grep -i -E -- "$traktor_pattern" "$history_cache_file" | head -n 1)
-            fi
-            
-            if [ -z "$matched_history" ] && [ -n "$session_hour" ] && [ -n "$fallback_pattern" ]; then
-                matched_history=$(grep -i -E -- "history_${session_year}y${session_month}m${session_day}d_${session_hour}h" "$history_cache_file" | head -n 1)
-            fi
-
-            if [ -z "$matched_history" ] && [ -n "$fallback_pattern" ]; then
-                matched_history=$(grep -i -E -- "$fallback_pattern" "$history_cache_file" | sort | tail -n 1)
-            fi
-            
-            if [ -z "$matched_history" ] && [ -n "$session_date" ]; then
-                matched_history=$(grep -i -E -- "$session_date" "$history_cache_file" | sort | tail -n 1)
-            fi
-        fi
+        matched_history=$(find_matching_history "$session_year" "$session_month" "$session_day" "$session_hour" "$session_min" "$flac_base")
         
         # Generate the tracklist header
         {
@@ -403,6 +417,7 @@ for current_out in "${flac_scan_dirs[@]}"; do
             echo "=================================================="
         } > "$tracklist_path"
         
+        tracklist_found=false
         if [ -n "$matched_history" ] && [ -f "$matched_history" ]; then
             echo " -> Matched Traktor history file: $(basename "$matched_history")"
             echo "TRACKLIST (Extracted from Traktor Database)" >> "$tracklist_path"

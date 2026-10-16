@@ -611,13 +611,21 @@ def generate_infinite_talk_video(
         env = os.environ.copy()
         env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
         env["CUDA_VISIBLE_DEVICES"] = "0"
+        if shutil.which("ffprobe"):
+            env["FFPROBE_BINARY"] = shutil.which("ffprobe")
+        if shutil.which("ffmpeg"):
+            env["FFMPEG_BINARY"] = shutil.which("ffmpeg")
 
-        # Ensure LD_LIBRARY_PATH has nvidia packages
+        bins_dir = str(WAN_APP_ROOT / "ffmpeg_bins")
+
+        # Ensure LD_LIBRARY_PATH has nvidia packages and ffmpeg_bins
         site_pkgs_res = subprocess.run([venv_python, "-c", "import site; print(site.getsitepackages()[0])"], capture_output=True, text=True)
         if site_pkgs_res.returncode == 0:
             sp = site_pkgs_res.stdout.strip()
             nv_libs = f"{sp}/nvidia/cudnn/lib:{sp}/nvidia/cublas/lib:{sp}/nvidia/cuda_runtime/lib"
-            env["LD_LIBRARY_PATH"] = f"{nv_libs}:{env.get('LD_LIBRARY_PATH', '')}"
+            env["LD_LIBRARY_PATH"] = f"{nv_libs}:{bins_dir}:{env.get('LD_LIBRARY_PATH', '')}"
+        elif Path(bins_dir).exists():
+            env["LD_LIBRARY_PATH"] = f"{bins_dir}:{env.get('LD_LIBRARY_PATH', '')}"
 
         print(f"{CYAN}[*] Starting Infinite Talk model generation...{RESET}\n")
         start_t = time.time()

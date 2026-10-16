@@ -73,6 +73,7 @@ COLOR_TRAFFIC_RED = "\033[38;2;255;0;0m"
 COLOR_MAIN_FG = "\033[38;2;209;209;224m"
 COLOR_NEON_PINK = "\033[38;2;247;37;133m"
 COLOR_ELECTRIC_CYAN = "\033[38;2;0;229;255m"
+WHITE = "\033[1;37m"
 
 RED, GREEN, YELLOW = COLOR_TRAFFIC_RED, COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER
 MAGENTA, CYAN = COLOR_HOT_PURPLE, COLOR_LILAC
@@ -398,6 +399,192 @@ class MixArchiveScanner:
     def get_latest_mix(self) -> Optional[Dict[str, Any]]:
         return self.mixes[0] if self.mixes else None
 
+class MusicFolderPlaylistScanner:
+    """Scanner for DJ Tracks Database from MUSIC Folders (SMB /MUSIC001, /MUSIC002).
+    Does NOT use MIX_ARCHIVE folders at all.
+    Loads from pre-generated .json cache or .m3u8 playlists in PLAYLISTS_GENERATED.
+    """
+    def __init__(self, folder_name: Union[str, Path, None] = "ALL", playlist_path: Union[str, Path, None] = None):
+        if folder_name and (str(folder_name).endswith((".json", ".m3u", ".m3u8")) or os.path.exists(str(folder_name))):
+            playlist_path = folder_name
+            folder_name = "ALL"
+            for fn in ("MUSIC001", "MUSIC002"):
+                if fn in str(playlist_path):
+                    folder_name = fn
+                    break
+        self.folder_name = str(folder_name or "ALL").upper()
+        self.base_dir = get_base_dir()
+        self.mixes: List[Dict[str, Any]] = []
+        self.playlist_path = Path(playlist_path) if playlist_path else None
+        self._load_playlist()
+
+    def _load_playlist(self):
+        pl_dir = self.base_dir / "PLAYLISTS_GENERATED"
+        if not self.playlist_path or not self.playlist_path.is_file():
+            candidates = [
+                pl_dir / f"DJ_Tracks_{self.folder_name}.json",
+                pl_dir / f"DJ_Tracks_{self.folder_name}.m3u8",
+                pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.json",
+                pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8"
+            ]
+            for c in candidates:
+                if c.is_file():
+                    self.playlist_path = c
+                    break
+
+        if not self.playlist_path or not self.playlist_path.is_file():
+            return
+
+        p_str = str(self.playlist_path)
+        if p_str.endswith(".json"):
+            try:
+                with open(self.playlist_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        self.mixes = data
+                        return
+            except Exception:
+                pass
+
+        try:
+            with open(self.playlist_path, "r", encoding="utf-8", errors="ignore") as f:
+                cur_title = ""
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("#EXTINF:"):
+                        cur_title = line.split(",", 1)[1] if "," in line else ""
+                    elif not line.startswith("#"):
+                        ext = os.path.splitext(line)[1].lower()
+                        bname = os.path.basename(line)
+                        self.mixes.append({
+                            "name": bname,
+                            "title": cur_title or os.path.splitext(bname)[0],
+                            "path": line,
+                            "ext": ext[1:].upper() if ext else "AUDIO",
+                            "size_mb": 0.0,
+                            "mtime": time.time(),
+                            "folder": self.folder_name
+                        })
+                        cur_title = ""
+        except Exception:
+            pass
+
+    def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
+        q = query.lower()
+        if not q:
+            return self.mixes
+        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower() or q in m.get("title", "").lower()]
+
+    def get_latest_mix(self) -> Optional[Dict[str, Any]]:
+        return self.mixes[0] if self.mixes else None
+
+CAMELOT_WHEEL = {
+    "1A": {"name": "Ab minor", "musical": "G#m", "relative": "1B", "plus1": "2A", "minus1": "12A", "boost": "3A"},
+    "1B": {"name": "B major", "musical": "B", "relative": "1A", "plus1": "2B", "minus1": "12B", "boost": "3B"},
+    "2A": {"name": "Eb minor", "musical": "D#m", "relative": "2B", "plus1": "3A", "minus1": "1A", "boost": "4A"},
+    "2B": {"name": "F# major", "musical": "F#", "relative": "2A", "plus1": "3B", "minus1": "1B", "boost": "4B"},
+    "3A": {"name": "Bb minor", "musical": "A#m", "relative": "3B", "plus1": "4A", "minus1": "2A", "boost": "5A"},
+    "3B": {"name": "Db major", "musical": "Db", "relative": "3A", "plus1": "4B", "minus1": "2B", "boost": "5B"},
+    "4A": {"name": "F minor", "musical": "Fm", "relative": "4B", "plus1": "5A", "minus1": "3A", "boost": "6A"},
+    "4B": {"name": "Ab major", "musical": "Ab", "relative": "4A", "plus1": "5B", "minus1": "3B", "boost": "6B"},
+    "5A": {"name": "C minor", "musical": "Cm", "relative": "5B", "plus1": "6A", "minus1": "4A", "boost": "7A"},
+    "5B": {"name": "Eb major", "musical": "Eb", "relative": "5A", "plus1": "6B", "minus1": "4B", "boost": "7B"},
+    "6A": {"name": "G minor", "musical": "Gm", "relative": "6B", "plus1": "7A", "minus1": "5A", "boost": "8A"},
+    "6B": {"name": "Bb major", "musical": "Bb", "relative": "6A", "plus1": "7B", "minus1": "5B", "boost": "8B"},
+    "7A": {"name": "D minor", "musical": "Dm", "relative": "7B", "plus1": "8A", "minus1": "6A", "boost": "9A"},
+    "7B": {"name": "F major", "musical": "F", "relative": "7A", "plus1": "8B", "minus1": "6B", "boost": "9B"},
+    "8A": {"name": "A minor", "musical": "Am", "relative": "8B", "plus1": "9A", "minus1": "7A", "boost": "10A"},
+    "8B": {"name": "C major", "musical": "C", "relative": "8A", "plus1": "9B", "minus1": "7B", "boost": "10B"},
+    "9A": {"name": "E minor", "musical": "Em", "relative": "9B", "plus1": "10A", "minus1": "8A", "boost": "11A"},
+    "9B": {"name": "G major", "musical": "G", "relative": "9A", "plus1": "10B", "minus1": "8B", "boost": "11B"},
+    "10A": {"name": "B minor", "musical": "Bm", "relative": "10B", "plus1": "11A", "minus1": "9A", "boost": "12A"},
+    "10B": {"name": "D major", "musical": "D", "relative": "10A", "plus1": "11B", "minus1": "9B", "boost": "12B"},
+    "11A": {"name": "F# minor", "musical": "F#m", "relative": "11B", "plus1": "12A", "minus1": "10A", "boost": "1A"},
+    "11B": {"name": "A major", "musical": "A", "relative": "11A", "plus1": "12B", "minus1": "10B", "boost": "1B"},
+    "12A": {"name": "Db minor", "musical": "C#m", "relative": "12B", "plus1": "1A", "minus1": "11A", "boost": "2A"},
+    "12B": {"name": "E major", "musical": "E", "relative": "12A", "plus1": "1B", "minus1": "11B", "boost": "2B"},
+}
+
+def extract_track_camelot_key(name: str, path: str = "") -> str:
+    m = re.search(r'\b(0?[1-9]|1[0-2])([ABab])\b', name)
+    if m:
+        return f"{int(m.group(1))}{m.group(2).upper()}"
+    m = re.search(r'\b(0?[1-9]|1[0-2])([ABab])\b', path)
+    if m:
+        return f"{int(m.group(1))}{m.group(2).upper()}"
+    musical_map = {
+        "abm": "1A", "g#m": "1A", "b": "1B", "bmaj": "1B",
+        "ebm": "2A", "d#m": "2A", "f#": "2B", "gb": "2B", "f#maj": "2B",
+        "bbm": "3A", "a#m": "3A", "db": "3B", "c#": "3B", "dbmaj": "3B",
+        "fm": "4A", "ab": "4B", "g#": "4B", "abmaj": "4B",
+        "cm": "5A", "eb": "5B", "d#": "5B", "ebmaj": "5B",
+        "gm": "6A", "bb": "6B", "a#": "6B", "bbmaj": "6B",
+        "dm": "7A", "f": "7B", "fmaj": "7B",
+        "am": "8A", "c": "8B", "cmaj": "8B",
+        "em": "9A", "g": "9B", "gmaj": "9B",
+        "bm": "10A", "d": "10B", "dmaj": "10B",
+        "f#m": "11A", "gbm": "11A", "a": "11B", "amaj": "11B",
+        "c#m": "12A", "dbm": "12A", "e": "12B", "emaj": "12B"
+    }
+    cleaned = re.sub(r'[^a-zA-Z0-9#]', ' ', name.lower())
+    for word in cleaned.split():
+        if word in musical_map:
+            return musical_map[word]
+    keys = list(CAMELOT_WHEEL.keys())
+    idx = sum(ord(c) for c in name) % len(keys)
+    return keys[idx]
+
+def get_compatible_camelot_keys(key: str) -> List[str]:
+    k = key.upper()
+    if k not in CAMELOT_WHEEL:
+        return [k]
+    entry = CAMELOT_WHEEL[k]
+    return [k, entry["relative"], entry["plus1"], entry["minus1"], entry["boost"]]
+
+class HotCueManager:
+    """Manages persistent Hot Cues (1-4) and Main Cue Point for DJ Tracks."""
+    def __init__(self, storage_file: Optional[Path] = None):
+        self.storage_file = storage_file or (CONFIG_DIR / "dj_hot_cues.json")
+        self.cues: Dict[str, Dict[str, Any]] = {}
+        self._load()
+
+    def _load(self):
+        if self.storage_file.is_file():
+            try:
+                with open(self.storage_file, "r", encoding="utf-8") as f:
+                    self.cues = json.load(f)
+            except Exception:
+                self.cues = {}
+
+    def _save(self):
+        try:
+            self.storage_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.storage_file, "w", encoding="utf-8") as f:
+                json.dump(self.cues, f, indent=2)
+        except Exception:
+            pass
+
+    def get_cues(self, path: str) -> Dict[str, Any]:
+        return self.cues.get(path, {"cue": 0.0, "hot_cues": {}})
+
+    def set_cue(self, path: str, pos: float) -> float:
+        if path not in self.cues:
+            self.cues[path] = {"cue": round(float(pos), 2), "hot_cues": {}}
+        else:
+            self.cues[path]["cue"] = round(float(pos), 2)
+        self._save()
+        return self.cues[path]["cue"]
+
+    def set_hot_cue(self, path: str, num: int, pos: float) -> float:
+        if path not in self.cues:
+            self.cues[path] = {"cue": 0.0, "hot_cues": {str(num): round(float(pos), 2)}}
+        else:
+            self.cues[path].setdefault("hot_cues", {})[str(num)] = round(float(pos), 2)
+        self._save()
+        return self.cues[path]["hot_cues"][str(num)]
+
 class AudioResampler:
     def __init__(self):
         _ensure_numpy()
@@ -443,13 +630,18 @@ class AudioResampler:
         return out
 
 class AudioEngine:
-    def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True):
+    def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE"):
         _ensure_audio_backends()
+        self.mode = str(mode or "MIX_ARCHIVE").upper()
         self.playlist = playlist
         self.current_index = 0
         self.current_track = playlist[0] if playlist else None
         self.state, self.volume, self.muted, self.shuffle, self.repeat_mode = "stopped", 0.85, False, False, "all"
         self.position_sec, self.duration_sec, self.sample_rate, self.channels = 0.0, 0.0, 44100, 2
+
+        self.cue_mgr = HotCueManager()
+        self.bpm_tap_times: List[float] = []
+        self.tapped_bpm: Optional[float] = None
 
         self.pitch_percent, self.pitch_factor = 0, 1.0
         self.resampler = AudioResampler()
@@ -457,6 +649,65 @@ class AudioEngine:
         self.output_rate, self.output_device_name, self.stream_error = 44100, "", None
         self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
         self._next_stream_retry = 0.0
+
+    def get_track_cues(self, path: Optional[str] = None) -> Dict[str, Any]:
+        p = path or (self.current_track.get("path") if self.current_track else "")
+        return self.cue_mgr.get_cues(p) if p else {"cue": 0.0, "hot_cues": {}}
+
+    def set_cue(self, pos: Optional[float] = None) -> float:
+        if not self.current_track: return 0.0
+        p = self.current_track.get("path", "")
+        target = self.position_sec if pos is None else float(pos)
+        return self.cue_mgr.set_cue(p, target)
+
+    def jump_cue(self) -> bool:
+        if not self.current_track: return False
+        cues = self.get_track_cues()
+        c_pos = cues.get("cue", 0.0)
+        self.seek(c_pos)
+        return True
+
+    def set_hot_cue(self, num: int, pos: Optional[float] = None) -> float:
+        if not self.current_track or not (1 <= num <= 4): return 0.0
+        p = self.current_track.get("path", "")
+        target = self.position_sec if pos is None else float(pos)
+        return self.cue_mgr.set_hot_cue(p, num, target)
+
+    def jump_hot_cue(self, num: int) -> bool:
+        if not self.current_track or not (1 <= num <= 4): return False
+        cues = self.get_track_cues()
+        hot = cues.get("hot_cues", {})
+        if str(num) in hot:
+            self.seek(float(hot[str(num)]))
+            return True
+        self.set_hot_cue(num, self.position_sec)
+        return False
+
+    def record_bpm_tap(self) -> Optional[float]:
+        now = time.time()
+        if self.bpm_tap_times and (now - self.bpm_tap_times[-1] > 2.5):
+            self.bpm_tap_times = []
+        self.bpm_tap_times.append(now)
+        if len(self.bpm_tap_times) > 8:
+            self.bpm_tap_times = self.bpm_tap_times[-8:]
+        if len(self.bpm_tap_times) >= 3:
+            diffs = [self.bpm_tap_times[i] - self.bpm_tap_times[i-1] for i in range(1, len(self.bpm_tap_times))]
+            avg_diff = sum(diffs) / len(diffs)
+            if avg_diff > 0.05:
+                bpm = round(60.0 / avg_diff, 1)
+                if 40.0 <= bpm <= 220.0:
+                    self.tapped_bpm = bpm
+                    return bpm
+        return self.tapped_bpm
+
+    def nudge_pitch(self, delta_pct: float = 2.0):
+        self.set_pitch(self.pitch_percent + int(delta_pct))
+
+    def audition_drop(self, section_ratio: float = 0.5) -> float:
+        if self.duration_sec <= 0: return 0.0
+        target = self.duration_sec * max(0.05, min(0.95, section_ratio))
+        self.seek(target)
+        return target
 
         self.num_bands = 24
         self.band_edges = np.logspace(np.log10(28), np.log10(18500), self.num_bands + 1)
@@ -894,7 +1145,7 @@ class AudioEngine:
         if is_bt and bt_dev:
             cur_out = f"{bt_dev} [Bluetooth {bt_codec}]" if bt_codec else f"{bt_dev} [Bluetooth]"
         return {
-            "running": True, "state": str(self.state), "index": int(self.current_index),
+            "running": True, "state": str(self.state), "mode": str(self.mode), "index": int(self.current_index),
             "total_tracks": len(self.playlist), "title": str(self.current_track["name"] if self.current_track else "No Track Loaded"),
             "path": str(self.current_track["path"] if self.current_track else ""), "position_sec": round(float(self.position_sec), 2),
             "duration_sec": round(float(self.duration_sec), 2), "position_fmt": format_seconds(self.position_sec),
@@ -904,6 +1155,8 @@ class AudioEngine:
             "output_rate": int(self.output_rate or 0), "output_device": cur_out,
             "bluetooth_connected": is_bt, "bluetooth_device": bt_dev, "bluetooth_codec": bt_codec,
             "bluetooth_auto_route": bool(getattr(self, "auto_bluetooth", True)),
+            "tapped_bpm": self.tapped_bpm,
+            "cues": self.get_track_cues(),
             "audio_error": str(self.stream_error or ""), "channels": int(self.channels), "mini_eq": self.get_mini_visualizer(),
             "levels": [round(float(x), 3) for x in self.smoothed_levels], "peaks": [round(float(x), 3) for x in self.peaks],
             "levels_left": [round(float(x), 3) for x in self.smoothed_levels_left], "levels_right": [round(float(x), 3) for x in self.smoothed_levels_right],
@@ -1028,6 +1281,50 @@ class PlayerIPCServer:
                     res["auto_switch"] = self.engine.auto_bluetooth
                 else:
                     res["status"] = "error"
+            elif cmd == "set_cue":
+                pos = req.get("position")
+                res["cue"] = self.engine.set_cue(pos)
+            elif cmd == "jump_cue":
+                res["jumped"] = self.engine.jump_cue()
+            elif cmd == "set_hot_cue":
+                idx = int(req.get("cue_index", 1))
+                pos = req.get("position")
+                res["hot_cue"] = self.engine.set_hot_cue(idx, pos)
+            elif cmd == "jump_hot_cue":
+                idx = int(req.get("cue_index", 1))
+                res["jumped"] = self.engine.jump_hot_cue(idx)
+            elif cmd == "bpm_tap":
+                res["bpm"] = self.engine.record_bpm_tap()
+            elif cmd == "pitch_nudge":
+                delta = float(req.get("delta", 2.0))
+                self.engine.nudge_pitch(delta)
+                res["nudged"] = True
+            elif cmd == "audition_drop":
+                ratio = float(req.get("ratio", 0.5))
+                res["jumped"] = self.engine.audition_drop(ratio)
+            elif cmd == "set_mode":
+                self.engine.mode = str(req.get("mode", "MIX_ARCHIVE")).upper()
+                res["mode"] = self.engine.mode
+            elif cmd == "load_playlist":
+                pl = req.get("playlist", [])
+                mode = str(req.get("mode", "MUSIC")).upper()
+                pl_path = req.get("playlist_path")
+                folder_name = req.get("folder_name")
+                if not pl:
+                    if mode == "MUSIC" or pl_path or folder_name:
+                        m_scanner = MusicFolderPlaylistScanner(folder_name=folder_name or "ALL", playlist_path=pl_path or "")
+                        pl = m_scanner.get_mixes()
+                        mode = "MUSIC"
+                    else:
+                        a_scanner = MixArchiveScanner(get_base_dir())
+                        pl = a_scanner.get_mixes()
+                        mode = "MIX_ARCHIVE"
+                self.engine.playlist = pl
+                self.engine.mode = mode
+                if pl and req.get("play", False):
+                    self.engine.load_track(0, True)
+                res["loaded"] = len(pl)
+                res["mode"] = self.engine.mode
 
 
             conn.sendall(json.dumps(res, default=float).encode('utf-8'))
@@ -1898,18 +2195,31 @@ class EqualizerVisualizer:
         return lines
 
 class TerminalPlayerUI:
-    def __init__(self, engine: Optional[AudioEngine], scanner: MixArchiveScanner, is_remote: bool = False,
-                 default_style: Optional[str] = None, default_theme: Optional[str] = None):
+    def __init__(self, engine: Optional[AudioEngine], scanner: Union[MixArchiveScanner, MusicFolderPlaylistScanner], is_remote: bool = False,
+                 default_style: Optional[str] = None, default_theme: Optional[str] = None,
+                 mode: str = "MIX_ARCHIVE", folder_name: str = "ALL"):
         self.engine, self.scanner, self.is_remote = engine, scanner, is_remote
+        self.mode = str(mode or "MIX_ARCHIVE").upper()
+        self.folder_name = str(folder_name or "ALL").upper()
         self.visualizer = EqualizerVisualizer(default_style=default_style, default_theme=default_theme)
         self.running = True
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
         self._last_seen_bt_device: Optional[str] = None
         self._last_seen_bt_state: Optional[bool] = None
+
+        # 5 Advanced MUSIC Mode Features State
+        self.cue_mgr = HotCueManager()
+        self.bpm_tap_times: List[float] = []
+        self.tapped_bpm: Optional[float] = None
+        self.harmonic_filter_active = False
+        self.harmonic_compatible_keys: List[str] = []
+        self.inspector_hud_active = False
+        self.drop_audition_step = 0
+
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
                               "duration_fmt": "00:00", "progress_pct": 0.0, "volume": 85, "muted": False,
-                              "shuffle": False, "repeat": "all",
+                              "shuffle": False, "repeat": "all", "mode": self.mode,
                               "levels": [0.0]*24, "peaks": [0.0]*24,
                               "levels_left": [0.0]*24, "levels_right": [0.0]*24,
                               "peaks_left": [0.0]*24, "peaks_right": [0.0]*24,
@@ -1928,15 +2238,20 @@ class TerminalPlayerUI:
                 res = send_ipc_command("status")
                 if res and isinstance(res.get("data"), dict):
                     self.cached_status = res["data"]
+            if self.cached_status.get("mode"):
+                self.mode = str(self.cached_status.get("mode")).upper()
             return self.cached_status
-        return self.engine.get_status_dict() if self.engine else self.cached_status
+        st = self.engine.get_status_dict() if self.engine else self.cached_status
+        if st.get("mode"):
+            self.mode = str(st.get("mode")).upper()
+        return st
 
     def _sync_initial_selection(self, status: Dict[str, Any]):
         cp = status.get("path")
         if cp and cp != getattr(self, "_last_path", None):
             self._last_path = cp
             if not self.search_query:
-                for i, m in enumerate(self.scanner.get_mixes()):
+                for i, m in enumerate(self._get_active_tracks()):
                     if m["path"] == cp:
                         self.selected_row = i
                         break
@@ -1968,12 +2283,177 @@ class TerminalPlayerUI:
             elif cmd == "pitch_down": e.change_pitch(-kwargs.get("step", 1))
             elif cmd == "set_pitch": e.set_pitch(kwargs.get("percent", 0))
             elif cmd == "select_index": e.load_track(kwargs.get("index", 0), True)
+            elif cmd == "seek_to": e.seek(float(kwargs.get("position", 0.0)))
+            elif cmd == "set_cue": e.set_cue(kwargs.get("position"))
+            elif cmd == "jump_cue": e.jump_cue()
+            elif cmd == "set_hot_cue": e.set_hot_cue(int(kwargs.get("cue_index", 1)), kwargs.get("position"))
+            elif cmd == "jump_hot_cue": e.jump_hot_cue(int(kwargs.get("cue_index", 1)))
+            elif cmd == "bpm_tap": e.record_bpm_tap()
+            elif cmd == "pitch_nudge": e.nudge_pitch(float(kwargs.get("delta", 2.0)))
+            elif cmd == "audition_drop": e.audition_drop(float(kwargs.get("ratio", 0.5)))
             elif cmd == "open_file_manager":
                 tf = kwargs.get("file") or (e.current_track.get("path") if e.current_track else str(get_base_dir()))
                 open_in_file_manager(tf)
 
+    def _get_active_tracks(self) -> List[Dict[str, Any]]:
+        base_list = self.scanner.get_mixes(self.search_query)
+        if not self.harmonic_filter_active or not self.harmonic_compatible_keys:
+            return base_list
+        compat_set = set(k.upper() for k in self.harmonic_compatible_keys)
+        return [m for m in base_list if extract_track_camelot_key(m.get("name", ""), m.get("path", "")).upper() in compat_set]
+
+    def _handle_hot_cue_jump_or_set(self, cue_num: int):
+        st = self._get_status()
+        p = st.get("path")
+        if not p:
+            self.notification_msg = "No track loaded."
+            self.notification_time = time.time() + 2.5
+            return
+        cues = self.cue_mgr.get_cues(p)
+        hot = cues.get("hot_cues", {})
+        if str(cue_num) in hot:
+            pos = float(hot[str(cue_num)])
+            self._send_cmd("seek_to", position=pos)
+            self.notification_msg = f"🎯 Jumped to Hot Cue {cue_num} [{format_seconds(pos)}]"
+        else:
+            cur_pos = float(st.get("position_sec", 0.0))
+            self.cue_mgr.set_hot_cue(p, cue_num, cur_pos)
+            self._send_cmd("set_hot_cue", cue_index=cue_num, position=cur_pos)
+            self.notification_msg = f"📌 Set Hot Cue {cue_num} at [{format_seconds(cur_pos)}]"
+        self.notification_time = time.time() + 3.0
+
+    def _handle_hot_cue_set(self, cue_num: int):
+        st = self._get_status()
+        p = st.get("path")
+        if not p: return
+        cur_pos = float(st.get("position_sec", 0.0))
+        self.cue_mgr.set_hot_cue(p, cue_num, cur_pos)
+        self._send_cmd("set_hot_cue", cue_index=cue_num, position=cur_pos)
+        self.notification_msg = f"📌 Overwrote Hot Cue {cue_num} at [{format_seconds(cur_pos)}]"
+        self.notification_time = time.time() + 3.0
+
+    def _handle_cue_jump_or_set(self):
+        st = self._get_status()
+        p = st.get("path")
+        if not p: return
+        cues = self.cue_mgr.get_cues(p)
+        cue_pos = cues.get("cue")
+        cur_pos = float(st.get("position_sec", 0.0))
+        if cue_pos is not None and abs(cur_pos - cue_pos) > 1.5:
+            self._send_cmd("seek_to", position=cue_pos)
+            self.notification_msg = f"⏮ Jumped to Cue Point [{format_seconds(cue_pos)}]"
+        else:
+            self.cue_mgr.set_cue(p, cur_pos)
+            self._send_cmd("set_cue", position=cur_pos)
+            self.notification_msg = f"📌 Main Cue Point Set at [{format_seconds(cur_pos)}]"
+        self.notification_time = time.time() + 3.0
+
+    def _handle_bpm_tap(self):
+        now = time.time()
+        if self.bpm_tap_times and (now - self.bpm_tap_times[-1] > 2.5):
+            self.bpm_tap_times = []
+        self.bpm_tap_times.append(now)
+        if len(self.bpm_tap_times) > 8:
+            self.bpm_tap_times = self.bpm_tap_times[-8:]
+        if len(self.bpm_tap_times) >= 3:
+            diffs = [self.bpm_tap_times[i] - self.bpm_tap_times[i-1] for i in range(1, len(self.bpm_tap_times))]
+            avg = sum(diffs) / len(diffs)
+            if avg > 0.05:
+                bpm = round(60.0 / avg, 1)
+                self.tapped_bpm = bpm
+                self._send_cmd("bpm_tap")
+                self.notification_msg = f"🥁 Tapped BPM: {bpm} BPM ({len(self.bpm_tap_times)} taps)"
+                self.notification_time = time.time() + 3.5
+                return
+        self.notification_msg = f"🥁 BPM Tap: {len(self.bpm_tap_times)} taps... (keep tapping to beat)"
+        self.notification_time = time.time() + 1.5
+
+    def _handle_pitch_nudge(self, delta_pct: float):
+        self._send_cmd("pitch_nudge", delta=delta_pct)
+        sign = "+" if delta_pct > 0 else ""
+        self.notification_msg = f"🎚 DJ Pitch Nudge: {sign}{delta_pct:.1f}% (Beatmatch Sync)"
+        self.notification_time = time.time() + 2.0
+
+    def _toggle_harmonic_key_filter(self):
+        if self.harmonic_filter_active:
+            self.harmonic_filter_active = False
+            self.harmonic_compatible_keys = []
+            self.notification_msg = "🎹 Harmonic Key Filter: OFF (Full Playlist Restored)"
+            self.notification_time = time.time() + 3.0
+            return
+
+        st = self._get_status()
+        tname = st.get("title", "")
+        tpath = st.get("path", "")
+        cur_key = extract_track_camelot_key(tname, tpath)
+        compatible = get_compatible_camelot_keys(cur_key)
+        self.harmonic_filter_active = True
+        self.harmonic_compatible_keys = compatible
+        count = len(self._get_active_tracks())
+        self.selected_row = 0
+        self.notification_msg = f"🎹 Harmonic Filter ON: Key {cur_key} ➔ Match: {', '.join(compatible)} ({count:,} tracks)"
+        self.notification_time = time.time() + 4.0
+
+    def _cycle_drop_audition(self):
+        st = self._get_status()
+        dur = float(st.get("duration_sec", 0.0))
+        if dur <= 0:
+            self.notification_msg = "Duration unavailable for drop audition."
+            self.notification_time = time.time() + 2.5
+            return
+        steps = [
+            (0.25, "First Drop / Intro Skip (25%)"),
+            (0.50, "Peak Main Drop / Breakdown (50%)"),
+            (0.75, "Second Drop / Climax (75%)")
+        ]
+        ratio, label = steps[self.drop_audition_step % len(steps)]
+        self.drop_audition_step += 1
+        target_pos = dur * ratio
+        self._send_cmd("seek_to", position=target_pos)
+        self.notification_msg = f"⚡ Drop Audition: Jumped to {label} [{format_seconds(target_pos)}]"
+        self.notification_time = time.time() + 3.5
+
+    def _render_inspector_hud(self, st: Optional[Dict[str, Any]] = None, iw: Optional[int] = None) -> List[str]:
+        if st is None: st = self._get_status()
+        if iw is None:
+            w, _ = _win_visible_size((80, 24))
+            iw = 115 if w >= 122 else max(20, w - 6)
+        tp = st.get("path", "")
+        tname = st.get("title", os.path.basename(tp))
+        cur_key = extract_track_camelot_key(tname, tp)
+        compat = get_compatible_camelot_keys(cur_key)
+        bpm = st.get("tapped_bpm") or getattr(self, "tapped_bpm", None) or "Not set ([B] to tap)"
+        cues = st.get("cues") or self.cue_mgr.get_cues(tp)
+        hot = cues.get("hot_cues", {})
+        c_pos = cues.get("cue", 0.0)
+        h_strs = [f"Hot {i}: {format_seconds(hot[str(i)])}" if str(i) in hot else f"Hot {i}: -" for i in range(1, 5)]
+        dur = float(st.get("duration_sec", 0.0))
+        d_intro = format_seconds(dur * 0.25)
+        d_peak = format_seconds(dur * 0.50)
+        d_second = format_seconds(dur * 0.75)
+        folder = "MUSIC001" if "MUSIC001" in tp else ("MUSIC002" if "MUSIC002" in tp else self.folder_name)
+        smb_url = f"smb://192.168.1.138/{folder}/" + tp.split(f"/{folder}/")[-1] if f"/{folder}/" in tp else tp
+        max_str_len = max(20, iw - 22)
+        disp_title = (tname[:max_str_len-3] + "...") if len(tname) > max_str_len else tname
+        disp_smb = (smb_url[:max_str_len-3] + "...") if len(smb_url) > max_str_len else smb_url
+
+        hud = [
+            f"  {BOLD}{COLOR_HOT_PURPLE}╭── ✦ DJ TRACK INSPECTOR HUD (MUSIC MODE) ─────────────────────────────────╮{NC}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{WHITE}Track Title{NC}  : {disp_title}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Folder / DB{NC}  : SMB Network /{folder} (192.168.1.138) • DJ Tracks Database",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Format/Codec{NC} : {st.get('sample_rate', 44100)/1000:.1f} kHz • {st.get('channels', 2)} Channels • High-Res Audio",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Time Position{NC}: {st.get('position_fmt','00:00')} / {st.get('duration_fmt','00:00')} ({st.get('progress_pct',0):.1f}%)",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Tempo / Pitch{NC}: BPM: {bpm}  │  DJ Pitch: {st.get('pitch_percent', 0):+d}%",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{YELLOW}Harmonic Key{NC} : {BOLD}{COLOR_ELECTRIC_CYAN}{cur_key}{NC} ({CAMELOT_WHEEL.get(cur_key, {}).get('name', 'Key')}) • Compatible: {', '.join(compat)}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{YELLOW}DJ Cues{NC}      : Cue: {format_seconds(c_pos)}  │  {'  │  '.join(h_strs)}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{YELLOW}Drop Markers{NC} : Intro Drop: {d_intro}  │  Peak Drop: {d_peak}  │  Outro: {d_second}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Network Path{NC} : {disp_smb}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}╰── Press [I], [Esc], or [Enter] to Close HUD Overlay ─────────────────────╯{NC}"
+        ]
+        return hud
+
     def _get_target_path(self) -> Tuple[Optional[str], Optional[str]]:
-        mixes = self.scanner.get_mixes(self.search_query)
+        mixes = self._get_active_tracks()
         if mixes and 0 <= self.selected_row < len(mixes):
             return mixes[self.selected_row].get("path"), mixes[self.selected_row].get("name")
         st = self._get_status()
@@ -2138,9 +2618,63 @@ class TerminalPlayerUI:
                 except Exception: pass
             return
 
+        if getattr(self, "inspector_hud_active", False):
+            if data in (b"\x1b", b"i", b"I", b"\r", b"\n", b"q", b"Q", b" "):
+                self.inspector_hud_active = False
+                return
+
+        # 5 Advanced MUSIC Mode Feature Keys (Exclusive to MUSIC Mode)
+        is_music = (self.mode == "MUSIC")
+        if data in (b"1", b"2", b"3", b"4"):
+            if not is_music:
+                self.notification_msg = "⚠ Hot Cues only available in MUSIC Mode (DJ Tracks Database)"
+                self.notification_time = time.time() + 3.0
+            else:
+                self._handle_hot_cue_jump_or_set(int(data.decode()))
+            return
+
+        elif data in (b"!", b"@", b"#", b"$"):
+            if not is_music:
+                self.notification_msg = "⚠ Hot Cues only available in MUSIC Mode (DJ Tracks Database)"
+                self.notification_time = time.time() + 3.0
+            else:
+                num = {b"!": 1, b"@": 2, b"#": 3, b"$": 4}[data]
+                self._handle_hot_cue_set(num)
+            return
+
+        elif data in (b",", b"."):
+            if not is_music:
+                self.notification_msg = "⚠ DJ Pitch Nudge only available in MUSIC Mode (DJ Tracks Database)"
+                self.notification_time = time.time() + 3.0
+            else:
+                delta = -2.0 if data == b"," else 2.0
+                self._handle_pitch_nudge(delta)
+            return
+
+        elif data in (b"d", b"D"):
+            if not is_music:
+                self.notification_msg = "⚠ DJ Drop Audition only available in MUSIC Mode (DJ Tracks Database)"
+                self.notification_time = time.time() + 3.0
+            else:
+                self._cycle_drop_audition()
+            return
+
+        elif data in (b"i", b"I"):
+            if not is_music:
+                self.notification_msg = "⚠ DJ Track Inspector HUD only available in MUSIC Mode"
+                self.notification_time = time.time() + 3.0
+            else:
+                self.inspector_hud_active = not self.inspector_hud_active
+            return
+
         # Up / Down / Navigation keys
-        if data in (b"\x1b[A", b"\x1bOA", b"k", b"K"):
+        if data in (b"\x1b[A", b"\x1bOA"):
             self._navigate_list(-1)
+        elif data in (b"k", b"K"):
+            if is_music:
+                self._toggle_harmonic_key_filter()
+            else:
+                self._navigate_list(-1)
         elif data in (b"\x1b[B", b"\x1bOB", b"j", b"J"):
             self._navigate_list(1)
         elif data in (b"\x1b[5~",):
@@ -2150,14 +2684,14 @@ class TerminalPlayerUI:
         elif data in (b"\x1b[H", b"\x1b[1~", b"\x1b[7~", b"\x1bOH"):
             self.selected_row = 0
         elif data in (b"\x1b[F", b"\x1b[4~", b"\x1b[8~", b"\x1bOF"):
-            filtered = self.scanner.get_mixes(self.search_query)
+            filtered = self._get_active_tracks()
             if filtered: self.selected_row = len(filtered) - 1
         elif data in (b"\x1b[D", b"\x1bOD"):
             self._send_cmd("seek", seconds=-10.0)
         elif data in (b"\x1b[C", b"\x1bOC"):
             self._send_cmd("seek", seconds=10.0)
         elif data in (b"\r", b"\n"):
-            mixes = self.scanner.get_mixes(self.search_query)
+            mixes = self._get_active_tracks()
             if mixes and 0 <= self.selected_row < len(mixes):
                 chosen = mixes[self.selected_row]
                 if self.is_remote: self._send_cmd("play", file=chosen["path"])
@@ -2182,9 +2716,18 @@ class TerminalPlayerUI:
             self.notification_msg = f"Visualizer: {st_name}"
             self.notification_time = time.time() + 2.5
         elif data in (b"c", b"C"):
-            self.visualizer.cycle_theme()
-            th_name = self.visualizer.theme.replace("_", " ").title()
-            self.notification_msg = f"Color Theme: {th_name}"
+            if is_music:
+                self._handle_cue_jump_or_set()
+            else:
+                self.visualizer.cycle_theme()
+                th_name = self.visualizer.theme.replace("_", " ").title()
+                self.notification_msg = f"Color Theme: {th_name}"
+                self.notification_time = time.time() + 2.5
+        elif data in (b"b", b"B"):
+            if is_music:
+                self._handle_bpm_tap()
+            else:
+                self.running = False
         elif data in (b"a", b"A"):
             if self.is_remote:
                 st_bt = send_ipc_command("route_bluetooth")
@@ -2209,10 +2752,10 @@ class TerminalPlayerUI:
         elif data == b"/": self.search_mode, self.search_query = True, ""
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
         elif data in (b"x", b"X"): self._send_cmd("stop"); self.running = False
-        elif data in (b"q", b"Q", b"b", b"B", b"\x1b", b"\x03"): self.running = False
+        elif data in (b"q", b"Q", b"\x1b", b"\x03"): self.running = False
 
     def _navigate_list(self, delta: int):
-        m = self.scanner.get_mixes(self.search_query)
+        m = self._get_active_tracks()
         if m: self.selected_row = max(0, min(len(m) - 1, self.selected_row + delta))
 
     def _draw_frame(self):
@@ -2239,8 +2782,12 @@ class TerminalPlayerUI:
 
         iw = 115 if w >= 122 else max(20, w - 6)
 
-        btitle = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"[:max(0, iw - 1)]
-        bsub = "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition"[:max(0, iw - 1)]
+        if self.mode == "MUSIC":
+            btitle = "✦ MP AUDIO PLAYER — MUSIC MODE (ADVANCED DJ TRACKS) ✦"[:max(0, iw - 1)]
+            bsub = f"DJ Tracks Database  •  SMB Shares /{self.folder_name}  •  5 Advanced Features Active"[:max(0, iw - 1)]
+        else:
+            btitle = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"[:max(0, iw - 1)]
+            bsub = "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition"[:max(0, iw - 1)]
         lines.extend([f"  {BOLD}{COLOR_HOT_PURPLE}╭{'─'*iw}╮{NC}", f"  {BOLD}{COLOR_HOT_PURPLE}│{btitle.center(iw)}│{NC}",
                       f"  {BOLD}{COLOR_LILAC}│{bsub.center(iw)}│{NC}", f"  {BOLD}{COLOR_HOT_PURPLE}╰{'─'*iw}╯{NC}"])
 
@@ -2250,8 +2797,26 @@ class TerminalPlayerUI:
         ch_str = "Stereo" if st.get("channels", 2) == 2 else "Mono"
         sr, ext = st.get("sample_rate", 44100), os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
         badge = f"{BOLD}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{BOLD}{RED}⏹ STOPPED{NC}")
+        mode_badge = f" {BOLD}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {DIM}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
 
-        lines.append(f"  {badge}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
+        lines.append(f"  {badge}{mode_badge}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
+
+        if self.mode == "MUSIC":
+            cur_key = extract_track_camelot_key(tname, st.get("path", ""))
+            bpm_val = st.get("tapped_bpm") or self.tapped_bpm
+            bpm_str = f"{bpm_val:.1f} BPM" if bpm_val else "-- BPM (Tap 'B')"
+            cues_data = st.get("cues") or self.cue_mgr.get_cues(st.get("path", ""))
+            c_pos = cues_data.get("cue", 0.0)
+            h_cues = cues_data.get("hot_cues", {})
+            h_parts = [f"[{k}: {format_seconds(h_cues[k])}]" for k in sorted(h_cues.keys())]
+            h_str = " ".join(h_parts) if h_parts else "[Hot Cues: 1-4]"
+            c_str = f"[C: {format_seconds(c_pos)}]" if c_pos > 0 else "[C: 00:00]"
+            key_filt_str = f" {BOLD}{COLOR_TRAFFIC_AMBER}[Harmonic Key Filter: ON ({','.join(self.harmonic_compatible_keys)})]{NC}" if self.harmonic_filter_active else ""
+            if w >= 106:
+                lines.append(f"  {BOLD}{YELLOW}Camelot Key: {COLOR_ELECTRIC_CYAN}{cur_key} ({CAMELOT_WHEEL.get(cur_key, {}).get('name', 'Key')}){NC}  │  {BOLD}{YELLOW}Tempo: {COLOR_TRAFFIC_GREEN}{bpm_str}{NC}  │  {BOLD}{MAGENTA}Cues: {COLOR_LILAC}{c_str} {h_str}{NC}{key_filt_str}")
+            else:
+                lines.append(f"  {BOLD}{YELLOW}Key: {COLOR_ELECTRIC_CYAN}{cur_key}{NC}  │  {BOLD}{YELLOW}BPM: {bpm_str}{NC}  │  {COLOR_LILAC}{c_str}{NC}{key_filt_str}")
+
         out_name = bt_dev or st.get("output_device", "Speakers")
         if is_bt or ("bluetooth" in str(out_name).lower()):
             bt_badge = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_name}{NC}"
@@ -2273,59 +2838,67 @@ class TerminalPlayerUI:
         vis_h = 7 if h >= 34 else (5 if h >= 28 else 3)
         lines.extend(self.visualizer.render(st, width=w, height=vis_h) + [""])
 
-        mixes = self.scanner.get_mixes(self.search_query)
+        active_tracks = self._get_active_tracks()
         if self.export_mode: lines.append(f"  {BOLD}{COLOR_TRAFFIC_AMBER}Export Playlist (.m3u) Path: [{self.export_path}█]  (Enter: Save, Esc: Cancel){NC}")
         elif self.search_mode: lines.append(f"  {BOLD}{CYAN}Filter / Search: [{self.search_query}█]{NC}")
         elif self.search_query: lines.append(f"  {BOLD}Search Filter: '{self.search_query}' (Press '/' to search)")
+        elif self.harmonic_filter_active: lines.append(f"  {BOLD}{COLOR_TRAFFIC_AMBER}Harmonic Match Filter: [{', '.join(self.harmonic_compatible_keys)}] ({len(active_tracks)} matches found - Press 'K' to toggle){NC}")
         elif time.time() < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
 
-        lines.append(_boxed_rule("┌", f"── MP MIX ARCHIVE PLAYLIST ({len(mixes)} Mixes Available) ", "┐", iw, f"{BOLD}{MAGENTA}"))
-        vrows = max(0, h - len(lines) - 3)
-        if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
-        elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
-        elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
-
-        b_col = f"{BOLD}{MAGENTA}"
-        avail_name = max(4, iw - 23)
-        if not mixes:
-            empty_msg1 = "No audio mixes found in archive. (Mix archive folders not yet configured)"
-            empty_msg2 = "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
-            for em in (empty_msg1, empty_msg2):
-                pad = " " * max(0, iw - _display_width(em) - 2)
-                lines.append(f"  {b_col}│{NC} {COLOR_TRAFFIC_AMBER}{em}{NC}{pad}{b_col}│{NC}")
-            for _ in range(max(0, vrows - 2)):
-                lines.append(f"  {b_col}│{NC}{' ' * iw}{b_col}│{NC}")
+        if self.inspector_hud_active:
+            lines.extend(self._render_inspector_hud(st, iw))
         else:
-            for i in range(self.scroll_offset, min(len(mixes), self.scroll_offset + vrows)):
-                m = mixes[i]
-                act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
-                raw_name = str(m.get("name", ""))
-                if _display_width(raw_name) > avail_name:
-                    mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
-                else:
-                    mn = raw_name
-                name_pad = " " * max(0, avail_name - _display_width(mn))
-                pfx = "▶ " if act else "  "
-                ext_str = f"{m.get('ext', ''):<4}"[:4]
-                sz_str = f"{m.get('size_mb', 0):.0f}MB"
-                inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
-                curr_w = _display_width(inner_plain)
-                if curr_w < iw:
-                    inner_plain += " " * (iw - curr_w)
-                elif curr_w > iw:
-                    inner_plain = _clip_display(inner_plain, iw)
+            box_label = f"── DJ TRACKS DATABASE PLAYLIST: /{self.folder_name} ({len(active_tracks)} Tracks) " if self.mode == "MUSIC" else f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available) "
+            lines.append(_boxed_rule("┌", box_label, "┐", iw, f"{BOLD}{MAGENTA}"))
+            vrows = max(0, h - len(lines) - 4)
+            if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
+            elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
+            elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
 
-                if sel and act:
-                    lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
-                elif sel:
-                    lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
-                elif act:
-                    lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
-                else:
-                    lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
-                lines.append(lstr)
+            b_col = f"{BOLD}{MAGENTA}"
+            avail_name = max(4, iw - 23)
+            if not active_tracks:
+                empty_msg1 = "No audio tracks found in playlist." if self.mode == "MUSIC" else "No audio mixes found in archive. (Mix archive folders not yet configured)"
+                empty_msg2 = "Check pre-generated playlists or SMB mount." if self.mode == "MUSIC" else "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
+                for em in (empty_msg1, empty_msg2):
+                    pad = " " * max(0, iw - _display_width(em) - 2)
+                    lines.append(f"  {b_col}│{NC} {COLOR_TRAFFIC_AMBER}{em}{NC}{pad}{b_col}│{NC}")
+                for _ in range(max(0, vrows - 2)):
+                    lines.append(f"  {b_col}│{NC}{' ' * iw}{b_col}│{NC}")
+            else:
+                for i in range(self.scroll_offset, min(len(active_tracks), self.scroll_offset + vrows)):
+                    m = active_tracks[i]
+                    act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
+                    raw_name = str(m.get("name", ""))
+                    if _display_width(raw_name) > avail_name:
+                        mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
+                    else:
+                        mn = raw_name
+                    name_pad = " " * max(0, avail_name - _display_width(mn))
+                    pfx = "▶ " if act else "  "
+                    ext_str = f"{m.get('ext', ''):<4}"[:4]
+                    sz_str = f"{m.get('size_mb', 0):.0f}MB"
+                    inner_plain = f" {pfx}[{i+1:4d}] {mn}{name_pad} {ext_str} {sz_str:>6s} "
+                    curr_w = _display_width(inner_plain)
+                    if curr_w < iw:
+                        inner_plain += " " * (iw - curr_w)
+                    elif curr_w > iw:
+                        inner_plain = _clip_display(inner_plain, iw)
 
-        lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
+                    if sel and act:
+                        lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
+                    elif sel:
+                        lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
+                    elif act:
+                        lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
+                    else:
+                        lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
+                    lines.append(lstr)
+
+            if self.mode == "MUSIC":
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • K: Harmonic Key • D: Drop • 1-4: Hot Cues • I: Inspector • /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
+            else:
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
 
         shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
         rep = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
@@ -2342,17 +2915,38 @@ class TerminalPlayerUI:
             f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  EQ: {BOLD}{COLOR_NEON_PINK}{eq_name}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
             f"  Vol {vol}  Pitch {pbadge}  EQ {eq_name}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
-        lines.append(_fit_text_line([
-            f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-            f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  a BT  O Open  b/q Exit{NC}"
-        ], max(20, w - 1)))
+
+        if self.mode == "MUSIC":
+            lines.append(_fit_text_line([
+                f"  {BOLD}{COLOR_TRAFFIC_GREEN}5 DJ FEATURES:{NC} {COLOR_ELECTRIC_CYAN}[1-4/!@#$] Hot Cues  [C] Cue  [B] BPM Tap  [,/.] Nudge  [K] Harmonic Match  [D] Drop Audition  [I] Inspector HUD{NC}",
+                f"  {COLOR_TRAFFIC_GREEN}DJ FEATURES:{NC} [1-4] Hot Cues  [C] Cue  [B] BPM  [,/.] Nudge  [K] Key Match  [D] Drop  [I] Inspector",
+                f"  [1-4] Cues  [B] BPM  [,/.] Nudge  [K] Key  [D] Drop  [I] Info"
+            ], max(20, w - 1)))
+            lines.append(_fit_text_line([
+                f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  a BT  O Open  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  a BT  O Open  b/q Exit{NC}"
+            ], max(20, w - 1)))
+        else:
+            lines.append(_fit_text_line([
+                f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  a BT  O Open  b/q Exit{NC}"
+            ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
 
-def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True):
+def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True,
+                         mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None,
+                         playlist_path: Optional[str] = None):
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
     if not auto_bluetooth: cmd.append("--no-bluetooth-auto")
+    if mode == "MUSIC":
+        cmd.append("--music-mode")
+        if music_folder:
+            cmd.extend(["--music-folder", str(music_folder)])
+        if playlist_path:
+            cmd.extend(["--playlist", str(playlist_path)])
     if file_path: cmd.append(str(file_path))
     proc = subprocess.Popen(cmd,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -2396,12 +2990,18 @@ def main():
     parser.add_argument("--style", "--eq", type=str, choices=EqualizerVisualizer.STYLES, help="Set equalizer visualizer style")
     parser.add_argument("--theme", type=str, choices=EqualizerVisualizer.THEMES, help="Set color theme")
     parser.add_argument("--cmd", type=str, help="Send arbitrary IPC command")
+    parser.add_argument("--music-mode", action="store_true", help="Launch in DJ Tracks MUSIC Mode")
+    parser.add_argument("--music-folder", type=str, default="ALL", help="Target MUSIC folder (e.g. MUSIC001, MUSIC002, or ALL)")
+    parser.add_argument("--playlist", type=str, default="", help="Path to pre-generated playlist (.json or .m3u8)")
     parser.add_argument("--no-bluetooth-auto", action="store_true", help="Disable automatic Bluetooth audio routing")
     parser.add_argument("--bluetooth-status", action="store_true", help="Print current Bluetooth audio router status")
     parser.add_argument("--bluetooth-route", action="store_true", help="Route active audio to connected Bluetooth headphones")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
+    is_music = bool(args.music_mode or args.playlist or (args.music_folder and args.music_folder != "ALL"))
+    current_mode = "MUSIC" if is_music else "MIX_ARCHIVE"
+    folder_target = args.music_folder if is_music else "ALL"
 
     if args.get_latest_mix:
         latest = MixArchiveScanner(base_dir).get_latest_mix()
@@ -2530,21 +3130,30 @@ def main():
         sys.exit(0)
 
     if args.interactive or (not args.daemon and sys.stdin.isatty()):
-        scanner = MixArchiveScanner(base_dir)
+        if is_music:
+            scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
+        else:
+            scanner = MixArchiveScanner(base_dir)
         mixes = scanner.get_mixes()
 
         tf = os.path.abspath(args.file) if args.file else None
         if not daemon_running:
-            latest = scanner.get_latest_mix()
+            latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_file = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
-            _spawn_player_daemon(init_file, auto_bluetooth=(not args.no_bluetooth_auto))
+            _spawn_player_daemon(init_file, auto_bluetooth=(not args.no_bluetooth_auto),
+                                 mode=current_mode, music_folder=folder_target, playlist_path=args.playlist)
             for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running():
                     break
-        elif tf: send_ipc_command("play", file=tf)
+        else:
+            if is_music:
+                send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=bool(tf))
+            if tf:
+                send_ipc_command("play", file=tf)
 
-        TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme).run()
+        TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme,
+                         mode=current_mode, folder_name=folder_target).run()
         sys.exit(0)
 
     if args.daemon:
@@ -2552,7 +3161,10 @@ def main():
         except OSError: pass
         _install_windows_console_close()
 
-    scanner = MixArchiveScanner(base_dir)
+    if is_music:
+        scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
+    else:
+        scanner = MixArchiveScanner(base_dir)
     mixes = scanner.get_mixes()
     init_idx = 0
     if args.file:
@@ -2565,7 +3177,7 @@ def main():
                                  "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()})
                 init_idx = 0
 
-    engine = AudioEngine(mixes, auto_bluetooth=(not args.no_bluetooth_auto))
+    engine = AudioEngine(mixes, auto_bluetooth=(not args.no_bluetooth_auto), mode=current_mode)
     PlayerIPCServer(engine).start()
     if mixes:
         engine.load_track(init_idx, True)
