@@ -69,10 +69,12 @@ def scan_for_duplicates(directories):
             # Skip quarantine directory
             if "DUPLICATES_QUARANTINE" in root:
                 continue
-            for f in files:
+            for f in sorted(files):
                 ext = os.path.splitext(f)[1].lower()
                 if ext in AUDIO_EXTENSIONS:
                     all_files.append(os.path.join(root, f))
+
+    all_files.sort()
 
     # 1. Exact Fingerprint Duplicates
     hash_map = defaultdict(list)
@@ -81,7 +83,12 @@ def scan_for_duplicates(directories):
         if f_hash and size > 0:
             hash_map[(f_hash, size)].append(fp)
 
-    exact_duplicates = [paths for paths in hash_map.values() if len(paths) > 1]
+    exact_duplicates = []
+    for paths in hash_map.values():
+        if len(paths) > 1:
+            # Sort: shortest basename first (e.g. 'Mix.flac' before 'Mix_copy.flac'), then earliest mtime
+            paths.sort(key=lambda p: (len(os.path.basename(p)), os.path.getmtime(p) if os.path.exists(p) else 0, p))
+            exact_duplicates.append(paths)
 
     # 2. Episode Duplicates (Multiple different audio files for the same show ID in same or different folders)
     episode_map = defaultdict(list)
@@ -93,7 +100,11 @@ def scan_for_duplicates(directories):
             # Only match same format (e.g. 2 FLACs for Episode 031 or 2 WAVs)
             episode_map[(ep_id, ext)].append(fp)
 
-    episode_duplicates = [paths for paths in episode_map.values() if len(paths) > 1]
+    episode_duplicates = []
+    for paths in episode_map.values():
+        if len(paths) > 1:
+            paths.sort(key=lambda p: (len(os.path.basename(p)), os.path.getmtime(p) if os.path.exists(p) else 0, p))
+            episode_duplicates.append(paths)
 
     return exact_duplicates, episode_duplicates
 

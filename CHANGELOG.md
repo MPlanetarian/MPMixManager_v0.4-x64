@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.7 Beta] - 2026-10-17
 
+- **Duplicate Mix Scanner Hardening & Automated Test Suite** (`find_duplicate_mixes.py`, `scripts/find_duplicate_mixes.py`, `tests/test_find_duplicate_mixes.py`):
+  - **Deterministic Original Selection**: Hardened duplicate detection with canonical path and timestamp sorting (`len(basename)`, `mtime`), ensuring clean canonical track filenames (e.g. `Mix_042.flac`) are consistently preserved as original rather than copy artifacts (`Mix_042_copy.flac`), independent of filesystem traversal order.
+  - **Comprehensive Unit Tests**: Created `tests/test_find_duplicate_mixes.py` with 7 test cases covering format size conversion, episode regex extraction, chunked SHA-256 fingerprinting, exact/multi-render detection, quarantine handling with collision-safe naming, and interactive deletion confirmation.
+  - **Synchronized Scripts**: Verified 100% synchronization and clean compilation between root and `scripts/` directories.
+
 - **Menu Option Search by Pressing `/` in MP Mix Archive Manager** (`Mix_Archive_Manager.sh`, `tests/test_music_folders_presentation.py`):
   - **Instant Menu Search Filtering (`/`)**: Added real-time text search filtering to `run_interactive_submenu()` in `Mix_Archive_Manager.sh`, providing the exact same intuitive search function implemented in MP Audio Player across the Main Page and submenus.
   - **Dynamic Search Buffer & Match Navigation**: Typing after pressing `/` dynamically searches option keys, labels, and descriptions (`_find_menu_search_match`). Up and Down arrow keys cycle through matching options, Enter executes the currently highlighted match, and Esc clears the search query or exits search mode.
