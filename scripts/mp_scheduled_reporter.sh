@@ -197,7 +197,7 @@ print_status() {
         echo "----------------------------------------------------------------------"
         echo "  Daily Consolidated Email:   ⚡ Scheduled at 13:00 (1:00 PM) Daily"
         echo "  Email Rate Limit:           1 email per day (Strictly enforced)"
-        echo "  Recipients:                 mplanetarian@mplanetarian.com, serotine@gmail.com"
+        echo "  Recipients:                 mplanetarian@mplanetarian.com, serotine@gmail.com, MathewKJohn2026@gmail.com"
     fi
     echo "======================================================================"
 }
