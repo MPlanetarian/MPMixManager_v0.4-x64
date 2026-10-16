@@ -430,15 +430,15 @@ class BluetoothAudioRouter:
             desc = bt_sink.get("description", "Bluetooth Audio")
             codec = bt_sink.get("codec", "")
 
-            # 1. Set default sink
+            # 1. Set default sink and ensure unmuted
             self.set_system_default_sink(sink_name, obj_id)
+            if check_command("pactl"):
+                try:
+                    subprocess.run(["pactl", "set-sink-mute", sink_name, "0"], capture_output=True, timeout=0.6)
+                except Exception:
+                    pass
 
-            # 2. Check and set bluetooth source if present
-            bt_sources = self.probe_sources()
-            if bt_sources:
-                self.set_system_default_source(bt_sources[0]["name"], bt_sources[0].get("object_id"))
-
-            # 3. Move streams
+            # 2. Move streams (keep default audio source untouched to preserve A2DP High-Fidelity output and avoid HFP/HSP switch)
             self.move_player_stream(sink_name, sink_idx)
             self.last_routed_sink_name = sink_name
             self.last_switch_time = time.time()

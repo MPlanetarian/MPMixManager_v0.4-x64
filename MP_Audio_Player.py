@@ -484,18 +484,20 @@ class AudioEngine:
                 pass
 
     def _on_bt_route_change(self, device_name: str, is_bluetooth: bool, action: str, codec: Optional[str] = None):
+        self._ensure_stream()
+        if getattr(self, "bt_router", None):
+            try:
+                self._cached_bt_info = self.bt_router.get_status(force_probe=True)
+                self._last_bt_query = time.time()
+                if is_bluetooth and self._cached_bt_info.get("bluetooth_codec"):
+                    codec = self._cached_bt_info["bluetooth_codec"]
+            except Exception:
+                pass
         if is_bluetooth:
             badge = f" [Bluetooth {codec}]" if codec else " [Bluetooth]"
             self.output_device_name = f"{device_name}{badge}"
         else:
             self.output_device_name = device_name
-        if getattr(self, "bt_router", None):
-            try:
-                self._cached_bt_info = self.bt_router.get_status(force_probe=True)
-                self._last_bt_query = time.time()
-            except Exception:
-                pass
-        self._ensure_stream()
         self._sync_state_file()
 
     def set_pitch(self, pitch_pct: int):
@@ -859,7 +861,7 @@ class AudioEngine:
         bt_dev = str(bt_info.get("bluetooth_device", ""))
         bt_codec = str(bt_info.get("bluetooth_codec", ""))
         cur_out = str(self.output_device_name or "")
-        if is_bt and bt_dev and "bluetooth" not in cur_out.lower():
+        if is_bt and bt_dev:
             cur_out = f"{bt_dev} [Bluetooth {bt_codec}]" if bt_codec else f"{bt_dev} [Bluetooth]"
         return {
             "running": True, "state": str(self.state), "index": int(self.current_index),
@@ -1144,10 +1146,11 @@ def _present_frame(lines: List[str], width: int, height: int):
     sys.stdout.flush()
 
 class EqualizerVisualizer:
-    STYLES = ["stereo_eq", "neon_prism_eq", "master_spectrum", "analog_vu", "oscilloscope"]
+    STYLES = ["stereo_eq", "neon_prism_eq", "stardust_particles_eq", "master_spectrum", "analog_vu", "oscilloscope"]
     STYLE_NAMES = {
         "stereo_eq": "Dual Stereo (Default)",
         "neon_prism_eq": "Neon Chroma Prism (Thin Hi-Res)",
+        "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)",
         "master_spectrum": "Master Spectrum (24-Band)",
         "analog_vu": "Analog Studio VU",
         "oscilloscope": "Oscilloscope Waveform",
@@ -1157,6 +1160,9 @@ class EqualizerVisualizer:
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None):
         _ensure_numpy()
         self.style_idx = self.theme_idx = 0
+        self.dust_particles: List[Dict[str, Any]] = []
+        self.last_dust_update: float = time.time()
+        self.dust_rng = random.Random()
         try:
             th_file = CONFIG_DIR / "theme"
             if default_theme and default_theme in self.THEMES:
@@ -1182,6 +1188,8 @@ class EqualizerVisualizer:
                     self.style_idx = self.STYLES.index(saved_eq)
                 elif saved_eq in ("neon", "prism", "chroma", "neon_prism"):
                     self.style_idx = self.STYLES.index("neon_prism_eq")
+                elif saved_eq in ("stardust", "particles", "dust", "falling_dust", "stardust_eq", "chroma_dust", "stardust_particles_eq"):
+                    self.style_idx = self.STYLES.index("stardust_particles_eq")
         except Exception:
             pass
 
@@ -1344,6 +1352,302 @@ class EqualizerVisualizer:
                     return "  " + "".join(parts) + "  "
 
             lines.append(f"  {BOLD}{MAGENTA}│{NC}{_side(bl, pl)}{div_col}│{NC}{_side(br, pr)}{BOLD}{MAGENTA}│{NC}")
+
+        if is_wide:
+            lbl = "│ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │"
+            bot = "╰───────────────────────────────────────────┴───────────────────────────────────────────╯"
+        else:
+            lbl = "│  32  64  125 250 500  1k  4k  16k  │  32  64  125 250 500  1k  4k  16k  │"
+            bot = "╰────────────────────────────────────┴────────────────────────────────────╯"
+
+        lines.extend([f"  {DIM}{CYAN}{lbl}{NC}", f"  {BOLD}{MAGENTA}{bot}{NC}"])
+        return lines
+
+    def _get_stardust_rgb(self, c_frac: float, r_frac: float, is_peak: bool = False, is_sparkle: bool = False) -> Tuple[int, int, int]:
+        if is_sparkle:
+            return (255, 255, 255) if r_frac > 0.75 else (255, 235, 140)
+        if is_peak:
+            if r_frac > 0.85:
+                return (255, 255, 255)
+            elif r_frac > 0.50:
+                return (255, 235, 120)
+            else:
+                return (0, 255, 255)
+
+        t = self.theme
+        if t == "cosmic_supernova":
+            # Interstellar Supernova: Aurora Mint -> Pulsar Cyan -> Nebula Orchid -> Supernova Crimson
+            if c_frac < 0.25:
+                s = c_frac / 0.25
+                r, g, b = 0.0, 0.96 - 0.17 * s, 0.83 + 0.11 * s
+            elif c_frac < 0.55:
+                s = (c_frac - 0.25) / 0.30
+                r, g, b = 0.30 + 0.58 * s, 0.79 - 0.45 * s, 0.94 + 0.05 * s
+            elif c_frac < 0.80:
+                s = (c_frac - 0.55) / 0.25
+                r, g, b = 0.88 + 0.12 * s, 0.34 - 0.14 * s, 0.99 - 0.59 * s
+            else:
+                s = (c_frac - 0.80) / 0.20
+                r, g, b = 1.0, 0.20 - 0.10 * s, 0.40 - 0.25 * s
+        elif t in ("dreamworlds_ultra", "dreamworlds"):
+            # Multi-stop iridescent rainbow: Magenta -> Electric Indigo -> Cyan -> Emerald -> Solar Gold -> Tangerine -> Hot Pink
+            h = (c_frac * 0.88 + 0.82) % 1.0
+            h6 = h * 6.0
+            i = int(h6)
+            f = h6 - i
+            q = 1.0 - f
+            if i == 0:   r, g, b = 1.0, f, 0.08
+            elif i == 1: r, g, b = q, 1.0, 0.08
+            elif i == 2: r, g, b = 0.08, 1.0, f
+            elif i == 3: r, g, b = 0.08, q, 1.0
+            elif i == 4: r, g, b = f, 0.08, 1.0
+            else:        r, g, b = 1.0, 0.08, q
+        elif t == "dreamworlds_neon":
+            # Cyber Neon: Electric Cyan -> Deep Lilac -> Hot Magenta -> Flame Orange
+            if c_frac < 0.33:
+                s = c_frac / 0.33
+                r, g, b = 0.0, 0.90 - 0.50 * s, 1.0
+            elif c_frac < 0.66:
+                s = (c_frac - 0.33) / 0.33
+                r, g, b = 0.70 * s + 0.20, 0.10, 1.0 - 0.20 * s
+            else:
+                s = (c_frac - 0.66) / 0.34
+                r, g, b = 1.0, 0.15 + 0.40 * s, 0.50 - 0.50 * s
+        elif t == "retro_studio":
+            # Japanese Studio Vintage: Emerald Green -> Amber Gold -> Ruby Red
+            if c_frac < 0.5:
+                s = c_frac / 0.5
+                r, g, b = 0.10 + 0.70 * s, 0.85 + 0.15 * s, 0.20 - 0.15 * s
+            else:
+                s = (c_frac - 0.5) / 0.5
+                r, g, b = 0.90 + 0.10 * s, 0.85 - 0.60 * s, 0.10
+        elif t == "cyber_neon":
+            r = 0.45 + 0.50 * math.sin(c_frac * math.pi)
+            g = 0.10 + 0.70 * c_frac
+            b = 0.95 - 0.20 * c_frac
+        elif t == "phosphor":
+            r, g, b = 0.10 * (1.0 - c_frac), 0.95, 0.20
+        else: # ice_cold
+            r = 0.10 + 0.75 * (c_frac ** 1.5)
+            g = 0.50 + 0.45 * c_frac
+            b = 1.0
+
+        v = 0.58 + 0.42 * r_frac
+        return (int(min(255, max(0, r * v * 255))),
+                int(min(255, max(0, g * v * 255))),
+                int(min(255, max(0, b * v * 255))))
+
+    def _get_stardust_color(self, c_frac: float, r_frac: float, is_peak: bool = False, is_sparkle: bool = False) -> str:
+        r, g, b = self._get_stardust_rgb(c_frac, r_frac, is_peak=is_peak, is_sparkle=is_sparkle)
+        return f"\033[38;2;{r};{g};{b}m"
+
+    def render_stardust_particles_eq(self, levels_l: np.ndarray, levels_r: np.ndarray,
+                                     peaks_l: np.ndarray, peaks_r: np.ndarray,
+                                     width: int = 80, height: int = 7,
+                                     rms: float = 0.0, peak_db: float = -60.0) -> List[str]:
+        lines = []
+        is_wide = (width >= 96)
+        n = 21 if is_wide else 16
+        ch_w = 43 if is_wide else 36
+
+        # Resample levels & peaks across the thin frequency needles
+        if len(levels_l) > 1:
+            x_in = np.linspace(0.0, 1.0, len(levels_l))
+            x_out = np.linspace(0.0, 1.0, n)
+            bl = np.interp(x_out, x_in, levels_l)
+            br = np.interp(x_out, x_in, levels_r)
+            pl = np.interp(x_out, x_in, peaks_l) if len(peaks_l) > 1 else bl
+            pr = np.interp(x_out, x_in, peaks_r) if len(peaks_r) > 1 else br
+        else:
+            bl = br = pl = pr = np.zeros(n)
+
+        now = time.time()
+        is_beat = (rms > 0.13 or peak_db > -5.0)
+        spark_col = "\033[1;38;2;255;255;255m" if is_beat else ("\033[1;38;2;255;215;0m" if rms > 0.07 else f"{COLOR_HOT_PURPLE}")
+        div_col = "\033[1;38;2;247;37;133m" if is_beat else f"{COLOR_HOT_PURPLE}"
+
+        if is_wide:
+            col_map = [1 + b * 2 for b in range(n)]
+            left_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} LEFT (21-BAND CHROMA STARDUST) "
+            left_hdr = left_hdr + "─" * (43 - _display_width(left_hdr))
+            right_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} RIGHT (21-BAND CHROMA STARDUST) "
+            right_hdr = right_hdr + "─" * (43 - _display_width(right_hdr))
+            header = f"╭{left_hdr}┬{right_hdr}╮"
+        else:
+            col_map = [2 + b * 2 for b in range(n)]
+            left_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} LEFT (16-BAND CHROMA DUST) "
+            left_hdr = left_hdr + "─" * (36 - _display_width(left_hdr))
+            right_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} RIGHT (16-BAND CHROMA DUST) "
+            right_hdr = right_hdr + "─" * (36 - _display_width(right_hdr))
+            header = f"╭{left_hdr}┬{right_hdr}╮"
+
+        lines.append(f"  {BOLD}{MAGENTA}{header}{NC}")
+
+        # Particle generation & ejection from active frequency bands
+        for ch_idx, (bands, pks) in enumerate([(bl, pl), (br, pr)]):
+            for b in range(n):
+                val = float(bands[b])
+                pk = float(pks[b]) if b < len(pks) else val
+                if val > 0.15 and (self.dust_rng.random() < val * 0.40):
+                    h_val = min(float(height - 1), val * height)
+                    if val > 0.70 or pk > 0.85:
+                        sym = self.dust_rng.choice(["✦", "✧", "⋆", "•", "°"])
+                    elif val > 0.35:
+                        sym = self.dust_rng.choice(["•", "°", "·", "˙", "⠄", "⠂"])
+                    else:
+                        sym = self.dust_rng.choice(["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"])
+                    c_frac = b / float(n - 1)
+                    col_rgb = self._get_stardust_rgb(c_frac, min(1.0, val), is_sparkle=(val > 0.75))
+                    self.dust_particles.append({
+                        "ch": ch_idx,
+                        "x": float(col_map[b]) + self.dust_rng.uniform(-0.4, 0.4),
+                        "y": float(h_val) + self.dust_rng.uniform(0.1, 0.8),
+                        "vx": self.dust_rng.uniform(-0.5, 0.5),
+                        "vy": self.dust_rng.uniform(0.7, 1.8),
+                        "symbol": sym,
+                        "color_rgb": col_rgb,
+                        "life": self.dust_rng.uniform(1.8, 3.8),
+                        "max_life": 3.8,
+                        "sway_freq": self.dust_rng.uniform(1.8, 3.6),
+                        "sway_amp": self.dust_rng.uniform(0.3, 0.8),
+                        "twinkle_phase": self.dust_rng.uniform(0.0, 6.28),
+                        "twinkle_speed": self.dust_rng.uniform(3.0, 9.0),
+                    })
+
+        # Extra transient beat eruption
+        if is_beat and len(self.dust_particles) < 70:
+            for _ in range(self.dust_rng.randint(2, 4)):
+                rb = self.dust_rng.randint(0, n - 1)
+                r_col = col_map[rb]
+                r_frac = min(1.0, max(0.2, float(bl[rb])))
+                c_frac = rb / float(n - 1)
+                self.dust_particles.append({
+                    "ch": self.dust_rng.choice([0, 1]),
+                    "x": float(r_col) + self.dust_rng.uniform(-0.6, 0.6),
+                    "y": float(min(height - 1, bl[rb] * height + self.dust_rng.uniform(0.5, 1.5))),
+                    "vx": self.dust_rng.uniform(-0.8, 0.8),
+                    "vy": self.dust_rng.uniform(0.6, 1.5),
+                    "symbol": self.dust_rng.choice(["✦", "✧", "⋆", "•", "°"]),
+                    "color_rgb": (255, 255, 255) if self.dust_rng.random() < 0.4 else self._get_stardust_rgb(c_frac, r_frac, is_sparkle=True),
+                    "life": self.dust_rng.uniform(2.0, 4.0),
+                    "max_life": 4.0,
+                    "sway_freq": self.dust_rng.uniform(2.0, 4.0),
+                    "sway_amp": self.dust_rng.uniform(0.5, 1.1),
+                    "twinkle_phase": self.dust_rng.uniform(0.0, 6.28),
+                    "twinkle_speed": self.dust_rng.uniform(5.0, 12.0),
+                })
+
+        if len(self.dust_particles) > 75:
+            self.dust_particles = self.dust_particles[-75:]
+
+        # Physics update for floating dust motes
+        dt = max(0.005, min(0.10, now - self.last_dust_update))
+        self.last_dust_update = now
+        alive = []
+        for p in self.dust_particles:
+            p["life"] -= dt
+            if p["life"] <= 0.0:
+                continue
+            sway = math.sin(now * p["sway_freq"] + p["twinkle_phase"]) * p["sway_amp"]
+            p["x"] += (p["vx"] + sway) * dt
+            p["x"] = max(0.0, min(float(ch_w - 1), p["x"]))
+            p["y"] -= p["vy"] * dt
+            if p["y"] < 0.0:
+                continue
+            alive.append(p)
+        self.dust_particles = alive
+
+        # Render channel grids (thin lines + dust particles)
+        channel_grids = []
+        for ch_idx, (bands, pks) in enumerate([(bl, pl), (br, pr)]):
+            grid_c = [[" " for _ in range(ch_w)] for _ in range(height)]
+            grid_col = [["" for _ in range(ch_w)] for _ in range(height)]
+
+            for b in range(n):
+                col = col_map[b]
+                c_frac = b / float(n - 1)
+                val = float(bands[b])
+                h_val = val * height
+                crest_r = int(h_val)
+                rem = h_val - crest_r
+                pk_val = float(pks[b]) if b < len(pks) else val
+                pk_r = min(height - 1, max(0, int(round(pk_val * height)))) if pk_val > 0.08 else -1
+
+                for r in range(height):
+                    r_frac = (r + 1) / float(height)
+                    if r < crest_r:
+                        grid_c[r][col] = "│"
+                        grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
+                    elif r == crest_r:
+                        if rem > 0.65:
+                            grid_c[r][col] = "│"
+                            grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
+                        elif rem > 0.25:
+                            grid_c[r][col] = "╵"
+                            grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
+                        elif rem > 0.05:
+                            grid_c[r][col] = "·"
+                            grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
+                    elif r == pk_r:
+                        if pk_val >= 0.85:
+                            grid_c[r][col] = "✦"
+                            grid_col[r][col] = "\033[1;38;2;255;255;255m"
+                        elif pk_val >= 0.50:
+                            grid_c[r][col] = "✧"
+                            grid_col[r][col] = self._get_stardust_color(c_frac, r_frac, is_peak=True)
+                        else:
+                            grid_c[r][col] = "·"
+                            grid_col[r][col] = self._get_stardust_color(c_frac, r_frac, is_peak=True)
+
+            for p in self.dust_particles:
+                if p["ch"] != ch_idx:
+                    continue
+                pr = int(round(p["y"]))
+                pc = int(round(p["x"]))
+                if not (0 <= pr < height and 0 <= pc < ch_w):
+                    continue
+                life_ratio = max(0.0, min(1.0, p["life"] / p["max_life"]))
+                twinkle = math.sin(now * p["twinkle_speed"] + p["twinkle_phase"])
+
+                if twinkle > 0.78 and life_ratio > 0.25:
+                    p_col = "\033[1;38;2;255;255;255m"
+                    p_sym = p["symbol"] if p["symbol"] in ("✦", "✧", "⋆", "•") else "✦"
+                else:
+                    r_c, g_c, b_c = p["color_rgb"]
+                    fade = life_ratio * (0.60 + 0.40 * max(0.0, twinkle))
+                    if pr == 0:
+                        fade *= 0.6
+                    rr = max(20, min(255, int(r_c * fade)))
+                    gg = max(20, min(255, int(g_c * fade)))
+                    bb = max(20, min(255, int(b_c * fade)))
+                    p_col = f"\033[38;2;{rr};{gg};{bb}m"
+                    p_sym = p["symbol"]
+                    if life_ratio < 0.20 and p_sym in ("✦", "✧"):
+                        p_sym = "·"
+
+                if grid_c[pr][pc] == " ":
+                    grid_c[pr][pc] = p_sym
+                    grid_col[pr][pc] = p_col
+                elif p_sym in ("✦", "✧", "⋆") and twinkle > 0.78:
+                    grid_c[pr][pc] = p_sym
+                    grid_col[pr][pc] = p_col
+                else:
+                    for off in (+1, -1):
+                        adj = pc + off
+                        if 0 <= adj < ch_w and grid_c[pr][adj] == " ":
+                            grid_c[pr][adj] = p_sym
+                            grid_col[pr][adj] = p_col
+                            break
+
+            channel_grids.append((grid_c, grid_col))
+
+        (gl_c, gl_col), (gr_c, gr_col) = channel_grids
+        for r in range(height - 1, -1, -1):
+            def _fmt(gc, gcol):
+                return "".join(f"{gcol[r][c]}{gc[r][c]}{NC}" if gc[r][c] != " " else " " for c in range(ch_w))
+            l_str = _fmt(gl_c, gl_col)
+            r_str = _fmt(gr_c, gr_col)
+            lines.append(f"  {BOLD}{MAGENTA}│{NC}{l_str}{div_col}│{NC}{r_str}{BOLD}{MAGENTA}│{NC}")
 
         if is_wide:
             lbl = "│ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │"
@@ -1547,6 +1851,8 @@ class EqualizerVisualizer:
         s = self.style
         if s == "neon_prism_eq":
             lines = self.render_neon_prism_eq(ll, lr, pl, pr, width=width, height=height, rms=rms, peak_db=peak_db)
+        elif s == "stardust_particles_eq":
+            lines = self.render_stardust_particles_eq(ll, lr, pl, pr, width=width, height=height, rms=rms, peak_db=peak_db)
         elif s == "master_spectrum":
             lines = self.render_master_spectrum(levels, peaks, height=height)
         elif s == "analog_vu":
