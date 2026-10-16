@@ -24,9 +24,12 @@ DATE_PATTERN = re.compile(r'(\d{4})-(\d{2})-(\d{2})')
 MIX_PATTERN = re.compile(r'SoF-(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})-(\d{2})')
 
 def rclone_mounts():
-    """Retrieve a list of mounted rclone filesystems."""
-    result = run(['rclone', 'listremotes'], check=True, capture_output=True, text=True)
-    return [line.strip().split(':')[0] for line in result.stdout.splitlines()]
+    """Retrieve a list of mounted rclone filesystems safely."""
+    try:
+        result = run(['rclone', 'listremotes'], check=True, capture_output=True, text=True)
+        return [line.strip().split(':')[0] for line in result.stdout.splitlines()]
+    except Exception:
+        return []
 
 def rclone_location(path, mounts):
     """Determine if a path is a mounted rclone filesystem."""

@@ -24,6 +24,17 @@ for stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
+try:
+    from mp_activity_tracker import record_activity
+    from mp_logging import log_error as mp_log_error
+except ImportError:
+    try:
+        from scripts.mp_activity_tracker import record_activity
+        from scripts.mp_logging import log_error as mp_log_error
+    except ImportError:
+        def record_activity(*args, **kwargs): pass
+        def mp_log_error(*args, **kwargs): pass
+
 np = sf = sd = None
 
 def _ensure_numpy():
@@ -650,9 +661,28 @@ class AudioEngine:
             self._ensure_stream()
             self.state = "playing" if start_playing else "paused"
             self._sync_state_file()
+            if start_playing:
+                try:
+                    record_activity(
+                        "Play Mix / Audio File",
+                        category="playback",
+                        details={
+                            "track_name": self.current_track.get("name"),
+                            "track_path": self.current_track.get("path"),
+                            "duration_sec": round(self.duration_sec, 2),
+                            "sample_rate": self.sample_rate
+                        },
+                        status="success"
+                    )
+                except Exception:
+                    pass
             return True
-        except Exception:
+        except Exception as exc:
             self.state = "stopped"
+            try:
+                mp_log_error("MP_Audio_Player", f"Failed loading track: {self.current_track.get('path', '')}", exc)
+            except Exception:
+                pass
             return False
 
     def _sync_state_file(self):
