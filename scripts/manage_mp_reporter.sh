@@ -867,6 +867,106 @@ run_report_now_menu() {
     esac
 }
 
+generate_hawking_video_report_menu() {
+    local inftlk_py="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/MP_Infinite_Talker.py"
+    [ ! -f "$inftlk_py" ] && inftlk_py="$SCRIPT_DIR/scripts/MP_Infinite_Talker.py"
+    [ ! -f "$inftlk_py" ] && inftlk_py="$MP_REPORTER_DIR/scripts/MP_Infinite_Talker.py"
+
+    while true; do
+        safe_clear
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}   STEPHEN HAWKING AI VIDEO REPORT GENERATOR (WAN2GP INFINITE TALK)   ${NC}"
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        echo -e "  Generate video of Stephen Hawking speaking and reading your reports"
+        echo -e "  using WAN2GP Infinite Talk with photorealistic animation.\n"
+        echo -e "  ${BOLD}Select a Report to render as Stephen Hawking Video:${NC}\n"
+        echo -e "  ${BOLD}${CYAN}1)${NC} Today's Daily Mix Archive Report     ${DIM}(DAILY_REPORT_TASK_002_MIX_MANAGER)${NC}"
+        echo -e "  ${BOLD}${CYAN}2)${NC} Daily AI Brain Logs Report           ${DIM}(DAILY_REPORT_TASK_003_AI)${NC}"
+        echo -e "  ${BOLD}${CYAN}3)${NC} Daily Bazzite System Health Report   ${DIM}(DAILY_REPORT_TASK_001)${NC}"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Current Weekly Mix Archive Report    ${DIM}(WEEKLY_REPORT_TASK_001_MIX_MANAGER)${NC}"
+        echo -e "  ${BOLD}${CYAN}5)${NC} Current Monthly Mix Archive Report   ${DIM}(MONTHLY_REPORT_TASK_001_MIX_MANAGER)${NC}"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Current Yearly Mix Archive Report    ${DIM}(YEARLY_REPORT_TASK_001_MIX_MANAGER)${NC}"
+        echo -e "  ${BOLD}${CYAN}7)${NC} Choose Any PDF or Audio File Directly${DIM}(Select file from disk)${NC}"
+        echo -e "  ${BOLD}${CYAN}8)${NC} Launch Infinite Talker Interactive Menu${DIM}(Batch mode, watch, voices)${NC}"
+        echo -e "  ${BOLD}${CYAN}0)${NC} Return to Reports Menu\n"
+
+        read -r -p "Enter choice [0-8]: " vid_ch || true
+        local sel_target=""
+        case "$vid_ch" in
+            1)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*DAILY_REPORT_TASK_002_MIX_MANAGER*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target="$SCRIPT_DIR/REPORTS/DAILY_REPORTS/latest_daily_report.pdf"
+                ;;
+            2)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*DAILY_REPORT_TASK_003_AI*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target=$(ls -t "$MP_REPORTER_DIR/PDF_REPORTS/DAILY_REPORTS/"*AI*.pdf 2>/dev/null | head -n 1 || true)
+                ;;
+            3)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*DAILY_REPORT_TASK_001*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target=$(ls -t "$MP_REPORTER_DIR/PDF_REPORTS/DAILY_REPORTS/"*System*.pdf 2>/dev/null | head -n 1 || true)
+                ;;
+            4)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*WEEKLY_REPORT_TASK_001_MIX_MANAGER*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target="$SCRIPT_DIR/REPORTS/WEEKLY_REPORTS/latest_weekly_report.pdf"
+                ;;
+            5)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*MONTHLY_REPORT_TASK_001_MIX_MANAGER*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target="$SCRIPT_DIR/REPORTS/MONTHLY_REPORTS/latest_monthly_report.pdf"
+                ;;
+            6)
+                sel_target=$(ls -t "$MP_REPORTER_DIR/TTS_AUDIO/"*YEARLY_REPORT_TASK_001_MIX_MANAGER*.wav 2>/dev/null | head -n 1 || true)
+                [ -z "$sel_target" ] && sel_target="$SCRIPT_DIR/REPORTS/YEARLY_REPORTS/latest_yearly_report.pdf"
+                ;;
+            7)
+                echo ""
+                read -r -e -p "Enter path to PDF or audio file: " custom_p || true
+                custom_p="${custom_p#"${custom_p%%[![:space:]]*}"}"
+                custom_p="${custom_p%"${custom_p##*[![:space:]]}"}"
+                [[ "$custom_p" == "~"* ]] && custom_p="${HOME}${custom_p:1}"
+                if [ -f "$custom_p" ]; then
+                    sel_target="$custom_p"
+                else
+                    echo -e "${RED}File not found: ${custom_p}${NC}"
+                    sleep 1.5
+                    continue
+                fi
+                ;;
+            8)
+                if [ -f "$inftlk_py" ]; then
+                    python3 "$inftlk_py"
+                else
+                    echo -e "${RED}MP_Infinite_Talker.py not found!${NC}"
+                    sleep 1.5
+                fi
+                continue
+                ;;
+            0|[qQ]|[eE][xX][iI][tT])
+                return 0
+                ;;
+            *)
+                echo -e "\n${RED}Invalid option!${NC}"
+                sleep 1
+                continue
+                ;;
+        esac
+
+        if [ -n "$sel_target" ] && [ -f "$sel_target" ]; then
+            echo -e "\n${GREEN}Found Report Target:${NC} ${BOLD}${sel_target}${NC}"
+            echo -e "${CYAN}Starting Stephen Hawking Infinite Talk Video Generation...${NC}\n"
+            if [ -f "$inftlk_py" ]; then
+                python3 "$inftlk_py" --report "$sel_target"
+            else
+                echo -e "${RED}Error: MP_Infinite_Talker.py not found at ${inftlk_py}${NC}"
+            fi
+            press_enter
+        else
+            echo -e "\n${YELLOW}No report file found for this selection yet.${NC}"
+            echo -e "${DIM}Please generate the report first using Option 7 or Option 1.${NC}"
+            press_enter
+        fi
+    done
+}
+
 # ------------------------------------------------------------------------------
 # MAIN INTERACTIVE MENU LOOP
 # ------------------------------------------------------------------------------
@@ -904,10 +1004,11 @@ main_menu() {
         echo -e "  ${BOLD}${CYAN}12)${NC} Continuous User Operations Telemetry Log        ${DIM}(Live activity & workflow tracking)${NC}"
         echo -e "  ${BOLD}${CYAN}13)${NC} View / Inspect MP_Error.log                     ${DIM}(Error logging audit)${NC}"
         echo -e "  ${BOLD}${CYAN}14)${NC} Launch Standalone MP Reporter Menu              ${DIM}(Full MP_Reporter.sh CLI)${NC}"
+        echo -e "  ${BOLD}${CYAN}15)${NC} Stephen Hawking Video Reports                   ${DIM}(WAN2GP Infinite Talk AI Generation)${NC}"
         echo ""
         echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu ${DIM}(or Esc / q)${NC}\n"
 
-        read -r -p "Enter choice [0-14]: " choice || true
+        read -r -p "Enter choice [0-15]: " choice || true
         case "$choice" in
             1) view_reports_menu ;;
             2) view_calendar_menu ;;
@@ -978,6 +1079,9 @@ main_menu() {
             14)
                 bash "$REPORTER_SH" menu
                 ;;
+            15|video|hawking-video|infinite-talk)
+                generate_hawking_video_report_menu
+                ;;
             0|[qQ]|[eE][xX][iI][tT])
                 return 0
                 ;;
@@ -992,6 +1096,9 @@ main_menu() {
 case "${1:-}" in
     view|view-reports)
         view_reports_menu
+        ;;
+    video|hawking-video|infinite-talk)
+        generate_hawking_video_report_menu
         ;;
     calendar|cal|12-months)
         view_calendar_menu
@@ -1020,7 +1127,7 @@ case "${1:-}" in
         main_menu
         ;;
     *)
-        echo "Usage: $(basename "$0") {view|calendar|schedule|edit|create|email|run}"
+        echo "Usage: $(basename "$0") {view|video|calendar|schedule|edit|create|email|run}"
         exit 1
         ;;
 esac
