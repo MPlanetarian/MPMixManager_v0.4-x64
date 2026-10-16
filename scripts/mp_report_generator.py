@@ -54,12 +54,13 @@ except ImportError:
 # Define destination directories
 REPORTS_BASE = SCRIPT_DIR / "REPORTS"
 DAILY_DIR = REPORTS_BASE / "DAILY_REPORTS"
+WEEKLY_DIR = REPORTS_BASE / "WEEKLY_REPORTS"
 MONTHLY_DIR = REPORTS_BASE / "MONTHLY_REPORTS"
 YEARLY_DIR = REPORTS_BASE / "YEARLY_REPORTS"
 
 MP_REPORTER_PDF_BASE = Path("/var/home/mplanetarian/MP_REPORTER/PDF_REPORTS")
 
-for d in [DAILY_DIR, MONTHLY_DIR, YEARLY_DIR]:
+for d in [DAILY_DIR, WEEKLY_DIR, MONTHLY_DIR, YEARLY_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 class NumberedCanvas(canvas.Canvas):
@@ -546,7 +547,11 @@ def run_report_generator(kind: str = "daily") -> Tuple[Path, Path]:
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     date_tag = datetime.now().strftime("%Y-%m-%d")
     
-    if kind == "monthly":
+    if kind == "weekly":
+        date_tag = datetime.now().strftime("%Y-W%W")
+        target_dir = WEEKLY_DIR
+        mp_target_dir = MP_REPORTER_PDF_BASE / "WEEKLY_REPORTS"
+    elif kind == "monthly":
         date_tag = datetime.now().strftime("%Y-%m")
         target_dir = MONTHLY_DIR
         mp_target_dir = MP_REPORTER_PDF_BASE / "MONTHLY_REPORTS"
@@ -624,7 +629,7 @@ def run_report_generator(kind: str = "daily") -> Tuple[Path, Path]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MP Mix Archive Manager Report Generator")
-    parser.add_argument("--kind", choices=["daily", "monthly", "yearly"], default="daily", help="Report kind")
+    parser.add_argument("--kind", choices=["daily", "weekly", "monthly", "yearly"], default="daily", help="Report kind")
     parser.add_argument("--print-summary", action="store_true", help="Print summary text")
     args = parser.parse_args()
 

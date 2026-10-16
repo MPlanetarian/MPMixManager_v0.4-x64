@@ -1580,179 +1580,7 @@ for s in "$SCRIPT_DIR/scripts/shop_music.sh" "$PWD/scripts/shop_music.sh"; do [ 
 else for u in "${urls[@]}"; do xdg-open "$u" &>/dev/null & sleep 0.2; done; fi
 }
 manage_mix_reports_menu() {
-local r_sh="$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" gen_py="$SCRIPT_DIR/scripts/mp_report_generator.py"
-while true; do
-    clear
-    local d_status="${RED}DISABLED${NC}"
-    [ "${DAILY_REPORTS_ENABLED:-true}" = "true" ] && d_status="${GREEN}ENABLED${NC} (${DAILY_REPORTS_TIME:-10:00})"
-    local m_status="${RED}DISABLED${NC}"
-    [ "${MONTHLY_REPORTS_ENABLED:-true}" = "true" ] && m_status="${GREEN}ENABLED${NC}"
-    local y_status="${RED}DISABLED${NC}"
-    [ "${YEARLY_REPORTS_ENABLED:-true}" = "true" ] && y_status="${GREEN}ENABLED${NC}"
-
-    local opts=(
-        "1|View Today's Daily Mix Report|(Console Summary & Open PDF)"
-        "2|View Current Monthly Mix Report|(Console Summary & Open PDF)"
-        "3|View Current Yearly Mix Report|(Console Summary & Open PDF)"
-        "4|Generate Daily Mix Report Now|(Force Update & Mathematical Analysis)"
-        "5|Generate Monthly Mix Report Now|(Force Update & Trend Analysis)"
-        "6|Generate Yearly Mix Report Now|(Force Update & Annual Projections)"
-        "7|Multi-Archive Statistics Dashboard|(SOF_Archive_Stats.sh)"
-        "8|Master Tracklist HTML & Multi-Folder Statistics|(Parsed from master_tracklists.html)"
-        "9|Advanced Mathematical Formulas & Predictive Analytics|(Skewness, Kurtosis, Entropy, OLS, Holt Forecast)"
-        "10|Continuous User Operations Telemetry Log|(Live Activity & Workflow Tracking)"
-        "11|Configure Automated Daily Reports & Schedule|(Toggle ON/OFF, Scheduled Time)"
-        "12|View / Inspect MP_Error.log|(Error Logging Audit)"
-        "13|Automated Daily Email Briefing & iCloud Settings|(Consolidated PDF, Stephen Hawking Voice, 13:00 Send)"
-        "0|Return to Main Menu|(or Esc / q)"
-    )
-    run_interactive_submenu "DAILY MIX REPORTS, USER TELEMETRY & PREDICTIVE ANALYTICS" "  Daily Reports: ${d_status}  │  Monthly: ${m_status}  │  Yearly: ${y_status}\n" opts 0
-    case "$REPLY" in
-        1)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}            TODAY'S DAILY MIX & SYSTEM OPERATIONS REPORT              ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            local d_txt="$SCRIPT_DIR/REPORTS/DAILY_REPORTS/latest_daily_report.txt"
-            local d_pdf="$SCRIPT_DIR/REPORTS/DAILY_REPORTS/latest_daily_report.pdf"
-            if [ ! -f "$d_txt" ]; then
-                echo -e "${YELLOW}No report generated for today yet. Generating now...${NC}\n"
-                python3 "$gen_py" --kind daily --print-summary
-            else
-                cat "$d_txt"
-            fi
-            if [ -f "$d_pdf" ]; then
-                echo -e "\n${DIM}Opening PDF report in default viewer...${NC}"
-                xdg-open "$d_pdf" 2>/dev/null || kde-open "$d_pdf" 2>/dev/null || open "$d_pdf" 2>/dev/null || true
-            fi
-            echo ""
-            press_enter
-            ;;
-        2)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}           CURRENT MONTHLY MIX & SYSTEM OPERATIONS REPORT             ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            local m_txt="$SCRIPT_DIR/REPORTS/MONTHLY_REPORTS/latest_monthly_report.txt"
-            local m_pdf="$SCRIPT_DIR/REPORTS/MONTHLY_REPORTS/latest_monthly_report.pdf"
-            if [ ! -f "$m_txt" ]; then
-                echo -e "${YELLOW}Generating Monthly Report...${NC}\n"
-                python3 "$gen_py" --kind monthly --print-summary
-            else
-                cat "$m_txt"
-            fi
-            if [ -f "$m_pdf" ]; then
-                xdg-open "$m_pdf" 2>/dev/null || kde-open "$m_pdf" 2>/dev/null || open "$m_pdf" 2>/dev/null || true
-            fi
-            echo ""
-            press_enter
-            ;;
-        3)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}            CURRENT YEARLY MIX & SYSTEM OPERATIONS REPORT             ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            local y_txt="$SCRIPT_DIR/REPORTS/YEARLY_REPORTS/latest_yearly_report.txt"
-            local y_pdf="$SCRIPT_DIR/REPORTS/YEARLY_REPORTS/latest_yearly_report.pdf"
-            if [ ! -f "$y_txt" ]; then
-                echo -e "${YELLOW}Generating Yearly Report...${NC}\n"
-                python3 "$gen_py" --kind yearly --print-summary
-            else
-                cat "$y_txt"
-            fi
-            if [ -f "$y_pdf" ]; then
-                xdg-open "$y_pdf" 2>/dev/null || kde-open "$y_pdf" 2>/dev/null || open "$y_pdf" 2>/dev/null || true
-            fi
-            echo ""
-            press_enter
-            ;;
-        4)
-            echo -e "\n${BOLD}${YELLOW}Generating Daily Mix Report now (with mathematical models & PDF)...${NC}\n"
-            bash "$r_sh" --force-daily
-            press_enter
-            ;;
-        5)
-            echo -e "\n${BOLD}${YELLOW}Generating Monthly Mix Report now...${NC}\n"
-            bash "$r_sh" --force-monthly
-            press_enter
-            ;;
-        6)
-            echo -e "\n${BOLD}${YELLOW}Generating Yearly Mix Report now...${NC}\n"
-            bash "$r_sh" --force-yearly
-            press_enter
-            ;;
-        7)
-            echo -e "\n${BOLD}${YELLOW}Loading Multi-Archive Statistics Dashboard...${NC}\n"
-            run_sub_script "SOF_Archive_Stats.sh"
-            press_enter
-            ;;
-        8)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}          MASTER TRACKLIST HTML & MULTI-FOLDER AUDIT                  ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            python3 "$SCRIPT_DIR/scripts/mp_tracklist_analyzer.py"
-            echo ""
-            press_enter
-            ;;
-        9)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}    ADVANCED MATHEMATICAL FORMULAS & PREDICTIVE ANALYTICS DASHBOARD   ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            python3 "$SCRIPT_DIR/scripts/mp_analytics_engine.py"
-            echo ""
-            press_enter
-            ;;
-        10)
-            clear
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-            echo -e "${BOLD}${MAGENTA}           CONTINUOUS USER OPERATIONS & ACTIVITY TELEMETRY            ${NC}"
-            echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-            python3 "$SCRIPT_DIR/scripts/mp_activity_tracker.py" --summary daily
-            echo ""
-            press_enter
-            ;;
-        11)
-            configure_daily_reports_settings
-            ;;
-        12)
-            clear
-            bash "$SCRIPT_DIR/scripts/mp_logging.sh" --tail
-            echo ""
-            press_enter
-            ;;
-        13)
-            clear
-            bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" status
-            echo ""
-            echo -e "  ${BOLD}${CYAN}1)${NC} Test Build (Generate Consolidated Single PDF & Stephen Hawking Audio)"
-            echo -e "  ${BOLD}${CYAN}2)${NC} Configure iCloud Email App-Specific Password"
-            echo -e "  ${BOLD}${CYAN}3)${NC} Test iCloud SMTP Server Authentication"
-            echo -e "  ${BOLD}${CYAN}4)${NC} Force Send Daily Email Briefing Now (Override 1/day limit)"
-            echo -e "  ${BOLD}${CYAN}5)${NC} Enable Systemd 13:00 Daily Timer"
-            echo -e "  ${BOLD}${CYAN}6)${NC} Disable Systemd 13:00 Daily Timer"
-            echo -e "  ${BOLD}${CYAN}0)${NC} Return to Reports Menu"
-            echo ""
-            read -r -p "Enter choice [0-6]: " ech
-            case "$ech" in
-                1) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" dry-run; press_enter ;;
-                2) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" configure-password; press_enter ;;
-                3) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" test-smtp; press_enter ;;
-                4) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" force-send; press_enter ;;
-                5) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" enable-timer; press_enter ;;
-                6) bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" disable-timer; press_enter ;;
-            esac
-            ;;
-        0|[qQ]|[eE][xX][iI][tT]|ESC)
-            return 0
-            ;;
-        *)
-            echo -e "\n${RED}Invalid option!${NC}"
-            sleep 1
-            ;;
-    esac
-done
+    run_sub_script "manage_mp_reporter.sh" "$@"
 }
 configure_daily_reports_settings() {
 while true; do
@@ -1863,7 +1691,7 @@ PY
 fi; [ "$pending" -eq 0 ] && _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${bprov}):${NC} ${BOLD}${GREEN}Up-to-date${NC} ${DIM}(Last: ${bdate})${NC}  ${BOLD}${BLUE}│${NC}  ${BOLD}${GREEN}0 pending${NC}" || _CACHED_CLOUD_STATUS="${BOLD}${CYAN}☁️  Cloud Backup (${bprov}):${NC} ${BOLD}${YELLOW}${pending} mix(es) pending sync${NC}  ${BOLD}${BLUE}│${NC}  ${DIM}Last: ${bdate}${NC}"; _LAST_CLOUD_CHECK="$now"; echo -e "$_CACHED_CLOUD_STATUS"
 }
 case "$1" in update|--update)            shift; run_sub_script "update_manager.sh" "$@"; exit $? ;; version|--version|-v)       shift; run_sub_script "update_manager.sh" --version "$@"; exit $? ;; --wan2gp-start-4.5|--wan2gp-p45) pgrep -f "python.*wgp\.py" >/dev/null && { echo -e "\n${YELLOW}WAN2GP already running.${NC}"; exit 0; }; launch_wan2gp_terminal "4.5"; exit 0 ;; --wan2gp-start|--wan2gp) pgrep -f "python.*wgp\.py" >/dev/null && { echo -e "\n${YELLOW}WAN2GP already running.${NC}"; exit 0; }; launch_wan2gp_terminal "${2:-4.5}"; exit 0 ;; --wan2gp-stop)              run_sub_script "wan2gp.sh" stop; exit 0 ;; --tts|--wan2gp-tts)         shift; [ "${1:-}" = "25" ] && shift; run_wan2gp_tts_batch "$@"; exit 0 ;; --wan2gp-monitor|--monitor-wan2gp|--output-monitor) shift; run_wan2gp_output_monitor "$@"; exit 0 ;; --audio-monitor|--conversion-monitor|--media-monitor) shift; _mon_py="$SCRIPT_DIR/scripts/MP_Mix_Manager_Audio_File_Output_Monitor.py"; [ ! -f "$_mon_py" ] && _mon_py="$SCRIPT_DIR/MP_Mix_Manager_Audio_File_Output_Monitor.py"; exec python3 "$_mon_py" "$@" ;; --split-flac|--flac-split)  shift; split_flac_audio "$@"; exit 0 ;; --split-video|--split-mp4|--video-split) shift; split_video_clip "$@"; exit 0 ;; --cut-video)                shift; cut_video_clip "$@"; exit 0 ;; --beszel|--beszel-menu)     shift; manage_beszel "$@"; exit 0 ;; --beszel-start|--beszel-start-both) run_sub_script "beszel.sh" start; exit 0 ;; --beszel-hub|--beszel-start-hub)    run_sub_script "beszel.sh" start-hub; exit 0 ;; --beszel-agent|--beszel-start-agent) run_sub_script "beszel.sh" start-agent; exit 0 ;; --beszel-dashboard|--beszel-web)    run_sub_script "beszel.sh" dashboard; exit 0 ;; --beszel-stop)              run_sub_script "beszel.sh" stop; exit 0 ;; --beszel-status)            run_sub_script "beszel.sh" status; exit 0 ;; 57) [ -z "$2" ] && manage_beszel || run_sub_script "beszel.sh" "${2/1/start}"; exit 0 ;; --ollama|--ollama-menu)     shift; manage_ollama "$@"; exit 0 ;; --ollama-serve|--ollama-start|--ollama-bg) run_sub_script "manage_ollama.sh" start; exit 0 ;; --ollama-window|--ollama-term)             run_sub_script "manage_ollama.sh" start-window; exit 0 ;;
---ollama-stop)              run_sub_script "manage_ollama.sh" stop; exit 0 ;; --ollama-restart)           run_sub_script "manage_ollama.sh" restart; exit 0 ;; --ollama-chat)              shift; run_sub_script "manage_ollama.sh" chat "$@"; exit 0 ;; --ollama-voice|--ollama-voice-chat) shift; run_sub_script "manage_ollama.sh" voice "$@"; exit 0 ;; --ollama-audio|--ollama-recordings) run_sub_script "manage_ollama.sh" audio; exit 0 ;; --ollama-logs)              run_sub_script "manage_ollama.sh" logs; exit 0 ;; --ollama-status)            run_sub_script "manage_ollama.sh" status; exit 0 ;; 58) [ -z "$2" ] && manage_ollama || run_sub_script "manage_ollama.sh" "${2/1/start}"; exit 0 ;; --open-webui|--webui|webui|open-webui|--openwebui) shift; run_sub_script "manage_open_webui.sh" "$@"; exit 0 ;; --harmony|--mp-harmony|harmony|mp-harmony|--harmony-agent) shift; run_sub_script "manage_harmony_agent.sh" "$@"; exit 0 ;; --harmony-voice|--voice-talk|voice-talk|--harmony-voice-chat) run_sub_script "manage_harmony_agent.sh" voice; exit 0 ;; --harmony-audio|--harmony-recordings) run_sub_script "manage_harmony_agent.sh" audio; exit 0 ;; --dsh-mobile|--dsh|--dsh-start) run_sub_script "dsh_mobile.sh" start; exit 0 ;; --dsh-bg)                   run_sub_script "dsh_mobile.sh" start-bg; exit 0 ;; --dsh-web|--dsh-browser)    run_sub_script "dsh_mobile.sh" web; exit 0 ;; --dsh-stop)                 run_sub_script "dsh_mobile.sh" stop; exit 0 ;; --dsh-restart)              run_sub_script "dsh_mobile.sh" restart; exit 0 ;; --dsh-logs)                 run_sub_script "dsh_mobile.sh" logs; exit 0 ;; --dsh-status)               run_sub_script "dsh_mobile.sh" status; exit 0 ;; --dsh-menu|59)              [ -z "$2" ] && manage_dsh_mobile || run_sub_script "dsh_mobile.sh" "$2"; exit 0 ;; --daily-report|--report-daily) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind daily "$@"; exit $? ;; --monthly-report|--report-monthly) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind monthly "$@"; exit $? ;; --yearly-report|--report-yearly) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind yearly "$@"; exit $? ;; --report-status|--reporter-status) shift; bash "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" --status "$@"; exit $? ;; --daily-email|--email-report|--email-briefing) shift; bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" "$@"; exit $? ;; --error-log|--view-errors|--mp-error) shift; bash "$SCRIPT_DIR/scripts/mp_logging.sh" --tail "$@"; exit $? ;; 26|--reports|--mix-reports) shift || true; manage_mix_reports_menu; exit 0 ;; --backup|--cloud-backup|9)  shift || true; run_sub_script "backup_mix_archive.sh" "$@"; exit 0 ;; --alarm*|alarm*|18)         shift || true; _run_tool "alarm.sh" "$@" ;; --congen*|congen*|*kdeconnect*) shift || true; _run_tool "Congen" "$@" ;; 56) case "$2" in 2) launch_wan2gp_terminal "4.5"; exit 0 ;; 3) run_sub_script "wan2gp.sh" stop; exit 0 ;; 25) shift 2; run_wan2gp_tts_batch "$@"; exit 0 ;; esac ;; esac
+--ollama-stop)              run_sub_script "manage_ollama.sh" stop; exit 0 ;; --ollama-restart)           run_sub_script "manage_ollama.sh" restart; exit 0 ;; --ollama-chat)              shift; run_sub_script "manage_ollama.sh" chat "$@"; exit 0 ;; --ollama-voice|--ollama-voice-chat) shift; run_sub_script "manage_ollama.sh" voice "$@"; exit 0 ;; --ollama-audio|--ollama-recordings) run_sub_script "manage_ollama.sh" audio; exit 0 ;; --ollama-logs)              run_sub_script "manage_ollama.sh" logs; exit 0 ;; --ollama-status)            run_sub_script "manage_ollama.sh" status; exit 0 ;; 58) [ -z "$2" ] && manage_ollama || run_sub_script "manage_ollama.sh" "${2/1/start}"; exit 0 ;; --open-webui|--webui|webui|open-webui|--openwebui) shift; run_sub_script "manage_open_webui.sh" "$@"; exit 0 ;; --harmony|--mp-harmony|harmony|mp-harmony|--harmony-agent) shift; run_sub_script "manage_harmony_agent.sh" "$@"; exit 0 ;; --harmony-voice|--voice-talk|voice-talk|--harmony-voice-chat) run_sub_script "manage_harmony_agent.sh" voice; exit 0 ;; --harmony-audio|--harmony-recordings) run_sub_script "manage_harmony_agent.sh" audio; exit 0 ;; --dsh-mobile|--dsh|--dsh-start) run_sub_script "dsh_mobile.sh" start; exit 0 ;; --dsh-bg)                   run_sub_script "dsh_mobile.sh" start-bg; exit 0 ;; --dsh-web|--dsh-browser)    run_sub_script "dsh_mobile.sh" web; exit 0 ;; --dsh-stop)                 run_sub_script "dsh_mobile.sh" stop; exit 0 ;; --dsh-restart)              run_sub_script "dsh_mobile.sh" restart; exit 0 ;; --dsh-logs)                 run_sub_script "dsh_mobile.sh" logs; exit 0 ;; --dsh-status)               run_sub_script "dsh_mobile.sh" status; exit 0 ;; --dsh-menu|59)              [ -z "$2" ] && manage_dsh_mobile || run_sub_script "dsh_mobile.sh" "$2"; exit 0 ;; --daily-report|--report-daily) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind daily "$@"; exit $? ;; --monthly-report|--report-monthly) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind monthly "$@"; exit $? ;; --yearly-report|--report-yearly) shift; python3 "$SCRIPT_DIR/scripts/mp_report_generator.py" --kind yearly "$@"; exit $? ;; --report-status|--reporter-status) shift; bash "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" --status "$@"; exit $? ;; --daily-email|--email-report|--email-briefing) shift; bash "$SCRIPT_DIR/scripts/mp_email_manager.sh" "$@"; exit $? ;; --error-log|--view-errors|--mp-error) shift; bash "$SCRIPT_DIR/scripts/mp_logging.sh" --tail "$@"; exit $? ;; 26|--reports|--mix-reports|--mp-reporter|--reporter) shift || true; manage_mix_reports_menu "$@"; exit 0 ;; --backup|--cloud-backup|9)  shift || true; run_sub_script "backup_mix_archive.sh" "$@"; exit 0 ;; --alarm*|alarm*|18)         shift || true; _run_tool "alarm.sh" "$@" ;; --congen*|congen*|*kdeconnect*) shift || true; _run_tool "Congen" "$@" ;; 56) case "$2" in 2) launch_wan2gp_terminal "4.5"; exit 0 ;; 3) run_sub_script "wan2gp.sh" stop; exit 0 ;; 25) shift 2; run_wan2gp_tts_batch "$@"; exit 0 ;; esac ;; esac
 manage_integrity_and_verification() {
 while :; do local opts=("1|Manage Audio Integrity Checksums|(SHA-256 Manifest & Verification)" "2|Verify FLAC Files for Integrity & Corruption|(Verify_FLAC_Files.sh)" "3|Lossless Legitimacy & Spectral Cutoff Inspector|(Detect Fake FLACs / MP3 Transcodes)" "4|Run Non-Destructive Bit-Rot Scrub on All Mix Archives|(scrub_mix_archive.sh)" "5|Automated Background Bit-Rot Scrub Timer|(Systemd User Timer)" "6|View Bit-Rot Scrub History & Logs|(VERIFY_LOGS)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "AUDIO INTEGRITY, BIT-ROT SCRUB & FLAC VERIFICATION" "" opts 0; case "$REPLY" in 1) manage_audio_checksums ;; 2) echo -e "\n${BOLD}${YELLOW}Starting FLAC Integrity Scan...${NC}\n"; run_sub_script "Verify_FLAC_Files.sh"; press_enter ;; 3) [ -f "$SCRIPT_DIR/scripts/verify_lossless_spectral.py" ] && python3 "$SCRIPT_DIR/scripts/verify_lossless_spectral.py" || echo -e "\n${RED}Error: verify_lossless_spectral.py not found!${NC}"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Starting Non-Destructive Bit-Rot Scrub...${NC}\n"; run_sub_script "scrub_mix_archive.sh"; press_enter ;; 5) echo -e "\n${BOLD}${MAGENTA}--- Automated Background Bit-Rot Scrub Timer (Systemd) ---${NC}"; run_sub_script "scrub_mix_archive.sh" --timer-status; local t_opts=("1|Install & Enable Weekly Scrub Timer|(Sundays 03:00 AM)" "2|Disable & Uninstall Scrub Timer|" "0|Back|(or Esc)"); run_interactive_submenu "Automated Bit-Rot Scrub Timer" "" t_opts 0; [ "$REPLY" = "1" ] && run_sub_script "scrub_mix_archive.sh" --install-timer; [ "$REPLY" = "2" ] && run_sub_script "scrub_mix_archive.sh" --uninstall-timer; press_enter ;; 6) run_sub_script "scrub_mix_archive.sh" --logs; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
@@ -2130,7 +1958,7 @@ if [ -f "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" ]; then
 (bash "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" --daemon &>/dev/null &)
 fi
 }
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "2|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "3|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "4|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "5|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "6|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "7|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "8|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "9|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "10|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "11|Play Mix/Audio File (MP Audio Player)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "12|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "13|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "14|Configure Mix Archive Storage Locations|(Option 14: Primary & Multiple Archives)" "15|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "16|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "17|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "18|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "19|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "20|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "21|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "22|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "23|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "24|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "25|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "26|Daily Mix Reports, Activity Telemetry & Predictive Analytics|(PDF Reports, Multi-Archive Stats, Math Models, Schedule)" "27|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "28|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "29|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "30|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "31|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "32|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "33|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "34|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "35|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 1; choice="$REPLY"; fi; case $choice in 1)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "2|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "3|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "4|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "5|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "6|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "7|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "8|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "9|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "10|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "11|Play Mix/Audio File (MP Audio Player)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "12|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "13|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "14|Configure Mix Archive Storage Locations|(Option 14: Primary & Multiple Archives)" "15|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "16|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "17|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "18|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "19|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "20|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "21|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "22|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "23|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "24|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "25|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "26|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "27|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "28|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "29|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "30|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "31|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "32|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "33|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "34|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "35|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 1; choice="$REPLY"; fi; case $choice in 1)
 echo -e "\n${BOLD}${YELLOW}Starting conversion. You can still choose FLAC, MP3, WAV, or a YouTube MP4.${NC}\n"; run_sub_script "Make_SOF_FLAC_CONVERSION.sh"; echo ""; echo -e "${BOLD}${GREEN}Conversion finished. This report stays on screen.${NC}"; while true; do flac_done_choice=""; read -r -p "Type [m] to open the main menu, or [q] to quit: " flac_done_choice </dev/tty || true; case "$flac_done_choice" in [mM]) break ;; [qQ]) exit_mix_manager ;; esac; done; ;; 2) manage_audio_conversion ;; 3) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 4) manage_mix_search_and_import ;; 5) rename_mix; press_enter ;; 6) find_duplicate_audio_mixes; ;; 7) export_mixes_to_path ;; 8) manage_integrity_and_verification; ;; 9|backup|cloud-backup) manage_cloud_backup_suite ;; 10) play_sound_effect "storage"; manage_storage_and_archive_config ;;
 11|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play Mix/Audio File (MP Audio Player)")
-manage_mp_audio_player ;; 12) manage_tracklist_suite; ;; 13|manage-audio-players|players) manage_audio_players ;; 14|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 15) manage_playlists_and_history ;; 16) manage_daws_suite; ;; 17) manage_studio_hardware_and_volume ;; 18) manage_spek_generation; ;; 19) manage_mix_scheduler ;; 20) generate_youtube_video; ;; 21|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 22|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 23|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 24|manage-live-monitors|live-monitors) manage_live_monitors ;; 25|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 26|reports|daily-reports|report) manage_mix_reports_menu ;; 27) manage_promo_and_syndication ;; 28) manage_network_and_internet; ;; 29) manage_desktop_and_display ;; 30) manage_system_maintenance; ;; 31|m|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 32|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 33) manage_motd_and_tools ;; 34) manage_settings_and_system; ;; ESC) ;; 35|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+manage_mp_audio_player ;; 12) manage_tracklist_suite; ;; 13|manage-audio-players|players) manage_audio_players ;; 14|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 15) manage_playlists_and_history ;; 16) manage_daws_suite; ;; 17) manage_studio_hardware_and_volume ;; 18) manage_spek_generation; ;; 19) manage_mix_scheduler ;; 20) generate_youtube_video; ;; 21|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 22|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 23|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 24|manage-live-monitors|live-monitors) manage_live_monitors ;; 25|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 26|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 27) manage_promo_and_syndication ;; 28) manage_network_and_internet; ;; 29) manage_desktop_and_display ;; 30) manage_system_maintenance; ;; 31|m|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 32|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 33) manage_motd_and_tools ;; 34) manage_settings_and_system; ;; ESC) ;; 35|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 35, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done

@@ -196,6 +196,9 @@ def get_activity_summary(period: str = "daily") -> Dict[str, Any]:
     if period == "daily":
         start_date = today.strftime("%Y-%m-%d")
         end_date = start_date
+    elif period == "weekly":
+        start_date = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
     elif period == "monthly":
         start_date = today.strftime("%Y-%m-01")
         end_date = today.strftime("%Y-%m-%d")
