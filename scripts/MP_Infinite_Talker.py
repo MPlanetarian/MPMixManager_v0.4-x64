@@ -497,6 +497,7 @@ def generate_infinite_talk_video(
     steps: int = 4,
     guidance: float = 1.0,
     audio_guidance: float = 1.0,
+    duration: float = 0.0,
 ) -> bool:
     """Generate an Infinite Talk video using WAN2GP Infinite Talk 14B model."""
     if not ctrl_image.exists():
@@ -507,6 +508,14 @@ def generate_infinite_talk_video(
         return False
 
     duration_sec = get_audio_duration_seconds(audio_path)
+    trimmed_audio = None
+    if duration > 0 and duration < duration_sec:
+        trimmed_audio = Path(tempfile.mktemp(suffix="_trimmed.wav"))
+        subprocess.run(["ffmpeg", "-y", "-i", str(audio_path), "-t", str(duration), "-c", "copy", str(trimmed_audio)], capture_output=True)
+        if trimmed_audio.exists() and trimmed_audio.stat().st_size > 0:
+            audio_path = trimmed_audio
+            duration_sec = duration
+
     # 25 fps WAN default
     estimated_frames = max(81, int(duration_sec * 25))
 
@@ -632,6 +641,8 @@ def generate_infinite_talk_video(
     finally:
         if task_json.exists():
             task_json.unlink(missing_ok=True)
+        if trimmed_audio and trimmed_audio.exists():
+            trimmed_audio.unlink(missing_ok=True)
 
 def process_batch(config: dict, watch_mode: bool = False, interval: int = 5):
     """Run batch processing on WAN2GP_INFTLKBATCH directory."""
@@ -1152,6 +1163,7 @@ def process_mp_reporter_report(report_path: Path, config: dict) -> bool:
         resolution=config.get("resolution", "832x480"),
         profile=config.get("profile", "4.5"),
         steps=int(config.get("steps", 4)),
+        duration=float(config.get("duration", 0.0)),
     )
     if ok and out_video.exists():
         try:
@@ -1273,6 +1285,7 @@ def main():
     parser.add_argument("--profile", type=str, default="4.5", help="WAN2GP memory profile (default: 4.5)")
     parser.add_argument("--steps", type=int, default=4, help="Inference steps (default: 4)")
     parser.add_argument("--resolution", type=str, default="832x480", help="Output resolution (default: 832x480)")
+    parser.add_argument("--duration", type=float, default=0.0, help="Duration limit in seconds (0 for full)")
     args = parser.parse_args()
 
     config = load_user_config()
@@ -1290,6 +1303,8 @@ def main():
         config["steps"] = args.steps
     if args.resolution:
         config["resolution"] = args.resolution
+    if args.duration > 0:
+        config["duration"] = args.duration
 
     batch_dir = Path(config.get("batch_dir", str(DEFAULT_BATCH_DIR)))
     outputs_dir = Path(config.get("outputs_dir", str(DEFAULT_OUTPUTS_DIR)))
