@@ -579,7 +579,17 @@ def generate_infinite_talk_video(
             json.dump(task_payload, f, indent=2)
 
         # Execute WAN2GP via Python environment
-        venv_python = os.environ.get("WAN2GP_PYTHON", str(WAN_APP_ROOT / "venv" / "bin" / "python"))
+        venv_candidate = os.environ.get("WAN2GP_PYTHON", "").strip()
+        if not venv_candidate or not Path(venv_candidate).exists():
+            for p in [
+                WAN_APP_ROOT / "venv" / "bin" / "python",
+                WAN_APP_ROOT / "venv" / "Scripts" / "python.exe",
+                Path("/var/home/mplanetarian/pinokio/api/wan.git/app/venv/bin/python"),
+            ]:
+                if p.exists():
+                    venv_candidate = str(p)
+                    break
+        venv_python = venv_candidate or sys.executable
         wgp_py = WAN_APP_ROOT / "wgp.py"
 
         if not wgp_py.exists():

@@ -1,1 +1,1 @@
-scripts/MP_Infinite_Talker.py
+scripts/MP_Infinite_Talker.sh
