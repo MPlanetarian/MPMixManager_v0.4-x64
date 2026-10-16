@@ -134,6 +134,7 @@ def format_motd_text(mixes, ansi=True):
     nc = NC if ansi else ""
     
     hostname = os.uname().nodename
+    kernel_str = os.uname().release
     now_str = datetime.datetime.now().strftime("%a %b %d %Y, %H:%M:%S")
     
     col_name = "Full File Name"
@@ -154,7 +155,7 @@ def format_motd_text(mixes, ansi=True):
         f"{b}{m}{border_main}{nc}",
         f"{b}{m}{title_text.center(banner_width)}{nc}",
         f"{b}{m}{border_main}{nc}",
-        f"  Host: {w}{hostname}{nc}  |  Generated: {d}{now_str}{nc}",
+        f"  Host: {w}{hostname}{nc}  |  Kernel: {g}{kernel_str}{nc}  |  Generated: {d}{now_str}{nc}",
         f"{b}{bl}{border_div}{nc}",
         f"  {b}{hdr_num:2} | {hdr_dt:<20} | {hdr_sz:>9} | {hdr_fmt:4} | {col_name}{nc}",
         f"{bl}{border_sub}{nc}"
