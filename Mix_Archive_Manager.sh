@@ -341,18 +341,18 @@ return 0; elif [ "$OS_TYPE" = "wsl" ]; then for viewer in wslview explorer.exe; 
 return 0; fi; done; fi; open_path "$target"
 }
 open_tracklist_window() {
-local target="$1"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; local viewer_sh="$SCRIPT_DIR/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$SCRIPT_DIR/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/view_tracklist_console.sh"; local tl_title="Mix Tracklist Viewer"; local viewer="${TRACKLIST_VIEWER:-console}"; if [ "$viewer" != "console" ] && [ "$viewer" != "auto" ] && [ -n "$viewer" ]; then if command -v "$viewer" &>/dev/null; then "$viewer" "$target" &>/dev/null &
-return 0; fi; fi; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if command -v konsole &>/dev/null; then konsole --hide-menubar --hide-tabbar --separate --qwindowtitle "$tl_title" -p tabtitle="$tl_title" -p TerminalMargin=0 -p TerminalColumns=95 -p TerminalRows=35 -e bash "$viewer_sh" "$target" &>/dev/null &
+local target="$1" audio_arg="${2:-}"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; [ -n "$audio_arg" ] && export MP_TRACKLIST_AUDIO_FILE="$audio_arg"; local viewer_sh="$SCRIPT_DIR/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$SCRIPT_DIR/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/view_tracklist_console.sh"; local tl_title="Mix Tracklist Viewer"; local viewer="${TRACKLIST_VIEWER:-console}"; if [ "$viewer" != "console" ] && [ "$viewer" != "auto" ] && [ -n "$viewer" ]; then if command -v "$viewer" &>/dev/null; then "$viewer" "$target" &>/dev/null &
+return 0; fi; fi; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if command -v konsole &>/dev/null; then konsole --hide-menubar --hide-tabbar --separate --qwindowtitle "$tl_title" -p tabtitle="$tl_title" -p TerminalMargin=0 -p TerminalColumns=95 -p TerminalRows=35 -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
 (sleep 0.15; command -v xprop &>/dev/null && xprop -name "$tl_title" -f _MOTIF_WM_HINTS 32c -set _MOTIF_WM_HINTS "0x2, 0x0, 0x0, 0x0, 0x0" 2>/dev/null || true) &
-return 0; elif command -v gnome-terminal &>/dev/null; then gnome-terminal --title="$tl_title" --hide-menubar -- bash "$viewer_sh" "$target" &>/dev/null &
-return 0; elif command -v xfce4-terminal &>/dev/null; then xfce4-terminal --title="$tl_title" --hide-menubar --hide-borders -e "bash '$viewer_sh' '$target'" &>/dev/null &
-return 0; elif command -v alacritty &>/dev/null; then alacritty --title "$tl_title" -e bash "$viewer_sh" "$target" &>/dev/null &
-return 0; elif command -v foot &>/dev/null; then foot -T "$tl_title" bash "$viewer_sh" "$target" &>/dev/null &
-return 0; elif command -v xterm &>/dev/null; then xterm -title "$tl_title" -bd 0 -geometry 95x35 -e bash "$viewer_sh" "$target" &>/dev/null &
+return 0; elif command -v gnome-terminal &>/dev/null; then gnome-terminal --title="$tl_title" --hide-menubar -- bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
+return 0; elif command -v xfce4-terminal &>/dev/null; then xfce4-terminal --title="$tl_title" --hide-menubar --hide-borders -e "bash '$viewer_sh' '$target'${audio_arg:+ '$audio_arg'}" &>/dev/null &
+return 0; elif command -v alacritty &>/dev/null; then alacritty --title "$tl_title" -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
+return 0; elif command -v foot &>/dev/null; then foot -T "$tl_title" bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
+return 0; elif command -v xterm &>/dev/null; then xterm -title "$tl_title" -bd 0 -geometry 95x35 -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
 return 0; fi; fi; if [ "$OS_TYPE" = "macos" ]; then local escaped_viewer escaped_target; escaped_viewer=$(printf '%s' "$viewer_sh" | sed 's/"/\\"/g'); escaped_target=$(printf '%s' "$target" | sed 's/"/\\"/g'); osascript -e "tell application \"Terminal\" to do script \"bash \\\"$escaped_viewer\\\" \\\"$escaped_target\\\"\"" &>/dev/null &
-return 0; fi; if [ "$OS_TYPE" = "windows" ]; then if command -v wt.exe &>/dev/null; then wt.exe -w new --title "$tl_title" bash "$viewer_sh" "$target" &>/dev/null &
-return 0; elif command -v cmd.exe &>/dev/null; then cmd.exe /c start "$tl_title" bash "$viewer_sh" "$target" &>/dev/null &
-return 0; fi; elif [ "$OS_TYPE" = "wsl" ]; then if command -v wt.exe &>/dev/null; then wt.exe -w 0 nt --title "$tl_title" wsl.exe -e bash "$viewer_sh" "$target" &>/dev/null &
+return 0; fi; if [ "$OS_TYPE" = "windows" ]; then if command -v wt.exe &>/dev/null; then wt.exe -w new --title "$tl_title" bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
+return 0; elif command -v cmd.exe &>/dev/null; then cmd.exe /c start "$tl_title" bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
+return 0; fi; elif [ "$OS_TYPE" = "wsl" ]; then if command -v wt.exe &>/dev/null; then wt.exe -w 0 nt --title "$tl_title" wsl.exe -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
 return 0; fi; fi; open_path "$target"
 }
 find_mix_tracklist() {
