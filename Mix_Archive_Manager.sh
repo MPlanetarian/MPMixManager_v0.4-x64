@@ -254,7 +254,7 @@ if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then for _py_cand in "/c/Users/${USE
 python3() { python "$@"; }
 export -f python3 2>/dev/null || true; elif command -v py &>/dev/null; then
 python3() { py -3 "$@"; }
-export -f python3 2>/dev/null || true; fi; fi; fi; OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) OS_TYPE="linux"; ;; esac
+export -f python3 2>/dev/null || true; fi; fi; fi; OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) OS_TYPE="linux"; ;; esac; export OS_TYPE
 open_path() {
 local target="$1"; [ -z "$target" ] && return 0; if [ "$OS_TYPE" = "macos" ]; then open "$target" &>/dev/null &
 elif [ "$OS_TYPE" = "windows" ]; then cmd.exe /c start "" "$(cygpath -w "$target" 2>/dev/null || echo "$target")" &>/dev/null &

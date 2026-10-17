@@ -16,6 +16,21 @@ if [ -z "${VERSION:-}" ]; then
 fi
 export VERSION
 
+if [ -z "${OS_TYPE:-}" ]; then
+    case "$(uname -s)" in
+        Darwin*) OS_TYPE="macos" ;;
+        CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;;
+        FreeBSD*) OS_TYPE="freebsd" ;;
+        *) OS_TYPE="linux" ;;
+    esac
+fi
+export OS_TYPE
+
+# Ensure Homebrew and standard bins are in PATH for macOS
+if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then
+    export PATH="/opt/homebrew/bin:/usr/local/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$PATH"
+fi
+
 # ANSI Color definitions
 NC='\033[0m'
 BOLD='\033[1m'
@@ -43,7 +58,11 @@ is_manager_already_open() {
                         return 0
                     fi
                 else
-                    return 0
+                    local proc_args
+                    proc_args="$(ps -p "$saved_pid" -o args= 2>/dev/null || ps -p "$saved_pid" -o comm= 2>/dev/null || true)"
+                    if [[ "$proc_args" =~ (Mix_Archive_Manager|manager\.sh|manager_macos) ]]; then
+                        return 0
+                    fi
                 fi
             fi
         fi
@@ -142,7 +161,12 @@ display_startup_loader_video() {
 
     # Launch video player if GUI display environment is available
     local player_pid=""
-    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${OS_TYPE:-}" = "macos" ] || [ "${OS_TYPE:-}" = "windows" ]; then
+    local is_gui=0
+    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${OS_TYPE:-}" = "macos" ] || [ "${OS_TYPE:-}" = "windows" ] || [ "$(uname -s)" = "Darwin" ]; then
+        is_gui=1
+    fi
+
+    if [ "$is_gui" -eq 1 ]; then
         if command -v ffplay &>/dev/null; then
             ffplay -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" &>/dev/null &
             player_pid=$!
@@ -155,9 +179,13 @@ display_startup_loader_video() {
         elif command -v vlc &>/dev/null; then
             vlc --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
             player_pid=$!
-        elif [ "${OS_TYPE:-}" = "macos" ]; then
-            open -a "QuickTime Player" "$loader_vid" &>/dev/null &
+        elif [ -x "/Applications/VLC.app/Contents/MacOS/VLC" ]; then
+            /Applications/VLC.app/Contents/MacOS/VLC --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
             player_pid=$!
+        elif [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then
+            osascript -e 'tell application "QuickTime Player" to open POSIX file "'"$loader_vid"'"' \
+                      -e 'tell application "QuickTime Player" to play document 1' &>/dev/null &
+            player_pid="quicktime"
         elif [ "${OS_TYPE:-}" = "windows" ]; then
             cmd.exe /c start "" "$loader_vid" &>/dev/null &
             player_pid=$!
@@ -172,21 +200,37 @@ display_startup_loader_video() {
     # Wait for player completion or interactive skip keypress in console
     if [ -n "$player_pid" ]; then
         local waited=0
-        while kill -0 "$player_pid" 2>/dev/null; do
-            local key=""
-            if read -rsn1 -t 0.1 key 2>/dev/null; then
-                case "$key" in
-                    $'\e'|[qQ]|""|" ")
-                        kill -9 "$player_pid" 2>/dev/null || true
-                        break
-                        ;;
-                esac
-            fi
-            ((waited++))
-            # Safety timeout of 10.5 seconds (video is 10.0s)
-            [ "$waited" -ge 105 ] && break
-        done
-        wait "$player_pid" 2>/dev/null || true
+        if [ "$player_pid" = "quicktime" ]; then
+            while [ "$waited" -lt 100 ]; do
+                local key=""
+                if read -rsn1 -t 0.1 key 2>/dev/null; then
+                    case "$key" in
+                        $'\e'|[qQ]|""|" ")
+                            break
+                            ;;
+                    esac
+                fi
+                ((waited++))
+            done
+            osascript -e 'tell application "QuickTime Player" to close (every document whose name contains "MP_loader")' &>/dev/null || true
+            osascript -e 'tell application "QuickTime Player" to quit' &>/dev/null || true
+        else
+            while kill -0 "$player_pid" 2>/dev/null; do
+                local key=""
+                if read -rsn1 -t 0.1 key 2>/dev/null; then
+                    case "$key" in
+                        $'\e'|[qQ]|""|" ")
+                            kill -9 "$player_pid" 2>/dev/null || true
+                            break
+                            ;;
+                    esac
+                fi
+                ((waited++))
+                # Safety timeout of 10.5 seconds (video is 10.0s)
+                [ "$waited" -ge 105 ] && break
+            done
+            wait "$player_pid" 2>/dev/null || true
+        fi
     else
         # In pure headless / no-display environments, provide a brief 1.2s loading beat
         sleep 1.2

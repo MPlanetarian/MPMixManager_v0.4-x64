@@ -19,13 +19,22 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         script = r"""
         set -e
         source scripts/display_loader_video.sh
-        # Test 1: Self PID alone should not count as already open (if other pids excluded)
-        # When checking our own pid, function shouldn't treat ourselves as another instance
+        # Mock pgrep to return empty so external running instances don't skew isolated bridge unit test
+        pgrep() { return 1; }
+        # Test 1: Self PID alone should not count as already open
         my_pid="$$"
-        # Test function with dummy pid when no real other instance exists
+        # Test 2: macOS non-proc fallback should not falsely treat an unrelated active PID as manager
+        # Simulate bridge status file pointing to PID 1 (systemd/launchd, which is always alive)
+        mkdir -p "${HOME}/.config/mix-manager"
+        echo '{"pid": 1}' > "${HOME}/.config/mix-manager/bridge_status.json"
+        if ! is_manager_already_open "$$"; then
+            echo "MACOS_PROC_FALLBACK_OK"
+        fi
+        rm -f "${HOME}/.config/mix-manager/bridge_status.json"
         """
         res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
+        self.assertIn("MACOS_PROC_FALLBACK_OK", res.stdout)
 
     def test_skips_when_show_loader_video_false(self):
         script = r"""
