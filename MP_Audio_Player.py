@@ -13,7 +13,7 @@ Features:
 """
 
 from __future__ import annotations
-import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -23,6 +23,21 @@ for stream in (sys.stdout, sys.stderr):
             stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
 
 try:
     from mp_activity_tracker import record_activity
@@ -82,9 +97,15 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 SOCKET_PATH, PORT_FILE = CONFIG_DIR / "mp_audio_player.sock", CONFIG_DIR / "mp_audio_player.port"
 STATE_FILE, PID_FILE = CONFIG_DIR / "mp_player_state.json", CONFIG_DIR / "mp_player.pid"
+DURATION_CACHE_FILE = CONFIG_DIR / "track_durations.json"
 
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+
+def is_cloud_or_remote_path(p: Union[str, Path, None]) -> bool:
+    if not p: return False
+    s = str(p)
+    return any(k in s for k in ("GoogleDrive", "google3:", "MUSIC_SMB", "/run/media/", "/mnt/", "/media/"))
 
 def get_base_dir() -> Path:
     p = Path(__file__).resolve()
@@ -731,6 +752,368 @@ class AudioResampler:
             self.in_pos -= discard
         return out
 
+class AudioSource:
+    """Abstract interface for robust audio input sources with seek, read, and tell."""
+    def read(self, frames: int) -> np.ndarray: raise NotImplementedError
+    def seek(self, frame: int): raise NotImplementedError
+    def tell(self) -> int: raise NotImplementedError
+    def total_frames(self) -> int: raise NotImplementedError
+    def close(self): raise NotImplementedError
+
+class SoundFileAudioSource(AudioSource):
+    """Robust SoundFile reader with retry, exponential backoff, and transparent reconnect on FUSE / cloud network dropouts."""
+    def __init__(self, path: str, initial_sf: Optional[Any] = None):
+        _ensure_audio_backends()
+        self.path = str(path)
+        self.sf = initial_sf
+        self._current_frame = 0
+        if self.sf is None:
+            self._open_with_retry(max_retries=4)
+        self.samplerate = int(self.sf.samplerate)
+        self.channels = int(self.sf.channels)
+        self.frames = int(getattr(self.sf, "frames", 0))
+
+    def _open_with_retry(self, max_retries: int = 4, target_frame: int = 0):
+        _ensure_audio_backends()
+        last_exc = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                if self.sf:
+                    try: self.sf.close()
+                    except Exception: pass
+                    self.sf = None
+                self.sf = sf.SoundFile(self.path)
+                if target_frame > 0:
+                    try: self.sf.seek(target_frame)
+                    except Exception: pass
+                self._current_frame = target_frame
+                return
+            except Exception as e:
+                last_exc = e
+                if attempt < max_retries:
+                    time.sleep(0.25 * attempt)
+        if last_exc:
+            raise last_exc
+
+    def read(self, frames: int) -> np.ndarray:
+        for attempt in range(1, 4):
+            try:
+                if self.sf is None:
+                    self._open_with_retry(max_retries=3, target_frame=self._current_frame)
+                data = self.sf.read(frames, dtype='float32')
+                self._current_frame += len(data)
+                return data
+            except Exception as e:
+                try:
+                    mp_log_error("MP_Audio_Player", f"SoundFile read glitch on remote mix, retrying: {self.path}", e)
+                except Exception:
+                    pass
+                try:
+                    self._open_with_retry(max_retries=3, target_frame=self._current_frame)
+                except Exception:
+                    pass
+                if attempt == 3:
+                    return np.zeros((0, self.channels), dtype=np.float32)
+                time.sleep(0.2 * attempt)
+        return np.zeros((0, self.channels), dtype=np.float32)
+
+    def seek(self, frame: int):
+        target = max(0, min(frame, max(0, self.frames - 1) if self.frames > 0 else frame))
+        for attempt in range(1, 4):
+            try:
+                if self.sf is None:
+                    self._open_with_retry(max_retries=2, target_frame=target)
+                    return
+                self.sf.seek(target)
+                self._current_frame = target
+                return
+            except Exception:
+                try:
+                    self._open_with_retry(max_retries=2, target_frame=target)
+                    return
+                except Exception:
+                    if attempt == 3:
+                        self._current_frame = target
+
+    def tell(self) -> int:
+        try:
+            if self.sf:
+                return int(self.sf.tell())
+        except Exception:
+            pass
+        return self._current_frame
+
+    def total_frames(self) -> int:
+        return self.frames
+
+    def close(self):
+        if self.sf:
+            try: self.sf.close()
+            except Exception: pass
+            self.sf = None
+
+class FFmpegAudioSource(AudioSource):
+    """Universal audio decoder fallback using FFmpeg PCM pipe for AAC/M4A/WMA or damaged soundfile headers."""
+    def __init__(self, path: str, target_samplerate: int = 44100):
+        self.path = str(path)
+        self.samplerate = target_samplerate
+        self.channels = 2
+        self._current_frame = 0
+        self.proc: Optional[subprocess.Popen] = None
+        self.frames = self._probe_frames()
+        self._start_ffmpeg(start_sec=0.0)
+
+    def _probe_frames(self) -> int:
+        try:
+            cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.path]
+            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=6).decode().strip().split()
+            if out:
+                dur = float(out[0])
+                if len(out) > 1 and out[1].isdigit():
+                    self.samplerate = int(out[1])
+                return int(dur * self.samplerate)
+        except Exception:
+            pass
+        return 0
+
+    def _start_ffmpeg(self, start_sec: float = 0.0):
+        self.close()
+        cmd = ["ffmpeg", "-v", "error"]
+        if start_sec > 0:
+            cmd.extend(["-ss", f"{start_sec:.3f}"])
+        cmd.extend(["-i", self.path, "-vn", "-f", "f32le", "-ac", "2", "-ar", str(self.samplerate), "pipe:1"])
+        try:
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=131072)
+            self._current_frame = int(start_sec * self.samplerate)
+        except Exception as e:
+            try:
+                mp_log_error("MP_Audio_Player", f"Failed starting FFmpeg reader: {self.path}", e)
+            except Exception:
+                pass
+            self.proc = None
+
+    def read(self, frames: int) -> np.ndarray:
+        if not self.proc or not self.proc.stdout:
+            return np.zeros((0, 2), dtype=np.float32)
+        bytes_needed = frames * 2 * 4
+        try:
+            raw = self.proc.stdout.read(bytes_needed)
+            if not raw:
+                return np.zeros((0, 2), dtype=np.float32)
+            arr = np.frombuffer(raw, dtype=np.float32)
+            n_frames = len(arr) // 2
+            arr = arr[:n_frames * 2].reshape((n_frames, 2))
+            self._current_frame += n_frames
+            return arr
+        except Exception:
+            return np.zeros((0, 2), dtype=np.float32)
+
+    def seek(self, frame: int):
+        sec = float(frame) / float(self.samplerate) if self.samplerate > 0 else 0.0
+        self._start_ffmpeg(start_sec=sec)
+
+    def tell(self) -> int:
+        return self._current_frame
+
+    def total_frames(self) -> int:
+        return self.frames
+
+    def close(self):
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=0.3)
+            except Exception:
+                try: self.proc.kill()
+                except Exception: pass
+            self.proc = None
+
+def open_audio_source(path: str) -> AudioSource:
+    """Opens audio source with retry, exponential backoff, and FFmpeg fallback."""
+    last_exc = None
+    ext = os.path.splitext(str(path))[1].lower()
+    if ext in ('.m4a', '.aac', '.wma', '.alac'):
+        try: return FFmpegAudioSource(path)
+        except Exception as e: last_exc = e
+
+    try: return SoundFileAudioSource(path)
+    except Exception as e: last_exc = e
+
+    try: return FFmpegAudioSource(path)
+    except Exception as e: last_exc = e
+
+    raise last_exc or RuntimeError(f"Unable to open audio source: {path}")
+
+class AudioPrefetchBuffer:
+    """Thread-safe ring buffer providing glitch-free zero-latency reads for PortAudio callbacks."""
+    def __init__(self, sample_rate: int, buffer_sec: float = 12.0):
+        self.sample_rate = sample_rate
+        self.max_frames = int(buffer_sec * sample_rate)
+        self.chunks = collections.deque()
+        self.chunk_offset = 0
+        self.available_frames = 0
+        self.lock = threading.Lock()
+        self.not_empty = threading.Condition(self.lock)
+        self.not_full = threading.Condition(self.lock)
+        self.eof = False
+
+    def clear(self):
+        with self.lock:
+            self.chunks.clear()
+            self.chunk_offset = 0
+            self.available_frames = 0
+            self.eof = False
+            self.not_full.notify_all()
+
+    def set_eof(self):
+        with self.lock:
+            self.eof = True
+            self.not_empty.notify_all()
+
+    def is_empty(self) -> bool:
+        with self.lock:
+            return self.available_frames == 0
+
+    def health_sec(self) -> float:
+        with self.lock:
+            return float(self.available_frames) / float(self.sample_rate) if self.sample_rate > 0 else 0.0
+
+    def write(self, data: np.ndarray, timeout: float = 0.5) -> bool:
+        if len(data) == 0: return True
+        data_stereo = self._to_stereo(data)
+        n = len(data_stereo)
+        with self.lock:
+            while self.available_frames + n > self.max_frames:
+                if not self.not_full.wait(timeout=timeout):
+                    return False
+            self.chunks.append(data_stereo)
+            self.available_frames += n
+            self.not_empty.notify_all()
+            return True
+
+    def read(self, frames: int) -> np.ndarray:
+        with self.lock:
+            if self.available_frames == 0:
+                return np.zeros((0, 2), dtype=np.float32)
+            n = min(frames, self.available_frames)
+            parts = []
+            collected = 0
+            while collected < n and self.chunks:
+                front = self.chunks[0]
+                avail = len(front) - self.chunk_offset
+                needed = n - collected
+                if avail <= needed:
+                    parts.append(front[self.chunk_offset:])
+                    collected += avail
+                    self.chunks.popleft()
+                    self.chunk_offset = 0
+                else:
+                    parts.append(front[self.chunk_offset:self.chunk_offset + needed])
+                    self.chunk_offset += needed
+                    collected += needed
+                    break
+            self.available_frames -= collected
+            self.not_full.notify_all()
+            if len(parts) == 1: return parts[0]
+            elif parts: return np.vstack(parts)
+            return np.zeros((0, 2), dtype=np.float32)
+
+    def _to_stereo(self, arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 1: return np.column_stack((arr, arr)).astype(np.float32)
+        elif arr.shape[1] == 1: return np.column_stack((arr[:, 0], arr[:, 0])).astype(np.float32)
+        elif arr.shape[1] > 2: return arr[:, :2].astype(np.float32)
+        return arr.astype(np.float32)
+
+class AudioFeederThread(threading.Thread):
+    """Background worker fetching ahead into prefetch buffer with retry and cloud stall tolerance."""
+    def __init__(self, source: AudioSource, audio_buffer: AudioPrefetchBuffer, engine: Any, chunk_frames: int = 16384):
+        super().__init__(name="AudioFeederThread", daemon=True)
+        self.source = source
+        self.audio_buffer = audio_buffer
+        self.engine = engine
+        self.chunk_frames = chunk_frames
+        self._running = True
+        self._seek_target: Optional[int] = None
+        self._seek_lock = threading.Lock()
+        self._wake_cond = threading.Condition(threading.Lock())
+        self.current_frame = 0
+
+    def request_seek(self, frame: int):
+        with self._seek_lock:
+            self._seek_target = frame
+        with self._wake_cond:
+            self._wake_cond.notify_all()
+        with self.audio_buffer.lock:
+            self.audio_buffer.not_full.notify_all()
+
+    def stop(self):
+        self._running = False
+        with self._wake_cond:
+            self._wake_cond.notify_all()
+        with self.audio_buffer.lock:
+            self.audio_buffer.not_full.notify_all()
+            self.audio_buffer.not_empty.notify_all()
+
+    def run(self):
+        read_chunk_size = self.chunk_frames
+        total_frames = self.source.total_frames()
+
+        while self._running:
+            seek_target = None
+            with self._seek_lock:
+                if self._seek_target is not None:
+                    seek_target = self._seek_target
+                    self._seek_target = None
+
+            if seek_target is not None:
+                try:
+                    self.source.seek(seek_target)
+                    self.current_frame = seek_target
+                    self.audio_buffer.clear()
+                except Exception as e:
+                    try: mp_log_error("MP_Audio_Player", f"Feeder seek error: {e}", e)
+                    except Exception: pass
+
+            if self.audio_buffer.available_frames >= self.audio_buffer.max_frames:
+                with self._wake_cond:
+                    self._wake_cond.wait(timeout=0.08)
+                continue
+
+            try:
+                chunk = self.source.read(read_chunk_size)
+            except Exception as e:
+                try: mp_log_error("MP_Audio_Player", f"Feeder read error: {e}", e)
+                except Exception: pass
+                time.sleep(0.2)
+                continue
+
+            if len(chunk) > 0:
+                self.current_frame = self.source.tell()
+                written = False
+                while self._running and not written and self._seek_target is None:
+                    written = self.audio_buffer.write(chunk, timeout=0.1)
+            else:
+                cur_pos = self.source.tell()
+                if total_frames > 0 and cur_pos < (total_frames - (read_chunk_size * 2)):
+                    time.sleep(0.2)
+                    continue
+
+                time.sleep(0.1)
+                try:
+                    verify_chunk = self.source.read(read_chunk_size)
+                except Exception:
+                    verify_chunk = np.zeros((0, 2), dtype=np.float32)
+
+                if len(verify_chunk) > 0:
+                    self.audio_buffer.write(verify_chunk)
+                    self.current_frame = self.source.tell()
+                    continue
+
+                self.audio_buffer.set_eof()
+                while self._running and self._seek_target is None:
+                    with self._wake_cond:
+                        self._wake_cond.wait(timeout=0.2)
+
 class AudioEngine:
     def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE"):
         _ensure_audio_backends()
@@ -745,6 +1128,9 @@ class AudioEngine:
         self.pitch_percent, self.pitch_factor = 0, 1.0
         self.resampler = AudioResampler()
         self.sf_file, self.stream = None, None
+        self.audio_source: Optional[AudioSource] = None
+        self.audio_buffer: Optional[AudioPrefetchBuffer] = None
+        self.feeder: Optional[AudioFeederThread] = None
         self.output_rate, self.output_device_name, self.stream_error = 44100, "", None
         self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
         self._next_stream_retry = 0.0
@@ -939,15 +1325,35 @@ class AudioEngine:
             try: old.close()
             except Exception: pass
 
+    def _stop_feeder(self):
+        f = getattr(self, "feeder", None)
+        if f:
+            self.feeder = None
+            try: f.stop()
+            except Exception: pass
+        b = getattr(self, "audio_buffer", None)
+        if b:
+            try: b.clear()
+            except Exception: pass
+        s = getattr(self, "audio_source", None)
+        if s:
+            self.audio_source = None
+            try: s.close()
+            except Exception: pass
+
     def load_track(self, index: int, start_playing: bool = True) -> bool:
         if not self.playlist or not (0 <= index < len(self.playlist)): return False
         self.current_index = index
         self.current_track = self.playlist[index]
+        self._stop_feeder()
         try:
-            new_sf = sf.SoundFile(self.current_track["path"])
-            self.sample_rate = new_sf.samplerate
-            self.channels = new_sf.channels
-            self.duration_sec = float(new_sf.frames) / float(self.sample_rate)
+            track_path = self.current_track["path"]
+            source = open_audio_source(track_path)
+            self.audio_source = source
+            self.sample_rate = source.samplerate
+            self.channels = source.channels
+            tot_fr = source.total_frames()
+            self.duration_sec = float(tot_fr) / float(self.sample_rate) if self.sample_rate > 0 else 0.0
             self.current_track["duration_sec"] = self.duration_sec
             self.current_track["duration_fmt"] = format_seconds(self.duration_sec)
             self.position_sec = 0.0
@@ -961,9 +1367,22 @@ class AudioEngine:
                     idx = np.array([min(len(freqs) - 1, max(0, int(self.band_edges[i] / (self.sample_rate / 2) * len(freqs))))])
                 self.band_indices.append(idx)
 
+            new_sf = getattr(source, "sf", source)
             with self._sf_lock:
                 old_sf, self.sf_file = self.sf_file, new_sf
             self._retire_sf(old_sf)
+
+            # Prefetch ring buffer: 12 seconds in RAM to absorb cloud network stalls
+            self.audio_buffer = AudioPrefetchBuffer(self.sample_rate, buffer_sec=12.0)
+            self.feeder = AudioFeederThread(self.audio_source, self.audio_buffer, self)
+            self.feeder.start()
+
+            # Pre-buffer initial frames so playback begins immediately and smoothly
+            min_prebuffer = int(0.5 * self.sample_rate)
+            t_start = time.time()
+            while (time.time() - t_start < 1.0) and (self.audio_buffer.available_frames < min_prebuffer) and not self.audio_buffer.eof:
+                time.sleep(0.04)
+
             self._ensure_stream()
             self.state = "playing" if start_playing else "paused"
             self._sync_state_file()
@@ -1005,35 +1424,30 @@ class AudioEngine:
             outdata.fill(0)
 
     def _render_audio(self, outdata, frames):
-        sf_ref = self._acquire_sf()
         try:
-            if sf_ref is None or self.state != "playing":
+            buf = getattr(self, "audio_buffer", None)
+            if buf is None or self.state != "playing":
                 outdata.fill(0)
                 return
 
-            if self.pending_seek_sec is not None:
-                seek_val, self.pending_seek_sec = self.pending_seek_sec, None
-                try:
-                    sf_ref.seek(max(0, min(int(seek_val * self.sample_rate), max(0, sf_ref.frames - 1))))
-                    self.position_sec = seek_val
-                    self.resampler.reset()
-                except Exception: pass
-
             out_rate = float(self.output_rate or 48000)
-            data = self.resampler.process(lambda n: sf_ref.read(n, dtype='float32'), frames, (float(self.sample_rate) / out_rate) * self.pitch_factor)
+            speed_ratio = (float(self.sample_rate) / out_rate) * self.pitch_factor
+            data = self.resampler.process(lambda n: buf.read(n), frames, speed_ratio)
             read_frames = len(data)
 
-            try:
-                told = int(sf_ref.tell())
-                at_end = told >= int(sf_ref.frames)
-                self.position_sec = min(self.duration_sec, float(told) / float(self.sample_rate))
-            except Exception:
-                at_end = False
+            feeder = getattr(self, "feeder", None)
+            if feeder and self.sample_rate > 0:
+                buffered = buf.available_frames
+                read_pos = feeder.current_frame
+                played = max(0, read_pos - buffered)
+                self.position_sec = min(self.duration_sec, float(played) / float(self.sample_rate))
+            else:
                 self.position_sec += float(max(read_frames, 0) * self.pitch_factor) / out_rate
 
             if read_frames <= 0:
                 outdata.fill(0)
-                if at_end: self.track_ended = True
+                if buf.eof and buf.is_empty():
+                    self.track_ended = True
                 return
 
             eff_vol = 0.0 if self.muted else self.volume
@@ -1045,7 +1459,7 @@ class AudioEngine:
                 stereo_data = np.ascontiguousarray(stereo_data * np.float32(eff_vol))
 
             ncopy = min(read_frames, frames, len(stereo_data))
-            if at_end and np.all(stereo_data[:ncopy] == 0):
+            if buf.eof and buf.is_empty() and np.all(stereo_data[:ncopy] == 0):
                 outdata.fill(0)
                 self.track_ended = True
                 return
@@ -1053,7 +1467,8 @@ class AudioEngine:
             outdata[:ncopy] = stereo_data[:ncopy]
             if ncopy < frames:
                 outdata[ncopy:].fill(0)
-                if at_end: self.track_ended = True
+                if buf.eof and buf.is_empty():
+                    self.track_ended = True
 
             if self.is_recording and self._rec_queue is not None and ncopy > 0:
                 try:
@@ -1062,8 +1477,9 @@ class AudioEngine:
                     pass
 
             self._compute_fft_spectrum(stereo_data[:ncopy], mono_data[:ncopy])
-        finally:
-            if sf_ref is not None: self._release_sf()
+        except Exception as exc:
+            self.stream_error = str(exc)
+            outdata.fill(0)
 
     def _compute_fft_spectrum(self, stereo_data: np.ndarray, mono_data: np.ndarray):
         try:
@@ -1134,7 +1550,8 @@ class AudioEngine:
             else: self.stop_playback()
 
     def play(self):
-        if not self.sf_file: self.load_track(self.current_index, True)
+        if not getattr(self, "audio_source", None) and not self.sf_file:
+            self.load_track(self.current_index, True)
         else:
             self.state = "playing"
             self._ensure_stream()
@@ -1143,6 +1560,7 @@ class AudioEngine:
     def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
     def stop_playback(self):
         self.state, self.position_sec = "stopped", 0.0
+        self._stop_feeder()
         if getattr(self, "bt_router", None):
             try: self.bt_router.stop()
             except Exception: pass
@@ -1223,7 +1641,12 @@ class AudioEngine:
 
     def seek(self, target_sec: float):
         if self.duration_sec > 0:
-            self.pending_seek_sec = self.position_sec = max(0.0, min(self.duration_sec - 1.0, target_sec))
+            target = max(0.0, min(self.duration_sec - 1.0, float(target_sec)))
+            self.position_sec = target
+            feeder = getattr(self, "feeder", None)
+            if feeder and self.sample_rate > 0:
+                feeder.request_seek(int(target * self.sample_rate))
+            self.resampler.reset()
 
     def seek_relative(self, delta_sec: float): self.seek(self.position_sec + delta_sec)
     def set_volume(self, vol_pct: int):
@@ -1469,12 +1892,13 @@ class PlayerIPCServer:
             elif cmd == "play":
                 f = req.get("file")
                 if f:
-                    for i, t in enumerate(self.engine.playlist):
-                        if t["path"] == f or t["name"] == os.path.basename(f):
-                            self.engine.load_track(i, True); break
-                    else:
-                        self.engine.playlist.insert(0, {"name": os.path.basename(f), "path": f, "size_mb": 0, "mtime": time.time(), "ext": os.path.splitext(f)[1][1:].upper()})
+                    def _load_bg(target_f):
+                        for i, t in enumerate(self.engine.playlist):
+                            if t["path"] == target_f or t["name"] == os.path.basename(target_f):
+                                self.engine.load_track(i, True); return
+                        self.engine.playlist.insert(0, {"name": os.path.basename(target_f), "path": target_f, "size_mb": 0, "mtime": time.time(), "ext": os.path.splitext(target_f)[1][1:].upper()})
                         self.engine.load_track(0, True)
+                    threading.Thread(target=_load_bg, args=(f,), daemon=True).start()
                 else: self.engine.play()
             elif cmd == "pause": self.engine.pause()
             elif cmd in ("toggle", "play_pause"):
@@ -1621,7 +2045,7 @@ def send_ipc_command(cmd: str, **kwargs) -> Optional[Dict[str, Any]]:
     for _ in range(3):
         try:
             s = socket.socket(socket.AF_UNIX if has_unix else socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.5)
+            s.settimeout(2.0)
             s.connect(str(SOCKET_PATH) if has_unix else ("127.0.0.1", int(PORT_FILE.read_text().strip())))
             payload = {"cmd": cmd, **kwargs}
             s.sendall(json.dumps(payload).encode('utf-8'))
@@ -2476,25 +2900,25 @@ class EqualizerVisualizer:
             treble = float(np.mean(levels[14:])) if len(levels) >= 15 else rms * 0.4
             dyn_amp = max(0.25, min(1.0, rms * 2.2 + (float(np.max(levels)) * 0.8 if len(levels) else 0.0)))
 
-            sweep_bass = now * (9.0 * pitch_mul)
-            sweep_mid = now * (19.0 * pitch_mul)
-            sweep_treble = now * (37.0 * pitch_mul)
+            sweep_bass = now * (3.5 * pitch_mul)
+            sweep_mid = now * (6.0 * pitch_mul)
+            sweep_treble = now * (10.0 * pitch_mul)
 
-            synth_w1 = np.sin(x_dst * (3.0 * math.pi) - sweep_bass) * (0.55 * max(0.2, bass))
-            synth_w2 = np.sin(x_dst * (8.0 * math.pi) + sweep_mid) * (0.35 * max(0.1, mid))
-            synth_w3 = np.sin(x_dst * (18.0 * math.pi) - sweep_treble) * (0.20 * max(0.05, treble))
-            synth_pts = (synth_w1 + synth_w2 + synth_w3) * dyn_amp * 1.6
+            synth_w1 = np.sin(x_dst * (2.0 * math.pi) - sweep_bass) * (0.60 * max(0.2, bass))
+            synth_w2 = np.sin(x_dst * (4.0 * math.pi) + sweep_mid) * (0.28 * max(0.1, mid))
+            synth_w3 = np.sin(x_dst * (6.0 * math.pi) - sweep_treble) * (0.14 * max(0.05, treble))
+            synth_pts = np.clip((synth_w1 + synth_w2 + synth_w3) * dyn_amp * 1.5, -0.98, 0.98)
 
             if has_live_pcm:
                 x_src = np.linspace(0.0, 1.0, len(wf_arr))
                 pcm_interp = np.interp(x_dst, x_src, wf_arr)
                 max_abs = max(0.15, float(np.max(np.abs(pcm_interp))))
                 pcm_scaled = (pcm_interp / max_abs) * min(1.0, max(0.25, rms * 2.0))
-                pts = 0.65 * pcm_scaled + 0.35 * synth_pts
+                pts = np.clip(0.65 * pcm_scaled + 0.35 * synth_pts, -0.98, 0.98)
             else:
                 pts = synth_pts
         elif state == "paused":
-            pts = np.sin(x_dst * (4.0 * math.pi) + now * 1.2) * 0.12
+            pts = np.sin(x_dst * (2.0 * math.pi) + now * 1.2) * 0.18
         else:
             pts = np.zeros(iw)
 
@@ -2529,7 +2953,7 @@ class EqualizerVisualizer:
                 else:
                     is_tick = ((i - center_x) % 10 == 0)
                     if r == 0:
-                        ch = "┼" if is_tick else "─"
+                        ch = "┼" if is_tick else "·"
                         row_chars.append(f"{DIM}{ch}{NC}")
                     elif is_tick:
                         row_chars.append(f"{DIM}·{NC}")
@@ -2537,7 +2961,7 @@ class EqualizerVisualizer:
                         row_chars.append(" ")
 
             row_content = "".join(row_chars)
-            lines.append(f"  │  {row_content}  │")
+            lines.append(f"  {BOLD}{MAGENTA}│{NC}  {row_content}  {BOLD}{MAGENTA}│{NC}")
 
         lines.append(bot_line)
         return lines
@@ -2842,8 +3266,14 @@ class TerminalPlayerUI:
 
         # Background Track Duration Resolver (MUSIC Mode)
         self._duration_cache: Dict[str, str] = {}
+        if DURATION_CACHE_FILE.exists():
+            try:
+                loaded = json.loads(DURATION_CACHE_FILE.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    self._duration_cache.update(loaded)
+            except Exception: pass
         self._duration_queue: Optional[queue.Queue] = None
-        self._duration_in_queue: set = set()
+        self._duration_in_queue: set = set(self._duration_cache.keys())
         self._duration_worker_started = False
 
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
@@ -2856,6 +3286,13 @@ class TerminalPlayerUI:
                               "waveform": [0.0]*80,
                               "rms_level": 0.0, "peak_db": -60.0}
 
+    def _save_duration_cache(self):
+        try:
+            tmp = DURATION_CACHE_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self._duration_cache), encoding="utf-8")
+            tmp.replace(DURATION_CACHE_FILE)
+        except Exception: pass
+
     def _start_duration_worker(self):
         if self._duration_worker_started:
             return
@@ -2864,6 +3301,7 @@ class TerminalPlayerUI:
 
         def _worker():
             _ensure_audio_backends()
+            last_save = time.time()
             while self.running:
                 try:
                     if not self._duration_queue:
@@ -2874,14 +3312,21 @@ class TerminalPlayerUI:
                 path, m_ref = item
                 if path in self._duration_cache:
                     continue
+                if self.engine and getattr(self.engine, "state", "") == "playing" and is_cloud_or_remote_path(path):
+                    time.sleep(0.08)
                 try:
                     if sf is not None and os.path.isfile(path):
+                        if is_cloud_or_remote_path(path):
+                            time.sleep(0.12)
                         info = sf.info(path)
                         dfmt = format_seconds(info.duration)
                         self._duration_cache[path] = dfmt
                         if isinstance(m_ref, dict):
                             m_ref["duration_fmt"] = dfmt
                             m_ref["duration_sec"] = info.duration
+                        if time.time() - last_save > 5.0:
+                            self._save_duration_cache()
+                            last_save = time.time()
                     else:
                         self._duration_cache[path] = "00:00"
                 except Exception:
@@ -2889,6 +3334,7 @@ class TerminalPlayerUI:
                 finally:
                     if self._duration_queue:
                         self._duration_queue.task_done()
+            self._save_duration_cache()
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
@@ -3805,7 +4251,8 @@ def _install_windows_console_close():
     k.SetConsoleCtrlHandler(cb, 1)
 
 def main():
-    parser = argparse.ArgumentParser(description="MP Audio Player - High Resolution Playback & Custom Animated Equalizer")
+    parser = argparse.ArgumentParser(description=f"MP Audio Player (MP Mix Manager v{VERSION}) - High Resolution Playback & Custom Animated Equalizer")
+    parser.add_argument("--version", "-v", action="version", version=f"MP Audio Player (MP Mix Manager v{VERSION})")
     parser.add_argument("file", nargs="?", help="Audio file path to play immediately")
     parser.add_argument("--daemon", action="store_true", help="Run as headless background audio daemon")
     parser.add_argument("--interactive", "-i", action="store_true", help="Launch interactive TUI player")

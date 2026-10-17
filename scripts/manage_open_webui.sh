@@ -217,48 +217,88 @@ update_open_webui() {
     press_enter
 }
 
-while true; do
-    find_webui_port_and_pids
-    clear
-    echo -e "${BOLD}${MAGENTA}==================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}             OPEN WEBUI SERVER MANAGER            ${NC}"
-    echo -e "${BOLD}${MAGENTA}==================================================${NC}"
-if [ "$WEBUI_RUNNING" = "true" ]; then
-        pid_str=""
-        [ -n "$WEBUI_PIDS" ] && pid_str=" (PID: ${WEBUI_PIDS% })"
-        echo -e "  Server Status:  ${BOLD}${GREEN}● RUNNING${NC} on http://localhost:${WEBUI_PORT}${pid_str}"
-    else
-        echo -e "  Server Status:  ${BOLD}${RED}○ STOPPED${NC}"
-    fi
-    echo -e "  Data Directory: ${CYAN}X:\OPENWEBUI\data${NC}"
-    echo -e "  Ollama URL:     ${CYAN}http://127.0.0.1:11434${NC}"
-    echo ""
-    echo -e "${BOLD}Select an Open WebUI Operation:${NC}"
-    echo -e "  ${BOLD}${CYAN}1)${NC} Open in Web Browser (${GREEN}http://localhost:${WEBUI_PORT}${NC})"
-    echo -e "  ${BOLD}${CYAN}2)${NC} Start Server (${GREEN}start_openwebui.bat / conda env${NC})"
-    echo -e "  ${BOLD}${CYAN}3)${NC} Stop Server (${RED}taskkill / stop${NC})"
-    echo -e "  ${BOLD}${CYAN}4)${NC} Restart Server"
-    echo -e "  ${BOLD}${CYAN}5)${NC} View Server Logs / Console Output"
-    echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates"
-    echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
-    echo ""
-    read -r -p "Enter choice [0-6]: " ow_opt
+interactive_menu() {
+    while true; do
+        find_webui_port_and_pids
+        clear
+        echo -e "${BOLD}${MAGENTA}==================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}             OPEN WEBUI SERVER MANAGER            ${NC}"
+        echo -e "${BOLD}${MAGENTA}==================================================${NC}"
+        if [ "$WEBUI_RUNNING" = "true" ]; then
+            pid_str=""
+            [ -n "$WEBUI_PIDS" ] && pid_str=" (PID: ${WEBUI_PIDS% })"
+            echo -e "  Server Status:  ${BOLD}${GREEN}● RUNNING${NC} on http://localhost:${WEBUI_PORT}${pid_str}"
+        else
+            echo -e "  Server Status:  ${BOLD}${RED}○ STOPPED${NC}"
+        fi
+        echo -e "  Data Directory: ${CYAN}X:\OPENWEBUI\data${NC}"
+        echo -e "  Ollama URL:     ${CYAN}http://127.0.0.1:11434${NC}"
+        echo ""
+        echo -e "${BOLD}Select an Open WebUI Operation:${NC}"
+        echo -e "  ${BOLD}${CYAN}1)${NC} Open in Web Browser (${GREEN}http://localhost:${WEBUI_PORT}${NC})"
+        echo -e "  ${BOLD}${CYAN}2)${NC} Start Server (${GREEN}start_openwebui.bat / conda env${NC})"
+        echo -e "  ${BOLD}${CYAN}3)${NC} Stop Server (${RED}taskkill / stop${NC})"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Restart Server"
+        echo -e "  ${BOLD}${CYAN}5)${NC} View Server Logs / Console Output"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Check / Install Open WebUI Updates"
+        echo -e "  ${BOLD}${CYAN}0)${NC} Return to Main Menu"
+        echo ""
+        read -r -p "Enter choice [0-6]: " ow_opt
 
-case "$ow_opt" in
-        1) open_webui_browser ;;
-        2) start_open_webui ;;
-        3) stop_open_webui ;;
-        4)
-            stop_open_webui
-            sleep 1
-            start_open_webui
-            ;;
-        5) view_webui_logs ;;
-        6) update_open_webui ;;
-        0|[qQ]|"") break ;;
-        *)
-            echo -e "\n${RED}Invalid option!${NC}"
-            sleep 1
-            ;;
-    esac
-done
+        case "$ow_opt" in
+            1) open_webui_browser ;;
+            2) start_open_webui ;;
+            3) stop_open_webui ;;
+            4)
+                stop_open_webui
+                sleep 1
+                start_open_webui
+                ;;
+            5) view_webui_logs ;;
+            6) update_open_webui ;;
+            0|[qQ]|"") break ;;
+            *)
+                echo -e "\n${RED}Invalid option!${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+case "${1:-}" in
+    open|web|browser|dashboard)
+        open_webui_browser
+        ;;
+    start)
+        start_open_webui
+        ;;
+    stop)
+        stop_open_webui
+        ;;
+    restart)
+        stop_open_webui
+        sleep 1
+        start_open_webui
+        ;;
+    logs)
+        view_webui_logs
+        ;;
+    update)
+        update_open_webui
+        ;;
+    status)
+        find_webui_port_and_pids
+        if [ "$WEBUI_RUNNING" = "true" ]; then
+            echo -e "Open WebUI is running on http://localhost:${WEBUI_PORT}"
+        else
+            echo "Open WebUI is stopped"
+        fi
+        ;;
+    "")
+        interactive_menu
+        ;;
+    *)
+        echo "Usage: $(basename "$0") {open|start|stop|restart|logs|update|status}"
+        exit 1
+        ;;
+esac

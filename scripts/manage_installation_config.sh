@@ -21,6 +21,16 @@ DIM='\033[2m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${VERSION:-}" ]; then
+    if [ -f "$SCRIPT_DIR/VERSION" ]; then
+        VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"
+    elif [ -f "$SCRIPT_DIR/../VERSION" ]; then
+        VERSION="$(head -n 1 "$SCRIPT_DIR/../VERSION" | tr -d '\r\n')"
+    else
+        VERSION="0.3.6 Beta"
+    fi
+fi
+export VERSION
 BACKUP_BASE_DIR="$HOME/.config/mix-manager/backups"
 EXPORT_BASE_DIR="$HOME/.config/mix-manager/exports"
 mkdir -p "$BACKUP_BASE_DIR" "$EXPORT_BASE_DIR" 2>/dev/null || true
@@ -160,7 +170,7 @@ migrate_installation_path() {
     echo -e "\n${BOLD}${BLUE}Updating System Symlinks & Desktop Entries...${NC}"
     mkdir -p "$HOME/.local/bin"
     
-    ln -sf "$target_dir/bin/cliamp" "$HOME/.local/bin/cliamp" 2>/dev/null || true
+    [ -f "$target_dir/bin/cliamp" ] && ln -sf "$target_dir/bin/cliamp" "$HOME/.local/bin/cliamp" 2>/dev/null || true
     ln -sf "$target_dir/bin/mix-archive-manager" "$HOME/.local/bin/mix-archive-manager" 2>/dev/null || true
     ln -sf "$target_dir/bin/mix-archive-manager" "$HOME/.local/bin/manager" 2>/dev/null || true
     ln -sf "$target_dir/bin/launch-manager-fullscreen" "$HOME/.local/bin/launch-manager-fullscreen" 2>/dev/null || true
@@ -256,7 +266,7 @@ backup_current_config() {
     python3 -c "
 import json, sys, os, datetime
 data = {
-    'version': 'MP_Mix_Manager_v0.3',
+    'version': 'MP_Mix_Manager_v${VERSION#v}',
     'backup_type': 'local_snapshot',
     'timestamp': '$timestamp',
     'iso_date': datetime.datetime.now().isoformat(),
@@ -333,7 +343,7 @@ export_config_bundle() {
 import json, os, datetime
 data = {
     'archive_type': 'mix_archive_manager_config_bundle',
-    'app_version': 'MP_Mix_Manager_v0.3',
+    'app_version': 'MP_Mix_Manager_v${VERSION#v}',
     'export_timestamp': '$timestamp',
     'iso_date': datetime.datetime.now().isoformat(),
     'hostname': os.uname().nodename,

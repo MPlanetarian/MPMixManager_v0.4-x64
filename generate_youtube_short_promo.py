@@ -5,7 +5,23 @@ Generates a 1080x1920 vertical video (42s) showcasing major features with Dreamw
 neon visuals, optimized for low-spec systems via cached canvases & hardware acceleration.
 """
 import argparse, glob, os, subprocess, tempfile, time
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
 
 W, H, FPS, DUR = 1080, 1920, 30, 42.0
 BG, CARD, BORDER = (13, 15, 24), (21, 25, 40), (45, 53, 85)
@@ -59,7 +75,7 @@ def build_slides(tmpdir, cover_path):
     im0 = base.copy()
     d0 = ImageDraw.Draw(im0)
     round_box(d0, [W // 2 - 240, 140, W // 2 + 240, 200], 30, (PINK[0], PINK[1], PINK[2], 50), PINK, 2)
-    d0.text((W // 2, 170), "🔥 MAJOR RELEASE • v0.3.7 Beta", font=f_badge, fill=PINK, anchor="mm")
+    d0.text((W // 2, 170), f"🔥 MAJOR RELEASE • v{VERSION}", font=f_badge, fill=PINK, anchor="mm")
     d0.text((W // 2, 280), "MP MIX ARCHIVE", font=f_t1, fill=WHITE, anchor="mm")
     d0.text((W // 2, 360), "MANAGER", font=f_t1, fill=CYAN, anchor="mm")
     d0.text((W // 2, 430), "THE ULTIMATE DJ & AUDIO WORKSTATION", font=f_cap, fill=DIM, anchor="mm")
@@ -134,7 +150,7 @@ def build_slides(tmpdir, cover_path):
     round_box(d6, [W // 2 - 200, 160, W // 2 + 200, 225], 32, (GOLD[0], GOLD[1], GOLD[2], 40), GOLD, 2)
     d6.text((W // 2, 192), "🚀 AVAILABLE NOW", font=f_badge, fill=GOLD, anchor="mm")
     d6.text((W // 2, 310), "MP MIX MANAGER", font=f_t1, fill=WHITE, anchor="mm")
-    d6.text((W // 2, 390), "VERSION 0.3.7 BETA", font=f_t1, fill=CYAN, anchor="mm")
+    d6.text((W // 2, 390), f"VERSION {VERSION.upper()}", font=f_t1, fill=CYAN, anchor="mm")
     round_box(d6, [W // 2 - 290, 470, W // 2 + 290, 1050], 24, CARD, PINK, 3)
     paste_cover(im6, (W // 2 - 280, 480), (560, 560))
     round_box(d6, [80, 1120, W - 80, 1680], 32, CARD, BORDER, 2)
@@ -199,10 +215,10 @@ def encode_video(slides, audio, out_path, dur=42.0):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Generate YouTube Shorts Promo Video for MP Mix Manager v0.3.7 Beta")
+    p = argparse.ArgumentParser(description=f"Generate YouTube Shorts Promo Video for MP Mix Manager v{VERSION}")
     p.add_argument("--audio", "-a", default="/run/media/mplanetarian/DATA/Sensorium Interface/MPlanetarian - Stream of Frequency 074.wav")
     p.add_argument("--cover", "-c", default="Cover.png")
-    p.add_argument("--output", "-o", default="MP_Mix_Manager_v0.3.7_New_Features_YouTube_Short.mp4")
+    p.add_argument("--output", "-o", default=f"MP_Mix_Manager_v{VERSION.replace(' ', '_')}_New_Features_YouTube_Short.mp4")
     args = p.parse_args()
 
     cover = args.cover if os.path.isfile(args.cover) else ("assets/Cover.png" if os.path.isfile("assets/Cover.png") else "")
@@ -210,7 +226,7 @@ def main():
     t0 = time.time()
     print("\n======================================================================")
     print("  🎥 YOUTUBE SHORTS PROMO GENERATOR (1080x1920 VERTICAL)")
-    print("  MPlanetarian Dreamworlds Edition • MP Mix Archive Manager v0.3.7 Beta")
+    print(f"  MPlanetarian Dreamworlds Edition • MP Mix Archive Manager v{VERSION}")
     print("======================================================================\n")
     with tempfile.TemporaryDirectory() as td:
         print("[•] Step 1: Generating high-resolution vertical Dreamworlds slide graphics...")

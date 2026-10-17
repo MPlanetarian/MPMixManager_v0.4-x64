@@ -6,6 +6,7 @@ Uses ReportLab Platypus to construct a print-ready vector PDF manual.
 
 import os
 import sys
+from pathlib import Path
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
@@ -13,6 +14,21 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
 from reportlab.pdfgen import canvas
 
 class NumberedCanvas(canvas.Canvas):
@@ -204,7 +220,7 @@ def build_pdf(filename="MPlanetarian_MP_Mix_Manager_v0.3_Manual.pdf"):
 
     story.append(Spacer(1, 16))
     story.append(Paragraph("MP Mix Archive Manager", title_style))
-    story.append(Paragraph("v0.3.0 Standard Reference Manual", ParagraphStyle('V', parent=title_style, fontSize=14, leading=18, textColor=c_accent)))
+    story.append(Paragraph(f"v{VERSION} Standard Reference Manual", ParagraphStyle('V', parent=title_style, fontSize=14, leading=18, textColor=c_accent)))
     story.append(Spacer(1, 10))
     story.append(Paragraph("Cross-Platform Media Orchestration Console & Lossless FLAC Mastering Suite", subtitle_style))
     story.append(Spacer(1, 12))
@@ -219,7 +235,7 @@ def build_pdf(filename="MPlanetarian_MP_Mix_Manager_v0.3_Manual.pdf"):
     story.append(Paragraph("System Architecture & Highlights", h1_style))
     story.append(HRFlowable(width="100%", thickness=1, color=c_accent, spaceBefore=2, spaceAfter=8))
     story.append(Paragraph(
-        "<bMP >Mix Archive Manager (MP_Mix_Manager_v0.3.6 Beta)</b> is a professional workstation orchestration console designed for high-resolution audio mastering, multi-hour DJ recording curation, Traktor Pro library management, live stream monitoring, and local AI workflow automation across Linux, macOS, Windows, and FreeBSD.",
+        f"<b>MP Mix Archive Manager (MP_Mix_Manager_v{VERSION})</b> is a professional workstation orchestration console designed for high-resolution audio mastering, multi-hour DJ recording curation, Traktor Pro library management, live stream monitoring, and local AI workflow automation across Linux, macOS, Windows, and FreeBSD.",
         body_style
     ))
     story.append(Spacer(1, 10))

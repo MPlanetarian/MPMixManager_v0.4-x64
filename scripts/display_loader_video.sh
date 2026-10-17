@@ -7,6 +7,15 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+if [ -z "${VERSION:-}" ]; then
+    if [ -f "$SCRIPT_DIR/VERSION" ]; then
+        VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"
+    else
+        VERSION="0.3.6 Beta"
+    fi
+fi
+export VERSION
+
 # ANSI Color definitions
 NC='\033[0m'
 BOLD='\033[1m'
@@ -117,7 +126,7 @@ display_startup_loader_video() {
     local h_border
     printf -v h_border '%*s' "$inner_w" ''
     h_border="${h_border// /─}"
-    local title="MP Mix Archive Manager (v0.3.6 Beta)"
+    local title="MP Mix Archive Manager (v${VERSION#v})"
     local sub="⚡ Loading workspace, archive statistics & environment..."
     local hint="Press [Esc], [Space], [Enter] or [q] to skip intro"
 

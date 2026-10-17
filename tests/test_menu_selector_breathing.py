@@ -48,6 +48,11 @@ class TestMenuBreathingAndTraktor(unittest.TestCase):
         # Check that 20 contains dimmed color ~49;7;26
         self.assertIn("49;7;26", line_20)
 
+        # Verify that bracketed extra text is never rendered during fading/breathing
+        self.assertNotIn("Extra", line_100)
+        self.assertNotIn("Extra", line_50)
+        self.assertNotIn("Extra", line_20)
+
     def test_idle_10_seconds_breathing_trigger_present(self):
         """Verifies that Mix_Archive_Manager.sh contains the 10-second idle breathing logic."""
         content = MGR_SH.read_text(encoding="utf-8", errors="replace")

@@ -24,8 +24,17 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
 unset _RESOLVED_SRC _RESOLVED_DIR
 
+if [ -z "${VERSION:-}" ]; then
+    if [ -f "$SCRIPT_DIR/VERSION" ]; then
+        VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"
+    else
+        VERSION="0.3.6 Beta"
+    fi
+fi
+export VERSION
+
 echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
-echo -e "${BOLD}${MAGENTA}        MP Mix Archive Manager Installer (MP_Mix_Manager_v0.3.6 Beta)           ${NC}"
+echo -e "${BOLD}${MAGENTA}        MP Mix Archive Manager Installer (MP_Mix_Manager_v${VERSION#v})           ${NC}"
 echo -e "${BOLD}${MAGENTA}          Cross-Platform: Linux • macOS • Windows 10 & 11                       ${NC}"
 echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
 echo ""

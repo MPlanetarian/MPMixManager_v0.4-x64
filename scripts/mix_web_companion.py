@@ -24,6 +24,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 PORT = 8888
 
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
+
 # ------------------------------------------------------------------------------
 # THEME ENGINE — Palettes matching Mix_Archive_Manager.sh
 # ------------------------------------------------------------------------------
@@ -74,7 +89,7 @@ THEMES: Dict[str, Dict[str, Any]] = {
     },
     "dreamworlds_ultra": {
         "id": "dreamworlds_ultra",
-        "name": "Dreamworlds Ultra MP Mix Manager",
+        "name": "MP Mix Archive Manager (Dreamworlds Ultra)",
         "bg": "#000000",
         "card_bg": "#110e20",
         "card_border": "rgba(166, 77, 255, 0.38)",
@@ -345,6 +360,7 @@ THEME_ALIASES: Dict[str, str] = {
     "ultra": "dreamworlds_ultra",
     "dreamworlds ultra": "dreamworlds_ultra",
     "dreamworlds_ultra_mp_mix_manager": "dreamworlds_ultra",
+    "mp mix archive manager (dreamworlds ultra)": "dreamworlds_ultra",
     "cosmic": "cosmic_supernova",
     "supernova": "cosmic_supernova",
     "cosmic supernova": "cosmic_supernova",
@@ -587,10 +603,15 @@ def find_tracklist_for_mix(mix_file: str) -> str:
     return ""
 
 
+_parsed_tracklist_cache: Dict[str, Dict[str, Any]] = {}
+
+
 def parse_tracklist_file(tracklist_path: str) -> Dict[str, Any]:
     """Parse artist, title, album, and track items from tracklist .txt."""
     if not tracklist_path or not os.path.isfile(tracklist_path):
         return {"metadata": {}, "tracks": []}
+    if tracklist_path in _parsed_tracklist_cache:
+        return _parsed_tracklist_cache[tracklist_path]
     try:
         with open(tracklist_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
@@ -619,7 +640,9 @@ def parse_tracklist_file(tracklist_path: str) -> Dict[str, Any]:
             else:
                 if re.match(r'^\d{1,3}[\.\:\-]\s+', s):
                     tracks.append(s)
-        return {"metadata": metadata, "tracks": tracks}
+        parsed = {"metadata": metadata, "tracks": tracks}
+        _parsed_tracklist_cache[tracklist_path] = parsed
+        return parsed
     except Exception:
         return {"metadata": {}, "tracks": []}
 
@@ -656,6 +679,36 @@ def clean_track_title(raw_title: str, raw_path: str, tl_meta: Dict[str, str]) ->
 # ------------------------------------------------------------------------------
 # STATUS & PLAYBACK ENGINE
 # ------------------------------------------------------------------------------
+def get_eq_status() -> Dict[str, Any]:
+    """Ultra-lightweight real-time visualizer and status telemetry (<1ms)."""
+    mp_active, mp_data = is_mp_player_active()
+    if mp_active and mp_data:
+        return {
+            "state": str(mp_data.get("state", "stopped")).lower(),
+            "position": str(mp_data.get("position_fmt", "00:00")),
+            "duration": str(mp_data.get("duration_fmt", "--:--")),
+            "progress_pct": float(mp_data.get("progress_pct", 0.0)),
+            "volume": int(mp_data.get("volume", 85)),
+            "pitch_percent": int(mp_data.get("pitch_percent", 0)),
+            "shuffle": bool(mp_data.get("shuffle", False)),
+            "repeat": str(mp_data.get("repeat", "all")),
+            "levels": mp_data.get("levels", [0.0] * 24),
+            "peaks": mp_data.get("peaks", [0.0] * 24),
+        }
+    return {
+        "state": "stopped",
+        "position": "00:00",
+        "duration": "--:--",
+        "progress_pct": 0.0,
+        "volume": 85,
+        "pitch_percent": 0,
+        "shuffle": False,
+        "repeat": "all",
+        "levels": [0.0] * 24,
+        "peaks": [0.0] * 24,
+    }
+
+
 def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
     """Query player status prioritizing MP Audio Player, then MPRIS/playerctl, then Audacious."""
     active_theme = get_theme_palette(cli_theme)
@@ -678,6 +731,8 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
         "volume": 85,
         "pitch_percent": 0,
         "pitch_factor": 1.0,
+        "shuffle": False,
+        "repeat": "all",
         "levels": [0.0] * 24,
         "peaks": [0.0] * 24,
         "mini_eq": "",
@@ -703,6 +758,8 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
         status["volume"] = int(mp_data.get("volume", 85))
         status["pitch_percent"] = int(mp_data.get("pitch_percent", 0))
         status["pitch_factor"] = float(mp_data.get("pitch_factor", 1.0))
+        status["shuffle"] = bool(mp_data.get("shuffle", False))
+        status["repeat"] = str(mp_data.get("repeat", "all"))
         status["levels"] = mp_data.get("levels", [0.0] * 24)
         status["peaks"] = mp_data.get("peaks", [0.0] * 24)
         status["mini_eq"] = str(mp_data.get("mini_eq", ""))
@@ -738,6 +795,11 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
             status["player"] = "MPRIS / playerctl"
             status["position"] = f"{int(p_pos // 60):02d}:{int(p_pos % 60):02d}"
             status["position_sec"] = p_pos
+            try:
+                shuf_out = subprocess.check_output(["playerctl", "shuffle"], stderr=subprocess.DEVNULL).decode('utf-8').strip().lower()
+                status["shuffle"] = (shuf_out == "on")
+            except Exception:
+                pass
             return status
         except Exception:
             pass
@@ -773,6 +835,10 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
             return send_mp_player_command("next")
         elif action in ("previous", "prev"):
             return send_mp_player_command("prev")
+        elif action in ("shuffle", "toggle_shuffle"):
+            return send_mp_player_command("shuffle")
+        elif action in ("repeat", "cycle_repeat"):
+            return send_mp_player_command("repeat")
         elif action == "seek_forward":
             return send_mp_player_command("seek", seconds=30.0)
         elif action == "seek_backward":
@@ -803,6 +869,12 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
     if shutil.which("playerctl"):
         if action in ["play-pause", "play", "pause", "next", "previous"]:
             subprocess.run(["playerctl", action], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        elif action in ("shuffle", "toggle_shuffle"):
+            subprocess.run(["playerctl", "shuffle", "Toggle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        elif action in ("repeat", "cycle_repeat"):
+            subprocess.run(["playerctl", "loop", "Track"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         elif action == "seek_forward":
             subprocess.run(["playerctl", "position", "30+"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -968,26 +1040,47 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         /* Visualizer */
         .visualizer-container {{
             width: 100%;
-            height: 48px;
+            height: 56px;
             display: flex;
             align-items: flex-end;
             justify-content: center;
             gap: 3px;
             margin: 12px 0 16px 0;
-            padding: 0 4px;
-            background: rgba(0, 0, 0, 0.25);
+            padding: 4px 6px;
+            background: rgba(0, 0, 0, 0.35);
             border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+            position: relative;
         }}
-        .v-bar {{
+        .v-col {{
             flex: 1;
             max-width: 14px;
-            height: 4%;
-            background: var(--eq-bar);
-            border-radius: 2px 2px 0 0;
-            transition: height 0.08s ease-out;
-            box-shadow: 0 0 5px var(--eq-bar);
+            height: 100%;
+            display: flex;
+            align-items: flex-end;
             position: relative;
+        }}
+        .v-bar {{
+            width: 100%;
+            height: 4%;
+            background: linear-gradient(180deg, var(--eq-peak) 0%, var(--eq-bar) 28%, var(--accent-primary) 100%);
+            border-radius: 2px 2px 0 0;
+            box-shadow: 0 0 6px var(--eq-bar);
+            will-change: height;
+            position: relative;
+        }}
+        .v-peak {{
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--eq-peak);
+            border-radius: 1px;
+            box-shadow: 0 0 6px var(--eq-peak);
+            bottom: 4%;
+            will-change: bottom;
+            pointer-events: none;
         }}
         /* Progress Bar */
         .progress-box {{
@@ -1028,6 +1121,79 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             gap: 10px;
             width: 100%;
             margin-top: 8px;
+        }}
+        .mode-controls-row {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            margin-top: 10px;
+        }}
+        .btn-mode {{
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 12px;
+            font-size: 0.84rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-dim);
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }}
+        .btn-mode.active {{
+            background: var(--badge-bg);
+            color: var(--text-main);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 12px var(--badge-bg);
+            font-weight: 800;
+        }}
+        .btn-mode.active .mode-icon {{
+            transform: scale(1.18);
+        }}
+        .mode-icon {{
+            font-size: 1rem;
+            display: inline-block;
+            transition: transform 0.2s ease;
+        }}
+        .badge-shuffle {{
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-dim);
+            border-color: rgba(255, 255, 255, 0.12);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        .badge-shuffle.active {{
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            border-color: var(--badge-color);
+            box-shadow: 0 0 10px var(--badge-bg);
+            font-weight: 800;
+        }}
+        .shortcuts-hint {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            margin-top: 12px;
+            opacity: 0.8;
+            user-select: none;
+        }}
+        .shortcuts-hint kbd, .btn-mode kbd {{
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            padding: 1px 4px;
+            font-family: inherit;
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--accent-tertiary);
         }}
         button {{
             background: rgba(255, 255, 255, 0.07);
@@ -1152,7 +1318,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 </head>
 <body>
     <div class="header">
-        <h1>MP MIX MANAGER</h1>
+        <h1>MP MIX MANAGER <span style="font-size: 0.45em; opacity: 0.75; font-weight: normal; vertical-align: middle;">v{html.escape(VERSION)}</span></h1>
         <p>Studio & DJ Booth Mobile Companion</p>
         <div id="themeBadge" class="theme-pill">🎨 {html.escape(t['name'])}</div>
     </div>
@@ -1160,6 +1326,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     <div class="card now-playing">
         <div class="badges-row">
             <div id="playBadge" class="badge">STANDBY</div>
+            <div id="shuffleBadge" class="badge badge-shuffle" onclick="sendAction('shuffle')" title="Click or Press 'S' to Toggle Shuffle">🔀 SHUFFLE OFF</div>
             <div id="sourceBadge" class="badge badge-source">CHECKING...</div>
         </div>
 
@@ -1173,9 +1340,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             </div>
         </div>
 
-        <!-- 24-Bar Audio Visualizer -->
+        <!-- 24-Bar Audio Visualizer with Peak Hold Physics -->
         <div class="visualizer-container" id="visContainer">
-            {"".join(f'<div class="v-bar" id="vb{i}"></div>' for i in range(24))}
+            {"".join(f'<div class="v-col"><div class="v-bar" id="vb{i}"></div><div class="v-peak" id="vp{i}"></div></div>' for i in range(24))}
         </div>
 
         <!-- Progress & Time -->
@@ -1191,27 +1358,45 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 
         <!-- Primary Controls -->
         <div class="controls-row">
-            <button class="btn-sub" onclick="sendAction('seek_backward')" title="Rewind 30s">⏪ 30s</button>
-            <button onclick="sendAction('previous')" title="Previous Track">⏮</button>
-            <button class="btn-main" id="btnPlayPause" onclick="sendAction('play-pause')">⏯ Play</button>
-            <button onclick="sendAction('next')" title="Next Track">⏭</button>
-            <button class="btn-sub" onclick="sendAction('seek_forward')" title="Forward 30s">30s ⏩</button>
+            <button class="btn-sub" onclick="sendAction('seek_backward')" title="Rewind 30s [Left Arrow]">⏪ 30s</button>
+            <button onclick="sendAction('previous')" title="Previous Track [P]">⏮</button>
+            <button class="btn-main" id="btnPlayPause" onclick="sendAction('play-pause')" title="Play / Pause [Space]">⏯ Play</button>
+            <button onclick="sendAction('next')" title="Next Track [N]">⏭</button>
+            <button class="btn-sub" onclick="sendAction('seek_forward')" title="Forward 30s [Right Arrow]">30s ⏩</button>
+        </div>
+
+        <!-- Mode Controls: Shuffle & Repeat -->
+        <div class="mode-controls-row">
+            <button class="btn-sub btn-mode" id="btnShuffle" onclick="sendAction('shuffle')" title="Toggle Shuffle Mode [S]">
+                <span class="mode-icon">🔀</span> Shuffle: <span id="shufText">OFF</span> <kbd>[S]</kbd>
+            </button>
+            <button class="btn-sub btn-mode" id="btnRepeat" onclick="sendAction('repeat')" title="Cycle Repeat Mode [L]">
+                <span class="mode-icon">🔁</span> Repeat: <span id="repText">ALL</span> <kbd>[L]</kbd>
+            </button>
         </div>
 
         <!-- Secondary Controls: Volume & Pitch -->
         <div class="sec-controls">
             <div class="control-group">
-                <button class="btn-mini" onclick="sendAction('vol_down')">🔉 -</button>
+                <button class="btn-mini" onclick="sendAction('vol_down')" title="Volume Down [Down Arrow]">🔉 -</button>
                 <span class="control-pill" id="volPill">Vol: 85%</span>
-                <button class="btn-mini" onclick="sendAction('vol_up')">+ 🔊</button>
-                <button class="btn-mini" onclick="sendAction('mute')">🔇</button>
+                <button class="btn-mini" onclick="sendAction('vol_up')" title="Volume Up [Up Arrow]">+ 🔊</button>
+                <button class="btn-mini" onclick="sendAction('mute')" title="Mute Audio [M / U]">🔇</button>
             </div>
             <div class="control-group">
-                <button class="btn-mini" onclick="sendAction('pitch_down')">[-]</button>
+                <button class="btn-mini" onclick="sendAction('pitch_down')" title="Pitch Down 1%">[-]</button>
                 <span class="control-pill" id="pitchPill">Pitch: 0%</span>
-                <button class="btn-mini" onclick="sendAction('pitch_up')">[+]</button>
-                <button class="btn-mini" onclick="sendAction('reset_pitch')">0</button>
+                <button class="btn-mini" onclick="sendAction('pitch_up')" title="Pitch Up 1%">[+]</button>
+                <button class="btn-mini" onclick="sendAction('reset_pitch')" title="Reset Pitch [0]">0</button>
             </div>
+        </div>
+
+        <div class="shortcuts-hint">
+            <span><kbd>S</kbd> Shuffle</span> &bull;
+            <span><kbd>Space</kbd> Play/Pause</span> &bull;
+            <span><kbd>M</kbd> Mute</span> &bull;
+            <span><kbd>N</kbd>/<kbd>P</kbd> Track</span> &bull;
+            <span><kbd>&larr;</kbd>/<kbd>&rarr;</kbd> Seek</span>
         </div>
     </div>
 
@@ -1225,13 +1410,62 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     </div>
 
     <div class="footer">
-        MP Mix Manager v0.3 • MPlanetarian Dreamworlds Productions
+        MP Mix Archive Manager v{html.escape(VERSION)} • MPlanetarian (Dreamworlds Productions)
     </div>
 
     <script>
         let currentThemeId = "{t['id']}";
         let currentDurationSec = 0;
         let lastLoadedMix = "";
+        let isPlayerActive = false;
+
+        // Visualizer 60 FPS Physics & Ballistics Engine
+        const BANDS = 24;
+        const currentLevels = new Float32Array(BANDS).fill(0.04);
+        const targetLevels = new Float32Array(BANDS).fill(0.04);
+        const currentPeaks = new Float32Array(BANDS).fill(0.04);
+        const peakVels = new Float32Array(BANDS).fill(0.0);
+
+        function animLoop() {{
+            const attack = 0.52;      // Fast response on bass kicks & transients
+            const decay = 0.88;       // Smooth exponential falloff
+            const gravity = 0.0022;   // Peak drop gravity acceleration
+
+            for (let i = 0; i < BANDS; i++) {{
+                const bar = document.getElementById('vb' + i);
+                const peakEl = document.getElementById('vp' + i);
+                if (!bar) continue;
+
+                if (isPlayerActive) {{
+                    if (targetLevels[i] > currentLevels[i]) {{
+                        currentLevels[i] += (targetLevels[i] - currentLevels[i]) * attack;
+                    }} else {{
+                        currentLevels[i] = Math.max(0.04, currentLevels[i] * decay);
+                    }}
+
+                    if (currentLevels[i] >= currentPeaks[i]) {{
+                        currentPeaks[i] = currentLevels[i];
+                        peakVels[i] = 0.0;
+                    }} else {{
+                        peakVels[i] += gravity;
+                        currentPeaks[i] = Math.max(currentLevels[i], currentPeaks[i] - peakVels[i]);
+                    }}
+                }} else {{
+                    currentLevels[i] = Math.max(0.04, currentLevels[i] * 0.82);
+                    currentPeaks[i] = Math.max(0.04, currentPeaks[i] * 0.82);
+                }}
+
+                const barPct = Math.min(100, Math.max(4, Math.round(currentLevels[i] * 100)));
+                const peakPct = Math.min(98, Math.max(barPct, Math.round(currentPeaks[i] * 100)));
+
+                bar.style.height = barPct + '%';
+                if (peakEl) {{
+                    peakEl.style.bottom = peakPct + '%';
+                }}
+            }}
+            requestAnimationFrame(animLoop);
+        }}
+        requestAnimationFrame(animLoop);
 
         function applyTheme(themeObj) {{
             if (!themeObj || !themeObj.id || themeObj.id === currentThemeId) return;
@@ -1249,20 +1483,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }}
         }}
 
-        function updateVisualizer(levels, isPlaying) {{
-            for (let i = 0; i < 24; i++) {{
-                const bar = document.getElementById('vb' + i);
-                if (!bar) continue;
-                if (!isPlaying) {{
-                    bar.style.height = '4%';
-                    continue;
-                }}
-                const lvl = (levels && levels[i] !== undefined) ? levels[i] : 0.05;
-                const h = Math.max(4, Math.min(100, Math.round(lvl * 100)));
-                bar.style.height = h + '%';
-            }}
-        }}
-
         function seekClick(e) {{
             if (!currentDurationSec || currentDurationSec <= 0) return;
             const rect = e.currentTarget.getBoundingClientRect();
@@ -1272,6 +1492,87 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             sendAction('seek_to', {{ position: seekPos.toFixed(1) }});
         }}
 
+        function updateShuffleUI(isShuf) {{
+            const btn = document.getElementById('btnShuffle');
+            const txt = document.getElementById('shufText');
+            const badge = document.getElementById('shuffleBadge');
+            if (btn && txt) {{
+                if (isShuf) {{
+                    btn.classList.add('active');
+                    txt.innerText = 'ON';
+                }} else {{
+                    btn.classList.remove('active');
+                    txt.innerText = 'OFF';
+                }}
+            }}
+            if (badge) {{
+                if (isShuf) {{
+                    badge.innerText = '🔀 SHUFFLE ON';
+                    badge.classList.add('active');
+                }} else {{
+                    badge.innerText = '🔀 SHUFFLE OFF';
+                    badge.classList.remove('active');
+                }}
+            }}
+        }}
+
+        function updateRepeatUI(repMode) {{
+            const btn = document.getElementById('btnRepeat');
+            const txt = document.getElementById('repText');
+            if (txt) {{
+                txt.innerText = String(repMode || 'ALL').toUpperCase();
+            }}
+            if (btn) {{
+                if (repMode && repMode !== 'off') {{
+                    btn.classList.add('active');
+                }} else {{
+                    btn.classList.remove('active');
+                }}
+            }}
+        }}
+
+        // Fast Visualizer & Telemetry Polling (every 100ms)
+        async function fetchEq() {{
+            try {{
+                const res = await fetch('/api/eq');
+                const data = await res.json();
+                isPlayerActive = (data.state === 'playing');
+
+                if (data.levels && data.levels.length) {{
+                    for (let i = 0; i < BANDS && i < data.levels.length; i++) {{
+                        targetLevels[i] = isPlayerActive ? Math.max(0.04, Math.min(1.0, data.levels[i])) : 0.04;
+                    }}
+                }}
+                if (data.peaks && data.peaks.length) {{
+                    for (let i = 0; i < BANDS && i < data.peaks.length; i++) {{
+                        if (isPlayerActive && data.peaks[i] > currentPeaks[i]) {{
+                            currentPeaks[i] = Math.min(1.0, data.peaks[i]);
+                            peakVels[i] = 0.0;
+                        }}
+                    }}
+                }}
+
+                if (data.position) document.getElementById('posTime').innerText = data.position;
+                if (data.duration) document.getElementById('durTime').innerText = data.duration;
+                if (data.progress_pct !== undefined) {{
+                    const pct = Math.max(0, Math.min(100, data.progress_pct));
+                    document.getElementById('progressBar').style.width = pct + '%';
+                }}
+
+                if (data.volume !== undefined) {{
+                    document.getElementById('volPill').innerText = 'Vol: ' + data.volume + '%';
+                }}
+                if (data.pitch_percent !== undefined) {{
+                    const p = data.pitch_percent;
+                    document.getElementById('pitchPill').innerText = 'Pitch: ' + (p > 0 ? '+' : '') + p + '%';
+                }}
+
+                updateShuffleUI(Boolean(data.shuffle));
+                if (data.repeat) updateRepeatUI(data.repeat);
+            }} catch (e) {{}}
+        }}
+
+        // Full Metadata, Tracklist & Theme Polling (every 2000ms)
         async function fetchStatus() {{
             try {{
                 const res = await fetch('/api/status');
@@ -1307,26 +1608,18 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 srcBadge.innerText = (data.player || "None").toUpperCase();
 
                 // 4. Progress & Time
-                document.getElementById('posTime').innerText = data.position || "00:00";
-                document.getElementById('durTime').innerText = data.duration || "--:--";
                 currentDurationSec = data.duration_sec || 0;
-                const pct = Math.max(0, Math.min(100, data.progress_pct || 0));
-                document.getElementById('progressBar').style.width = pct + '%';
 
                 // 5. Specs chips
                 document.getElementById('specFormat').innerText = data.format || "AUDIO";
                 document.getElementById('specRate').innerText = data.sample_rate || "48.0 kHz";
                 document.getElementById('specChannels').innerText = data.channels || "Stereo";
 
-                // 6. Volume & Pitch
-                document.getElementById('volPill').innerText = 'Vol: ' + (data.volume ?? 85) + '%';
-                const p = data.pitch_percent || 0;
-                document.getElementById('pitchPill').innerText = 'Pitch: ' + (p > 0 ? '+' : '') + p + '%';
+                // 6. Modes
+                updateShuffleUI(Boolean(data.shuffle));
+                if (data.repeat) updateRepeatUI(data.repeat);
 
-                // 7. Visualizer
-                updateVisualizer(data.levels, state === 'playing');
-
-                // 8. Tracklist population
+                // 7. Tracklist population
                 if (data.tracklist && data.tracklist.length > 0) {{
                     const tlCard = document.getElementById('tlCard');
                     tlCard.style.display = 'flex';
@@ -1356,11 +1649,52 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }}
             try {{
                 await fetch(url, {{ method: 'POST' }});
+                setTimeout(fetchEq, 50);
                 setTimeout(fetchStatus, 150);
             }} catch (e) {{}}
         }}
 
-        setInterval(fetchStatus, 1000);
+        // Global Desktop & Tablet Keyboard Shortcuts (Matching Manager)
+        document.addEventListener('keydown', (e) => {{
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            const k = e.key.toLowerCase();
+            if (k === 's') {{
+                e.preventDefault();
+                sendAction('shuffle');
+            }} else if (k === ' ' || e.code === 'Space') {{
+                e.preventDefault();
+                sendAction('play-pause');
+            }} else if (k === 'n') {{
+                e.preventDefault();
+                sendAction('next');
+            }} else if (k === 'p') {{
+                e.preventDefault();
+                sendAction('prev');
+            }} else if (k === 'm' || k === 'u') {{
+                e.preventDefault();
+                sendAction('mute');
+            }} else if (k === 'l') {{
+                e.preventDefault();
+                sendAction('repeat');
+            }} else if (e.key === 'ArrowLeft') {{
+                e.preventDefault();
+                sendAction('seek_backward');
+            }} else if (e.key === 'ArrowRight') {{
+                e.preventDefault();
+                sendAction('seek_forward');
+            }} else if (e.key === 'ArrowUp') {{
+                e.preventDefault();
+                sendAction('vol_up');
+            }} else if (e.key === 'ArrowDown') {{
+                e.preventDefault();
+                sendAction('vol_down');
+            }}
+        }});
+
+        // Polling Timers: High-rate 100ms for visualizer, 2000ms for metadata
+        setInterval(fetchEq, 100);
+        setInterval(fetchStatus, 2000);
+        fetchEq();
         fetchStatus();
     </script>
 </body>
@@ -1372,6 +1706,23 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 # HTTP SERVER & API HANDLER
 # ------------------------------------------------------------------------------
 class CompanionHandler(http.server.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+        elif url.path in ("/api/status", "/api/theme", "/api/eq", "/api/levels", "/api/visualizer"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         if url.path in ("/", "/index.html"):
@@ -1382,6 +1733,14 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(html_content.encode("utf-8"))
+        elif url.path in ("/api/eq", "/api/levels", "/api/visualizer"):
+            eq_data = get_eq_status()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(json.dumps(eq_data).encode("utf-8"))
         elif url.path == "/api/status":
             status = get_playback_status(CLI_THEME)
             self.send_response(200)
@@ -1422,24 +1781,45 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
 
 def main():
     global CLI_THEME
+    default_host = os.environ.get("WEB_COMPANION_HOST", "0.0.0.0")
+    default_port = int(os.environ.get("WEB_COMPANION_PORT", str(PORT)))
+
     parser = argparse.ArgumentParser(description="MP Mix Manager Mobile Web Companion")
-    parser.add_argument("--port", "-p", type=int, default=PORT, help=f"Server port (default: {PORT})")
+    parser.add_argument("--host", "-H", type=str, default=default_host, help=f"Server host address to bind (default: {default_host})")
+    parser.add_argument("--port", "-p", type=int, default=default_port, help=f"Server port (default: {default_port})")
     parser.add_argument("--theme", "-t", type=str, default=None, help="Theme name override (e.g. cosmic_supernova, dreamworlds, dracula, matrix, nord)")
     args = parser.parse_args()
 
     CLI_THEME = args.theme
     active_theme = get_theme_palette(CLI_THEME)
-    ip = get_local_ip()
+    lan_ip = get_local_ip()
+    host_display = lan_ip if args.host in ("0.0.0.0", "", "::") else args.host
 
-    server_address = ('0.0.0.0', args.port)
-    httpd = http.server.ThreadingHTTPServer(server_address, CompanionHandler)
+    server_address = (args.host, args.port)
+    try:
+        httpd = http.server.ThreadingHTTPServer(server_address, CompanionHandler)
+    except OSError as err:
+        if err.errno in (98, 48, 10048):  # EADDRINUSE on Linux (98), macOS/BSD (48), Windows (10048)
+            print(f"\n======================================================================")
+            print(f"  🌌 MP MIX ARCHIVE MANAGER — MOBILE WEB COMPANION")
+            print(f"======================================================================")
+            print(f"  • Status:         ALREADY ACTIVE & RUNNING on port {args.port}")
+            print(f"  • Local Machine:  http://localhost:{args.port}")
+            print(f"  • Phone / Tablet: http://{host_display}:{args.port}")
+            if args.host not in ("0.0.0.0", "127.0.0.1", "localhost"):
+                print(f"  • Bound Host:     {args.host}")
+            print(f"======================================================================\n")
+            return 0
+        raise
 
     print(f"\n======================================================================")
     print(f"  🌌 MP MIX ARCHIVE MANAGER — MOBILE WEB COMPANION")
     print(f"======================================================================")
     print(f"  • Active Theme:   {active_theme['name']} ({active_theme['id']})")
     print(f"  • Local Machine:  http://localhost:{args.port}")
-    print(f"  • Phone / Tablet: http://{ip}:{args.port}")
+    print(f"  • Phone / Tablet: http://{host_display}:{args.port}")
+    if args.host not in ("0.0.0.0", "127.0.0.1", "localhost"):
+        print(f"  • Bound Host:     {args.host}")
     print(f"======================================================================\n")
     print("Press Ctrl+C to stop the companion server.\n")
 

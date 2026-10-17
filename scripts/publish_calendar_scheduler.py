@@ -26,6 +26,21 @@ import re
 import argparse
 from pathlib import Path
 
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
+
 # --- ANSI Terminal Colors ---
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -67,7 +82,7 @@ def load_schedule_db():
         except Exception:
             pass
     return {
-        "version": "MP_Mix_Manager_v0.3",
+        "version": f"MP_Mix_Manager_v{VERSION}",
         "last_updated": datetime.datetime.now().isoformat(),
         "schedules": []
     }
@@ -86,7 +101,7 @@ def export_to_ical(data, output_path=None):
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//MPlanetarian//Mix Archive Manager v0.3//EN",
+        f"PRODID:-//MPlanetarian//Mix Archive Manager v{VERSION}//EN",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
         "X-WR-CALNAME:Mix Publishing Schedule",

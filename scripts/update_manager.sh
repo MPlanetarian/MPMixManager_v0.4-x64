@@ -37,16 +37,19 @@ fi
 unset _RESOLVED_SRC _RESOLVED_DIR _SCRIPT_DIR
 
 get_current_version() {
-    if [ -f "$CODEBASE_DIR/VERSION" ]; then
-        head -n 1 "$CODEBASE_DIR/VERSION" | tr -d ' \t\r\n'
+    if [ -n "${VERSION:-}" ]; then
+        echo "${VERSION#v}"
+    elif [ -f "$CODEBASE_DIR/VERSION" ]; then
+        head -n 1 "$CODEBASE_DIR/VERSION" | tr -d '\r\n'
     elif [ -f "$CODEBASE_DIR/CHANGELOG.md" ]; then
-        grep -E '^## \[[0-9]+\.[0-9]+' "$CODEBASE_DIR/CHANGELOG.md" | head -1 | sed -E 's/.*\[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/'
+        grep -E '^## \[[0-9]+\.[0-9]+' "$CODEBASE_DIR/CHANGELOG.md" | head -1 | sed -E 's/.*\[([0-9]+\.[0-9]+\.[0-9]+.*)\].*/\1/'
     else
-        echo "0.3.0"
+        echo "0.3.6 Beta"
     fi
 }
 
 CURRENT_VER="$(get_current_version)"
+export VERSION="${VERSION:-$CURRENT_VER}"
 
 # ------------------------------------------------------------------------------
 # 1. Version Flag Check (--version, -v, version)
@@ -155,7 +158,7 @@ AHEAD_COUNT=$(git rev-list --count "$UPSTREAM"..HEAD 2>/dev/null || echo 0)
 # Check remote version string if available
 REMOTE_VER=""
 if git cat-file -e "${UPSTREAM}:VERSION" 2>/dev/null; then
-    REMOTE_VER="$(git show "${UPSTREAM}:VERSION" 2>/dev/null | head -n 1 | tr -d ' \t\r\n')"
+    REMOTE_VER="$(git show "${UPSTREAM}:VERSION" 2>/dev/null | head -n 1 | tr -d '\r\n')"
 fi
 if [ -z "$REMOTE_VER" ] && git cat-file -e "${UPSTREAM}:CHANGELOG.md" 2>/dev/null; then
     REMOTE_VER="$(git show "${UPSTREAM}:CHANGELOG.md" 2>/dev/null | grep -E '^## \[[0-9]+\.[0-9]+' | head -1 | sed -E 's/.*\[([0-9]+\.[0-9]+\.[0-9]+)\].*/\1/' || true)"

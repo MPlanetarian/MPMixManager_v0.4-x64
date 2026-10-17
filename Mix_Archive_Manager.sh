@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$UNAME_S}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; S70="======================================================================"; D70="----------------------------------------------------------------------"
+if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$UNAME_S}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.3.6 Beta"; fi; fi; export VERSION
 _has_flatpak() { [[ -d "/var/lib/flatpak/app/$1" || -d "$HOME/.local/share/flatpak/app/$1" ]] && return 0; command -v flatpak &>/dev/null || return 1; [[ -z "${_FP_LIST_CACHE+x}" ]] && _FP_LIST_CACHE="$(flatpak list --columns=application 2>/dev/null)"; [[ "$_FP_LIST_CACHE" == *"$1"* ]]; }
 _fmt_sec() { local t=${1:-0}; ((t<0)) && t=0; ((t>=3600)) && printf "%02d:%02d:%02d" $((t/3600)) $(((t%3600)/60)) $((t%60)) || printf "%02d:%02d" $(((t%3600)/60)) $((t%60)); }
 format_seconds_aud() { _fmt_sec "$1"; }
 format_seconds_straw() { _fmt_sec "$1"; }
 format_seconds_cliamp() { _fmt_sec "$1"; }
 clear_archive_dir_cache() { _CACHED_ARCHIVE_DIRS=(); _CACHED_ALL_FLAC_OUTPUT_DIRS=(); _CACHED_ALL_WAV_ARCHIVE_DIRS=(); }
-parse_extra_mix_archive_dirs() { local IFS=';' d; for d in $1; do _norm_path "$d"; [ -n "$REPLY" ] && printf '%s\n' "$REPLY"; done; }
+parse_extra_mix_archive_dirs() { local IFS=':,;'$'\n' d; for d in $1; do [ -z "$d" ] && continue; _norm_path "$d"; [ -n "$REPLY" ] && printf '%s\n' "$REPLY"; done; }
 if command -v cygpath &>/dev/null; then if [[ -z "$HOME" || ! -d "$HOME" || "$HOME" = "/home/$USER" ]]; then export HOME="$(cygpath -u "$USERPROFILE" 2>/dev/null || true)"; fi; fi; if ! command -v pkill &>/dev/null; then
 pkill() {
 local sig="TERM" pattern=""; while [[ $# -gt 0 ]]; do case "$1" in -9|-KILL) sig="KILL" ;; -15|-TERM) sig="TERM" ;;
@@ -68,7 +68,7 @@ _nav_mark_console; local read_rc=0; _nav_pull 0.05 _k; read_rc=$?; if [[ "$read_
 23|24) local c5=""; _nav_pull 0.02 c5 || true; _emit_key "TOGGLE_FULLSCREEN"; ;; *) local cur="${c4}"; while [[ ! "$cur" =~ [A-Za-z~] ]]; do _nav_pull 0.02 cur || break; done; case "$cur" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; *) _emit_key "UNKNOWN" ;; esac ;; esac; fi; ;; *) _emit_key "UNKNOWN" ;; esac; fi; elif [[ "$c2" == "O" ]]; then local c3=""; if _nav_pull 0.02 c3; then case "$c3" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; *) _emit_key "UNKNOWN" ;; esac; fi; else _emit_key "UNKNOWN"; fi; else _emit_key "ESC"; fi; else _emit_key "CHAR:$_k"; fi; [[ -n "$_NAV_ARROW_AT" ]] && { sleep 0.01; _NAV_ARROW_AT=""; } 2>/dev/null || true
 }
 highlight_menu_line() {
-local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then base_r=255; base_g=255; base_b=255; base_pr=255; base_pg=255; base_pb=255; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then case "$c_mod" in 0) base_r=224; base_g=86; base_b=253; base_pr=224; base_pg=86; base_pb=253 ;; 1) base_r=0; base_g=245; base_b=212; base_pr=0; base_pg=245; base_pb=212 ;; 2) base_r=254; base_g=228; base_b=64; base_pr=254; base_pg=228; base_pb=64 ;; 3) base_r=94; base_g=96; base_b=206; base_pr=140; base_pg=160; base_pb=255 ;; esac; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl fg_ext; if [ "$bf" -ge 60 ]; then if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;40;40m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;215;225;238m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fg_ext="\033[0;38;2;40;5;20m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fg_ext="\033[0;38;2;220;220;220m"; fi; local rst="\033[0m" ptr="${ptr_col} ▶ ❯${rst}"; printf -v formatted_key "[%2s]" "$key"; local ext_part; [ -n "$extra" ] && ext_part="  ${fg_ext}${extra}"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${ext_part}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} + ( ${#extra} > 0 ? 2 + ${#extra} : 0 ) )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
+local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then base_r=255; base_g=255; base_b=255; base_pr=255; base_pg=255; base_pb=255; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then case "$c_mod" in 0) base_r=224; base_g=86; base_b=253; base_pr=224; base_pg=86; base_pb=253 ;; 1) base_r=0; base_g=245; base_b=212; base_pr=0; base_pg=245; base_pb=212 ;; 2) base_r=254; base_g=228; base_b=64; base_pr=254; base_pg=228; base_pb=64 ;; 3) base_r=94; base_g=96; base_b=206; base_pr=140; base_pg=160; base_pb=255 ;; esac; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl; if [ "$bf" -ge 60 ]; then if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; local rst="\033[0m" ptr="${ptr_col} ▶ ❯${rst}"; printf -v formatted_key "[%2s]" "$key"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${rst}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
 }
 _start_win_cursor_hider() {
 if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then return 0; fi; local _os="${OS_TYPE:-}"; if [ -z "$_os" ]; then case "$UNAME_S" in CYGWIN*|MINGW*|MSYS*) _os="windows" ;; esac; fi; [ "$_os" != "windows" ] && return 0; local py=""; if command -v python3 &>/dev/null; then py="python3"; elif command -v python &>/dev/null; then py="python"; else return 0; fi; local conf_dir="${HOME}/.config/mix-manager"; mkdir -p "$conf_dir" 2>/dev/null || true; rm -f "$conf_dir/console_size" 2>/dev/null || true; local hider_py="$conf_dir/win_cursor_hider.py"; if [ ! -f "$hider_py" ]; then
@@ -180,7 +180,7 @@ if [ "$search_mode" -eq 1 ]; then search_query+="["; _find_menu_search_match "$s
 CHAR:+|CHAR:=)
 if [ "$search_mode" -eq 1 ]; then search_query+="+"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-up &>/dev/null &
 ;; CHAR:-|CHAR:_) if [ "$search_mode" -eq 1 ]; then search_query+="-"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-down &>/dev/null &
-;; CHAR:0) if [ "$search_mode" -eq 1 ]; then search_query+="0"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset &>/dev/null &
+;; CHAR:0) if [ "$search_mode" -eq 1 ]; then search_query+="0"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local has_exact_0=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "0" ]; then has_exact_0=1; break; fi; done; if [ "$has_exact_0" -eq 1 ]; then cleanup_submenu_screen; clear; REPLY="0"; return 0; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset &>/dev/null &
 ;; UP) if [ "$search_mode" -eq 1 ] && [ -n "$search_query" ]; then _find_menu_search_match "$search_query" $(( (cur_idx - 1 + total_opts) % total_opts )) -1; _MENU_FRAME_FRESH=0; continue; fi; local old_idx="$cur_idx"; local hops=0; while [ "$hops" -lt "$total_opts" ]; do cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((hops++)); done; typed_buffer=""; if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then _MENU_FRAME_FRESH=1; fi; _ARROW_HOLD=1; _NAV_ARROW_AT="${EPOCHREALTIME:-0}"; ;; PAGE_UP) local hops=0; local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 )); while [ "$hops" -lt "$target_step" ]; do cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then ((hops++)); fi; done; typed_buffer=""; ;; DOWN) if [ "$search_mode" -eq 1 ] && [ -n "$search_query" ]; then _find_menu_search_match "$search_query" $(( (cur_idx + 1) % total_opts )) 1; _MENU_FRAME_FRESH=0; continue; fi; local old_idx="$cur_idx"; local hops=0; while [ "$hops" -lt "$total_opts" ]; do cur_idx=$(( (cur_idx + 1) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((hops++)); done; typed_buffer=""; if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then _MENU_FRAME_FRESH=1; fi; _ARROW_HOLD=1; _NAV_ARROW_AT="${EPOCHREALTIME:-0}"; ;; PAGE_DOWN) local hops=0; local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 )); while [ "$hops" -lt "$target_step" ]; do cur_idx=$(( (cur_idx + 1) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then ((hops++)); fi; done; typed_buffer=""; ;; HOME) cur_idx=0; while [ "$cur_idx" -lt "$total_opts" ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((cur_idx++)); done; typed_buffer="" ;; END) cur_idx=$(( total_opts - 1 )); while [ "$cur_idx" -ge 0 ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((cur_idx--)); done; typed_buffer=""; ;; ENTER) cleanup_submenu_screen; clear; if [ "$search_mode" -eq 1 ] || [ -n "$search_query" ]; then IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; elif [ -n "$typed_buffer" ]; then REPLY="$typed_buffer"; else IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; fi; return 0 ;; ESC) if [ "$search_mode" -eq 1 ] || [ -n "$search_query" ]; then search_mode=0; search_query=""; _MENU_FRAME_FRESH=0; continue; fi; cleanup_submenu_screen; clear; REPLY="ESC"; return 0 ;; BACKSPACE) if [ "$search_mode" -eq 1 ]; then search_query="${search_query%?}"; if [ -n "$search_query" ]; then _find_menu_search_match "$search_query" 0 1; fi; _MENU_FRAME_FRESH=0; continue; fi; typed_buffer="${typed_buffer%?}"; ;; CHAR:*) local ch="${key_action#CHAR:}"; if [ "$search_mode" -eq 1 ]; then search_query+="$ch"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then continue; fi; if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then local has_exact_p=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "p" ] || [ "$o_key" = "P" ]; then has_exact_p=1; break; fi; done; if [ "$has_exact_p" -eq 0 ]; then cleanup_submenu_screen; manage_mp_audio_player; _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; clear; continue; fi; fi; if [ -z "$typed_buffer" ] && ([ "$ch" = "f" ] || [ "$ch" = "F" ]) && [ "${MP_PLAYER_ACTIVE:-0}" -eq 1 ]; then local has_exact_f=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "f" ] || [ "$o_key" = "F" ]; then has_exact_f=1; break; fi; done; if [ "$has_exact_f" -eq 0 ]; then local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --open-file-manager &>/dev/null &
 continue; fi; fi; typed_buffer+="$ch"; local m_idx=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "$typed_buffer" ]; then cur_idx=$m_idx; break; fi; ((m_idx++)); done; if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ] || [ "$typed_buffer" = "b" ] || [ "$typed_buffer" = "B" ]; then cleanup_submenu_screen; clear; REPLY="$typed_buffer"; return 0; fi ;; esac; done
 }
@@ -321,13 +321,13 @@ if command -v kscreen-doctor &>/dev/null; then kscreen-doctor -o 2>/dev/null | g
 }
 _IS_FULLSCREEN=0
 toggle_manager_fullscreen() {
-local app_ver; app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"; if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then _IS_FULLSCREEN=0; printf '\033[10;0t\033[9;0t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true; else _IS_FULLSCREEN=1; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true; fi
+local app_ver; app_ver="v${VERSION#v}"; if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then _IS_FULLSCREEN=0; printf '\033[10;0t\033[9;0t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true; else _IS_FULLSCREEN=1; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true; fi
 }
 ensure_manager_windowed() {
-_IS_FULLSCREEN=0; local app_ver; app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"; printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
+_IS_FULLSCREEN=0; local app_ver; app_ver="v${VERSION#v}"; printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
 }
 ensure_manager_fullscreen() {
-_IS_FULLSCREEN=1; local app_ver; app_ver="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "v0.3")"; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
+_IS_FULLSCREEN=1; local app_ver; app_ver="v${VERSION#v}"; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
 }
 align_mix_windows_on_screen() {
 [ "$OS_TYPE" = "windows" ] && return 0; local align_sh="$SCRIPT_DIR/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/Documents/BASH_SCRIPTS/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$PWD/scripts/align_mix_windows.py"; if [ -f "$align_sh" ] && command -v python3 &>/dev/null; then local mgr_pid="$$"; local parent_pid="$PPID"; (python3 "$align_sh" --mgr-pid "$mgr_pid" --parent-pid "$parent_pid" "$@" &>/dev/null || true) &
@@ -544,7 +544,7 @@ is_remote_or_cloud_path() {
 local p="$1"; [ -z "$p" ] && return 1; case "$p" in *GoogleDrive*|*google-drive*|*rclone*|*Dropbox*|*dropbox*|*iCloud*|*icloud*|*OneDrive*|*onedrive*|*Nextcloud*|*nextcloud*) return 0 ;; esac; if [ -f /proc/mounts ]; then while read -r _ mpoint fstype _; do case "$fstype" in fuse.rclone|nfs|nfs4|cifs|smbfs|fuse.sshfs|davfs) if [[ "$p" == "$mpoint"* ]]; then return 0; fi; ;; esac; done < /proc/mounts 2>/dev/null; fi; return 1
 }
 get_all_mix_archive_dirs() {
-local key="all_mix_archive_dirs"; if [[ -n "${_CACHED_ARCHIVE_DIRS[$key]}" ]]; then printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"; return 0; fi; local dirs=(); local primary="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"; if [ -n "$primary" ]; then local clean_p="${primary//\\//}"; if [[ ! "$clean_p" =~ ^[a-zA-Z]:/$ && "$clean_p" != "/" ]]; then clean_p="${clean_p%/}"; fi; if ! is_remote_or_cloud_path "$clean_p" || is_internet_connected; then dirs+=("$clean_p"); fi; fi; local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"; if [ -n "$raw_extras" ]; then local IFS_BACK="$IFS"; IFS=';,'$'\n'; for item in $raw_extras; do IFS="$IFS_BACK"; item="${item#"${item%%[![:space:]]*}"}"; item="${item%"${item##*[![:space:]]}"}"; item="${item%\"}"; item="${item#\"}"; item="${item%\'}"; item="${item#\'}"; if [ -n "$item" ]; then local clean_d="$item"; if [[ ! "$clean_d" =~ ^[a-zA-Z]:/$ && "$clean_d" != "/" ]]; then clean_d="${clean_d%/}"; fi; if is_remote_or_cloud_path "$clean_d" && ! is_internet_connected; then continue; fi; dirs+=("$clean_d"); fi; done; IFS="$IFS_BACK"; fi; _CACHED_ARCHIVE_DIRS[$key]=$(IFS=$'\n'; echo "${dirs[*]}"); printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"
+local key="all_mix_archive_dirs"; if [[ -n "${_CACHED_ARCHIVE_DIRS[$key]}" ]]; then printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"; return 0; fi; local dirs=(); local primary="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"; if [ -n "$primary" ]; then local clean_p="${primary//\\//}"; if [[ ! "$clean_p" =~ ^[a-zA-Z]:/$ && "$clean_p" != "/" ]]; then clean_p="${clean_p%/}"; fi; if ! is_remote_or_cloud_path "$clean_p" || is_internet_connected; then dirs+=("$clean_p"); fi; fi; local raw_extras="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"; if [ -n "$raw_extras" ]; then local IFS_BACK="$IFS"; IFS=':,;'$'\n'; for item in $raw_extras; do IFS="$IFS_BACK"; item="${item#"${item%%[![:space:]]*}"}"; item="${item%"${item##*[![:space:]]}"}"; item="${item%\"}"; item="${item#\"}"; item="${item%\'}"; item="${item#\'}"; if [ -n "$item" ]; then local clean_d="$item"; if [[ ! "$clean_d" =~ ^[a-zA-Z]:/$ && "$clean_d" != "/" ]]; then clean_d="${clean_d%/}"; fi; if is_remote_or_cloud_path "$clean_d" && ! is_internet_connected; then continue; fi; dirs+=("$clean_d"); fi; IFS=':,;'$'\n'; done; IFS="$IFS_BACK"; fi; if [ -n "${ICLOUD_PATH:-}" ] && [ -d "$ICLOUD_PATH" ]; then dirs+=("${ICLOUD_PATH%/}"); fi; if [ -n "${DROPBOX_PATH:-}" ] && [ -d "$DROPBOX_PATH" ]; then dirs+=("${DROPBOX_PATH%/}"); fi; _CACHED_ARCHIVE_DIRS[$key]=$(IFS=$'\n'; echo "${dirs[*]}"); printf '%s\n' "${_CACHED_ARCHIVE_DIRS[$key]}"
 }
 get_all_flac_output_dirs() {
 if [ "${1:-}" != "--refresh" ] && [ ${#_CACHED_ALL_FLAC_OUTPUT_DIRS[@]} -gt 0 ]; then printf '%s\n' "${_CACHED_ALL_FLAC_OUTPUT_DIRS[@]}"; return 0; fi; local flac_dirs=(); local seen=(); if [ -n "${OUTPUT_DIR:-}" ] && [ -d "$OUTPUT_DIR" ]; then local clean_out="${OUTPUT_DIR%/}"; flac_dirs+=("$clean_out"); seen+=("$clean_out"); fi; while IFS= read -r adir; do [ -z "$adir" ] && continue; local clean_a="${adir%/}"; if [[ "$clean_a" =~ FLAC_CONVERTED_OUTPUTS$ ]]; then if [ -d "$clean_a" ] && [[ ! " ${seen[*]} " =~ " ${clean_a} " ]]; then seen+=("$clean_a"); flac_dirs+=("$clean_a"); fi; elif [ -d "$clean_a/FLAC_CONVERTED_OUTPUTS" ]; then local sub="$clean_a/FLAC_CONVERTED_OUTPUTS"; if [[ ! " ${seen[*]} " =~ " ${sub} " ]]; then seen+=("$sub"); flac_dirs+=("$sub"); fi; elif [ -d "$clean_a" ]; then if [[ ! " ${seen[*]} " =~ " ${clean_a} " ]]; then local has_flac=0; shopt -s nullglob nocaseglob; local test_flacs=("$clean_a"/*.flac); shopt -u nullglob nocaseglob; [ ${#test_flacs[@]} -gt 0 ] && has_flac=1; if [ "$has_flac" -eq 1 ]; then seen+=("$clean_a"); flac_dirs+=("$clean_a"); fi; fi; fi; done < <(get_all_mix_archive_dirs); _CACHED_ALL_FLAC_OUTPUT_DIRS=("${flac_dirs[@]}"); printf '%s\n' "${flac_dirs[@]}"
@@ -614,13 +614,13 @@ is_mix_in_audacious_playlist() {
 local mix_file="$1"; [ -z "$mix_file" ] && return 1; local bname; bname="$(basename "$mix_file")"; local stem="${bname%.*}"; if command -v audtool &>/dev/null; then if audtool playlist-display 2>/dev/null | grep -i -F "$stem" &>/dev/null; then return 0; fi; fi; return 1
 }
 _mpris_player_info() {
-local pfx="$1" pname="$2"; eval "${pfx}_RUNNING=0 ${pfx}_STATE='' ${pfx}_TITLE='' ${pfx}_ARTIST='' ${pfx}_ALBUM='' ${pfx}_RAW_PATH='' ${pfx}_RESOLVED_PATH='' ${pfx}_FILE_EXISTS=0 ${pfx}_FILE_SIZE='' ${pfx}_POSITION=0 ${pfx}_DURATION=0 ${pfx}_POS_FMT='00:00' ${pfx}_DUR_FMT='00:00' ${pfx}_PROGRESS_PCT=0"; if [ "$pname" = "audacious" ]; then pgrep -i -f audacious &>/dev/null || qdbus org.mpris.MediaPlayer2.audacious &>/dev/null || return 1; else pgrep -i -f "$pname" &>/dev/null || return 1; fi; local raw
+local pfx="$1" pname="$2"; eval "${pfx}_RUNNING=0 ${pfx}_STATE='' ${pfx}_TITLE='' ${pfx}_ARTIST='' ${pfx}_ALBUM='' ${pfx}_RAW_PATH='' ${pfx}_RESOLVED_PATH='' ${pfx}_FILE_EXISTS=0 ${pfx}_FILE_SIZE='' ${pfx}_POSITION=0 ${pfx}_DURATION=0 ${pfx}_POS_FMT='00:00' ${pfx}_DUR_FMT='00:00' ${pfx}_PROGRESS_PCT=0"; if [ "$pname" = "audacious" ]; then pgrep -x audacious &>/dev/null || (command -v qdbus &>/dev/null && timeout 0.5 qdbus org.mpris.MediaPlayer2.audacious &>/dev/null) || return 1; else pgrep -x "$pname" &>/dev/null || (command -v qdbus &>/dev/null && timeout 0.5 qdbus "org.mpris.MediaPlayer2.$pname" &>/dev/null) || return 1; fi; local raw
 raw=$(python3 -c '
 import subprocess, urllib.parse, sys, os, shutil
 pname = sys.argv[1]
 dest, path, iface = f"org.mpris.MediaPlayer2.{pname}", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player"
 def run(cmd):
-    return subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
+    return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=1.5).decode("utf-8", errors="ignore").strip()
 def get_prop(prop):
     try: return run(["qdbus", dest, path, f"{iface}.{prop}"])
     except Exception: pass
@@ -647,7 +647,7 @@ def get_meta():
         except Exception: pass
     return {}
 status, meta = get_prop("PlaybackStatus"), get_meta()
-aud_cmd = (["audtool"] if shutil.which("audtool") else ["flatpak", "run", "--command=audtool", "org.atheme.audacious"]) if pname == "audacious" else None
+aud_cmd = ["audtool"] if (shutil.which("audtool") and pname == "audacious") else None
 if aud_cmd and (not status or not meta):
     try:
         if not status: status = run(aud_cmd + ["playback-status"])
@@ -677,7 +677,7 @@ if aud_cmd and (dur_s == 0 or pos_s == 0):
     except Exception: pass
 print("\x1f".join([status.lower(), title, artist, album, u, str(max(0, int(pos_s))), str(max(0, int(dur_s)))]))
 ' "$pname" 2>/dev/null) || return 1
-[ -z "$raw" ] && return 1; local st ti ar al rp po du; IFS=$'\x1f' read -r st ti ar al rp po du <<< "$raw"; po=${po:-0}; du=${du:-0}; local pf df pct=0 res="$rp" ex=0 sz=""; pf=$(_fmt_sec "$po"); df=$(_fmt_sec "$du"); (( du > 0 )) && pct=$(( po * 100 / du )); if [ -n "$res" ] && [ -e "$res" ]; then ex=1; else local alt="${rp/#\/media\//\/run\/media\/}"; if [ -n "$alt" ] && [ -e "$alt" ]; then res="$alt"; ex=1; else local pid fd lt; for pid in $(pgrep -i -f "$pname" 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do [ -e "$fd" ] || continue; lt=$(readlink "$fd" 2>/dev/null); case "$lt" in *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$lt" ] && { res="$lt"; ex=1; break 2; } ;; esac; done; done; fi; fi; (( ex )) && sz=$(ls -lh "$res" 2>/dev/null | awk '{print $5}'); printf -v "${pfx}_RUNNING" '%s' 1; printf -v "${pfx}_STATE" '%s' "$st"; printf -v "${pfx}_TITLE" '%s' "$ti"; printf -v "${pfx}_ARTIST" '%s' "$ar"; printf -v "${pfx}_ALBUM" '%s' "$al"; printf -v "${pfx}_RAW_PATH" '%s' "$rp"; printf -v "${pfx}_RESOLVED_PATH" '%s' "$res"; printf -v "${pfx}_FILE_EXISTS" '%s' "$ex"; printf -v "${pfx}_FILE_SIZE" '%s' "$sz"; printf -v "${pfx}_POSITION" '%s' "$po"; printf -v "${pfx}_DURATION" '%s' "$du"; printf -v "${pfx}_POS_FMT" '%s' "$pf"; printf -v "${pfx}_DUR_FMT" '%s' "$df"; printf -v "${pfx}_PROGRESS_PCT" '%s' "$pct"; return 0
+[ -z "$raw" ] && return 1; local st ti ar al rp po du; IFS=$'\x1f' read -r st ti ar al rp po du <<< "$raw"; po=${po:-0}; du=${du:-0}; local pf df pct=0 res="$rp" ex=0 sz=""; pf=$(_fmt_sec "$po"); df=$(_fmt_sec "$du"); (( du > 0 )) && pct=$(( po * 100 / du )); if [ -n "$res" ] && [ -e "$res" ]; then ex=1; else local alt="${rp/#\/media\//\/run\/media\/}"; if [ -n "$alt" ] && [ -e "$alt" ]; then res="$alt"; ex=1; else local pid fd lt; for pid in $(pgrep -x "$pname" 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do [ -e "$fd" ] || continue; lt=$(readlink "$fd" 2>/dev/null); case "$lt" in *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$lt" ] && { res="$lt"; ex=1; break 2; } ;; esac; done; done; fi; fi; (( ex )) && sz=$(ls -lh "$res" 2>/dev/null | awk '{print $5}'); printf -v "${pfx}_RUNNING" '%s' 1; printf -v "${pfx}_STATE" '%s' "$st"; printf -v "${pfx}_TITLE" '%s' "$ti"; printf -v "${pfx}_ARTIST" '%s' "$ar"; printf -v "${pfx}_ALBUM" '%s' "$al"; printf -v "${pfx}_RAW_PATH" '%s' "$rp"; printf -v "${pfx}_RESOLVED_PATH" '%s' "$res"; printf -v "${pfx}_FILE_EXISTS" '%s' "$ex"; printf -v "${pfx}_FILE_SIZE" '%s' "$sz"; printf -v "${pfx}_POSITION" '%s' "$po"; printf -v "${pfx}_DURATION" '%s' "$du"; printf -v "${pfx}_POS_FMT" '%s' "$pf"; printf -v "${pfx}_DUR_FMT" '%s' "$df"; printf -v "${pfx}_PROGRESS_PCT" '%s' "$pct"; return 0
 }
 get_audacious_track_info() { _mpris_player_info AUDACIOUS audacious; }
 get_strawberry_track_info() { _mpris_player_info STRAWBERRY strawberry; }
@@ -903,33 +903,597 @@ run_wan2gp_tts_batch() {
 local script="$SCRIPT_DIR/scripts/wan2gp_tts_batch.py"; [ ! -f "$script" ] && script="$SCRIPT_DIR/wan2gp_tts_batch.py"; [ ! -f "$script" ] && script="$HOME/wan2gp_tts_batch.py"; [ ! -f "$script" ] && script="$HOME/bin/wan2gp_tts_batch"; if [ -f "$script" ]; then python3 "$script" "$@"; else echo -e "${RED}Error: wan2gp_tts_batch.py not found at $script!${NC}"; press_enter; fi
 }
 run_wan2gp_output_monitor() {
-local script="$SCRIPT_DIR/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$SCRIPT_DIR/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$HOME/MP_Mix_Manager_v0.3/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$HOME/Downloads/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; if [ ! -f "$script" ]; then echo -e "${RED}Error: MP_Video_Image_Dir_WAN2GP_Output_Monitor.py not found!${NC}"; press_enter; return 1; fi; chmod +x "$script" 2>/dev/null || true; local target_dir="${1:-${WAN2GP_OUTPUTS:-}}"; if [ -z "$target_dir" ] || [ ! -d "$target_dir" ]; then if [ -d "/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS" ]; then target_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"; elif [ -d "$HOME/Documents/WAN2GP_OUTPUTS" ]; then target_dir="$HOME/Documents/WAN2GP_OUTPUTS"; elif [ -d "$HOME/WAN2GP_OUTPUTS" ]; then target_dir="$HOME/WAN2GP_OUTPUTS"; fi; fi; while true; do clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}    MP VIDEO & IMAGE DIRECTORY OUTPUT MONITOR (FLUX / LTX / WAN2GP)   ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  ${DIM}Current Monitored Directory:${NC}  ${BOLD}${CYAN}${target_dir:-Not Configured}${NC}\n  ${DIM}Default WAN2GP Outputs Dir:${NC}   ${BOLD}${GREEN}${WAN2GP_OUTPUTS:-Not Configured}${NC}"; echo ""; echo -e "${BOLD}Select an operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch Output Monitor in Current Terminal\n  ${BOLD}${CYAN}2)${NC} Launch Output Monitor in a ${BOLD}${GREEN}New Terminal Window/Tab${NC}\n  ${BOLD}${CYAN}3)${NC} ${BOLD}${YELLOW}Configure / Change Output Directory to Monitor${NC} (Select Any Directory)\n  ${BOLD}${CYAN}4)${NC} Set Current Selection as Default WAN2GP_OUTPUTS (Save to config.env)\n  ${BOLD}${CYAN}0)${NC} Return to WAN2GP Menu (or 'q')\n"; read -r -p "Enter choice [1-4, 0 (Default: 1)], or type directory path directly: " mon_choice; mon_choice="${mon_choice#"${mon_choice%%[![:space:]]*}"}"; mon_choice="${mon_choice%"${mon_choice##*[![:space:]]}"}"; local expanded_path="$mon_choice"; if [[ "$expanded_path" == "~"* ]]; then expanded_path="${HOME}${expanded_path:1}"; fi; if [ -n "$expanded_path" ] && { [[ "$expanded_path" == "/"* ]] || [ -d "$expanded_path" ]; }; then if [ ! -d "$expanded_path" ]; then echo -e "${YELLOW}Directory does not exist: $expanded_path${NC}"; read -r -p "Create this directory? [y/N]: " cr_ans; if [[ "$cr_ans" =~ ^[yY] ]]; then mkdir -p "$expanded_path" 2>/dev/null && echo -e "${GREEN}Created directory: $expanded_path${NC}"; fi; fi; if [ -d "$expanded_path" ]; then target_dir="$expanded_path"; mon_choice="1"; fi; fi; [ -z "$mon_choice" ] && mon_choice="1"; case "$mon_choice" in 1) echo -e "\n${GREEN}Starting MP Video & Image Directory Output Monitor...${NC}\n"; export WAN2GP_OUTPUTS="$target_dir"; python3 "$script" --dir "$target_dir"; echo ""; read -r -p "Press [Enter] to return to the Monitor menu..." ;; 2) local title="MP Media Output Monitor"; local cmd="export WAN2GP_OUTPUTS=\"$target_dir\"; python3 \"$script\" --dir \"$target_dir\"; echo ''; echo 'Monitor stopped. Press [Enter] to exit...'; read -r"; if launch_in_terminal "$title" "$cmd" "tab"; then echo -e "\n${GREEN}✓ MP Video & Image Directory Output Monitor launched in a new terminal tab/window.${NC}"; sleep 1.5; else echo -e "\n${YELLOW}Could not open new terminal window; running in current terminal...${NC}\n"; export WAN2GP_OUTPUTS="$target_dir"; python3 "$script" --dir "$target_dir"
-echo ""; read -r -p "Press [Enter] to return to the Monitor menu..."; fi ;; 3) echo -e "\n${BOLD}${CYAN}Configure Output Directory to Monitor:${NC}\nEnter path of any directory to monitor (e.g. /path/to/folder or ~/Documents/WAN2GP_OUTPUTS):"; read -r -e -p "Directory path: " new_dir; new_dir="${new_dir#"${new_dir%%[![:space:]]*}"}"; new_dir="${new_dir%"${new_dir##*[![:space:]]}"}"; if [[ "$new_dir" == "~"* ]]; then new_dir="${HOME}${new_dir:1}"; fi; if [ -n "$new_dir" ]; then if [ ! -d "$new_dir" ]; then echo -e "${YELLOW}Directory does not exist: $new_dir${NC}"; read -r -p "Would you like to create this directory? [y/N]: " create_ans; if [[ "$create_ans" =~ ^[yY] ]]; then mkdir -p "$new_dir" 2>/dev/null && echo -e "${GREEN}Created directory: $new_dir${NC}" || echo -e "${RED}Failed to create directory.${NC}"; fi; fi; if [ -d "$new_dir" ]; then target_dir="$new_dir"; echo -e "${GREEN}✓ Monitored directory set to: $target_dir${NC}"; read -r -p "Also set this as the default WAN2GP_OUTPUTS in config.env? [y/N]: " save_ans; if [[ "$save_ans" =~ ^[yY] ]]; then save_config_setting "WAN2GP_OUTPUTS" "$target_dir"; WAN2GP_OUTPUTS="$target_dir"; export WAN2GP_OUTPUTS; echo -e "${GREEN}✓ Saved to config.env as WAN2GP_OUTPUTS.${NC}"; fi; sleep 1.2; else echo -e "${RED}Path is not a valid directory.${NC}"; sleep 1.5; fi; fi; ;; 4) if [ -n "$target_dir" ] && [ -d "$target_dir" ]; then save_config_setting "WAN2GP_OUTPUTS" "$target_dir"; WAN2GP_OUTPUTS="$target_dir"; export WAN2GP_OUTPUTS; echo -e "\n${GREEN}✓ Successfully saved WAN2GP_OUTPUTS=\"$target_dir\" to config.env!${NC}"; sleep 1.5; else echo -e "\n${RED}Current target directory is invalid or not found.${NC}"; sleep 1.5; fi; ;; 0|[qQ]|[eE][xX][iI][tT]) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local script="$SCRIPT_DIR/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$SCRIPT_DIR/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$HOME/MP_Mix_Manager_v0.3/scripts/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; [ ! -f "$script" ] && script="$HOME/Downloads/MP_Video_Image_Dir_WAN2GP_Output_Monitor.py"; if [ ! -f "$script" ]; then echo -e "${RED}Error: MP_Video_Image_Dir_WAN2GP_Output_Monitor.py not found!${NC}"; press_enter; return 1; fi; chmod +x "$script" 2>/dev/null || true; local target_dir="${1:-${WAN2GP_OUTPUTS:-}}"; if [ -z "$target_dir" ] || [ ! -d "$target_dir" ]; then if [ -d "/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS" ]; then target_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"; elif [ -d "$HOME/Documents/WAN2GP_OUTPUTS" ]; then target_dir="$HOME/Documents/WAN2GP_OUTPUTS"; elif [ -d "$HOME/WAN2GP_OUTPUTS" ]; then target_dir="$HOME/WAN2GP_OUTPUTS"; fi; fi
+local mon_opts=(
+"1|Launch Output Monitor in Current Terminal|(Live console view)"
+"2|Launch Output Monitor in New Terminal Window/Tab|(Keeps Manager running)"
+"3|Configure / Change Output Directory to Monitor|(Select Any Directory)"
+"4|Set Current Selection as Default WAN2GP_OUTPUTS|(Save to config.env)"
+"SEP|SEP|"
+"0|Return to WAN2GP Menu|(or Esc / q)"
+)
+while true; do
+local hdr="  Current Monitored Directory: ${BOLD}${CYAN}${target_dir:-Not Configured}${NC}\n  Default WAN2GP Outputs Dir:  ${BOLD}${GREEN}${WAN2GP_OUTPUTS:-Not Configured}${NC}\n"
+run_interactive_submenu "MP VIDEO & IMAGE DIRECTORY OUTPUT MONITOR" "$hdr" mon_opts 0
+case "$REPLY" in
+1)
+echo -e "\n${GREEN}Starting MP Video & Image Directory Output Monitor...${NC}\n"
+export WAN2GP_OUTPUTS="$target_dir"
+python3 "$script" --dir "$target_dir"
+echo ""
+read -r -p "Press [Enter] to return to the Monitor menu..."
+;;
+2)
+local title="MP Media Output Monitor"
+local cmd="export WAN2GP_OUTPUTS=\"$target_dir\"; python3 \"$script\" --dir \"$target_dir\"; echo ''; echo 'Monitor stopped. Press [Enter] to exit...'; read -r"
+if launch_in_terminal "$title" "$cmd" "tab"; then
+echo -e "\n${GREEN}✓ MP Video & Image Directory Output Monitor launched in a new terminal tab/window.${NC}"
+sleep 1.5
+else
+echo -e "\n${YELLOW}Could not open new terminal window; running in current terminal...${NC}\n"
+export WAN2GP_OUTPUTS="$target_dir"
+python3 "$script" --dir "$target_dir"
+echo ""
+read -r -p "Press [Enter] to return to the Monitor menu..."
+fi
+;;
+3)
+echo -e "\n${BOLD}${CYAN}Configure Output Directory to Monitor:${NC}\nEnter path of any directory to monitor (e.g. /path/to/folder or ~/Documents/WAN2GP_OUTPUTS):"
+read -r -e -p "Directory path: " new_dir
+new_dir="${new_dir#"${new_dir%%[![:space:]]*}"}"
+new_dir="${new_dir%"${new_dir##*[![:space:]]}"}"
+if [[ "$new_dir" == "~"* ]]; then new_dir="${HOME}${new_dir:1}"; fi
+if [ -n "$new_dir" ]; then
+if [ ! -d "$new_dir" ]; then
+echo -e "${YELLOW}Directory does not exist: $new_dir${NC}"
+read -r -p "Would you like to create this directory? [y/N]: " create_ans
+if [[ "$create_ans" =~ ^[yY] ]]; then mkdir -p "$new_dir" 2>/dev/null && echo -e "${GREEN}Created directory: $new_dir${NC}" || echo -e "${RED}Failed to create directory.${NC}"; fi
+fi
+if [ -d "$new_dir" ]; then
+target_dir="$new_dir"
+echo -e "${GREEN}✓ Monitored directory set to: $target_dir${NC}"
+read -r -p "Also set this as the default WAN2GP_OUTPUTS in config.env? [y/N]: " save_ans
+if [[ "$save_ans" =~ ^[yY] ]]; then
+save_config_setting "WAN2GP_OUTPUTS" "$target_dir"
+WAN2GP_OUTPUTS="$target_dir"
+export WAN2GP_OUTPUTS
+echo -e "${GREEN}✓ Saved to config.env as WAN2GP_OUTPUTS.${NC}"
+fi
+sleep 1.2
+else
+echo -e "${RED}Path is not a valid directory.${NC}"
+sleep 1.5
+fi
+fi
+;;
+4)
+if [ -n "$target_dir" ] && [ -d "$target_dir" ]; then
+save_config_setting "WAN2GP_OUTPUTS" "$target_dir"
+WAN2GP_OUTPUTS="$target_dir"
+export WAN2GP_OUTPUTS
+echo -e "\n${GREEN}✓ Successfully saved WAN2GP_OUTPUTS=\"$target_dir\" to config.env!${NC}"
+sleep 1.5
+else
+echo -e "\n${RED}Current target directory is invalid or not found.${NC}"
+sleep 1.5
+fi
+;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*)
+local expanded_path="$REPLY"
+if [[ "$expanded_path" == "~"* ]]; then expanded_path="${HOME}${expanded_path:1}"; fi
+if [ -n "$expanded_path" ] && [ -d "$expanded_path" ]; then
+target_dir="$expanded_path"
+echo -e "\n${GREEN}✓ Monitored directory set to: $target_dir${NC}"
+sleep 1
+else
+echo -e "\n${RED}Invalid option!${NC}"
+sleep 1
+fi
+;;
+esac
+done
 }
 configure_wan2gp_directories() {
 clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}          CONFIGURE WAN2GP WORKSPACE & OUTPUT DIRECTORIES             ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\nWAN2GP operations require four directory locations to be configured:\n  ${BOLD}1. WAN2GP Outputs Directory${NC}     : Master destination for generated videos/images\n  ${BOLD}2. Flux Batch Workspace${NC}         : Input/working folder for Flux 2 Klein 9B\n  ${BOLD}3. LTX Video Batch Workspace${NC}    : Input/working folder for LTX Video models\n  ${BOLD}4. Infinite Talk Batch Workspace${NC}: Input/working folder for Infinite Talk (Stephen Hawking & Voice Cloning)\n"; local is_win=false; if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]] || [ -n "${WINDIR:-}" ] || command -v cmd.exe &>/dev/null; then is_win=true; fi; local def_outputs def_flux def_ltx def_inftlk; if [ "$is_win" = true ]; then def_outputs="D:/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"; def_flux="D:/DATA_DRIVE_MOVED/WAN2GP_FLUX_BATCH"; def_ltx="D:/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH"; def_inftlk="D:/DATA_DRIVE_MOVED/WAN2GP_INFTLKBATCH"; else def_outputs="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_OUTPUTS"; def_flux="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_FLUX_BATCH"; def_ltx="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH"; def_inftlk="/run/media/${USER:-user}/GAMES1/DATA_DRIVE_MOVED/WAN2GP_INFTLKBATCH"; fi; [ -n "$WAN2GP_OUTPUTS" ] && def_outputs="$WAN2GP_OUTPUTS"; [ -n "$WAN2GP_FLUX_BATCH_DIR" ] && def_flux="$WAN2GP_FLUX_BATCH_DIR"; [ -n "$WAN2GP_LTX_BATCH_DIR" ] && def_ltx="$WAN2GP_LTX_BATCH_DIR"; [ -n "$WAN2GP_INFTLKBATCH_DIR" ] && def_inftlk="$WAN2GP_INFTLKBATCH_DIR"; if [ "$is_win" = true ]; then echo -e "${YELLOW}[Windows Mode] You can enter paths like: D:\\DATA_DRIVE_MOVED\\WAN2GP_OUTPUTS or D:/DATA_DRIVE_MOVED/...${NC}\n"; else echo -e "${YELLOW}[Linux/Unix Mode] You can enter paths like: /run/media/$USER/... or ~/WAN2GP_OUTPUTS${NC}\n"; fi; local in_outputs; echo -e "${BOLD}${CYAN}[1/4] WAN2GP General Outputs Directory:${NC}\nCurrent / Default: ${BOLD}${GREEN}${def_outputs}${NC}"; read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_outputs; in_outputs="${in_outputs#"${in_outputs%%[![:space:]]*}"}"; in_outputs="${in_outputs%"${in_outputs##*[![:space:]]}"}"; if [ "$in_outputs" = "q" ] || [ "$in_outputs" = "Q" ]; then echo -e "\n${YELLOW}Configuration canceled.${NC}"; sleep 1; return 1; fi; [ -z "$in_outputs" ] && in_outputs="$def_outputs"; in_outputs="${in_outputs//\\//}"; local in_flux; echo -e "\n${BOLD}${CYAN}[2/4] Flux 2 Klein 9B Batch Workspace Directory:${NC}\nCurrent / Default: ${BOLD}${GREEN}${def_flux}${NC}"; read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_flux; in_flux="${in_flux#"${in_flux%%[![:space:]]*}"}"; in_flux="${in_flux%"${in_flux##*[![:space:]]}"}"; if [ "$in_flux" = "q" ] || [ "$in_flux" = "Q" ]; then echo -e "\n${YELLOW}Configuration canceled.${NC}"; sleep 1; return 1; fi; [ -z "$in_flux" ] && in_flux="$def_flux"; in_flux="${in_flux//\\//}"; local in_ltx; echo -e "\n${BOLD}${CYAN}[3/4] LTX Video Batch Workspace Directory:${NC}\nCurrent / Default: ${BOLD}${GREEN}${def_ltx}${NC}"; read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_ltx; in_ltx="${in_ltx#"${in_ltx%%[![:space:]]*}"}"; in_ltx="${in_ltx%"${in_ltx##*[![:space:]]}"}"; if [ "$in_ltx" = "q" ] || [ "$in_ltx" = "Q" ]; then echo -e "\n${YELLOW}Configuration canceled.${NC}"; sleep 1; return 1; fi; [ -z "$in_ltx" ] && in_ltx="$def_ltx"; in_ltx="${in_ltx//\\//}"; local in_inftlk; echo -e "\n${BOLD}${CYAN}[4/4] Infinite Talk Batch Workspace Directory:${NC}\nCurrent / Default: ${BOLD}${GREEN}${def_inftlk}${NC}"; read -r -p "Enter path [Press Enter to keep default, or 'q' to cancel]: " in_inftlk; in_inftlk="${in_inftlk#"${in_inftlk%%[![:space:]]*}"}"; in_inftlk="${in_inftlk%"${in_inftlk##*[![:space:]]}"}"; if [ "$in_inftlk" = "q" ] || [ "$in_inftlk" = "Q" ]; then echo -e "\n${YELLOW}Configuration canceled.${NC}"; sleep 1; return 1; fi; [ -z "$in_inftlk" ] && in_inftlk="$def_inftlk"; in_inftlk="${in_inftlk//\\//}"; echo -e "\n${CYAN}Creating and verifying directory structures...${NC}"; mkdir -p "$in_outputs" 2>/dev/null || true; mkdir -p "$in_flux" "$in_flux/CTRL_IMAGE" "$in_flux/PROCESSED" "$in_flux/PENDING_ICONIC" 2>/dev/null || true; mkdir -p "$in_ltx" "$in_ltx/CTRL_VIDEO" "$in_ltx/PROCESSED" 2>/dev/null || true; mkdir -p "$in_inftlk" "$in_inftlk/CTRL_IMAGE" "$in_inftlk/PROCESSED" "$in_inftlk/OUTPUTS" "$in_inftlk/VOICES" "$in_inftlk/TTS_CONVERTED" 2>/dev/null || true
 save_config_setting "WAN2GP_OUTPUTS" "$in_outputs"; save_config_setting "WAN2GP_FLUX_BATCH_DIR" "$in_flux"; save_config_setting "WAN2GP_LTX_BATCH_DIR" "$in_ltx"; save_config_setting "WAN2GP_INFTLKBATCH_DIR" "$in_inftlk"; save_config_setting "WAN2GP_CONFIGURED" "true"; WAN2GP_OUTPUTS="$in_outputs"; WAN2GP_FLUX_BATCH_DIR="$in_flux"; WAN2GP_LTX_BATCH_DIR="$in_ltx"; WAN2GP_INFTLKBATCH_DIR="$in_inftlk"; WAN2GP_CONFIGURED="true"; export WAN2GP_OUTPUTS WAN2GP_FLUX_BATCH_DIR WAN2GP_LTX_BATCH_DIR WAN2GP_INFTLKBATCH_DIR WAN2GP_CONFIGURED; echo -e "${GREEN}✓ Successfully configured WAN2GP Directories:${NC}\n  • Outputs : ${BOLD}${in_outputs}${NC}\n  • Flux    : ${BOLD}${in_flux}${NC} (with CTRL_IMAGE, PROCESSED, PENDING_ICONIC)\n  • LTX     : ${BOLD}${in_ltx}${NC} (with CTRL_VIDEO, PROCESSED)\n  • InfTalk : ${BOLD}${in_inftlk}${NC} (with CTRL_IMAGE, PROCESSED, OUTPUTS, VOICES, TTS_CONVERTED)"; echo ""; press_enter; return 0
 }
 manage_wan2gp() {
-while ! is_wan2gp_configured; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}             WAN2GP SERVER MANAGER                ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n\n${YELLOW}Notice: WAN2GP Output & Batch Directories are not yet configured.${NC}\nBefore accessing the WAN2GP operations, you must configure the directory paths:\n\n  1) WAN2GP Outputs Directory  (${BOLD}WAN2GP_OUTPUTS${NC})\n  2) Flux Batch Workspace      (${BOLD}WAN2GP_FLUX_BATCH_DIR${NC})\n  3) LTX Video Batch Workspace (${BOLD}WAN2GP_LTX_BATCH_DIR${NC})\n  4) InfTalk Batch Workspace   (${BOLD}WAN2GP_INFTLKBATCH_DIR${NC})\n\n${BOLD}Select an option:${NC}\n  ${BOLD}${CYAN}1)${NC} Configure WAN2GP Directories Now\n  ${BOLD}${CYAN}0)${NC} Return to Previous Menu (or 'q')"; echo ""; read -r -p "Enter choice [1 or 0]: " init_choice; case "$init_choice" in 1) configure_wan2gp_directories; ;; 0|[qQ]|[eE][xX][iI][tT]) return 0 ;; *) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;; esac; done; while true; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}             WAN2GP SERVER MANAGER                ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n  ${DIM}Outputs Dir:${NC}   ${BOLD}${CYAN}${WAN2GP_OUTPUTS}${NC}\n  ${DIM}Flux Batch Dir:${NC}${BOLD}${CYAN}${WAN2GP_FLUX_BATCH_DIR}${NC}\n  ${DIM}LTX Batch Dir:${NC} ${BOLD}${CYAN}${WAN2GP_LTX_BATCH_DIR}${NC}\n  ${DIM}InfTlk Batch:${NC}  ${BOLD}${CYAN}${WAN2GP_INFTLKBATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_INFTLKBATCH}${NC}"; echo ""; local wgp_pids; wgp_pids=$(pgrep -f "python.*wgp\.py" 2>/dev/null | tr '\n' ' ' || true); if [ -n "$wgp_pids" ]; then echo -e "  Server Status:       ${BOLD}${GREEN}● RUNNING${NC} (PID: ${wgp_pids})"; else echo -e "  Server Status:       ${BOLD}${RED}○ STOPPED${NC}"; fi; local flux_pids; flux_pids=$(pgrep -f "wan2gp_flux_batch" 2>/dev/null | tr '\n' ' ' || true); if [ -n "$flux_pids" ]; then echo -e "  Flux Batch:          ${BOLD}${GREEN}● RUNNING${NC} (PID: ${flux_pids})"; else echo -e "  Flux Batch:          ${BOLD}${RED}○ STOPPED${NC}"; fi; local ltx_pids; ltx_pids=$(pgrep -f "wan2gp_ltx.*batch" 2>/dev/null | tr '\n' ' ' || true); if [ -n "$ltx_pids" ]; then echo -e "  LTX Video Batch:     ${BOLD}${GREEN}● RUNNING${NC} (PID: ${ltx_pids})"; else echo -e "  LTX Video Batch:     ${BOLD}${RED}○ STOPPED${NC}"; fi; local inftlk_pids; inftlk_pids=$(pgrep -f "MP_Infinite_Talker" 2>/dev/null | tr '\n' ' ' || true); if [ -n "$inftlk_pids" ]; then echo -e "  Infinite Talk:       ${BOLD}${GREEN}● RUNNING${NC} (PID: ${inftlk_pids})"; else echo -e "  Infinite Talk:       ${BOLD}${RED}○ STOPPED${NC}"; fi; local inftlk_d="${WAN2GP_INFTLKBATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_INFTLKBATCH}"; if [ -d "$inftlk_d" ]; then shopt -s nullglob nocaseglob; local inftlk_inputs=("$inftlk_d"/*.wav "$inftlk_d"/*.mp3 "$inftlk_d"/*.flac "$inftlk_d"/*.m4a "$inftlk_d"/*.ogg "$inftlk_d"/*.txt); shopt -u nullglob nocaseglob; local inftlk_ctrl="${inftlk_d}/CTRL_IMAGE/Stephen_Hawking.png"; local ctrl_st="${YELLOW}Custom${NC}"; [ -f "$inftlk_ctrl" ] && ctrl_st="${GREEN}Stephen_Hawking.png${NC}"; echo -e "  InfTalk Batch:       ${BOLD}${CYAN}${#inftlk_inputs[@]} pending input(s)${NC} | Avatar: ${ctrl_st}"; fi; local ltx_ctrl_dir="${WAN2GP_LTX_BATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH}/CTRL_VIDEO"; [ ! -d "$ltx_ctrl_dir" ] && ltx_ctrl_dir="/run/media/mplanetarian/DATA/WAN2GP_LTX_BATCH/CTRL_VIDEO"; if [ -d "$ltx_ctrl_dir" ]; then shopt -s nullglob nocaseglob; local ltx_ctrl_vids=("$ltx_ctrl_dir"/*.mp4 "$ltx_ctrl_dir"/*.mov "$ltx_ctrl_dir"/*.avi "$ltx_ctrl_dir"/*.mkv "$ltx_ctrl_dir"/*.webm); shopt -u nullglob nocaseglob; if [ ${#ltx_ctrl_vids[@]} -gt 0 ]; then echo -e "  LTX Control Video:   ${BOLD}${YELLOW}${#ltx_ctrl_vids[@]} video(s) detected in CTRL_VIDEO${NC}"; fi; fi; local dup_pids; dup_pids=$(pgrep -f "remove_duplicate_images\.py" 2>/dev/null | tr '\n' ' ' || true); if [ -n "$dup_pids" ]; then echo -e "  Duplicate Cleaner:   ${BOLD}${GREEN}● RUNNING${NC} (PID: ${dup_pids})"; fi; local tts_dir="${WAN2GP_TTSBATCH_DIR:-$(dirname "$WAN2GP_OUTPUTS")/WAN2GP_TTSBATCH}"; [ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_TTSBATCH"; [ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/DATA/WAN2GP_TTSBATCH"; if [ -d "$tts_dir" ]; then shopt -s nullglob; local tts_txts=("$tts_dir"/*.txt)
-local tts_wavs=("$tts_dir"/TTS_CONVERTED/*.wav); shopt -u nullglob; echo -e "  TTS Batch:           ${BOLD}${CYAN}${#tts_txts[@]} .txt pending${NC} | ${BOLD}${GREEN}${#tts_wavs[@]} audio converted in TTS_CONVERTED${NC}"; fi; echo ""; echo -e "${BOLD}Select a WAN2GP operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Start in ${BOLD}${GREEN}Profile 2${NC} (High Speed / 2B Models & VRAM-Resident) [New Tab/Window]\n  ${BOLD}${CYAN}2)${NC} Start in ${BOLD}${YELLOW}Profile 4.5${NC} (Low VRAM / 14B Models Offload) [New Tab/Window]\n  ${BOLD}${CYAN}3)${NC} Stop Running WAN2GP Server\n  ${BOLD}${CYAN}4)${NC} Restart in ${BOLD}${GREEN}Profile 2${NC} (High Speed / 2B Models) [New Tab/Window]\n  ${BOLD}${CYAN}5)${NC} Restart in ${BOLD}${YELLOW}Profile 4.5${NC} (Low VRAM / 14B Models) [New Tab/Window]\n  ${BOLD}${CYAN}6)${NC} View Detailed Status & Memory Usage\n  ${BOLD}${CYAN}7)${NC} Clear WAN2GP Logs (${GREEN}clear-wan2gp-logs.sh${NC})\n  ${BOLD}${CYAN}8)${NC} Run Flux2 Klein 9B Batch Image Processor [Single Control Image]\n  ${BOLD}${CYAN}9)${NC} Run Flux2 Klein 9B Batch Image Processor [${BOLD}${YELLOW}Multi-Control Images${NC}] (All in CTRL_IMAGE)\n  ${BOLD}${CYAN}10)${NC} Run Flux2 Klein 9B in ${BOLD}${GREEN}Watch Mode${NC} [Single Control Image]\n  ${BOLD}${CYAN}11)${NC} Run Flux2 Klein 9B in ${BOLD}${GREEN}Watch Mode${NC} [${BOLD}${YELLOW}Multi-Control Images${NC}]\n  ${BOLD}${CYAN}12)${NC} Run LTX Video 2B Batch Video Processor [${BOLD}${YELLOW}Single Control Video${NC}] (${GREEN}CTRL_VIDEO${NC})\n  ${BOLD}${CYAN}13)${NC} Run LTX Video 2B Batch Video Processor [${BOLD}Pure Image-to-Video${NC}] (No Control Video)\n  ${BOLD}${CYAN}14)${NC} Run LTX Video 2B in ${BOLD}${GREEN}Watch Mode${NC} [${BOLD}${YELLOW}Single Control Video${NC}]\n  ${BOLD}${CYAN}15)${NC} Run LTX Video 2B in ${BOLD}${GREEN}Watch Mode${NC} [${BOLD}Pure Image-to-Video${NC}]\n  ${BOLD}${CYAN}16)${NC} Run LTX Video 13B Batch Video Processor [${BOLD}${YELLOW}Single Control Video${NC}] (${GREEN}CTRL_VIDEO${NC})\n  ${BOLD}${CYAN}17)${NC} Run LTX Video 13B Batch Video Processor [${BOLD}Pure Image-to-Video${NC}] (No Control Video)\n  ${BOLD}${CYAN}18)${NC} Run LTX Video 13B in ${BOLD}${GREEN}Watch Mode${NC} [${BOLD}${YELLOW}Single Control Video${NC}]\n  ${BOLD}${CYAN}19)${NC} Run LTX Video 13B in ${BOLD}${GREEN}Watch Mode${NC} [${BOLD}Pure Image-to-Video${NC}]\n  ${BOLD}${CYAN}20)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${YELLOW}EditAnything v2 LoRA${NC}]\n  ${BOLD}${CYAN}21)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${YELLOW}BFS Head Swap IC-LoRA${NC}]\n  ${BOLD}${CYAN}22)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${YELLOW}Deblur & Decompression LoRAs${NC}]\n  ${BOLD}${CYAN}23)${NC} Run LTX-2 2.5 22B Batch Processor [${BOLD}${GREEN}Clean Base / Video+Audio${NC}]\n  ${BOLD}${CYAN}24)${NC} Scan & Remove Byte-for-Byte Duplicate Images (${GREEN}remove_duplicate_images.py${NC})\n  ${BOLD}${CYAN}25)${NC} Text to Speech (TTS) Batch Converter & Audio Player (${GREEN}wan2gp_tts_batch.py${NC})\n  ${BOLD}${CYAN}26)${NC} Run MP Infinite Talker Batch [${BOLD}${GREEN}Stephen Hawking / Control Image${NC}]\n  ${BOLD}${CYAN}27)${NC} Run MP Infinite Talker in ${BOLD}${GREEN}Watch Mode${NC} [Auto-process incoming inputs]\n  ${BOLD}${CYAN}28)${NC} Generate Single Infinite Talk Video [${BOLD}${YELLOW}Interactive Prompt / Text / Audio${NC}]\n  ${BOLD}${CYAN}29)${NC} Infinite Talk Voice Manager [${BOLD}${CYAN}Edge-TTS, Custom Voices & Stephen Hawking${NC}]\n  ${BOLD}${CYAN}30)${NC} MP Video Image Directory Output Monitor (FLUX / LTX / WAN2GP)\n  ${BOLD}${CYAN}31)${NC} ${BOLD}${MAGENTA}Update WAN2GP Server to Latest Upstream Release${NC} (${GREEN}Git Rebase + uv pip${NC})\n  ${BOLD}${CYAN}32)${NC} ${YELLOW}Configure / Change Output & Batch Directory Paths${NC}\n  ${BOLD}${CYAN}33)${NC} Return to Previous Menu (or q / 0)"; echo ""; read -r -p "Enter choice [1-33]: " w_choice; case $w_choice in 1) if [ -n "$wgp_pids" ]; then echo -e "\n${YELLOW}WAN2GP is already running (PID: $wgp_pids). Stop or restart it first.${NC}"; sleep 2; else echo -e "\n${GREEN}Launching WAN2GP in Profile 2...${NC}"; launch_wan2gp_terminal "2"
-fi ;; 2) if [ -n "$wgp_pids" ]; then echo -e "\n${YELLOW}WAN2GP is already running (PID: $wgp_pids). Stop or restart it first.${NC}"; sleep 2; else echo -e "\n${YELLOW}Launching WAN2GP in Profile 4.5...${NC}"; launch_wan2gp_terminal "4.5"; fi; ;; 3) echo -e "\n${YELLOW}Stopping WAN2GP...${NC}"; run_sub_script "wan2gp.sh" stop; press_enter ;; 4) echo -e "\n${YELLOW}Stopping existing WAN2GP instance...${NC}"; run_sub_script "wan2gp.sh" stop; sleep 1; echo -e "${GREEN}Restarting WAN2GP in Profile 2...${NC}"; launch_wan2gp_terminal "2"; ;; 5) echo -e "\n${YELLOW}Stopping existing WAN2GP instance...${NC}"; run_sub_script "wan2gp.sh" stop; sleep 1; echo -e "${YELLOW}Restarting WAN2GP in Profile 4.5...${NC}"; launch_wan2gp_terminal "4.5" ;; 6) echo -e "\n${BOLD}${BLUE}=== WAN2GP STATUS ===${NC}\n"; run_sub_script "wan2gp.sh" status; press_enter; ;; 7) clear_wan2gp_logs ;; 8) echo -e "\n${GREEN}Launching Flux 2 Klein 9B Batch Image Processor (Single Control)...${NC}"; launch_wan2gp_flux_batch_terminal "--single-control" ;; 9) echo -e "\n${GREEN}Launching Flux 2 Klein 9B Batch Image Processor (Multi-Control Images)...${NC}"; launch_wan2gp_flux_batch_terminal "--multi-control" ;; 10) echo -e "\n${GREEN}Launching Flux 2 Klein 9B in Watch Mode (Single Control)...${NC}"; launch_wan2gp_flux_batch_terminal "--watch --single-control" ;; 11) echo -e "\n${GREEN}Launching Flux 2 Klein 9B in Watch Mode (Multi-Control Images)...${NC}"; launch_wan2gp_flux_batch_terminal "--watch --multi-control" ;; 12) echo -e "\n${GREEN}Launching LTX Video 2B Batch Video Processor (Single Control Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "" "2b" ;; 13) echo -e "\n${GREEN}Launching LTX Video 2B Batch Video Processor (Pure Image-to-Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "--no-control" "2b" ;; 14) echo -e "\n${GREEN}Launching LTX Video 2B in Watch Mode (Single Control Video)...${NC}"
-launch_wan2gp_ltx_batch_terminal "--watch" "2b" ;; 15) echo -e "\n${GREEN}Launching LTX Video 2B in Watch Mode (Pure Image-to-Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "--watch --no-control" "2b" ;; 16) echo -e "\n${GREEN}Launching LTX Video 13B Batch Video Processor (Single Control Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "" "13b" ;; 17) echo -e "\n${GREEN}Launching LTX Video 13B Batch Video Processor (Pure Image-to-Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "--no-control" "13b" ;; 18) echo -e "\n${GREEN}Launching LTX Video 13B in Watch Mode (Single Control Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "--watch" "13b" ;; 19) echo -e "\n${GREEN}Launching LTX Video 13B in Watch Mode (Pure Image-to-Video)...${NC}"; launch_wan2gp_ltx_batch_terminal "--watch --no-control" "13b" ;; 20) echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with EditAnything v2 LoRA...${NC}"; launch_wan2gp_ltx_batch_terminal "" "25_22b" "editanything_v2" ;; 21) echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with BFS Head Swap IC-LoRA...${NC}"; launch_wan2gp_ltx_batch_terminal "" "25_22b" "bfs_head_swap" ;; 22) echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with Deblur LoRA...${NC}"; launch_wan2gp_ltx_batch_terminal "" "25_22b" "deblur" ;; 23) echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor (Clean Base / Video+Audio)...${NC}"; launch_wan2gp_ltx_batch_terminal "" "25_22b" "none" ;; 24) run_duplicate_image_remover; ;; 25) run_wan2gp_tts_batch ;; 26) echo -e "\n${GREEN}Launching MP Infinite Talker Batch (Stephen Hawking)...${NC}"; launch_wan2gp_inftlk_batch_terminal "" ;; 27) echo -e "\n${GREEN}Launching MP Infinite Talker in Watch Mode...${NC}"; launch_wan2gp_inftlk_batch_terminal "--watch" ;; 28) run_wan2gp_infinite_talker ;; 29) run_wan2gp_infinite_talker --list-voices; press_enter ;; 30|monitor|output-monitor) run_wan2gp_output_monitor; ;; 31|[uU]|update) echo -e "\n${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}       UPDATE WAN2GP TO LATEST RELEASE            ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n"; read -r -p "Proceed with updating WAN2GP from upstream git repository? [Y/n]: " _up_confirm; if [[ -z "$_up_confirm" || "$_up_confirm" =~ ^[Yy]$ ]]; then run_sub_script "wan2gp.sh" update; else echo -e "\n${YELLOW}Update cancelled.${NC}"; fi; press_enter; ;; 32|[cC]|config|dirs) configure_wan2gp_directories ;; 33|[qQ]|[eE][xX][iI][tT]|0) return 0; ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5; ;; esac; done
+local init_opts=(
+"1|Configure WAN2GP Directories Now|(Outputs, Flux, LTX, InfTalk)"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+local init_hdr="  ${YELLOW}Notice: WAN2GP Output & Batch Directories are not yet configured.${NC}\n  Before accessing WAN2GP operations, you must configure directory paths.\n"
+while ! is_wan2gp_configured; do
+run_interactive_submenu "WAN2GP DIRECTORY CONFIGURATION" "$init_hdr" init_opts 0
+case "$REPLY" in
+1) configure_wan2gp_directories ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "${RED}Invalid selection.${NC}"; sleep 1 ;;
+esac
+done
+
+local w_opts=(
+"SECTION|SERVER ENGINE CONTROL|"
+"1|Start in Profile 2 (High Speed)|(2B Models & VRAM-Resident - New Tab/Window)"
+"2|Start in Profile 4.5 (Low VRAM)|(14B Models Offload - New Tab/Window)"
+"3|Stop Running WAN2GP Server|(Kill wgp.py server process)"
+"4|Restart in Profile 2|(High Speed / 2B Models)"
+"5|Restart in Profile 4.5|(Low VRAM / 14B Models)"
+"6|View Detailed Status & Memory Usage|(wgp status)"
+"7|Clear WAN2GP Logs|(clear-wan2gp-logs.sh)"
+"SECTION|FLUX 2 KLEIN 9B IMAGE BATCH|"
+"8|Run Flux 2 Klein 9B Image Processor|[Single Control Image]"
+"9|Run Flux 2 Klein 9B Image Processor|[Multi-Control Images] (All in CTRL_IMAGE)"
+"10|Run Flux 2 Klein 9B in Watch Mode|[Single Control Image]"
+"11|Run Flux 2 Klein 9B in Watch Mode|[Multi-Control Images]"
+"SECTION|LTX VIDEO GENERATION & LORA BATCH|"
+"12|Run LTX Video 2B Batch Video Processor|[Single Control Video] (CTRL_VIDEO)"
+"13|Run LTX Video 2B Batch Video Processor|[Pure Image-to-Video] (No Control Video)"
+"14|Run LTX Video 2B in Watch Mode|[Single Control Video]"
+"15|Run LTX Video 2B in Watch Mode|[Pure Image-to-Video]"
+"16|Run LTX Video 13B Batch Video Processor|[Single Control Video] (CTRL_VIDEO)"
+"17|Run LTX Video 13B Batch Video Processor|[Pure Image-to-Video] (No Control Video)"
+"18|Run LTX Video 13B in Watch Mode|[Single Control Video]"
+"19|Run LTX Video 13B in Watch Mode|[Pure Image-to-Video]"
+"20|Run LTX-2 2.5 22B Batch Processor|[EditAnything v2 LoRA]"
+"21|Run LTX-2 2.5 22B Batch Processor|[BFS Head Swap IC-LoRA]"
+"22|Run LTX-2 2.5 22B Batch Processor|[Deblur & Decompression LoRAs]"
+"23|Run LTX-2 2.5 22B Batch Processor|[Clean Base / Video+Audio]"
+"SECTION|INFINITE TALKER & AUDIO / IMAGE UTILITIES|"
+"24|Scan & Remove Byte-for-Byte Duplicate Images|(remove_duplicate_images.py)"
+"25|Text to Speech (TTS) Batch Converter & Audio Player|(wan2gp_tts_batch.py)"
+"26|Run MP Infinite Talker Batch|[Stephen Hawking / Control Image]"
+"27|Run MP Infinite Talker in Watch Mode|[Auto-process incoming inputs]"
+"28|Generate Single Infinite Talk Video|[Interactive Prompt / Text / Audio]"
+"29|Infinite Talk Voice Manager|[Edge-TTS, Custom Voices & Stephen Hawking]"
+"30|MP Video Image Directory Output Monitor|(FLUX / LTX / WAN2GP)"
+"SECTION|CONFIGURATION & UPDATES|"
+"31|Update WAN2GP Server to Latest Upstream Release|(Git Rebase + uv pip)"
+"32|Configure / Change Output & Batch Directory Paths|(Outputs, Flux, LTX, InfTalk)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q / 33)"
+)
+
+while true; do
+local wgp_pids flux_pids ltx_pids inftlk_pids dup_pids
+wgp_pids=$(pgrep -f "python.*wgp\.py" 2>/dev/null | tr '\n' ' ' || true)
+flux_pids=$(pgrep -f "wan2gp_flux_batch" 2>/dev/null | tr '\n' ' ' || true)
+ltx_pids=$(pgrep -f "wan2gp_ltx.*batch" 2>/dev/null | tr '\n' ' ' || true)
+inftlk_pids=$(pgrep -f "MP_Infinite_Talker" 2>/dev/null | tr '\n' ' ' || true)
+dup_pids=$(pgrep -f "remove_duplicate_images\.py" 2>/dev/null | tr '\n' ' ' || true)
+
+local wgp_st="${RED}○ STOPPED${NC}"
+[ -n "$wgp_pids" ] && wgp_st="${GREEN}● RUNNING${NC} (PID: ${wgp_pids% })"
+local flux_st="${RED}○ STOPPED${NC}"
+[ -n "$flux_pids" ] && flux_st="${GREEN}● RUNNING${NC} (PID: ${flux_pids% })"
+local ltx_st="${RED}○ STOPPED${NC}"
+[ -n "$ltx_pids" ] && ltx_st="${GREEN}● RUNNING${NC} (PID: ${ltx_pids% })"
+local inftlk_st="${RED}○ STOPPED${NC}"
+[ -n "$inftlk_pids" ] && inftlk_st="${GREEN}● RUNNING${NC} (PID: ${inftlk_pids% })"
+
+local inftlk_info=""
+local inftlk_d="${WAN2GP_INFTLKBATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_INFTLKBATCH}"
+if [ -d "$inftlk_d" ]; then
+shopt -s nullglob nocaseglob
+local inftlk_inputs=("$inftlk_d"/*.wav "$inftlk_d"/*.mp3 "$inftlk_d"/*.flac "$inftlk_d"/*.m4a "$inftlk_d"/*.ogg "$inftlk_d"/*.txt)
+shopt -u nullglob nocaseglob
+local inftlk_ctrl="${inftlk_d}/CTRL_IMAGE/Stephen_Hawking.png"
+local ctrl_st="${YELLOW}Custom${NC}"
+[ -f "$inftlk_ctrl" ] && ctrl_st="${GREEN}Stephen_Hawking.png${NC}"
+inftlk_info="  InfTalk Batch:       ${BOLD}${CYAN}${#inftlk_inputs[@]} pending input(s)${NC} | Avatar: ${ctrl_st}\n"
+fi
+
+local ltx_info=""
+local ltx_ctrl_dir="${WAN2GP_LTX_BATCH_DIR:-/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_LTX_BATCH}/CTRL_VIDEO"
+[ ! -d "$ltx_ctrl_dir" ] && ltx_ctrl_dir="/run/media/mplanetarian/DATA/WAN2GP_LTX_BATCH/CTRL_VIDEO"
+if [ -d "$ltx_ctrl_dir" ]; then
+shopt -s nullglob nocaseglob
+local ltx_ctrl_vids=("$ltx_ctrl_dir"/*.mp4 "$ltx_ctrl_dir"/*.mov "$ltx_ctrl_dir"/*.avi "$ltx_ctrl_dir"/*.mkv "$ltx_ctrl_dir"/*.webm)
+shopt -u nullglob nocaseglob
+if [ ${#ltx_ctrl_vids[@]} -gt 0 ]; then
+ltx_info="  LTX Control Video:   ${BOLD}${YELLOW}${#ltx_ctrl_vids[@]} video(s) detected in CTRL_VIDEO${NC}\n"
+fi
+fi
+
+local dup_info=""
+[ -n "$dup_pids" ] && dup_info="  Duplicate Cleaner:   ${BOLD}${GREEN}● RUNNING${NC} (PID: ${dup_pids% })\n"
+
+local tts_info=""
+local tts_dir="${WAN2GP_TTSBATCH_DIR:-$(dirname "$WAN2GP_OUTPUTS")/WAN2GP_TTSBATCH}"
+[ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/WAN2GP_TTSBATCH"
+[ ! -d "$tts_dir" ] && tts_dir="/run/media/mplanetarian/DATA/WAN2GP_TTSBATCH"
+if [ -d "$tts_dir" ]; then
+shopt -s nullglob
+local tts_txts=("$tts_dir"/*.txt)
+local tts_wavs=("$tts_dir"/TTS_CONVERTED/*.wav)
+shopt -u nullglob
+tts_info="  TTS Batch:           ${BOLD}${CYAN}${#tts_txts[@]} .txt pending${NC} | ${BOLD}${GREEN}${#tts_wavs[@]} audio converted in TTS_CONVERTED${NC}\n"
+fi
+
+local hdr="  Outputs Dir:         ${BOLD}${CYAN}${WAN2GP_OUTPUTS}${NC}\n  Flux Batch Dir:      ${BOLD}${CYAN}${WAN2GP_FLUX_BATCH_DIR}${NC}\n  LTX Batch Dir:       ${BOLD}${CYAN}${WAN2GP_LTX_BATCH_DIR}${NC}\n  Server Status:       ${wgp_st} | Flux: ${flux_st}\n  LTX Video Batch:     ${ltx_st} | InfTalk: ${inftlk_st}\n${inftlk_info}${ltx_info}${dup_info}${tts_info}"
+
+run_interactive_submenu "WAN2GP AI VIDEO & IMAGE WORKSTATION SUITE" "$hdr" w_opts 0
+case "$REPLY" in
+1)
+if [ -n "$wgp_pids" ]; then
+echo -e "\n${YELLOW}WAN2GP is already running (PID: $wgp_pids). Stop or restart it first.${NC}"
+sleep 2
+else
+echo -e "\n${GREEN}Launching WAN2GP in Profile 2...${NC}"
+launch_wan2gp_terminal "2"
+fi
+;;
+2)
+if [ -n "$wgp_pids" ]; then
+echo -e "\n${YELLOW}WAN2GP is already running (PID: $wgp_pids). Stop or restart it first.${NC}"
+sleep 2
+else
+echo -e "\n${YELLOW}Launching WAN2GP in Profile 4.5...${NC}"
+launch_wan2gp_terminal "4.5"
+fi
+;;
+3)
+echo -e "\n${YELLOW}Stopping WAN2GP...${NC}"
+run_sub_script "wan2gp.sh" stop
+press_enter
+;;
+4)
+echo -e "\n${YELLOW}Stopping existing WAN2GP instance...${NC}"
+run_sub_script "wan2gp.sh" stop
+sleep 1
+echo -e "${GREEN}Restarting WAN2GP in Profile 2...${NC}"
+launch_wan2gp_terminal "2"
+;;
+5)
+echo -e "\n${YELLOW}Stopping existing WAN2GP instance...${NC}"
+run_sub_script "wan2gp.sh" stop
+sleep 1
+echo -e "${YELLOW}Restarting WAN2GP in Profile 4.5...${NC}"
+launch_wan2gp_terminal "4.5"
+;;
+6)
+echo -e "\n${BOLD}${BLUE}=== WAN2GP STATUS ===${NC}\n"
+run_sub_script "wan2gp.sh" status
+press_enter
+;;
+7)
+clear_wan2gp_logs
+;;
+8)
+echo -e "\n${GREEN}Launching Flux 2 Klein 9B Batch Image Processor (Single Control)...${NC}"
+launch_wan2gp_flux_batch_terminal "--single-control"
+;;
+9)
+echo -e "\n${GREEN}Launching Flux 2 Klein 9B Batch Image Processor (Multi-Control Images)...${NC}"
+launch_wan2gp_flux_batch_terminal "--multi-control"
+;;
+10)
+echo -e "\n${GREEN}Launching Flux 2 Klein 9B in Watch Mode (Single Control)...${NC}"
+launch_wan2gp_flux_batch_terminal "--watch --single-control"
+;;
+11)
+echo -e "\n${GREEN}Launching Flux 2 Klein 9B in Watch Mode (Multi-Control Images)...${NC}"
+launch_wan2gp_flux_batch_terminal "--watch --multi-control"
+;;
+12)
+echo -e "\n${GREEN}Launching LTX Video 2B Batch Video Processor (Single Control Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "2b"
+;;
+13)
+echo -e "\n${GREEN}Launching LTX Video 2B Batch Video Processor (Pure Image-to-Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--no-control" "2b"
+;;
+14)
+echo -e "\n${GREEN}Launching LTX Video 2B in Watch Mode (Single Control Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--watch" "2b"
+;;
+15)
+echo -e "\n${GREEN}Launching LTX Video 2B in Watch Mode (Pure Image-to-Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--watch --no-control" "2b"
+;;
+16)
+echo -e "\n${GREEN}Launching LTX Video 13B Batch Video Processor (Single Control Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "13b"
+;;
+17)
+echo -e "\n${GREEN}Launching LTX Video 13B Batch Video Processor (Pure Image-to-Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--no-control" "13b"
+;;
+18)
+echo -e "\n${GREEN}Launching LTX Video 13B in Watch Mode (Single Control Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--watch" "13b"
+;;
+19)
+echo -e "\n${GREEN}Launching LTX Video 13B in Watch Mode (Pure Image-to-Video)...${NC}"
+launch_wan2gp_ltx_batch_terminal "--watch --no-control" "13b"
+;;
+20)
+echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with EditAnything v2 LoRA...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "25_22b" "editanything_v2"
+;;
+21)
+echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with BFS Head Swap IC-LoRA...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "25_22b" "bfs_head_swap"
+;;
+22)
+echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor with Deblur LoRA...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "25_22b" "deblur"
+;;
+23)
+echo -e "\n${GREEN}Launching LTX-2 2.5 22B Batch Processor (Clean Base / Video+Audio)...${NC}"
+launch_wan2gp_ltx_batch_terminal "" "25_22b" "none"
+;;
+24)
+run_duplicate_image_remover
+;;
+25)
+run_wan2gp_tts_batch
+;;
+26)
+echo -e "\n${GREEN}Launching MP Infinite Talker Batch (Stephen Hawking)...${NC}"
+launch_wan2gp_inftlk_batch_terminal ""
+;;
+27)
+echo -e "\n${GREEN}Launching MP Infinite Talker in Watch Mode...${NC}"
+launch_wan2gp_inftlk_batch_terminal "--watch"
+;;
+28)
+run_wan2gp_infinite_talker
+;;
+29)
+run_wan2gp_infinite_talker --list-voices
+press_enter
+;;
+30|monitor|output-monitor)
+run_wan2gp_output_monitor
+;;
+31|[uU]|update)
+echo -e "\n${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}       UPDATE WAN2GP TO LATEST RELEASE            ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n"
+read -r -p "Proceed with updating WAN2GP from upstream git repository? [Y/n]: " _up_confirm
+if [[ -z "$_up_confirm" || "$_up_confirm" =~ ^[Yy]$ ]]; then
+run_sub_script "wan2gp.sh" update
+else
+echo -e "\n${YELLOW}Update cancelled.${NC}"
+fi
+press_enter
+;;
+32|[cC]|config|dirs)
+configure_wan2gp_directories
+;;
+0|33|[qQ]|[eE][xX][iI][tT]|ESC)
+return 0
+;;
+*)
+echo -e "\n${RED}Invalid option!${NC}"
+sleep 1.2
+;;
+esac
+done
 }
 manage_beszel() {
-run_sub_script "beszel.sh" "$@"
+if [ $# -gt 0 ]; then run_sub_script "beszel.sh" "$@"; return; fi
+local b_opts=(
+"SECTION|SERVICES CONTROL|"
+"1|Start Beszel Monitoring Hub & Local Agent|(Background Services)"
+"2|Start Beszel Monitoring Hub Only|(Web Dashboard :8090)"
+"3|Start Beszel Agent Only|(Hardware & GPU Telemetry Reporter)"
+"SECTION|BROWSER ACCESS|"
+"4|Open Beszel Web Dashboard in Browser|(http://localhost:8090)"
+"SECTION|STOP & RESTART|"
+"5|Stop Beszel Hub & Agent Services|(Kill running instances)"
+"6|Stop Beszel Hub Only|(Stop Web Dashboard)"
+"7|Stop Beszel Agent Only|(Stop Telemetry Reporter)"
+"8|Restart Beszel Hub & Agent Services|(Clean restart all)"
+"SECTION|DIAGNOSTICS & LOGS|"
+"9|View Beszel Server Log Files|(beszel-hub.log & agent.log)"
+"10|View Beszel Detailed Service Status|(PIDs, Ports, Systemd / Podman)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+while true; do
+local hub_pids agent_pids
+hub_pids=$(pgrep -f "beszel.*hub" 2>/dev/null | tr '\n' ' ' || true)
+agent_pids=$(pgrep -f "beszel.*agent" 2>/dev/null | tr '\n' ' ' || true)
+local h_st="${RED}○ STOPPED${NC}"
+[ -n "$hub_pids" ] && h_st="${GREEN}● RUNNING${NC} (PID: ${hub_pids% })"
+local a_st="${RED}○ STOPPED${NC}"
+[ -n "$agent_pids" ] && a_st="${GREEN}● RUNNING${NC} (PID: ${agent_pids% })"
+local hdr="  Beszel Hub (Port 8090):    ${h_st}\n  Beszel Agent (Port 45876): ${a_st}\n"
+run_interactive_submenu "BESZEL WORKSTATION & GPU MONITORING SUITE" "$hdr" b_opts 0
+case "$REPLY" in
+1) run_sub_script "beszel.sh" start; press_enter ;;
+2) run_sub_script "beszel.sh" start-hub; press_enter ;;
+3) run_sub_script "beszel.sh" start-agent; press_enter ;;
+4) run_sub_script "beszel.sh" open; press_enter ;;
+5) run_sub_script "beszel.sh" stop; press_enter ;;
+6) run_sub_script "beszel.sh" stop-hub; press_enter ;;
+7) run_sub_script "beszel.sh" stop-agent; press_enter ;;
+8) run_sub_script "beszel.sh" restart; press_enter ;;
+9) run_sub_script "beszel.sh" logs; press_enter ;;
+10) run_sub_script "beszel.sh" status; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 manage_ollama() {
-run_sub_script "manage_ollama.sh" "$@"
+if [ $# -gt 0 ]; then run_sub_script "manage_ollama.sh" "$@"; return; fi
+local ol_opts=(
+"SECTION|SERVER ENGINE CONTROL|"
+"1|Start Ollama Server (Background Daemon)|[ollama serve / container]"
+"2|Start Ollama Server in New Terminal Window|(Live output & logs)"
+"3|Stop Running Ollama Server|(Kill serve daemon / container)"
+"4|Restart Ollama Server|(Clean restart backend)"
+"SECTION|INTERACTIVE CHAT & VOICE AI|"
+"5|Chat with a Local Model|(Interactive CLI: Qwen, LLaMA, DeepSeek...)"
+"6|Start Voice Chat with Local Models|(Matrix Cast: Morpheus, Smith, Neo, Trinity...)"
+"7|View Archived Audio Responses & Transcripts|(MP Harmony & Voice AI Archive)"
+"SECTION|DIAGNOSTICS & LOGS|"
+"8|View Server Log File|(ollama-serve.log)"
+"9|View Detailed Status & Models|(run_sub_script manage_ollama.sh status)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+while true; do
+local st_str="${RED}○ STOPPED${NC}"
+local pids=""
+if [ "$OS_TYPE" = "windows" ]; then
+if command -v tasklist.exe &>/dev/null && tasklist.exe //FI "IMAGENAME eq ollama.exe" 2>/dev/null | grep -qi "ollama.exe"; then
+st_str="${GREEN}● RUNNING${NC}"
+fi
+elif curl -s --connect-timeout 1 "http://127.0.0.1:11434/" 2>/dev/null | grep -qi "Ollama is running"; then
+pids=$(pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+elif pgrep -f "ollama serve" &>/dev/null; then
+pids=$(pgrep -f "ollama serve" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+fi
+local hdr="  Server Status:  ${st_str}\n  Endpoint:       ${CYAN}http://127.0.0.1:11434${NC}\n"
+run_interactive_submenu "OLLAMA LOCAL LLM SERVER MANAGER" "$hdr" ol_opts 0
+case "$REPLY" in
+1) run_sub_script "manage_ollama.sh" start; press_enter ;;
+2) run_sub_script "manage_ollama.sh" start-window; press_enter ;;
+3) run_sub_script "manage_ollama.sh" stop; press_enter ;;
+4) run_sub_script "manage_ollama.sh" restart; press_enter ;;
+5) run_sub_script "manage_ollama.sh" chat ;;
+6) run_sub_script "manage_ollama.sh" voice ;;
+7) run_sub_script "manage_ollama.sh" audio; press_enter ;;
+8) run_sub_script "manage_ollama.sh" logs; press_enter ;;
+9) run_sub_script "manage_ollama.sh" status; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 manage_open_webui() {
-run_sub_script "manage_open_webui.sh" "$@"
+if [ $# -gt 0 ]; then run_sub_script "manage_open_webui.sh" "$@"; return; fi
+local ow_opts=(
+"SECTION|BROWSER ACCESS|"
+"1|Open in Web Browser|(http://localhost:42004 or http://localhost:8080)"
+"SECTION|SERVICE CONTROLS|"
+"2|Start Server|(start_openwebui.bat / conda env daemon)"
+"3|Stop Server|(taskkill / stop webui backend)"
+"4|Restart Server|(Clean restart backend)"
+"SECTION|MAINTENANCE & LOGS|"
+"5|View Server Logs / Console Output|(open-webui.log)"
+"6|Check / Install Open WebUI Updates|(pip / git pull)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+while true; do
+local port="42004"
+[ "$OS_TYPE" = "windows" ] && port="8080"
+local st_str="${RED}○ STOPPED${NC}"
+local pids=""
+if curl -s --connect-timeout 1 "http://127.0.0.1:${port}/" &>/dev/null; then
+pids=$(pgrep -f "open-webui serve|open_webui" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+elif pgrep -f "open-webui serve|open_webui" &>/dev/null; then
+pids=$(pgrep -f "open-webui serve|open_webui" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+fi
+local hdr="  Server Status:  ${st_str}\n  Web Endpoint:   ${CYAN}http://localhost:${port}${NC}\n  Data Directory: ${CYAN}X:\\OPENWEBUI\\data${NC}\n"
+run_interactive_submenu "OPEN WEBUI SERVER & WEB CHAT MANAGER" "$hdr" ow_opts 0
+case "$REPLY" in
+1) run_sub_script "manage_open_webui.sh" open; press_enter ;;
+2) run_sub_script "manage_open_webui.sh" start; press_enter ;;
+3) run_sub_script "manage_open_webui.sh" stop; press_enter ;;
+4) run_sub_script "manage_open_webui.sh" restart; press_enter ;;
+5) run_sub_script "manage_open_webui.sh" logs; press_enter ;;
+6) run_sub_script "manage_open_webui.sh" update; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 manage_harmony_agent() {
-run_sub_script "manage_harmony_agent.sh" "$@"
+if [ $# -gt 0 ]; then run_sub_script "manage_harmony_agent.sh" "$@"; return; fi
+local ha_opts=(
+"SECTION|INTERACTIVE CHAT & VOICE AI|"
+"1|Launch Interactive Chat CLI with MP Harmony Agent|(Terminal Console)"
+"2|Launch Voice Chat CLI with MP Harmony Agent|(Matrix Cast: Smith, Morpheus, Neo, Trinity, Oracle, Zion)"
+"3|Launch Voice Chat with Ollama Models|(Matrix Cast Voice AI with Local Models)"
+"SECTION|SERVER & VOICE BRIDGE (:11435)|"
+"4|Start MP Harmony Voice Bridge / Server|(Background Daemon :11435)"
+"5|Start MP Harmony Voice Bridge in New Window|(Live Logs & Interactive Audio)"
+"6|Stop Running MP Harmony Agent / Server|(Kill server daemon)"
+"7|Restart MP Harmony Agent / Server|(Clean restart backend)"
+"SECTION|AUDIO ARCHIVE & LOGS|"
+"8|View Archived Audio Responses & Transcripts|(MP Harmony Agent Speech Archive)"
+"9|View Server Log File|(harmony-agent.log)"
+"10|View Server Status & Diagnostic Details|(run_sub_script manage_harmony_agent.sh status)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+while true; do
+local st_str="${RED}○ STOPPED${NC}"
+local pids=""
+if curl -s --connect-timeout 1 "http://127.0.0.1:11435/health" 2>/dev/null | grep -qi "ok"; then
+pids=$(pgrep -f "harmony.*agent|harmony_bridge" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+elif pgrep -f "harmony.*agent|harmony_bridge" &>/dev/null; then
+pids=$(pgrep -f "harmony.*agent|harmony_bridge" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+fi
+local hdr="  Server Status:  ${st_str}\n  Endpoint:       ${CYAN}http://127.0.0.1:11435${NC}\n"
+run_interactive_submenu "MP HARMONY AI AGENT & VOICE BRIDGE (:11435)" "$hdr" ha_opts 0
+case "$REPLY" in
+1) run_sub_script "manage_harmony_agent.sh" chat ;;
+2) run_sub_script "manage_harmony_agent.sh" voice ;;
+3) run_sub_script "manage_harmony_agent.sh" ollama-voice ;;
+4) run_sub_script "manage_harmony_agent.sh" start; press_enter ;;
+5) run_sub_script "manage_harmony_agent.sh" start-window; press_enter ;;
+6) run_sub_script "manage_harmony_agent.sh" stop; press_enter ;;
+7) run_sub_script "manage_harmony_agent.sh" restart; press_enter ;;
+8) run_sub_script "manage_harmony_agent.sh" audio; press_enter ;;
+9) run_sub_script "manage_harmony_agent.sh" logs; press_enter ;;
+10) run_sub_script "manage_harmony_agent.sh" status; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 manage_dsh_mobile() {
-run_sub_script "dsh_mobile.sh" "$@"
+if [ $# -gt 0 ]; then run_sub_script "dsh_mobile.sh" "$@"; return; fi
+local dsh_opts=(
+"SECTION|SERVER LAUNCHERS|"
+"1|Launch dsh-mobile in Terminal Window / Tab|(Standard live server)"
+"2|Launch dsh-mobile in Background Daemon|(Log output to file)"
+"SECTION|BROWSER & CONTROLS|"
+"3|Open dsh-mobile Web UI in Browser|(http://192.168.1.11:3080)"
+"4|Stop Running dsh-mobile Server|(Kill server process)"
+"5|Restart dsh-mobile Server|(Clean restart backend)"
+"SECTION|DIAGNOSTICS & LOGS|"
+"6|View Server Log File|(dsh-mobile.log)"
+"7|View Server Status & Diagnostic Details|(run_sub_script dsh_mobile.sh status)"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+while true; do
+local st_str="${RED}○ STOPPED${NC}"
+local pids=""
+if curl -s --connect-timeout 1 "http://127.0.0.1:3080/" &>/dev/null; then
+pids=$(pgrep -f "dsh-mobile|dsh_server" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+elif pgrep -f "dsh-mobile|dsh_server" &>/dev/null; then
+pids=$(pgrep -f "dsh-mobile|dsh_server" 2>/dev/null | tr '\n' ' ' || true)
+st_str="${GREEN}● RUNNING${NC}${pids:+ (PID: ${pids% })}"
+fi
+local hdr="  Server Status:  ${st_str}\n  Web UI URL:     ${CYAN}http://192.168.1.11:3080${NC}\n"
+run_interactive_submenu "DEEPSEEK HARNESS (DSH-MOBILE) SERVER MANAGER" "$hdr" dsh_opts 0
+case "$REPLY" in
+1) run_sub_script "dsh_mobile.sh" start; press_enter ;;
+2) run_sub_script "dsh_mobile.sh" start-bg; press_enter ;;
+3) run_sub_script "dsh_mobile.sh" web; press_enter ;;
+4) run_sub_script "dsh_mobile.sh" stop; press_enter ;;
+5) run_sub_script "dsh_mobile.sh" restart; press_enter ;;
+6) run_sub_script "dsh_mobile.sh" logs; press_enter ;;
+7) run_sub_script "dsh_mobile.sh" status; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 launch_dsh_mobile() {
 run_sub_script "dsh_mobile.sh" start
@@ -963,7 +1527,44 @@ local target_arg="$1"; local title="$2"; local agy_bin
 if command -v agy &>/dev/null; then agy_bin="agy"; elif [ -x "$HOME/.local/bin/agy.bin" ]; then agy_bin="$HOME/.local/bin/agy.bin"; else agy_bin="agy"; fi; local run_cmd="\"$agy_bin\""; if [ -n "$target_arg" ]; then if [[ "$target_arg" =~ ^-- ]]; then run_cmd="\"$agy_bin\" $target_arg"; else run_cmd="\"$agy_bin\" --model \"$target_arg\""; fi; fi; if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then echo -e "\n${BOLD}${YELLOW}No GUI display detected; launching ${title} in current terminal...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi; echo ""; echo -e "${BOLD}Select launch target for ${title}:${NC}\n  ${BOLD}${CYAN}1)${NC} New Terminal Tab (Default - keeps Manager running in background)\n  ${BOLD}${CYAN}2)${NC} New Standalone Terminal Window\n  ${BOLD}${CYAN}3)${NC} Current Terminal Window (Returns to Manager upon exit)"; read -r -p "Enter choice [1-3, default: 1]: " t_choice; case "$t_choice" in 2) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new window...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close window...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "window"; then echo -e "${GREEN}✓ ${title} launched in a new window.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;; 3) echo -e "\n${BOLD}${YELLOW}Launching ${title} in current terminal (Type /exit or Ctrl+D twice to return)...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter ;; *) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new terminal tab...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close tab...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "tab"; then echo -e "${GREEN}✓ ${title} launched in a new terminal tab.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;; esac
 }
 manage_ai_models() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}       AI ASSISTANT & MODEL LAUNCHER (AGY)        ${NC}\n${BOLD}${MAGENTA}==================================================${NC}"; echo ""; echo -e "  Account:    ${CYAN}mathewkjohn2026@gmail.com${NC}\n  Workspace:  ${GREEN}${PWD}${NC}"; echo ""; echo -e "${BOLD}Claude & GPT Models (Shared Partner Quota):${NC}\n  ${BOLD}${CYAN}1)${NC} Claude Sonnet 4.6 (Thinking)         ${GREEN}[claude-sonnet-4-6]${NC}\n  ${BOLD}${CYAN}2)${NC} Claude Opus 4.6 (Thinking)           ${GREEN}[claude-opus-4-6-thinking]${NC}\n  ${BOLD}${CYAN}3)${NC} GPT-OSS 120B (Medium)                ${GREEN}[gpt-oss-120b-medium]${NC}"; echo ""; echo -e "${BOLD}Google Gemini Models (High Volume Quota):${NC}\n  ${BOLD}${CYAN}4)${NC} Gemini 3.8 Flash (High)              ${GREEN}[gemini-3.8-flash-high]${NC}\n  ${BOLD}${CYAN}5)${NC} Gemini 3.1 Pro (High)                ${GREEN}[gemini-3.1-pro-high]${NC}"; echo ""; echo -e "${BOLD}Local Ollama & AI Web Interfaces:${NC}\n  ${BOLD}${CYAN}6)${NC} Manage Ollama Server & Local Models  ${GREEN}[ollama serve / chat / voice / status]${NC}\n  ${BOLD}${CYAN}7)${NC} Launch dsh-mobile Web Server         ${GREEN}[http://192.168.1.11:3080]${NC}\n  ${BOLD}${CYAN}8)${NC} Manage DeepSeek Harness Server       ${GREEN}[Start, Stop, Browser, Status]${NC}"; echo ""; echo -e "${BOLD}Sessions & Utilities:${NC}\n  ${BOLD}${CYAN}9)${NC} Launch Default Session               ${GREEN}[agy]${NC}\n  ${BOLD}${CYAN}10)${NC} Resume Most Recent Conversation      ${GREEN}[agy --continue]${NC}\n  ${BOLD}${CYAN}11)${NC} View All Available Models & Status   ${GREEN}[agy models]${NC}\n  ${BOLD}${CYAN}12)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-12]: " ai_choice; case $ai_choice in 1) launch_ai_session "claude-sonnet-4-6" "Claude Sonnet"; ;; 2) launch_ai_session "claude-opus-4-6-thinking" "Claude Opus" ;; 3) launch_ai_session "gpt-oss-120b-medium" "GPT-OSS 120B"; ;; 4) launch_ai_session "gemini-3.8-flash-high" "Gemini 3.8 Flash" ;; 5) launch_ai_session "gemini-3.1-pro-high" "Gemini 3.1 Pro"; ;; 6) manage_ollama ;; 7) launch_dsh_mobile; press_enter ;; 8) manage_dsh_mobile; ;; 9) launch_ai_session "" "Antigravity AI" ;; 10) echo -e "\n${BOLD}${YELLOW}Resuming most recent conversation...${NC}\n"; launch_ai_session "--continue" "Resume Session" ;; 11) echo -e "\n${BOLD}${BLUE}=== AVAILABLE MODELS IN AGY ===${NC}\n"; if command -v agy &>/dev/null; then agy models; elif [ -x "$HOME/.local/bin/agy.bin" ]; then "$HOME/.local/bin/agy.bin" models; fi; echo ""; press_enter ;; 12|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5; ;; esac; done
+local ai_opts=(
+"SECTION|CLAUDE & GPT MODELS (Shared Partner Quota)|"
+"1|Claude Sonnet 4.6 (Thinking)|[claude-sonnet-4-6]"
+"2|Claude Opus 4.6 (Thinking)|[claude-opus-4-6-thinking]"
+"3|GPT-OSS 120B (Medium)|[gpt-oss-120b-medium]"
+"SECTION|GOOGLE GEMINI MODELS (High Volume Quota)|"
+"4|Gemini 3.8 Flash (High)|[gemini-3.8-flash-high]"
+"5|Gemini 3.1 Pro (High)|[gemini-3.1-pro-high]"
+"SECTION|LOCAL OLLAMA & AI WEB INTERFACES|"
+"6|Manage Ollama Server & Local Models|[ollama serve / chat / voice / status]"
+"7|Launch dsh-mobile Web Server|[http://192.168.1.11:3080]"
+"8|Manage DeepSeek Harness Server|[Start, Stop, Browser, Status]"
+"SECTION|SESSIONS & UTILITIES|"
+"9|Launch Default Session|[agy]"
+"10|Resume Most Recent Conversation|[agy --continue]"
+"11|View All Available Models & Status|[agy models]"
+"SEP|SEP|"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+local hdr="  Account:   ${CYAN}mathewkjohn2026@gmail.com${NC}\n  Workspace: ${GREEN}${PWD}${NC}\n"
+while true; do
+run_interactive_submenu "AI ASSISTANT & MODEL LAUNCHER (AGY)" "$hdr" ai_opts 0
+case "$REPLY" in
+1) launch_ai_session "claude-sonnet-4-6" "Claude Sonnet" ;;
+2) launch_ai_session "claude-opus-4-6-thinking" "Claude Opus" ;;
+3) launch_ai_session "gpt-oss-120b-medium" "GPT-OSS 120B" ;;
+4) launch_ai_session "gemini-3.8-flash-high" "Gemini 3.8 Flash" ;;
+5) launch_ai_session "gemini-3.1-pro-high" "Gemini 3.1 Pro" ;;
+6) manage_ollama ;;
+7) launch_dsh_mobile; press_enter ;;
+8) manage_dsh_mobile ;;
+9) launch_ai_session "" "Antigravity AI" ;;
+10) echo -e "\n${BOLD}${YELLOW}Resuming most recent conversation...${NC}\n"; launch_ai_session "--continue" "Resume Session" ;;
+11) echo -e "\n${BOLD}${BLUE}=== AVAILABLE MODELS IN AGY ===${NC}\n"; if command -v agy &>/dev/null; then agy models; elif [ -x "$HOME/.local/bin/agy.bin" ]; then "$HOME/.local/bin/agy.bin" models; fi; echo ""; press_enter ;;
+0|12|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+esac
+done
 }
 burn_iso_to_usb() {
 echo -e "\n${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}          BURN ISO IMAGE TO USB DRIVE (DD)        ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n"; local iso_path=""; read -r -e -p "Enter full path to the ISO file: " iso_path; iso_path=$(echo "$iso_path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"); if [ -z "$iso_path" ]; then echo -e "${RED}Error: ISO file path cannot be empty!${NC}"; press_enter; return 1; fi; if [[ "$iso_path" == ~* ]]; then iso_path="${iso_path/#~/$HOME}"; fi; if [ ! -f "$iso_path" ]; then echo -e "${RED}Error: File not found at '$iso_path'!${NC}"; press_enter; return 1; fi; local iso_size; iso_size=$(ls -lh "$iso_path" 2>/dev/null | awk '{print $5}'); echo -e "${GREEN}✓ Found ISO:${NC} $iso_path (${CYAN}${iso_size}${NC})"; if [ "$OS_TYPE" = "macos" ]; then echo -e "\n${BOLD}Available External USB Drives (macOS diskutil):${NC}"; diskutil list external; echo ""; read -r -p "Enter target disk name (e.g. disk2 or /dev/disk2): " target_dev; target_dev=$(echo "$target_dev" | tr -d ' ' | sed 's|^/dev/||'); if [ -z "$target_dev" ]; then echo -e "${RED}Error: Target disk cannot be empty!${NC}"; press_enter; return 1; fi; local full_dev="/dev/$target_dev"; if ! diskutil info "$full_dev" &>/dev/null; then echo -e "${RED}Error: Disk '$full_dev' not found!${NC}"; press_enter; return 1; fi; if diskutil info "$full_dev" | grep -qi "Internal:[[:space:]]*Yes"; then echo -e "${BOLD}${RED}FATAL: $full_dev is reported as an INTERNAL drive! Aborting for safety.${NC}"; press_enter; return 1; fi; echo -e "\n${BOLD}${RED}!!!!!!!!!!!!!!!!!!!!!!!!!! WARNING !!!!!!!!!!!!!!!!!!!!!!!!!!${NC}\n${BOLD}${RED}ALL EXISTING DATA ON $full_dev WILL BE PERMANENTLY ERASED!${NC}\n${BOLD}${RED}Source: $iso_path (${iso_size})${NC}\n${BOLD}${RED}Target: $full_dev${NC}\n${BOLD}${RED}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!${NC}\n"; read -r -p "Type 'YES' (in capitals) to confirm writing to $full_dev: " confirm_burn; if [ "$confirm_burn" != "YES" ]; then echo -e "\n${YELLOW}Operation canceled. No changes were made.${NC}"; press_enter; return 0; fi; echo -e "\n${CYAN}Unmounting $full_dev...${NC}"; diskutil unmountDisk "$full_dev"; local r_dev="/dev/r${target_dev}"; echo -e "\n${BOLD}${GREEN}Executing dd (writing ISO to $r_dev)...${NC}\n"; sudo dd if="$iso_path" of="$r_dev" bs=4m status=progress; local dd_status=$?; if [ $dd_status -eq 0 ]; then echo -e "\n${BOLD}${GREEN}✓ Successfully wrote ISO to $r_dev!${NC}\n${CYAN}Disk ejected. USB drive is ready to boot.${NC}"; diskutil eject "$full_dev" 2>/dev/null || true; else echo -e "\n${BOLD}${RED}✗ Error occurred during dd write (exit code: $dd_status)!${NC}"; fi; press_enter; return $dd_status; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
@@ -1485,15 +2086,99 @@ else echo -e "${BOLD}Enter full path to the Additional Mix Archive folder:${NC}"
 fi; _norm_path "$raw_in"; local target_dir="$REPLY"; [ -z "$target_dir" ] && continue; if [ ! -d "$target_dir" ]; then echo -e "\n${YELLOW}Directory does not exist:${NC} ${target_dir}"; read -r -p "Create this directory now? [y/N]: " ans; [[ ! "$ans" =~ ^[yY] ]] && continue; mkdir -p "$target_dir" 2>/dev/null || { echo -e "${RED}Error: Failed to create directory.${NC}"; sleep 2; continue; }; fi; if [ "$opt" = 1 ]; then _set_primary_dir "$target_dir" 1; echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully configured and saved!${NC}\n  Primary Location: ${BOLD}${WHITE}${target_dir}${NC}"; else add_extra_mix_archive_dir "$target_dir"; play_sound_effect "storage"; echo -e "\n${GREEN}✓ Additional Mix Archive Location successfully added and saved!${NC}\n  Location: ${BOLD}${WHITE}${target_dir}${NC}"; fi; sleep 2 ;; 2|6) echo -e "\n${CYAN}Scanning mounted drives and volumes for candidate mix folders...${NC}"; shopt -s nullglob; local candidates=("/run/media/$USER"/* "/run/media/mplanetarian"/* "/Volumes"/* "/media/$USER"/* "/mnt"/*); if [ "$is_win" -eq 1 ]; then local ltr; for ltr in {a..z}; do [ -d "/$ltr" ] && candidates+=("/$ltr"); done; fi; local found=() d sub; for d in "${candidates[@]}"; do [ ! -d "$d" ] && continue; if [ "$opt" = 6 ]; then for sub in "FLAC_CONVERTED_OUTPUTS" "MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS" "MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS" "My Drive/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS"; do [ -d "$d/$sub" ] && found+=("$d/$sub"); done; fi; for sub in "MIX_ARCHIVE" "MIX_ARCHIVE2" "My Drive/MIX_ARCHIVE" "Mixes" "MIXES"; do [ -d "$d/$sub" ] && found+=("$d/$sub"); done; [ "$opt" = 2 ] && found+=("$d"); done; shopt -u nullglob; local unique=() seen=" " prim_real=""; [ "$opt" = 6 ] && prim_real="$(cd "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" 2>/dev/null && pwd -P)"; for d in "${found[@]}"; do local rd="$(cd "$d" 2>/dev/null && pwd -P || echo "$d")"; if [ "$opt" = 6 ]; then [ "$rd" = "$prim_real" ] && continue; local skip=0 ex; for ex in "${_EXTRA_LIST[@]}"; do [ "$rd" = "$(cd "$ex" 2>/dev/null && pwd -P || echo "$ex")" ] && { skip=1; break; }; done; [ "$skip" -eq 1 ] && continue; fi; if [[ "$seen" != *" $rd "* ]]; then seen+="$rd "; unique+=("$d"); fi; done; if [ ${#unique[@]} -eq 0 ]; then echo -e "\n${YELLOW}No candidate mix archive folders detected on mounted drives.${NC}"; sleep 1.5; continue; fi; echo -e "\n${BOLD}Available Storage Locations:${NC}"; local idx=1 u note; for u in "${unique[@]}"; do if [ "$opt" = 2 ]; then note=""; [ -d "$u/FLAC_CONVERTED_OUTPUTS" ] && note=" ${GREEN}(Contains FLAC_CONVERTED_OUTPUTS)${NC}"
 else note=" ${GREEN}($(_cnt_flacs "$u" 2) FLAC files)${NC}"; fi; echo -e "  ${BOLD}${CYAN}${idx})${NC} ${u}${note}"; ((idx++)); done; echo -e "  ${BOLD}0)${NC} Back"; read -r -p "Select a location [1-${#unique[@]}, 0]: " sel; if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#unique[@]}" ]; then local chosen="${unique[$((sel - 1))]//\\//}"; if [ "$opt" = 2 ]; then _set_primary_dir "$chosen" 1; echo -e "\n${GREEN}✓ Primary Mix Archive Folder successfully set to:${NC} ${BOLD}${WHITE}${chosen}${NC}"; else add_extra_mix_archive_dir "$chosen"; play_sound_effect "storage"; echo -e "\n${GREEN}✓ Added additional mix archive location:${NC} ${chosen}"; fi; sleep 2; fi ;; 3) local root_arch="$SCRIPT_DIR/MIX_ARCHIVE"; _set_primary_dir "$root_arch" 0; echo -e "\n${GREEN}✓ Primary Mix Archive Folder reset to Application Root Folder:${NC} ${BOLD}${WHITE}${root_arch}${NC}"; sleep 2 ;; 5) if [ ${#_EXTRA_LIST[@]} -eq 0 ]; then echo -e "\n${YELLOW}No additional mix archive locations currently configured.${NC}"; sleep 1.5; continue; fi; echo -e "\n${BOLD}Select an Additional Mix Archive Location to Remove:${NC}"; local r_idx=1 ed; for ed in "${_EXTRA_LIST[@]}"; do echo -e "  ${BOLD}${CYAN}${r_idx})${NC} ${ed}"; ((r_idx++)); done; echo -e "  ${BOLD}0)${NC} Cancel"; read -r -p "Enter number to remove [1-${#_EXTRA_LIST[@]}, 0]: " rem; if [[ "$rem" =~ ^[0-9]+$ ]] && [ "$rem" -ge 1 ] && [ "$rem" -le "${#_EXTRA_LIST[@]}" ]; then local target="${_EXTRA_LIST[$((rem - 1))]}"; remove_extra_mix_archive_dir "$target"; echo -e "\n${GREEN}✓ Removed:${NC} ${target}"; sleep 1.5; fi ;; 7) show_mix_drive_space ;; 8) read -r -p $'\n'"${YELLOW}Are you sure you want to clear all additional mix archive locations? [y/N]:${NC} " clr; if [[ "$clr" =~ ^[yY] ]]; then EXTRA_MIX_ARCHIVE_DIRS=""; export EXTRA_MIX_ARCHIVE_DIRS; clear_archive_dir_cache; save_config_setting "EXTRA_MIX_ARCHIVE_DIRS" ""; echo -e "\n${GREEN}✓ All additional storage locations cleared.${NC}"; sleep 1.5; fi ;; 0|[qQ]|ESC) return 0 ;; esac; done
 }
+manage_mix_conversion() {
+local conv_sh="" s
+for s in "$SCRIPT_DIR/Make_SOF_FLAC_CONVERSION.sh" "$SCRIPT_DIR/scripts/Make_SOF_FLAC_CONVERSION.sh" "./Make_SOF_FLAC_CONVERSION.sh"; do
+[ -f "$s" ] && { conv_sh="$s"; break; };
+done
+[ -z "$conv_sh" ] && { echo -e "\n${RED}Error: Make_SOF_FLAC_CONVERSION.sh script not found!${NC}"; press_enter; return 1; }
+local conv_opts=(
+"1|Run Mix Conversion Wizard|(Interactive Output Format, Tags & Artwork Selection)"
+"2|Convert to FLAC Lossless|(24-bit Lossless Archive Standard)"
+"3|Convert to MP3 320 kbps|(High Quality CBR with Embedded Tags & Cover)"
+"4|Convert to 24-bit WAV|(Mastering Quality Uncompressed Studio Audio)"
+"5|Convert to YouTube Video MP4|(1080p / 4K with Static Cover Art)"
+"6|Convert to OGG Vorbis|(320 kbps / Quality 8)"
+"7|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)"
+"8|Review Recent Conversion Logs & History|(FLAC_CONVERSION_SOF.log & JSONL)"
+"0|Return to Main Menu|(or Esc / q)"
+)
+local conv_hdr="  ${BOLD}Stream of Frequency — Automated Ingestion & Batch Audio Conversion${NC}\n  Converts live DJ mixes into tagged, mastered formats with spectrograms & playlists.\n"
+while true; do
+run_interactive_submenu "STREAM OF FREQUENCY — RUN MIX CONVERSION SUITE" "$conv_hdr" conv_opts 1
+case "$REPLY" in
+1)
+unset SOF_OUTPUT_FORMAT 2>/dev/null || true
+bash "$conv_sh"
+press_enter
+;;
+2)
+SOF_OUTPUT_FORMAT="flac" bash "$conv_sh"
+press_enter
+;;
+3)
+SOF_OUTPUT_FORMAT="mp3" bash "$conv_sh"
+press_enter
+;;
+4)
+SOF_OUTPUT_FORMAT="wav" bash "$conv_sh"
+press_enter
+;;
+5)
+SOF_OUTPUT_FORMAT="mp4" bash "$conv_sh"
+press_enter
+;;
+6)
+SOF_OUTPUT_FORMAT="ogg" bash "$conv_sh"
+press_enter
+;;
+7)
+echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"
+run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"
+press_enter
+;;
+8)
+local log_file="FLAC_CONVERSION_SOF.log"
+[ ! -f "$log_file" ] && log_file="$SCRIPT_DIR/FLAC_CONVERSION_SOF.log"
+if [ -s "$log_file" ]; then
+echo -e "\n${BOLD}${CYAN}=== RECENT CONVERSION LOG: ${log_file} ===${NC}\n"
+if command -v bat &>/dev/null; then
+bat --paging=always "$log_file"
+elif command -v less &>/dev/null; then
+less -R "$log_file"
+else
+tail -n 45 "$log_file"
+fi
+else
+echo -e "\n${YELLOW}No conversion log found yet (${log_file}).${NC}"
+fi
+press_enter
+;;
+0|[qQ]|[eE][xX][iI][tT]|ESC)
+return 0
+;;
+*)
+echo -e "\n${RED}Invalid option!${NC}"
+sleep 1.2
+;;
+esac
+done
+}
 manage_audio_conversion() {
 local script="" s; for s in "$SCRIPT_DIR/convert_audio_format.sh" "$SCRIPT_DIR/scripts/convert_audio_format.sh" "./convert_audio_format.sh"; do [ -f "$s" ] && { script="$s"; break; }; done; [ -z "$script" ] && { echo -e "\n${RED}Error: convert_audio_format.sh script not found!${NC}"; press_enter; return 1; }; local conv_opts=("1|Convert Single Audio File|(Interactive Selection & Auto-Split Prompt)" "2|Convert Current Staging WAV / OGG Files|(in ${PWD})" "3|Convert All WAV / OGG in CONVERTED_WAV_FILES/|(Archive batch)" "4|Convert FLAC Outputs to MP3 & OGG Vorbis|(320kbps CBR / Vorbis q8)" "5|WAV-to-WAV Bit Depth Conversion|(16/24/32-bit Float)" "6|Split Audio File into Parts & Generate Spek Spectrograms|(FLAC, MP3, OGG, WAV)" "7|EBU R128 Loudness Scanner & True-Peak Analyzer|(master_audio_loudness.py)" "8|Master & Normalize Loudness|(-14 LUFS Streaming / -16 LUFS Podcast / -23 LUFS)" "9|Standard Red Book CUE Sheet Generator & Audio Splitter|(generate_cue_sheet.py)" "10|Launch Full Interactive Converter CLI|(convert_audio_format.sh)" "11|Verify Audio Mastering Quality, True Peak & Mono Phase|(verify_audio_mastering.py)" "12|Embed Cover Art, Vorbis Tags & ReplayGain into Mixes|(tag_audio_metadata.py)" "0|Return to Main Menu|(or Esc / q)"); local conv_hdr="  Supported Formats: ${BOLD}FLAC, MP3, Ogg Vorbis, Opus, Apple AAC, WAV${NC}\n  WAV Bit Depths:    ${BOLD}32-bit Float, 32-bit Int, 24-bit PCM, 16-bit 44.1kHz PCM${NC}\n"; while true; do run_interactive_submenu "AUDIO FORMAT & BIT DEPTH CONVERTER" "$conv_hdr" conv_opts 0; case "$REPLY" in 1)  bash "$script" -i; press_enter ;; 2)  bash "$script" -c; press_enter ;; 3)  bash "$script" -w; press_enter ;; 4)  bash "$script" -f -o mp3 -b 320k; press_enter ;; 5)  bash "$script" -w -o wav -d 24; press_enter ;; 6)  split_flac_audio; press_enter ;; 7|8) [ -f "$SCRIPT_DIR/scripts/master_audio_loudness.py" ] && python3 "$SCRIPT_DIR/scripts/master_audio_loudness.py" || echo -e "\n${RED}Error: master_audio_loudness.py not found!${NC}"; press_enter ;; 9) [ -f "$SCRIPT_DIR/scripts/generate_cue_sheet.py" ] && python3 "$SCRIPT_DIR/scripts/generate_cue_sheet.py" || echo -e "\n${RED}Error: generate_cue_sheet.py not found!${NC}"; press_enter ;; 10) bash "$script"; press_enter ;; 11) echo -e "\n${BOLD}${BLUE}=== VERIFY AUDIO MASTERING QUALITY & MONO COMPATIBILITY ===${NC}\n"; read -r -p "Enter path to audio file (or drag & drop): " v_t; _norm_path "$v_t"; v_t="$REPLY"; [ -n "$v_t" ] && [ -f "$v_t" ] && python3 "$SCRIPT_DIR/scripts/verify_audio_mastering.py" "$v_t" || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 12) echo -e "\n${BOLD}${BLUE}=== EMBED COVER ART, METADATA & REPLAYGAIN ===${NC}\n"; read -r -p "Enter path to audio file or directory: " t_t; _norm_path "$t_t"; t_t="$REPLY"; if [ -n "$t_t" ]; then python3 "$SCRIPT_DIR/scripts/tag_audio_metadata.py" "$t_t"; invalidate_archive_stats_cache; else echo -e "${RED}Error: Target path cannot be empty.${NC}"; fi; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
 }
 detect_active_music_player() {
-DETECTED_PLAYER_NAME="" DETECTED_TRACK_PATH="" DETECTED_TRACK_TITLE="" DETECTED_PLAYER_LABEL=""; local a_ok=0 s_ok=0 c_ok=0; get_audacious_track_info 2>/dev/null && a_ok=1; get_strawberry_track_info 2>/dev/null && s_ok=1; get_cliamp_track_info 2>/dev/null && c_ok=1; if [ "$a_ok" -eq 1 ] && [ "$AUDACIOUS_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ "$STRAWBERRY_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ "$CLIAMP_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; elif [ "$a_ok" -eq 1 ] && [ -n "$AUDACIOUS_TITLE" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ -n "$STRAWBERRY_TITLE" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ -n "$CLIAMP_TITLE" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; else local procs; procs=$(pgrep -i -f "audacious|strawberry|cliamp|vlc|audacity|haruna|mpv|kodi" 2>/dev/null | xargs -r ps -o comm= -p 2>/dev/null || true); case "${procs,,}" in *audacious*)  DETECTED_PLAYER_NAME="Audacious"; DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE" ;; *strawberry*) DETECTED_PLAYER_NAME="Strawberry"; DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE" ;; *cliamp*)     DETECTED_PLAYER_NAME="cliamp"; DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$CLIAMP_TITLE" ;; *vlc*)        DETECTED_PLAYER_NAME="VLC" ;; *audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; *haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; *mpv*)        DETECTED_PLAYER_NAME="mpv" ;; *kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *) if command -v playerctl &>/dev/null; then local raw_p; raw_p=$(playerctl -l 2>/dev/null | head -1); raw_p="${raw_p%%.*}"; if [ -n "$raw_p" ]; then case "${raw_p,,}" in audacious*)  DETECTED_PLAYER_NAME="Audacious" ;; strawberry*) DETECTED_PLAYER_NAME="Strawberry" ;; vlc*)        DETECTED_PLAYER_NAME="VLC" ;; haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; mpv*)        DETECTED_PLAYER_NAME="mpv" ;; audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *)           DETECTED_PLAYER_NAME="$raw_p" ;; esac; fi; fi ;; esac; fi; if [ -n "$DETECTED_PLAYER_NAME" ] && [ -z "$DETECTED_TRACK_PATH" ]; then if command -v playerctl &>/dev/null; then local u; u=$(playerctl metadata xesam:url 2>/dev/null || true); [[ "$u" == file://* ]] && printf -v DETECTED_TRACK_PATH '%b' "${u#file://}" && DETECTED_TRACK_PATH=$(printf '%b' "${DETECTED_TRACK_PATH//%/\\x}"); [ -z "$DETECTED_TRACK_TITLE" ] && DETECTED_TRACK_TITLE=$(playerctl metadata xesam:title 2>/dev/null || true); fi; if [ -z "$DETECTED_TRACK_PATH" ]; then local dp; dp=$(detect_currently_playing_mix 2>/dev/null || true); [ -n "$dp" ] && [ -f "$dp" ] && DETECTED_TRACK_PATH="$dp"; fi; fi; if [ -n "$DETECTED_PLAYER_NAME" ]; then DETECTED_PLAYER_LABEL="${GREEN}${DETECTED_PLAYER_NAME}${NC}"; return 0; fi; DETECTED_PLAYER_LABEL="${RED}No Player Detected${NC}"; return 1
+DETECTED_PLAYER_NAME="" DETECTED_TRACK_PATH="" DETECTED_TRACK_TITLE="" DETECTED_PLAYER_LABEL=""; local mp_ok=0 a_ok=0 s_ok=0 c_ok=0; get_mp_audio_player_track_info 2>/dev/null && mp_ok=1; get_audacious_track_info 2>/dev/null && a_ok=1; get_strawberry_track_info 2>/dev/null && s_ok=1; get_cliamp_track_info 2>/dev/null && c_ok=1; if [ "$mp_ok" -eq 1 ] && [ "$MP_PLAYER_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="MP Audio Player" DETECTED_TRACK_PATH="$MP_PLAYER_RESOLVED_PATH" DETECTED_TRACK_TITLE="$MP_PLAYER_TITLE"; elif [ "$a_ok" -eq 1 ] && [ "$AUDACIOUS_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ "$STRAWBERRY_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ "$CLIAMP_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; elif [ "$mp_ok" -eq 1 ] && [ -n "$MP_PLAYER_TITLE" ]; then DETECTED_PLAYER_NAME="MP Audio Player" DETECTED_TRACK_PATH="$MP_PLAYER_RESOLVED_PATH" DETECTED_TRACK_TITLE="$MP_PLAYER_TITLE"; elif [ "$a_ok" -eq 1 ] && [ -n "$AUDACIOUS_TITLE" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ -n "$STRAWBERRY_TITLE" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ -n "$CLIAMP_TITLE" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; else local procs; procs=$(pgrep -x "audacious|strawberry|cliamp|vlc|audacity|haruna|mpv|kodi" 2>/dev/null | xargs -r ps -o comm= -p 2>/dev/null || true); case "${procs,,}" in *audacious*)  DETECTED_PLAYER_NAME="Audacious"; DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE" ;; *strawberry*) DETECTED_PLAYER_NAME="Strawberry"; DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE" ;; *cliamp*)     DETECTED_PLAYER_NAME="cliamp"; DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$CLIAMP_TITLE" ;; *vlc*)        DETECTED_PLAYER_NAME="VLC" ;; *audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; *haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; *mpv*)        DETECTED_PLAYER_NAME="mpv" ;; *kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *) if command -v playerctl &>/dev/null; then local raw_p; raw_p=$(timeout 1 playerctl -l 2>/dev/null | head -1); raw_p="${raw_p%%.*}"; if [ -n "$raw_p" ]; then case "${raw_p,,}" in audacious*)  DETECTED_PLAYER_NAME="Audacious" ;; strawberry*) DETECTED_PLAYER_NAME="Strawberry" ;; vlc*)        DETECTED_PLAYER_NAME="VLC" ;; haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; mpv*)        DETECTED_PLAYER_NAME="mpv" ;; audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *)           DETECTED_PLAYER_NAME="$raw_p" ;; esac; fi; fi ;; esac; fi; if [ -n "$DETECTED_PLAYER_NAME" ] && [ -z "$DETECTED_TRACK_PATH" ]; then if command -v playerctl &>/dev/null; then local u; u=$(timeout 1 playerctl metadata xesam:url 2>/dev/null || true); [[ "$u" == file://* ]] && printf -v DETECTED_TRACK_PATH '%b' "${u#file://}" && DETECTED_TRACK_PATH=$(printf '%b' "${DETECTED_TRACK_PATH//%/\\x}"); [ -z "$DETECTED_TRACK_TITLE" ] && DETECTED_TRACK_TITLE=$(timeout 1 playerctl metadata xesam:title 2>/dev/null || true); fi; if [ -z "$DETECTED_TRACK_PATH" ]; then local dp; dp=$(detect_currently_playing_mix 2>/dev/null || true); [ -n "$dp" ] && [ -f "$dp" ] && DETECTED_TRACK_PATH="$dp"; fi; fi; if [ -n "$DETECTED_PLAYER_NAME" ]; then DETECTED_PLAYER_LABEL="${GREEN}${DETECTED_PLAYER_NAME}${NC}"; return 0; fi; DETECTED_PLAYER_LABEL="${RED}No Player Detected${NC}"; return 1
 }
 manage_tracklists() {
-local doc_script="" s; for s in "$SCRIPT_DIR/generate_tracklist_docs.py" "$SCRIPT_DIR/scripts/generate_tracklist_docs.py" "./generate_tracklist_docs.py"; do [ -f "$s" ] && { doc_script="$s"; break; }; done; while true; do detect_active_music_player; clear; echo -e "${BOLD}${MAGENTA}${S70}\n                   TRACKLIST & METADATA MANAGEMENT                    \n${S70}${NC}\n\n  ${BOLD}${CYAN}1)${NC} Browse & View Tracklists (Select from Archive List)\n  ${BOLD}${CYAN}2)${NC} Search Tracklist by Title, Episode or Keyword\n  ${BOLD}${CYAN}3)${NC} View Tracklist of Currently Playing Track (Current Music Player: ${DETECTED_PLAYER_LABEL})\n  ${BOLD}${CYAN}4)${NC} Export Tracklist to Styled HTML Document\n  ${BOLD}${CYAN}5)${NC} Export Tracklist to Printable PDF Document\n  ${BOLD}${CYAN}6)${NC} Batch Export All Archive Tracklists to HTML & PDF\n  ${BOLD}${CYAN}7)${NC} Scan & Generate Missing Tracklists (${GREEN}Check_Find_Tracklists.sh${NC})\n  ${BOLD}${CYAN}8)${NC} Generate Master Tracklist HTML Index (${GREEN}Generate_Master_Tracklist.sh${NC})\n  ${BOLD}${CYAN}9)${NC} Return to Main Menu\n"; read -r -p "Enter choice [1-9]: " tl_choice; case "$tl_choice" in 1) shopt -s nullglob nocaseglob; local txt_files=("$PWD"/*.txt "$OUTPUT_DIR"/*.txt); shopt -u nullglob nocaseglob; [ ${#txt_files[@]} -eq 0 ] && { echo -e "\n${YELLOW}No tracklist .txt files found in archive.${NC}"; press_enter; continue; }; echo -e "\n${BOLD}${CYAN}Available Tracklists (${#txt_files[@]} found):${NC}"; local idx=1 display_files=() tf bname; for tf in "${txt_files[@]}"; do bname="${tf##*/}"; if [[ "$bname" != "requirements.txt" && "$bname" != "checksums"* ]]; then printf "  %2d) %s\n" "$idx" "$bname"; display_files+=("$tf"); ((idx++)); if [ "$idx" -gt 35 ]; then echo -e "  ${DIM}...and $(( ${#txt_files[@]} - 35 )) more (use search for specific mix)${NC}"; break; fi; fi; done; echo ""; read -r -p "Enter number to view [1-${#display_files[@]}, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#display_files[@]}" ]; then local sel_file="${display_files[$((sel_idx - 1))]}"; echo -e "\n${BOLD}${MAGENTA}${S70}\n${CYAN}FILE: ${sel_file##*/}\n${MAGENTA}${S70}${NC}\n"; if command -v bat &>/dev/null; then bat --paging=always "$sel_file"; elif command -v less &>/dev/null; then less -R "$sel_file"; else cat "$sel_file"; press_enter; fi; fi ;; 2) read -r -p "Enter search keyword (e.g. 033, Escape, Episode): " query; if [ -n "$query" ]; then shopt -s nullglob nocaseglob; local matches=("$PWD"/*"$query"*.txt "$OUTPUT_DIR"/*"$query"*.txt); shopt -u nullglob nocaseglob; if [ ${#matches[@]} -eq 0 ]; then echo -e "\n${YELLOW}No tracklists matching '${query}' found.${NC}"; press_enter; else echo -e "\n${BOLD}${GREEN}Matches Found:${NC}"; local m_idx=1 m; for m in "${matches[@]}"; do printf "  %2d) %s\n" "$m_idx" "${m##*/}"; ((m_idx++)); done; read -r -p "Select file to view [1-${#matches[@]}]: " chosen; if [[ "$chosen" =~ ^[0-9]+$ ]] && [ "$chosen" -ge 1 ] && [ "$chosen" -le "${#matches[@]}" ]; then local sel_file="${matches[$((chosen - 1))]}"; echo -e "\n${BOLD}${CYAN}=== TRACKLIST: ${sel_file##*/} ===${NC}\n"; cat "$sel_file"; press_enter; fi; fi; fi ;; 3) detect_active_music_player; [ -z "$DETECTED_PLAYER_NAME" ] && { echo -e "\n${RED}No music player is currently running.${NC}"; press_enter; continue; }; if [ -z "$DETECTED_TRACK_PATH" ] || [ ! -f "$DETECTED_TRACK_PATH" ]; then local fb; fb=$(detect_currently_playing_mix 2>/dev/null || true)
-[ -n "$fb" ] && [ -f "$fb" ] && DETECTED_TRACK_PATH="$fb"; fi; [ -z "$DETECTED_TRACK_PATH" ] && [ -z "$DETECTED_TRACK_TITLE" ] && { echo -e "\n${YELLOW}${DETECTED_PLAYER_NAME} is currently running, but has no track loaded or playing.${NC}"; press_enter; continue; }; local found_tl=""; [ -n "$DETECTED_TRACK_PATH" ] && [ -f "$DETECTED_TRACK_PATH" ] && found_tl=$(find_mix_tracklist "$DETECTED_TRACK_PATH" 2>/dev/null || true); [ -z "$found_tl" ] && [ -n "$DETECTED_TRACK_TITLE" ] && found_tl=$(find_mix_tracklist "$DETECTED_TRACK_TITLE" 2>/dev/null || true); if [ -z "$found_tl" ]; then local st="${DETECTED_TRACK_TITLE:-${DETECTED_TRACK_PATH##*/}}" ep=""; st="${st%.*}"; if [[ "$st" =~ [_\ -]([0-9]{2,3})([_\ -]|$) ]] || [[ "$st" =~ ([0-9]{2,3}) ]]; then ep="${BASH_REMATCH[1]}"; fi; local s_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-}") f_dir; if command -v get_all_flac_output_dirs &>/dev/null; then while IFS= read -r f_dir; do [ -n "$f_dir" ] && s_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs); fi; shopt -s nullglob nocaseglob; local sd tm bn; for sd in "${s_dirs[@]}"; do [ -z "$sd" ] || [ ! -d "$sd" ] && continue; if [ -n "$ep" ]; then for tm in "$sd"/*"$ep"*.txt; do bn="${tm##*/}"; [ -f "$tm" ] && [[ "$bn" != "requirements.txt" && "$bn" != "checksums"* ]] && { found_tl="$tm"; break 2; }; done; fi; for tm in "$sd"/*"${st}"*.txt; do bn="${tm##*/}"; [ -f "$tm" ] && [[ "$bn" != "requirements.txt" && "$bn" != "checksums"* ]] && { found_tl="$tm"; break 2; }; done; done; shopt -u nullglob nocaseglob; fi; if [ -n "$found_tl" ] && [ -f "$found_tl" ]; then echo -e "\n${BOLD}${MAGENTA}${S70}${NC}\n  ${BOLD}${CYAN}CURRENT TRACKLIST:${NC} ${GREEN}${found_tl##*/}${NC}\n  ${BOLD}${CYAN}MUSIC PLAYER:${NC}      ${YELLOW}${DETECTED_PLAYER_NAME}${NC}"; [ -n "$DETECTED_TRACK_TITLE" ] && echo -e "  ${BOLD}${CYAN}CURRENT TRACK:${NC}     ${WHITE}${DETECTED_TRACK_TITLE}${NC}"; [ -n "$DETECTED_TRACK_PATH" ] && echo -e "  ${BOLD}${CYAN}AUDIO FILE:${NC}        ${DIM}${DETECTED_TRACK_PATH##*/}${NC}"; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n"; cat "$found_tl"; else echo -e "\n${YELLOW}No tracklist found for current track '${DETECTED_TRACK_TITLE:-${DETECTED_TRACK_PATH##*/}}' playing in ${DETECTED_PLAYER_NAME}.${NC}"; fi; press_enter ;; 4|5) local fmt="html"; [ "$tl_choice" = 5 ] && fmt="pdf"; [ -n "$doc_script" ] && python3 "$doc_script" -f "$fmt" || echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; press_enter ;; 6) if [ -n "$doc_script" ]; then local all_dirs=() f_dir; while IFS= read -r f_dir; do [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs); echo -e "\n${BOLD}${YELLOW}Batch exporting all tracklists across ${#all_dirs[@]} archive(s) to HTML and PDF...${NC}\n"; python3 "$doc_script" -d "${all_dirs[@]}" -f both; else echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; fi; press_enter ;; 7) run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 8) [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 9|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
+local doc_script="" s viewer_sh=""; for s in "$SCRIPT_DIR/generate_tracklist_docs.py" "$SCRIPT_DIR/scripts/generate_tracklist_docs.py" "./generate_tracklist_docs.py"; do [ -f "$s" ] && { doc_script="$s"; break; }; done; for s in "$SCRIPT_DIR/scripts/view_tracklist_console.sh" "$SCRIPT_DIR/view_tracklist_console.sh" "./scripts/view_tracklist_console.sh"; do [ -f "$s" ] && { viewer_sh="$s"; break; }; done
+_view_single_tracklist() {
+local tf="$1" af="${2:-}"; [ -z "$tf" ] || [ ! -f "$tf" ] && return 1; if [ -n "$viewer_sh" ]; then bash "$viewer_sh" "$tf" ${af:+"$af"}; elif command -v bat &>/dev/null; then bat --paging=always "$tf"; elif command -v less &>/dev/null; then less -R "$tf"; else echo -e "\n${BOLD}${CYAN}=== TRACKLIST: ${tf##*/} ===${NC}\n"; cat "$tf"; press_enter; fi
+}
+_collect_all_archive_tracklists() {
+local -a s_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-}") f_dir a_dir; if command -v get_all_flac_output_dirs &>/dev/null; then while IFS= read -r f_dir; do [ -n "$f_dir" ] && s_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs); fi; if command -v get_all_mix_archive_dirs &>/dev/null; then while IFS= read -r a_dir; do [ -n "$a_dir" ] && s_dirs+=("$a_dir"); done < <(get_all_mix_archive_dirs); fi; local -A seen=(); ALL_TRACKLIST_FILES=(); shopt -s nullglob nocaseglob; local sd f bn; for sd in "${s_dirs[@]}"; do [ -z "$sd" ] || [ ! -d "$sd" ] && continue; for f in "$sd"/*.txt; do [ -f "$f" ] || continue; bn="${f##*/}"; case "${bn,,}" in requirements.txt|checksums*|*.sha256.txt|*log*.txt|todo*.txt) continue ;; esac; if [ -z "${seen[$f]}" ]; then seen["$f"]=1; ALL_TRACKLIST_FILES+=("$f"); fi; done; done; shopt -u nullglob nocaseglob
+}
+local tl_opts=("1|Browse & View Tracklists|(Select from Archive List)" "2|Search Tracklist by Title, Episode or Keyword|(Quick Search)" "3|View Tracklist of Currently Playing Track|(Live Player Tracklist)" "4|Export Tracklist to Styled HTML Document|(generate_tracklist_docs.py)" "5|Export Tracklist to Printable PDF Document|(generate_tracklist_docs.py)" "6|Batch Export All Archive Tracklists to HTML & PDF|(Full Archive)" "7|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "8|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "0|Return to Main Menu|(or Esc / q / 9)"); while true; do detect_active_music_player; local p_label="${DETECTED_PLAYER_NAME:-None Detected}"; [ -n "$DETECTED_PLAYER_NAME" ] && p_label="${GREEN}${DETECTED_PLAYER_NAME}${NC}" || p_label="${RED}None Detected${NC}"; local tl_hdr="  Active Player: ${p_label}  ${BOLD}${BLUE}│${NC}  Archive Root: ${BOLD}${CYAN}${MIX_ARCHIVE_DIR:-$PWD}${NC}\n"; run_interactive_submenu "TRACKLIST & METADATA MANAGEMENT" "$tl_hdr" tl_opts 0; case "$REPLY" in 1) _collect_all_archive_tracklists; if [ ${#ALL_TRACKLIST_FILES[@]} -eq 0 ]; then echo -e "\n${YELLOW}No tracklist .txt files found in archive directories.${NC}"; press_enter; continue; fi; echo -e "\n${BOLD}${CYAN}Available Tracklists (${#ALL_TRACKLIST_FILES[@]} found):${NC}\n"; local idx=1 display_files=() tf bname; for tf in "${ALL_TRACKLIST_FILES[@]}"; do bname="${tf##*/}"; printf "  %2d) %s\n" "$idx" "$bname"; display_files+=("$tf"); ((idx++)); if [ "$idx" -gt 40 ]; then echo -e "  ${DIM}...and $(( ${#ALL_TRACKLIST_FILES[@]} - 40 )) more (use search option 2 for specific mix)${NC}"; break; fi; done; echo ""; read -r -p "Enter number to view [1-${#display_files[@]}, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#display_files[@]}" ]; then local chosen_file="${display_files[$((sel_idx - 1))]}"; _view_single_tracklist "$chosen_file"; fi ;; 2) read -r -p "Enter search keyword (e.g. 033, Escape, Episode): " query; if [ -n "$query" ]; then _collect_all_archive_tracklists; local matches=() f bn q_lower="${query,,}"; for f in "${ALL_TRACKLIST_FILES[@]}"; do bn="${f##*/}"; if [[ "${bn,,}" == *"$q_lower"* ]]; then matches+=("$f"); fi; done; if [ ${#matches[@]} -eq 0 ]; then echo -e "\n${YELLOW}No tracklists matching '${query}' found.${NC}"; press_enter; else echo -e "\n${BOLD}${GREEN}Matches Found (${#matches[@]} files):${NC}\n"; local m_idx=1 m; for m in "${matches[@]}"; do printf "  %2d) %s  ${DIM}(%s)${NC}\n" "$m_idx" "${m##*/}" "$(dirname "$m")"; ((m_idx++)); if [ "$m_idx" -gt 40 ]; then echo -e "  ${DIM}...and $(( ${#matches[@]} - 40 )) more${NC}"; break; fi; done; echo ""; read -r -p "Select file to view [1-$((m_idx - 1)), or q to cancel]: " chosen; if [[ "$chosen" =~ ^[0-9]+$ ]] && [ "$chosen" -ge 1 ] && [ "$chosen" -lt "$m_idx" ]; then local chosen_file="${matches[$((chosen - 1))]}"; _view_single_tracklist "$chosen_file"; fi; fi; fi ;; 3) detect_active_music_player; local cur_p="${DETECTED_PLAYER_NAME:-}" cur_path="${DETECTED_TRACK_PATH:-}" cur_title="${DETECTED_TRACK_TITLE:-}"; if [ -z "$cur_p" ]; then echo -e "\n${RED}No music player is currently running.${NC}"; press_enter; continue; fi; if [ -z "$cur_path" ] || [ ! -f "$cur_path" ]; then local fb; fb=$(detect_currently_playing_mix 2>/dev/null || true); [ -n "$fb" ] && [ -f "$fb" ] && cur_path="$fb"; fi; if [ -z "$cur_path" ] && [ -z "$cur_title" ]; then echo -e "\n${YELLOW}${cur_p} is running, but no track is loaded or playing.${NC}"; press_enter; continue; fi; local found_tl=""; [ -n "$cur_path" ] && [ -f "$cur_path" ] && found_tl=$(find_mix_tracklist "$cur_path" 2>/dev/null || true); [ -z "$found_tl" ] && [ -n "$cur_title" ] && found_tl=$(find_mix_tracklist "$cur_title" 2>/dev/null || true); if [ -z "$found_tl" ]; then local st="${cur_title:-${cur_path##*/}}" ep=""; st="${st%.*}"; if [[ "$st" =~ [_\ -]([0-9]{2,3})([_\ -]|$) ]] || [[ "$st" =~ ([0-9]{2,3}) ]]; then ep="${BASH_REMATCH[1]}"; fi; _collect_all_archive_tracklists; local tm bn; if [ -n "$ep" ]; then for tm in "${ALL_TRACKLIST_FILES[@]}"; do bn="${tm##*/}"; if [[ "$bn" =~ [_\ -]0*${ep#0}([_\ -]|$) ]]; then found_tl="$tm"; break; fi; done; fi; if [ -z "$found_tl" ]; then for tm in "${ALL_TRACKLIST_FILES[@]}"; do bn="${tm##*/}"; if [[ "${bn,,}" == *"${st,,}"* ]]; then found_tl="$tm"; break; fi; done; fi; fi; if [ -n "$found_tl" ] && [ -f "$found_tl" ]; then _view_single_tracklist "$found_tl" "$cur_path"; else echo -e "\n${YELLOW}No tracklist found for current track '${cur_title:-${cur_path##*/}}' playing in ${cur_p}.${NC}"; press_enter; fi ;; 4|5) local fmt="html"; [ "$REPLY" = "5" ] && fmt="pdf"; if [ -z "$doc_script" ]; then echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; press_enter; continue; fi; echo -e "\n${BOLD}${CYAN}=== EXPORT TRACKLIST TO ${fmt^^} ===${NC}\n"; local def_tl=""; if [ -n "$DETECTED_TRACK_PATH" ] && [ -f "$DETECTED_TRACK_PATH" ]; then def_tl=$(find_mix_tracklist "$DETECTED_TRACK_PATH" 2>/dev/null || true); fi; if [ -z "$def_tl" ]; then _collect_all_archive_tracklists; [ ${#ALL_TRACKLIST_FILES[@]} -gt 0 ] && def_tl="${ALL_TRACKLIST_FILES[0]}"; fi; read -r -p "Enter path to tracklist .txt file [Default: ${def_tl:-none}]: " inp_tl; inp_tl="${inp_tl:-$def_tl}"; inp_tl="${inp_tl#[\'\"]}"; inp_tl="${inp_tl%[\'\"]}"; _norm_path "$inp_tl"; inp_tl="$REPLY"; if [ -n "$inp_tl" ] && [ -f "$inp_tl" ]; then echo -e "\n${GREEN}Generating ${fmt^^} document for: ${inp_tl##*/}${NC}\n"; python3 "$doc_script" -i "$inp_tl" -f "$fmt"; else echo -e "\n${RED}Error: Tracklist file not found: ${inp_tl}${NC}"; fi; press_enter ;; 6) if [ -n "$doc_script" ]; then local all_dirs=() f_dir; while IFS= read -r f_dir; do [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs); [ ${#all_dirs[@]} -eq 0 ] && [ -d "$OUTPUT_DIR" ] && all_dirs+=("$OUTPUT_DIR"); [ ${#all_dirs[@]} -eq 0 ] && all_dirs+=("$PWD"); echo -e "\n${BOLD}${YELLOW}Batch exporting all tracklists across ${#all_dirs[@]} archive(s) to HTML and PDF...${NC}\n"; python3 "$doc_script" -d "${all_dirs[@]}" -f both; else echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; fi; press_enter ;; 7) run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 8) [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 0|9|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
 }
 manage_promo_outreach() {
 local py_script="" s; for s in "$SCRIPT_DIR/send_promo_email.py" "$SCRIPT_DIR/scripts/send_promo_email.py" "./send_promo_email.py"; do [ -f "$s" ] && { py_script="$s"; break; }; done; [ -z "$py_script" ] && { echo -e "\n${RED}Error: send_promo_email.py not found!${NC}"; press_enter; return 1; }; while true; do clear; local c_cnt=0 c_file="$SCRIPT_DIR/assets/promo_contacts.json"; [ ! -f "$c_file" ] && [ -f "./assets/promo_contacts.json" ] && c_file="./assets/promo_contacts.json"; [ -f "$c_file" ] && c_cnt=$(grep -c '"email":' "$c_file" 2>/dev/null || echo 0); echo -e "${BOLD}${MAGENTA}${S70}\n             PROMOTIONAL & PUBLISHER OUTREACH SYSTEM                  \n         (Promoters, Podcast Publishers, Radio & Labels)              \n${S70}${NC}\n\n  Sender Name:          ${GREEN}${PROMO_SENDER_NAME:-MPlanetarian}${NC}\n  Sender Email:         ${CYAN}${PROMO_SENDER_EMAIL:-Not Set (Direct desktop mailto/preview)}${NC}\n  SMTP Outgoing Server: ${YELLOW}${SMTP_HOST:-None Configured (Mail client / Browser preview)}${NC}\n  Outreach Contacts:    ${GREEN}${c_cnt} contacts in address book${NC}\n\n${BOLD}Send Enquiries & Promotional Pitches:${NC}\n  ${BOLD}${CYAN} 1)${NC} ${GREEN}Interactive Outreach Wizard${NC} (Step-by-step custom email builder)\n  ${BOLD}${CYAN} 2)${NC} Pitch Episode to Podcast Publishers & Syndicators (${CYAN}Apple Podcasts, DI.FM, Proton...${NC})\n  ${BOLD}${CYAN} 3)${NC} Send Booking / Guest Mix Enquiry to Promoters & Venues (${CYAN}Clubs, Festivals...${NC})\n  ${BOLD}${CYAN} 4)${NC} Send New Episode Press & Promo Release Blast\n  ${BOLD}${CYAN} 5)${NC} Send Track Support Courtesy Notice to Labels & Producers\n  ${BOLD}${CYAN} 6)${NC} Submit Radio Guest Mix & Syndication Proposal\n\n${BOLD}Tools, Contacts & Preferences:${NC}\n  ${BOLD}${CYAN} 7)${NC} Preview HTML & Plaintext Email in Browser & Terminal\n  ${BOLD}${CYAN} 8)${NC} Browse & Search Outreach Contacts Book\n  ${BOLD}${CYAN} 9)${NC} Add New Contact (Promoter, Publisher, Label, Radio, Press)\n  ${BOLD}${CYAN}10)${NC} View Sent Email History & Delivery Logs\n  ${BOLD}${CYAN}11)${NC} Configure Sender Profile & SMTP Server Settings\n\n  ${BOLD}${CYAN}12)${NC} Return to Main Menu\n"; read -r -p "Enter choice [1-12]: " p_choice; case "$p_choice" in 1) python3 "$py_script" --interactive; press_enter ;; 2|3|4|5|6) local hdrs=("" "" "PITCH TO PODCAST PUBLISHERS & SYNDICATORS" "PROMOTER & VENUE BOOKING ENQUIRY" "NEW EPISODE PROMO RELEASE BLAST" "TRACK SUPPORT COURTESY NOTICE TO LABELS" "RADIO GUEST MIX & SYNDICATION PROPOSAL"); local prompts=("" "" "saved publishers" "saved promoters" "press/media contacts" "saved labels" "saved radio stations"); local cats=("" "" "publisher" "promoter" "press" "label" "radio"); local tpls=("" "" "podcast_publisher" "promoter_booking" "episode_promo" "track_support" "radio_guestmix"); echo -e "\n${BOLD}${CYAN}=== ${hdrs[$p_choice]} ===${NC}\n"; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q; read -r -p "Enter recipient email (or ENTER to select from ${prompts[$p_choice]}): " to_em; local args=(--template "${tpls[$p_choice]}"); [ -n "$to_em" ] && args+=(--to "$to_em") || args+=(--category "${cats[$p_choice]}"); [ -n "$ep_q" ] && args+=(--episode "$ep_q"); python3 "$py_script" "${args[@]}" --interactive; press_enter ;; 7) echo -e "\n${BOLD}${CYAN}=== PREVIEW EMAIL IN WEB BROWSER ===${NC}\n"; python3 "$py_script" --list-templates; read -r -p "Enter template name [podcast_publisher]: " t_n; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
@@ -1503,10 +2188,10 @@ _find_scr() {
 for s in "$SCRIPT_DIR/$1" "$SCRIPT_DIR/scripts/$1" "./$1"; do [[ -f "$s" ]] && { REPLY="$s"; return 0; }; done; echo -e "\n${RED}Error: $1 not found!${NC}"; press_enter; return 1
 }
 search_and_play_mix() {
-clear; echo -e "${BOLD}${MAGENTA}${S70}\n            SEARCH FOR MIX & AUTO-PLAY WITH LIVE TRACKLIST            \n${S70}${NC}\n"; read -r -p "Enter mix search query (Episode #, Title, Date, Artist): " query; [[ -z "$query" ]] && { echo -e "\n${YELLOW}Search cancelled.${NC}"; sleep 1; return 0; }; echo -e "\n${CYAN}Searching archive for '${query}'...${NC}"; local raw_dirs=("$OUTPUT_DIR" "$PWD" "${OUTPUT_DIR%/*}/CONVERTED_WAV_FILES" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/FLAC_CONVERTED_OUTPUTS"); local d valid_dirs=() matches=(); local -A seen_dirs=() seen_names=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" && -z "${seen_dirs[$d]}" ]] && { valid_dirs+=("$d"); seen_dirs["$d"]=1; }; done < <(printf "%s\n" "${raw_dirs[@]}"; get_all_flac_output_dirs; get_all_wav_archive_dirs; get_all_mix_archive_dirs); if ((${#valid_dirs[@]})); then while IFS= read -r -d '' file; do local bname="${file##*/}"; [[ -z "${seen_names[$bname]}" ]] && { matches+=("$file"); seen_names["$bname"]=1; }; done < <(find "${valid_dirs[@]}" -maxdepth 2 -type f \( -iname "*$query*.flac" -o -iname "*$query*.wav" -o -iname "*$query*.mp3" \) -print0 2>/dev/null); fi; ((${#matches[@]} == 0)) && { echo -e "\n${YELLOW}No audio mixes matching '${query}' were found.${NC}"; press_enter; return 0; }; local selected_mix="${matches[0]}"; if ((${#matches[@]} == 1)); then echo -e "\n${GREEN}Found 1 matching mix:${NC} ${selected_mix##*/}"; else echo -e "\n${BOLD}${CYAN}Multiple matches found (${#matches[@]} files):${NC}"; for i in "${!matches[@]}"; do printf "  %2d) %s\n" "$((i + 1))" "${matches[$i]##*/}"; done; read -r -p $'\n'"Select mix to play [1-${#matches[@]}, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && ((sel_idx >= 1 && sel_idx <= ${#matches[@]})); then selected_mix="${matches[$((sel_idx - 1))]}"; else echo -e "\n${YELLOW}Selection cancelled.${NC}"; sleep 1; return 0; fi; fi; local bname="${selected_mix##*/}" cliamp_bin="cliamp"; echo -e "\n${BOLD}${YELLOW}Preparing playback for:${NC} $bname"; command -v cliamp &>/dev/null || {
-[[ -x "$SCRIPT_DIR/bin/cliamp" ]] && cliamp_bin="$SCRIPT_DIR/bin/cliamp" || [[ -x "$HOME/.local/bin/cliamp" ]] && cliamp_bin="$HOME/.local/bin/cliamp"
+clear; echo -e "${BOLD}${MAGENTA}${S70}\n            SEARCH FOR MIX & AUTO-PLAY WITH LIVE TRACKLIST            \n${S70}${NC}\n"; read -r -p "Enter mix search query (Episode #, Title, Date, Artist): " query; [[ -z "$query" ]] && { echo -e "\n${YELLOW}Search cancelled.${NC}"; sleep 1; return 0; }; echo -e "\n${CYAN}Searching archive for '${query}'...${NC}"; local raw_dirs=("$OUTPUT_DIR" "$PWD" "${OUTPUT_DIR%/*}/CONVERTED_WAV_FILES" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/FLAC_CONVERTED_OUTPUTS" "${ICLOUD_PATH:-}" "${DROPBOX_PATH:-}"); local d valid_dirs=() flac_matches=() wav_matches=() other_matches=() matches=(); local -A seen_dirs=() seen_real=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" && -z "${seen_dirs[$d]}" ]] && { valid_dirs+=("$d"); seen_dirs["$d"]=1; }; done < <(printf "%s\n" "${raw_dirs[@]}"; get_all_flac_output_dirs; get_all_wav_archive_dirs; get_all_mix_archive_dirs); if ((${#valid_dirs[@]})); then while IFS= read -r -d '' file; do local rp; rp="$(realpath "$file" 2>/dev/null || echo "$file")"; if [[ -z "${seen_real[$rp]}" ]]; then seen_real["$rp"]=1; case "${file,,}" in *.flac) flac_matches+=("$file") ;; *.wav) wav_matches+=("$file") ;; *) other_matches+=("$file") ;; esac; fi; done < <(find "${valid_dirs[@]}" -maxdepth 3 -type f \( -iname "*$query*.flac" -o -iname "*$query*.wav" -o -iname "*$query*.mp3" \) -print0 2>/dev/null); fi; matches=("${flac_matches[@]}" "${wav_matches[@]}" "${other_matches[@]}"); ((${#matches[@]} == 0)) && { echo -e "\n${YELLOW}No audio mixes matching '${query}' were found.${NC}"; press_enter; return 0; }; local selected_mix="${matches[0]}"; if ((${#matches[@]} == 1)); then local ext="${selected_mix##*.}"; echo -e "\n${GREEN}Found 1 matching mix:${NC} [${ext^^}] ${selected_mix##*/}"; else echo -e "\n${BOLD}${CYAN}Multiple matches found (${#matches[@]} files):${NC}"; for i in "${!matches[@]}"; do local m_ext="${matches[$i]##*.}"; printf "  %2d) %-7s %s\n" "$((i + 1))" "[${m_ext^^}]" "${matches[$i]##*/}"; done; read -r -p $'\n'"Select mix to play [1-${#matches[@]}, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && ((sel_idx >= 1 && sel_idx <= ${#matches[@]})); then selected_mix="${matches[$((sel_idx - 1))]}"; else echo -e "\n${YELLOW}Selection cancelled.${NC}"; sleep 1; return 0; fi; fi; local bname="${selected_mix##*/}" py_player="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$py_player" ] && py_player="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; echo -e "\n${BOLD}${YELLOW}Preparing playback for:${NC} $bname"; echo -e "${CYAN}Launching playback in MP Audio Player...${NC}"; python3 "$py_player" --play "$selected_mix" 2>/dev/null || true; echo -e "${CYAN}Verifying playback status in MP Audio Player...${NC}"; local attempt started=0; for ((attempt=1; attempt<=10; attempt++)); do sleep 0.4; if get_mp_audio_player_track_info 2>/dev/null && { [[ "$MP_PLAYER_STATE" = "playing" ]] || ((MP_PLAYER_RUNNING == 1)); }; then started=1; break; fi; done; if ((started)) || pgrep -f "MP_Audio_Player.*--daemon" &>/dev/null; then echo -e "${BOLD}${GREEN}✓ Playback active in MP Audio Player!${NC}\n${CYAN}Loading tracklist...${NC}\n"; local bname_no_ext="${bname%.*}" found_tl; found_tl=$(find_mix_tracklist "$selected_mix" 2>/dev/null || true); if [[ ! -f "$found_tl" ]]; then shopt -s nullglob nocaseglob; for tc in "$OUTPUT_DIR/$bname_no_ext.txt" "${selected_mix%.*}.txt" "${selected_mix%/*}/$bname_no_ext.txt" "$PWD/$bname_no_ext.txt" "$OUTPUT_DIR/"*"$query"*".txt" "$PWD/"*"$query"*".txt"; do [[ -f "$tc" ]] && { found_tl="$tc"; break; }; done; shopt -u nullglob nocaseglob; fi; if [[ -f "$found_tl" ]]; then echo -e "${BOLD}${MAGENTA}${S70}\n           CURRENTLY PLAYING TRACKLIST: ${found_tl##*/}\n${S70}${NC}\n"; cat "$found_tl"; echo -e "\n${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}\n${DIM}Playback active in MP Audio Player. Press [Enter] to return...${NC}"; read -r; else echo -e "\n${YELLOW}Track playing in MP Audio Player, no matching .txt found for '${bname_no_ext}'.${NC}"; press_enter; fi; else echo -e "\n${YELLOW}⚠️ MP Audio Player did not start. Skipping tracklist.${NC}"; sleep 1.8; fi
 }
-if pgrep -x cliamp &>/dev/null; then echo -e "${CYAN}cliamp active; queuing and playing...${NC}"; "$cliamp_bin" queue "$selected_mix" 2>/dev/null || true; sleep 0.4; "$cliamp_bin" play 2>/dev/null || true; else echo -e "${CYAN}Launching cliamp in a new console window...${NC}"; launch_in_terminal "cliamp - $bname" "\"$cliamp_bin\" queue \"$selected_mix\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play" "window"; fi; echo -e "${CYAN}Verifying playback status...${NC}"; local attempt started=0; for ((attempt=1; attempt<=10; attempt++)); do sleep 0.6; if get_cliamp_track_info 2>/dev/null && { [[ "$CLIAMP_STATE" = "playing" ]] || ((CLIAMP_RUNNING == 1)); }; then started=1; break; fi; done; if ((started)); then echo -e "${BOLD}${GREEN}✓ Playback started!${NC}\n${CYAN}Loading tracklist...${NC}\n"; local bname_no_ext="${bname%.*}" found_tl; found_tl=$(find_mix_tracklist "$selected_mix" 2>/dev/null || true); if [[ ! -f "$found_tl" ]]; then shopt -s nullglob nocaseglob; for tc in "$OUTPUT_DIR/$bname_no_ext.txt" "${selected_mix%.*}.txt" "${selected_mix%/*}/$bname_no_ext.txt" "$PWD/$bname_no_ext.txt" "$OUTPUT_DIR/"*"$query"*".txt" "$PWD/"*"$query"*".txt"; do [[ -f "$tc" ]] && { found_tl="$tc"; break; }; done; shopt -u nullglob nocaseglob; fi; if [[ -f "$found_tl" ]]; then echo -e "${BOLD}${MAGENTA}${S70}\n           CURRENTLY PLAYING TRACKLIST: ${found_tl##*/}\n${S70}${NC}\n"; cat "$found_tl"; echo -e "\n${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}\n${DIM}Playback active in cliamp. Press [Enter] to return...${NC}"; read -r; else echo -e "\n${YELLOW}Track playing, no matching .txt found for '${bname_no_ext}'.${NC}"; press_enter; fi; else echo -e "\n${YELLOW}⚠️ Audio player did not start. Skipping tracklist.${NC}"; sleep 1.8; fi
+extract_tracklist_from_traktor_history() {
+clear; echo -e "${BOLD}${MAGENTA}${S70}\n      EXTRACT TRACKLIST FROM TRAKTOR HISTORY FILES BY RANGE           \n${S70}${NC}\n"; echo -e "${BOLD}${CYAN}Step 1: Select an Existing Mix from Archive${NC}\n"; read -r -p "Enter mix search query (Episode #, Title, Artist, or ENTER to browse): " m_query; local raw_dirs=("$OUTPUT_DIR" "$PWD" "${OUTPUT_DIR%/*}/CONVERTED_WAV_FILES" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/FLAC_CONVERTED_OUTPUTS" "${ICLOUD_PATH:-}" "${DROPBOX_PATH:-}"); local d valid_dirs=() flac_m=() wav_m=(); local -A seen_dirs=() seen_real=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" && -z "${seen_dirs[$d]}" ]] && { valid_dirs+=("$d"); seen_dirs["$d"]=1; }; done < <(printf "%s\n" "${raw_dirs[@]}"; get_all_flac_output_dirs; get_all_wav_archive_dirs; get_all_mix_archive_dirs); if ((${#valid_dirs[@]})); then local pattern="*.flac"; [ -n "$m_query" ] && pattern="*$m_query*.flac"; while IFS= read -r -d '' file; do local rp; rp="$(realpath "$file" 2>/dev/null || echo "$file")"; [[ -z "${seen_real[$rp]}" ]] && { flac_m+=("$file"); seen_real["$rp"]=1; }; done < <(find "${valid_dirs[@]}" -maxdepth 3 -type f -iname "$pattern" -print0 2>/dev/null); pattern="*.wav"; [ -n "$m_query" ] && pattern="*$m_query*.wav"; while IFS= read -r -d '' file; do local rp; rp="$(realpath "$file" 2>/dev/null || echo "$file")"; [[ -z "${seen_real[$rp]}" ]] && { wav_m+=("$file"); seen_real["$rp"]=1; }; done < <(find "${valid_dirs[@]}" -maxdepth 3 -type f -iname "$pattern" -print0 2>/dev/null); fi; local candidate_mixes=("${flac_m[@]}" "${wav_m[@]}"); if ((${#candidate_mixes[@]} == 0)); then echo -e "\n${YELLOW}No audio mixes matching '${m_query}' were found.${NC}"; press_enter; return 0; fi; local selected_mix=""; if ((${#candidate_mixes[@]} == 1)); then selected_mix="${candidate_mixes[0]}"; local ext="${selected_mix##*.}"; echo -e "${GREEN}Found 1 matching mix:${NC} [${ext^^}] ${selected_mix##*/}\n"; else echo -e "${BOLD}${CYAN}Available Mixes (${#candidate_mixes[@]} found, showing top 25):${NC}"; local max_show=25; ((${#candidate_mixes[@]} < max_show)) && max_show=${#candidate_mixes[@]}; for ((i=0; i<max_show; i++)); do local m="${candidate_mixes[$i]}" ext="${candidate_mixes[$i]##*.}"; printf "  %2d) %-7s %s\n" "$((i + 1))" "[${ext^^}]" "${m##*/}"; done; read -r -p $'\n'"Select mix [1-$max_show, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && ((sel_idx >= 1 && sel_idx <= max_show)); then selected_mix="${candidate_mixes[$((sel_idx - 1))]}"; else echo -e "\n${YELLOW}Mix selection cancelled.${NC}"; sleep 1; return 0; fi; fi; local target_tl="${selected_mix%.*}.txt" mix_base="${selected_mix##*/}" mix_stem="${mix_base%.*}"; echo -e "${BOLD}Target Mix:${NC}       ${CYAN}${mix_base}${NC}"; if [ -f "$target_tl" ]; then echo -e "${BOLD}Target Tracklist:${NC} ${YELLOW}${target_tl}${NC} ${RED}(Existing tracklist will be permanently overwritten!)${NC}\n"; else echo -e "${BOLD}Target Tracklist:${NC} ${GREEN}${target_tl}${NC} (New tracklist will be created)\n"; fi; echo -e "${BOLD}${CYAN}Step 2: Select Traktor History File (.nml)${NC}\n"; local py_extract="$SCRIPT_DIR/scripts/extract_traktor_history_range.py"; [ ! -f "$py_extract" ] && py_extract="$SCRIPT_DIR/extract_traktor_history_range.py"; if [ ! -f "$py_extract" ]; then echo -e "${RED}Error: extract_traktor_history_range.py not found!${NC}"; press_enter; return 1; fi; python3 "$py_extract" --list-history; read -r -p "Select History file [1-30] or enter full history filename (or q to cancel): " h_choice; [[ "$h_choice" =~ ^[qQ]$ || -z "$h_choice" ]] && { echo -e "\n${YELLOW}Operation cancelled.${NC}"; sleep 1; return 0; }; local chosen_history=""; if [[ "$h_choice" =~ ^[0-9]+$ ]]; then local raw_json; raw_json=$(python3 "$py_extract" --list-history --json 2>/dev/null || true); chosen_history=$(python3 -c "import json, sys; data = json.loads(sys.argv[1]); idx = int(sys.argv[2]) - 1; print(data[idx]['path'] if 0 <= idx < len(data) else '')" "$raw_json" "$h_choice" 2>/dev/null || true); if [ -z "$chosen_history" ] || [ ! -f "$chosen_history" ]; then echo -e "\n${RED}Invalid selection number: $h_choice${NC}"; press_enter; return 1; fi; else local hist_input="${h_choice#[\'\"]}"; hist_input="${hist_input%[\'\"]}"; hist_input="${hist_input##*/}"; if [[ ! "$hist_input" =~ ^history_[0-9]{4}y[0-9]{2}m[0-9]{2}d_[0-9]{2}h[0-9]{2}m[0-9]{2}s(\.nml)?$ ]] && [[ ! "$hist_input" =~ \.nml$ ]]; then echo -e "\n${BOLD}${RED}❌ Rejection: You must enter the exact, full history file name!${NC}"; echo -e "${YELLOW}Example: history_2026y07m20d_08h01m28s.nml${NC}\n"; press_enter; return 1; fi; chosen_history="$hist_input"; fi; local total_tracks; total_tracks=$(python3 "$py_extract" --count "$chosen_history" 2>/dev/null || echo "0"); if [ "$total_tracks" -le 0 ] 2>/dev/null; then echo -e "\n${BOLD}${RED}❌ Error: Unable to read history file or history file is empty.${NC}"; press_enter; return 1; fi; echo -e "\n${GREEN}✔ History File:${NC} ${chosen_history##*/}  ${DIM}(Contains ${total_tracks} session tracks)${NC}\n"; echo -e "${BOLD}${CYAN}Step 3: Enter Track Range${NC}"; echo -e "${DIM}Specify the 1-indexed track numbers from session (e.g. '95 to 118' or '95-118')${NC}\n"; read -r -p "Enter track range: " range_input; local start_tr="" end_tr=""; if [[ "$range_input" =~ ^[[:space:]]*([0-9]+)[[:space:]]*(to|-)[[:space:]]*([0-9]+)[[:space:]]*$ ]] || [[ "$range_input" =~ ^[[:space:]]*([0-9]+)[[:space:]]+([0-9]+)[[:space:]]*$ ]]; then start_tr="${BASH_REMATCH[1]}"; end_tr="${BASH_REMATCH[3]:-${BASH_REMATCH[2]}}"; else echo -e "\n${BOLD}${RED}❌ Invalid range format: '${range_input}'!${NC}"; echo -e "${YELLOW}Expected format: e.g. 95 to 118 or 95-118${NC}\n"; press_enter; return 1; fi; echo -e "\n${CYAN}Extracting tracks ${start_tr} to ${end_tr} and saving to:${NC} ${target_tl}..."; if ! python3 "$py_extract" --history "$chosen_history" --start "$start_tr" --end "$end_tr" --output "$target_tl" --mix-file "$selected_mix" --mix-title "$mix_stem"; then echo -e "\n${BOLD}${RED}❌ Extraction failed.${NC}"; press_enter; return 1; fi; echo -e "\n${BOLD}${MAGENTA}${S70}\n               EXTRACTED TRACKLIST PREVIEW                            \n${S70}${NC}\n"; cat "$target_tl"; echo -e "\n${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}"; local edit_choice=""; read -r -p "Would you like to open and edit the extracted tracklist now? [Y/n]: " edit_choice; edit_choice="${edit_choice:-Y}"; if [[ "$edit_choice" =~ ^[yY] ]]; then local ed="${EDITOR:-}"; [ -z "$ed" ] && command -v nano &>/dev/null && ed="nano"; [ -z "$ed" ] && command -v vi &>/dev/null && ed="vi"; if [ -n "$ed" ]; then "$ed" "$target_tl"; elif [ -f "$SCRIPT_DIR/scripts/view_tracklist_console.sh" ]; then bash "$SCRIPT_DIR/scripts/view_tracklist_console.sh" "$target_tl"; else echo -e "${YELLOW}Tracklist saved at: ${target_tl}${NC}"; press_enter; fi; fi
 }
 manage_cover_converter() {
 local script; _find_scr "convert_cover_art.py" || return 1; script="$REPLY"; while true; do clear
@@ -1741,7 +2426,7 @@ manage_storage_and_archive_config() {
 while true; do local a_disp="${RED}Not Configured${NC} ${DIM}(Root: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"; is_mix_archive_configured && a_disp="${GREEN}${MIX_ARCHIVE_DIR}${NC}"; local x_disp="${EXTRA_MIX_ARCHIVE_DIRS:+\n  Extra Archives  : ${CYAN}${EXTRA_MIX_ARCHIVE_DIRS}${NC}}"; local opts=("1|Show Mix Storage Drive Space Remaining|(All Configured Mix Drives)" "2|Show All Attached Drives Space Remaining|(Get_All_Drive_Space.sh)" "3|Refresh Archive Status & File Counts|(Rescan WAVs, FLACs & Tracklists)" "4|Configure Mix Archive Storage Locations|(Option 14: Primary & Multiple Folders)" "5|Clone Entire Mix Archive Folders to New Destination|(MP_Mix_Archive_Cloner)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "STORAGE MANAGEMENT & ARCHIVE CONFIGURATION" "  Primary Archive : ${a_disp}${x_disp}\n" opts 0; case "$REPLY" in 1) show_mix_drive_space ;; 2) echo -e "\n${BOLD}${YELLOW}Scanning Drive Space Across Attached Storage...${NC}\n"; run_sub_script "Get_All_Drive_Space.sh"; press_enter ;; 3) _LAST_OS_UPDATE_CHECK=0; return 0 ;; 4|13) configure_mix_archive_folder ;; 5|clone|cloner) run_sub_script "MP_Mix_Archive_Cloner.sh"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 manage_tracklist_suite() {
-local f py_exp="$SCRIPT_DIR/scripts/export_chapters.py" py_id="$SCRIPT_DIR/scripts/identify_mix_tracks.py"; while true; do local opts=("1|Tracklist Management Suite|(Browse, Search, View, Export HTML & PDF)" "2|Search for Mix & Auto-Play with Live Tracklist View|(cliamp Window)" "3|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "4|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "5|Launch MusicBrainz Picard Meta Tag Editor|(Auto-install if missing)" "6|Export YouTube & SoundCloud Chapters|(export_chapters.py - Timestamps / CUE / MD)" "7|Auto-Identify Unknown Tracks via Audio Fingerprinting|(identify_mix_tracks.py - AcoustID / Shazam)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "TRACKLIST MANAGEMENT, SCANNING & METADATA SUITE" "" opts 0; case "$REPLY" in 1) manage_tracklists ;; 2) search_and_play_mix ;; 3) echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"; run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"; [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 5) launch_or_install_picard ;; 6) echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"; read -r -p "Enter path to tracklist .txt or .cue file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_exp" "$f" --format all --clipboard || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 7) echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"; read -r -p "Enter path to mix audio file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_id" "$f" || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local f py_exp="$SCRIPT_DIR/scripts/export_chapters.py" py_id="$SCRIPT_DIR/scripts/identify_mix_tracks.py"; while true; do local opts=("1|Tracklist Management Suite|(Browse, Search, View, Export HTML & PDF)" "2|Search for Mix & Auto-Play with Live Tracklist View|(MP Audio Player)" "3|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "4|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "5|Launch MusicBrainz Picard Meta Tag Editor|(Auto-install if missing)" "6|Export YouTube & SoundCloud Chapters|(export_chapters.py - Timestamps / CUE / MD)" "7|Auto-Identify Unknown Tracks via Audio Fingerprinting|(identify_mix_tracks.py - AcoustID / Shazam)" "8|Extract Tracklist from Traktor History Files by Range|(Traktor .nml History)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "TRACKLIST MANAGEMENT, SCANNING & METADATA SUITE" "" opts 0; case "$REPLY" in 1) manage_tracklists ;; 2) search_and_play_mix ;; 3) echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"; run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"; [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 5) launch_or_install_picard ;; 6) echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"; read -r -p "Enter path to tracklist .txt or .cue file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_exp" "$f" --format all --clipboard || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 7) echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"; read -r -p "Enter path to mix audio file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_id" "$f" || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 8) extract_tracklist_from_traktor_history ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 generate_archive_folder_playlists_menu() {
 ensure_playlists_generated_dirs; local p="$SCRIPT_DIR/scripts/generate_archive_folder_playlists.py"; [ -f "$p" ] || p="$SCRIPT_DIR/generate_archive_folder_playlists.py"; [ -f "$p" ] && python3 "$p" || { echo -e "${RED}Error: generate_archive_folder_playlists.py not found!${NC}"; press_enter; }
@@ -1978,7 +2663,7 @@ manage_settings_and_system() {
 local rb="systemctl reboot with confirmation"; case "$OS_TYPE" in macos) rb="macOS restart with confirmation" ;; windows|wsl) rb="Windows restart with confirmation" ;; freebsd) rb="FreeBSD restart with confirmation" ;; esac; local -A _MENU_ACT=([1]="manage_themes" [2]="manage_installation_and_config" [3]="configure_daily_reports_settings" [4]="manage_mix_reports_menu" [5]="run_bash_cli" [6]="reboot_system"); _m_loop "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" "1|Manager Themes & Color Palette Switcher|(14 Themes: Dreamworlds, Cosmic Supernova, Retro Unix Terminal...)" "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)" "3|Automated Daily Reports & Continuous Telemetry Settings|(Schedule Time, On/Off, Catch-Up)" "4|Daily Mix Reports, Telemetry & Predictive Analytics Suite|(PDF Reports, Multi-Archive Stats, Math Models)" "5|Run Bash CLI Commands|(Interactive Shell & Direct Runner)" "6|Reboot System|(${rb})" "0|Return to Main Menu|(or Esc / q)"
 }
 render_main_header() {
-local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1; local h_eq h_dash title_sp; printf -v h_eq '%*s' "$cur_box_w" ''; h_dash="${h_eq// /-}"; h_eq="${h_eq// /=}"; local title="MP Mix Archive Manager (v0.3.6 Beta)"; local pad=$(( (cur_box_w - ${#title}) / 2 )); (( pad > 0 )) && printf -v title_sp '%*s' "$pad" ''; [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null; [[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null; local net="${GREEN}Online${NC}"; [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}"; local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
+local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1; local h_eq h_dash title_sp; printf -v h_eq '%*s' "$cur_box_w" ''; h_dash="${h_eq// /-}"; h_eq="${h_eq// /=}"; local title="MP Mix Archive Manager (v${VERSION#v})"; local pad=$(( (cur_box_w - ${#title}) / 2 )); (( pad > 0 )) && printf -v title_sp '%*s' "$pad" ''; [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null; [[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null; local net="${GREEN}Online${NC}"; [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}"; local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
 local hdr="${b_mag}${h_eq}${NC}
 ${b_mag}${title_sp}${title}${NC}
 ${b_mag}${h_eq}${NC}
@@ -2010,9 +2695,11 @@ local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ]
 display_startup_loader_video() {
 local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ] && disp_sh="$PWD/scripts/display_loader_video.sh"; if [ -f "$disp_sh" ]; then source "$disp_sh"; display_startup_loader_video "${1:-0}"; return $?; fi; return 0
 }
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 display_startup_loader_video 0
 _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • SMB /MUSIC001 & /MUSIC002)" "2|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "3|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "4|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "5|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "6|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "7|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "8|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "9|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "10|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "11|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "12|Play Mix/Audio File (MP Audio Player)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "13|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "14|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "15|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "16|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "17|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "18|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "19|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "20|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "21|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "22|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "23|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "24|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "25|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "26|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "27|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "28|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "29|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "30|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "31|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "32|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "33|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "36|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 1; choice="$REPLY"; fi; case $choice in 1|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
-manage_music_folders_menu ;; 2)
-echo -e "\n${BOLD}${YELLOW}Starting conversion. You can still choose FLAC, MP3, WAV, or a YouTube MP4.${NC}\n"; run_sub_script "Make_SOF_FLAC_CONVERSION.sh"; echo ""; echo -e "${BOLD}${GREEN}Conversion finished. This report stays on screen.${NC}"; while true; do flac_done_choice=""; read -r -p "Type [m] to open the main menu, or [q] to quit: " flac_done_choice </dev/tty || true; case "$flac_done_choice" in [mM]) break ;; [qQ]) exit_mix_manager ;; esac; done; ;; 3) manage_audio_conversion ;; 4) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 5) manage_mix_search_and_import ;; 6) rename_mix; press_enter ;; 7) find_duplicate_audio_mixes; ;; 8) export_mixes_to_path ;; 9) manage_integrity_and_verification; ;; 10|backup|cloud-backup) manage_cloud_backup_suite ;; 11) play_sound_effect "storage"; manage_storage_and_archive_config ;;
+manage_music_folders_menu ;; 2|convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
+manage_mix_conversion ;; 3) manage_audio_conversion ;; 4) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 5) manage_mix_search_and_import ;; 6) rename_mix; press_enter ;; 7) find_duplicate_audio_mixes; ;; 8) export_mixes_to_path ;; 9) manage_integrity_and_verification; ;; 10|backup|cloud-backup) manage_cloud_backup_suite ;; 11) play_sound_effect "storage"; manage_storage_and_archive_config ;;
 12|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play Mix/Audio File (MP Audio Player)")
 manage_mp_audio_player ;; 13) manage_tracklist_suite; ;; 14|manage-audio-players|players) manage_audio_players ;; 15|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 16) manage_playlists_and_history ;; 17) manage_daws_suite; ;; 18) manage_studio_hardware_and_volume ;; 19) manage_spek_generation; ;; 20) manage_mix_scheduler ;; 21) generate_youtube_video; ;; 22|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 23|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 24|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 25|manage-live-monitors|live-monitors) manage_live_monitors ;; 26|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 27|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 28) manage_promo_and_syndication ;; 29) manage_network_and_internet; ;; 30) manage_desktop_and_display ;; 31) manage_system_maintenance; ;; 32|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 33|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; ESC) ;; 36|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 36, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+fi

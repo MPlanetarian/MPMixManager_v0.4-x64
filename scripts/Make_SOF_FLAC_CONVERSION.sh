@@ -66,23 +66,114 @@ LOCAL_HISTORY_DIR="${TRAKTOR_HISTORY_DIR:-}"
 if [ -z "$LOCAL_HISTORY_DIR" ] || [ ! -d "$LOCAL_HISTORY_DIR" ]; then
 for cand in "${MIX_ARCHIVE_DIR:-$PWD}/Traktor 3.11.1/History" "./Traktor 3.11.1/History" "/run/media/$USER/WD BLACK B/MIX_ARCHIVE/Traktor 3.11.1/History" "/run/media/mplanetarian/WD BLACK B/MIX_ARCHIVE/Traktor 3.11.1/History" "/Volumes/WD BLACK B/MIX_ARCHIVE/Traktor 3.11.1/History" "/Volumes/MIX_ARCHIVE/Traktor 3.11.1/History" "/Volumes/DATAMAC3/MIX_ARCHIVE/Traktor 3.11.1/History" "/d/MIX_ARCHIVE/Traktor 3.11.1/History" "D:/MIX_ARCHIVE/Traktor 3.11.1/History" "/mnt/d/MIX_ARCHIVE/Traktor 3.11.1/History" "$HOME/Documents/Native Instruments/Traktor 3.11.1/History" "$HOME/Native Instruments/Traktor 3.11.1/History"; do if [ -d "$cand" ]; then LOCAL_HISTORY_DIR="$cand"; break; fi; done
 fi
+load_conversion_theme() {
+local mgr="" cand fn_src saved_theme="dreamworlds"
+for cand in "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$PARENT_DIR/Mix_Archive_Manager.sh" "${MIX_ARCHIVE_DIR:-}/Mix_Archive_Manager.sh" "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; do if [ -f "$cand" ]; then mgr="$cand"; break; fi; done
+if [ -n "$mgr" ]; then fn_src="$(awk '/^set_theme_colors\(\)/{f=1} f{print} f&&/^}/{exit}' "$mgr" 2>/dev/null || true)"; if [ -n "$fn_src" ]; then eval "$fn_src"; fi; fi
+if ! declare -F set_theme_colors >/dev/null 2>&1; then
+set_theme_colors() {
+NC='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
+case "${1:-dreamworlds}" in
+cosmic_supernova|supernova|cosmic) RED='\033[38;2;255;51;102m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;254;228;64m'; BLUE='\033[38;2;94;96;206m'; MAGENTA='\033[38;2;224;86;253m'; CYAN='\033[38;2;76;201;240m'; CURRENT_THEME="cosmic_supernova" ;;
+*) RED='\033[38;2;237;37;78m'; GREEN='\033[38;2;0;229;255m'; YELLOW='\033[38;2;255;170;0m'; BLUE='\033[38;2;155;89;182m'; MAGENTA='\033[38;2;247;37;133m'; CYAN='\033[38;2;0;193;228m'; CURRENT_THEME="dreamworlds" ;;
+esac
+}
+fi
+if [ -f "$HOME/.config/mix-manager/theme" ]; then IFS= read -r saved_theme < "$HOME/.config/mix-manager/theme" 2>/dev/null || true; saved_theme="${saved_theme//[[:space:]]/}"; fi
+set_theme_colors "${saved_theme:-dreamworlds}"
+if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then NC=''; BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; BLUE=''; MAGENTA=''; CYAN=''; fi; return 0
+}
+load_conversion_theme
+SOF_RULE_HEAVY="══════════════════════════════════════════════════════════════════════"; SOF_RULE_LIGHT="──────────────────────────────────────────────────────────────────────"
+themed_header() { printf '%b\n  %b\n%b\n' "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}" "${BOLD}${2:-$MAGENTA}${1}${NC}" "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}"; }
+select_menu_option() {
+local prompt_title="$1" subtitle="$2"; local -n _items_ref="$3"; local def_index="${4:-0}" _out_var="$5" total="${#_items_ref[@]}"
+if [ "$total" -eq 0 ]; then [ -n "$_out_var" ] && printf -v "$_out_var" "%s" "" || REPLY=""; return 0; fi
+if ! has_interactive_tty; then local chosen_entry="${_items_ref[$def_index]}" c_key=""; IFS='|' read -r c_key _ _ <<< "$chosen_entry"; [ -n "$_out_var" ] && printf -v "$_out_var" "%s" "$c_key" || REPLY="$c_key"; return 0; fi
+local cur_idx="$def_index"; if [ "$cur_idx" -lt 0 ] || [ "$cur_idx" -ge "$total" ]; then cur_idx=0; fi
+printf '\n%b\n  %b\n' "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}" "${BOLD}${MAGENTA}${prompt_title}${NC}" >/dev/tty
+[ -n "$subtitle" ] && printf '  %b\n' "${CYAN}${subtitle}${NC}" >/dev/tty
+printf '%b\n  %b\n\n' "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}" "${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [Enter] to select, [Esc] to return${NC}" >/dev/tty
+_render_menu_items() {
+local i ik il ie disp_num
+for (( i=0; i<total; i++ )); do
+ik=""; il=""; ie=""; IFS='|' read -r ik il ie <<< "${_items_ref[$i]}"; disp_num=$((i + 1)); [[ "$ik" =~ ^[0-9]+$ ]] && disp_num="$ik"
+if [ "$i" -eq "$cur_idx" ]; then
+printf '  %b %b [%2s] %-28s %b  %b%s%b\033[K\n' "${BOLD}${GREEN}▶ ❯${NC}" "\033[1;30;46m" "$disp_num" "$il" "${NC}" "${DIM}" "$ie" "${NC}" >/dev/tty
+else
+printf '       %b[%2s]%b %-28s   %b%s%b\033[K\n' "${BOLD}${CYAN}" "$disp_num" "${NC}" "$il" "${DIM}" "$ie" "${NC}" >/dev/tty
+fi
+done
+local sel_k="" sel_l="" sel_e=""; IFS='|' read -r sel_k sel_l sel_e <<< "${_items_ref[$cur_idx]}"
+printf '  %b\033[K\n' "${DIM}${BLUE}${SOF_RULE_LIGHT}${NC}" >/dev/tty
+printf '  %b %b[%s: %s]%b  %b(Press Enter to confirm, Esc to return)%b\033[K\n' "${BOLD}${CYAN}Selection:${NC}" "${BOLD}${YELLOW}" "$sel_k" "$sel_l" "${NC}" "${DIM}" "${NC}" >/dev/tty
+}
+printf '\033[?25l' >/dev/tty; _render_menu_items; local k="" rest="" rest2=""
+while true; do
+k=""; rest=""; rest2=""; IFS= read -rsn1 k </dev/tty || true
+if [[ "$k" == $'\x1b' ]]; then
+read -rsn2 -t 0.05 rest </dev/tty || true; k+="$rest"
+if [[ "$rest" == "[" || "$rest" == "O" ]]; then read -rsn2 -t 0.05 rest2 </dev/tty || true; k+="$rest2"; fi
+fi
+case "$k" in
+$'\x1b[A'|$'\x1bOA'|[kK]) cur_idx=$(( (cur_idx - 1 + total) % total )) ;;
+$'\x1b[B'|$'\x1bOB'|[jJ]) cur_idx=$(( (cur_idx + 1) % total )) ;;
+$'\x1b[H'|$'\x1b[1~')     cur_idx=0 ;;
+$'\x1b[F'|$'\x1b[4~')     cur_idx=$((total - 1)) ;;
+"") break ;;
+$'\x1b')
+local esc_idx=-1 i test_k
+for (( i=0; i<total; i++ )); do
+test_k=""; IFS='|' read -r test_k _ _ <<< "${_items_ref[$i]}"
+if [[ "$test_k" == "0" || "$test_k" == "q" || "$test_k" == "Q" || "$test_k" == "cancel" || "$test_k" == "n" ]]; then esc_idx=$i; break; fi
+done
+[ "$esc_idx" -ge 0 ] && cur_idx=$esc_idx; break ;;
+*)
+local matched=0 i test_k d_num
+for (( i=0; i<total; i++ )); do
+test_k=""; IFS='|' read -r test_k _ _ <<< "${_items_ref[$i]}"; d_num=$((i + 1)); [[ "$test_k" =~ ^[0-9]+$ ]] && d_num="$test_k"
+if [[ "$test_k" == "$k" || "$d_num" == "$k" || "${test_k,,}" == "${k,,}" ]]; then cur_idx=$i; matched=1; break; fi
+done
+[ "$matched" -eq 1 ] && break ;;
+esac
+printf '\033[%dA\r' "$((total + 2))" >/dev/tty; _render_menu_items
+done
+printf '\033[?25h\n' >/dev/tty; local res_k=""; IFS='|' read -r res_k _ _ <<< "${_items_ref[$cur_idx]}"
+[ -n "$_out_var" ] && printf -v "$_out_var" "%s" "$res_k" || REPLY="$res_k"; return 0
+}
 choose_conversion_output() {
 OUTPUT_FORMAT="${SOF_OUTPUT_FORMAT:-}"; case "$OUTPUT_FORMAT" in flac|mp3|wav|mp4|ogg) return 0 ;; esac; OUTPUT_FORMAT=""
 if ! has_interactive_tty; then OUTPUT_FORMAT="flac"; return 0; fi
-while true; do
-printf '%s\n' "$S50" "The audio files in this folder are ready to convert." "Choose the output before conversion starts." "  1) FLAC lossless          (default, press Enter)" "  2) MP3 320 kbps" "  3) WAV 24-bit" "  4) MP4 YouTube video      (1080p, still cover art)" "  5) OGG Vorbis             (320 kbps / quality 8)" "  0) Cancel" "$S50" >/dev/tty
-local format_choice=""; read -r -p "Output [1/Enter = FLAC]: " format_choice </dev/tty || format_choice=""
-case "$format_choice" in ""|1) OUTPUT_FORMAT="flac"; return 0 ;; 2) OUTPUT_FORMAT="mp3"; return 0 ;; 3) OUTPUT_FORMAT="wav"; return 0 ;; 4) OUTPUT_FORMAT="mp4"; return 0 ;; 5) OUTPUT_FORMAT="ogg"; return 0 ;; 0|[qQ]) echo "Conversion cancelled." >/dev/tty; exit 0 ;; *) echo "Choose 1, 2, 3, 4, 5, or 0." >/dev/tty ;; esac
-done
+local format_opts=(
+"flac|FLAC lossless|(Default, 24-bit PCM Archive)"
+"mp3|MP3 320 kbps|(High Quality CBR with Cover & Tags)"
+"wav|WAV 24-bit|(Studio Master PCM)"
+"mp4|MP4 YouTube Video|(1080p, Still Cover Art)"
+"ogg|OGG Vorbis|(320 kbps / Quality 8)"
+"0|Cancel|(Exit conversion)"
+)
+local chosen_fmt=""
+select_menu_option "CHOOSE CONVERSION OUTPUT FORMAT" "The audio files in this folder are ready to convert." format_opts 0 chosen_fmt
+case "$chosen_fmt" in
+flac|1) OUTPUT_FORMAT="flac" ;;
+mp3|2)  OUTPUT_FORMAT="mp3" ;;
+wav|3)  OUTPUT_FORMAT="wav" ;;
+mp4|4)  OUTPUT_FORMAT="mp4" ;;
+ogg|5)  OUTPUT_FORMAT="ogg" ;;
+0|[qQ]|ESC) echo "Conversion cancelled." >/dev/tty; exit 0 ;;
+*) OUTPUT_FORMAT="flac" ;;
+esac
 }
-choose_conversion_output
 CUSTOM_ARTIST="${SOF_ARTIST:-}"; CUSTOM_TITLE="${SOF_TITLE:-}"; CUSTOM_ALBUM="${SOF_ALBUM:-}"; CUSTOM_YEAR="${SOF_YEAR:-}"; CUSTOM_GENRE="${SOF_GENRE:-}"; CUSTOM_COMMENT="${SOF_COMMENT:-}"; CUSTOM_COVER_IMAGE="${SOF_COVER_IMAGE:-}"
 configure_conversion_metadata_and_cover() {
 if ! has_interactive_tty; then return 0; fi
+local tag_opts=(
+"n|Keep Standard Tags & Default Cover|(Default, automatic detection)"
+"y|Customize Audio Tags & Select Cover Art|(Artist, Title, Album, Year, Cover)"
+)
 local tag_choice="" in_art="" in_tit="" in_alb="" def_year in_yr="" in_gen="" in_com="" discovered_covers=() sp img dc already cov_choice="" custom_path=""
-printf '\n%s\n' "$S50" "    AUDIO ID TAGS & COVER ARTWORK SETTINGS        " "$S50" "Would you like to set custom tags or custom cover art?" "  [y/N] (Default: Enter = keep standard tags & default cover)" "$S50" >/dev/tty
-read -r -p "Customize audio tags & cover? [y/N]: " tag_choice </dev/tty || tag_choice=""
-case "$tag_choice" in [yY]|[yY][eE][sS]) ;; *) echo " -> Using standard default tags and cover art." >/dev/tty; return 0 ;; esac
+select_menu_option "AUDIO ID TAGS & COVER ARTWORK SETTINGS" "Would you like to set custom tags or custom cover art?" tag_opts 0 tag_choice
+case "$tag_choice" in [yY]*) ;; *) echo " -> Using standard default tags and cover art." >/dev/tty; return 0 ;; esac
 printf '\n--- Audio Metadata / ID Tags (Press Enter to keep default) ---\n' >/dev/tty; def_year="$(date +%Y)"
 read -r -p "Artist Name [MPlanetarian]: " in_art </dev/tty || in_art=""; CUSTOM_ARTIST="${in_art:-MPlanetarian}"
 read -r -p "Mix / Track Title [Auto-detect from filename]: " in_tit </dev/tty || in_tit=""; CUSTOM_TITLE="$in_tit"
@@ -90,47 +181,37 @@ read -r -p "Album / Series Name [Stream of Frequency]: " in_alb </dev/tty || in_
 read -r -p "Release Year [$def_year]: " in_yr </dev/tty || in_yr=""; CUSTOM_YEAR="${in_yr:-$def_year}"
 read -r -p "Genre [Electronic / Trance]: " in_gen </dev/tty || in_gen=""; CUSTOM_GENRE="${in_gen:-Electronic / Trance}"
 read -r -p "Comment / Description [Stream of Frequency Mix Archive]: " in_com </dev/tty || in_com=""; CUSTOM_COMMENT="${in_com:-Stream of Frequency Mix Archive}"
-printf '\n--- Cover Artwork Image Selection ---\n' >/dev/tty
 for sp in "./Cover.png" "./assets/Cover.png" "./COVERS" "$SCRIPT_DIR/COVERS" "${MIX_ARCHIVE_DIR:-}/COVERS" "${MIX_ARCHIVE_DIR:-}/SOF_PODCAST_COVER_ART"; do
 if [ -f "$sp" ]; then already=0; for dc in "${discovered_covers[@]}"; do if [ "$dc" = "$sp" ]; then already=1; break; fi; done; if [ "$already" -eq 0 ]; then discovered_covers+=("$sp"); fi
 elif [ -d "$sp" ]; then shopt -s nullglob nocaseglob; for img in "$sp"/*.png "$sp"/*.jpg "$sp"/*.jpeg; do if [ -f "$img" ]; then already=0; for dc in "${discovered_covers[@]}"; do if [ "$dc" = "$img" ]; then already=1; break; fi; done; if [ "$already" -eq 0 ]; then discovered_covers+=("$img"); fi; fi; done; shopt -u nullglob nocaseglob; fi
 done
-{ echo "  1) Default Cover Image (${COVER_ART:-Cover.png})"; local c_idx=2; for cov in "${discovered_covers[@]}"; do if [ "$c_idx" -gt 9 ]; then break; fi; echo "  ${c_idx}) Existing: $cov"; c_idx=$((c_idx + 1)); done; echo "  c) Enter full path to a custom image file (PNG / JPG)"; } >/dev/tty
-read -r -p "Select cover option [1/Enter = default]: " cov_choice </dev/tty || cov_choice=""
+local cover_opts=(
+"1|Default Cover Image|(${COVER_ART:-Cover.png})"
+)
+local c_idx=2
+for cov in "${discovered_covers[@]}"; do
+if [ "$c_idx" -gt 9 ]; then break; fi
+cover_opts+=("${c_idx}|Existing: ${cov##*/}|(${cov})")
+c_idx=$((c_idx + 1))
+done
+cover_opts+=("c|Enter Full Path to Custom Image|(PNG / JPG or drag & drop)")
+select_menu_option "COVER ARTWORK IMAGE SELECTION" "Choose cover artwork image to embed in converted audio:" cover_opts 0 cov_choice
 case "$cov_choice" in
 ""|1) echo " -> Selected default cover image." >/dev/tty ;;
-[cC]|[cC][uU][sS][tT][oO][mM]) read -r -p "Enter full path to cover image (or drag & drop): " custom_path </dev/tty || custom_path=""; custom_path="${custom_path#[\"\']}"; custom_path="${custom_path%[\"\']}"; custom_path="$(eval echo "$custom_path")"; if [ -n "$custom_path" ] && [ -f "$custom_path" ]; then CUSTOM_COVER_IMAGE="$custom_path"; echo " -> Custom cover art verified: $CUSTOM_COVER_IMAGE" >/dev/tty; else echo " -> Warning: File '$custom_path' not found. Using default cover." >/dev/tty; fi ;;
-[2-9]) local target_idx=$((cov_choice - 2)); if [ "$target_idx" -lt "${#discovered_covers[@]}" ]; then CUSTOM_COVER_IMAGE="${discovered_covers[$target_idx]}"; echo " -> Selected existing cover: $CUSTOM_COVER_IMAGE" >/dev/tty; else echo " -> Invalid selection. Using default cover." >/dev/tty; fi ;;
+[cC]|[cC][uU][sS][tT][oO][mM])
+read -r -p "Enter full path to cover image (or drag & drop): " custom_path </dev/tty || custom_path=""
+custom_path="${custom_path#[\"\']}"; custom_path="${custom_path%[\"\']}"; custom_path="$(eval echo "$custom_path")"
+if [ -n "$custom_path" ] && [ -f "$custom_path" ]; then CUSTOM_COVER_IMAGE="$custom_path"; echo " -> Custom cover art verified: $CUSTOM_COVER_IMAGE" >/dev/tty
+else echo " -> Warning: File '$custom_path' not found. Using default cover." >/dev/tty; fi ;;
+[2-9])
+local target_idx=$((cov_choice - 2))
+if [ "$target_idx" -lt "${#discovered_covers[@]}" ]; then CUSTOM_COVER_IMAGE="${discovered_covers[$target_idx]}"; echo " -> Selected existing cover: $CUSTOM_COVER_IMAGE" >/dev/tty
+else echo " -> Invalid selection. Using default cover." >/dev/tty; fi ;;
 *) echo " -> Invalid selection. Using default cover." >/dev/tty ;;
 esac
 printf '\n%s\n' "$S50" "Configured Tag Summary:" "  Artist:  ${CUSTOM_ARTIST:-MPlanetarian}" "  Title:   ${CUSTOM_TITLE:-[Auto-detect from filename]}" "  Album:   ${CUSTOM_ALBUM:-Stream of Frequency}" "  Year:    ${CUSTOM_YEAR:-$def_year}" "  Genre:   ${CUSTOM_GENRE:-Electronic / Trance}" "  Cover:   ${CUSTOM_COVER_IMAGE:-Default ($COVER_ART)}" "$S50" "" >/dev/tty
 }
-configure_conversion_metadata_and_cover
-case "$OUTPUT_FORMAT" in
-mp3) OUTPUT_EXT="mp3"; OUTPUT_LABEL="MP3"; OUTPUT_DIR="${MP3_OUTPUT_DIR:-MP3_CONVERTED_OUTPUTS}" ;;
-wav) OUTPUT_EXT="wav"; OUTPUT_LABEL="WAV"; OUTPUT_DIR="${WAV_OUTPUT_DIR:-WAV_CONVERTED_OUTPUTS}" ;;
-mp4) OUTPUT_EXT="mp4"; OUTPUT_LABEL="MP4"; OUTPUT_DIR="${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}" ;;
-ogg) OUTPUT_EXT="ogg"; OUTPUT_LABEL="OGG"; OUTPUT_DIR="${OGG_OUTPUT_DIR:-OGG_CONVERTED_OUTPUTS}" ;;
-*)   OUTPUT_FORMAT="flac"; OUTPUT_EXT="flac"; OUTPUT_LABEL="FLAC" ;;
-esac
-if [ "$OUTPUT_FORMAT" != "flac" ] && [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR" ] && [[ "$OUTPUT_DIR" != /* ]]; then OUTPUT_DIR="$MIX_ARCHIVE_DIR/${OUTPUT_DIR#./}"; fi
-START_TIME=$(date '+%Y-%m-%d %H:%M:%S'); START_SECONDS=${EPOCHSECONDS:-$(date +%s)}; _CUR_YEAR="${START_TIME%%-*}"; mkdir -p "$OUTPUT_DIR" "$ARCHIVE_DIR" "$SPEK_DIR"; : > "$LOG_FILE"; exec > >(tee -a "$LOG_FILE") 2>&1
-printf '%s\n%s conversion started at: %s\n%s\n' "$S50" "$OUTPUT_LABEL" "$START_TIME" "$S50"
-if [ -d "$LOCAL_HISTORY_DIR" ]; then echo " -> Traktor History directory located successfully at: $LOCAL_HISTORY_DIR"
-elif [ -n "${TRAKTOR_HISTORY_DIR:-}" ]; then LOCAL_HISTORY_DIR="$TRAKTOR_HISTORY_DIR"; echo " -> WARNING: Traktor History directory was missing. It will be created if the share can be reached."
-else echo " -> WARNING: Traktor History directory not found at specified path!"; fi
-sync_missing_traktor_history "$LOCAL_HISTORY_DIR"
-if [ -d "$LOCAL_HISTORY_DIR" ]; then echo " -> Traktor History directory ready at: $LOCAL_HISTORY_DIR"; fi
-if [ -n "${CUSTOM_COVER_IMAGE:-}" ] && [ -f "$CUSTOM_COVER_IMAGE" ]; then COVER_ART="$CUSTOM_COVER_IMAGE"
-elif [ ! -f "$COVER_ART" ]; then
-for _c in "$SCRIPT_DIR/assets/Cover.png" "$SCRIPT_DIR/Cover.png" "$PARENT_DIR/Cover.png"; do if [ -f "$_c" ]; then COVER_ART="$_c"; break; fi; done
-if [ ! -f "$COVER_ART" ]; then echo "ERROR: Required artwork file '$COVER_ART' not found in the current directory!"; echo "Please place 'Cover.png' in this directory or specify a custom cover."; exit 1; fi
-fi
-echo "Cover art ready ($COVER_ART)."; shopt -s nullglob nocaseglob; declare -a TARGET_FILES=()
-if [ $# -gt 0 ]; then
-for arg in "$@"; do clean_arg="${arg//[$'\r\n']/}"; if [ -f "$clean_arg" ]; then TARGET_FILES+=("$(get_abs_path "$clean_arg")"); echo "Target file added: ${clean_arg##*/}"; else echo "ERROR: Specified file '$clean_arg' not found!"; exit 1; fi; done
-echo "Multi-file/Explicit target mode enabled. Total targets: ${#TARGET_FILES[@]}"
-fi
+
 get_session_base_name() {
 local fname="$1" name="${1%.[Ww][Aa][Vv]}"; name="${name%.[Ff][Ll][Aa][Cc]}"; name="${name%.[Mm][Pp]3}"; name="${name%.[Oo][Gg][Gg]}"
 if [[ "$name" =~ ^(.*_[0-9]{1,2}h[0-9]{2}m[0-9]{2}s?)_[0-9]{1,2}h[0-9]{2}m[0-9]{2}s?$ ]]; then echo "${BASH_REMATCH[1]}"; return 0; fi
@@ -145,37 +226,7 @@ local was_nc=0; if shopt -q nocasematch; then was_nc=1; fi; shopt -s nocasematch
 if [[ "$name" =~ ^(.*)[_\ -]+(part|pt|cd|disc|disk|subpart)[_\ -]*[0-9]+$ ]]; then local st="${BASH_REMATCH[1]}"; if [ "$was_nc" -eq 0 ]; then shopt -u nocasematch; fi; echo "$st"; return 0; fi
 if [ "$was_nc" -eq 0 ]; then shopt -u nocasematch; fi; echo "$name"
 }
-GROUP_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sof_groups_XXXXXX" 2>/dev/null || mktemp -d /tmp/sof_groups_XXXXXX)
-trap 'rm -rf "$GROUP_TMP_DIR" "${OPTIMIZED_COVER:-}" 2>/dev/null || true' EXIT; declare -a group_keys=()
-if [ ${#TARGET_FILES[@]} -gt 0 ]; then search_list=("${TARGET_FILES[@]}")
-else
-search_list=(); shopt -s nullglob nocaseglob
-for arch_d in "${all_mix_archive_roots[@]}"; do if [ ! -d "$arch_d" ]; then continue; fi; for cand_file in "$arch_d"/*.[wW][aA][vV] "$arch_d"/*.[oO][gG][gG] "$arch_d/UNCONVERTED_WAVS"/*.[wW][aA][vV] "$arch_d/UNCONVERTED_WAVS"/*.[oO][gG][gG]; do if [ -f "$cand_file" ]; then search_list+=("$cand_file"); fi; done; done
-for cand_file in ./*.[wW][aA][vV] ./*.[oO][gG][gG]; do if [ -f "$cand_file" ]; then search_list+=("$cand_file"); fi; done; shopt -u nullglob nocaseglob
-fi
-total_size_bytes=0
-for file in "${search_list[@]}"; do
-if [ ! -e "$file" ]; then continue; fi; abs_file=$(get_abs_path "$file"); if [ ! -f "$abs_file" ]; then continue; fi
-file_hash=$(get_str_hash "$abs_file"); if [ -f "$GROUP_TMP_DIR/seen_${file_hash}" ]; then continue; fi; : > "$GROUP_TMP_DIR/seen_${file_hash}"
-base_name=$(get_session_base_name "$file"); base_name="${base_name##*/}"; base_hash=$(get_str_hash "$base_name")
-if [ ! -f "$GROUP_TMP_DIR/group_${base_hash}.base" ]; then printf '%s\n' "$base_name" > "$GROUP_TMP_DIR/group_${base_hash}.base"; group_keys+=("$base_hash"); fi
-printf '%s\n' "$abs_file" >> "$GROUP_TMP_DIR/group_${base_hash}.wavs"; size=$(file_size_bytes "$abs_file"); total_size_bytes=$((total_size_bytes + ${size:-0}))
-done
-total_groups=${#group_keys[@]}; if [ "$total_groups" -eq 0 ]; then echo "Error: No matching .wav files found to process."; exit 1; fi
-echo "Found $total_groups unique audio session group(s) to process."
-check_target_dir="$OUTPUT_DIR"
-if [ -f "$GROUP_TMP_DIR/group_${group_keys[0]}.wavs" ]; then IFS= read -r first_w < "$GROUP_TMP_DIR/group_${group_keys[0]}.wavs" || true; first_w="${first_w%$'\r'}"; if [ -n "$first_w" ]; then check_target_dir="${first_w%/*}"; fi; fi
-if [ ! -d "$check_target_dir" ]; then check_target_dir="$OUTPUT_DIR"; fi; if [ ! -d "$check_target_dir" ]; then check_target_dir="$PWD"; fi
-if [ "$_HAS_PY3" -eq 1 ]; then available_space_bytes=$(python3 -c "import shutil,sys;print(shutil.disk_usage(sys.argv[1]).free)" "$check_target_dir" 2>/dev/null || echo 0); else available_space_bytes=$(df -k "$check_target_dir" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'); fi
-available_space_bytes="${available_space_bytes%$'\r'}"; if [ -z "$available_space_bytes" ]; then available_space_bytes=0; fi
-if [ "$available_space_bytes" -gt 0 ] && [ "$available_space_bytes" -lt "$total_size_bytes" ]; then printf '%s\n' "$D50" "ERROR: Insufficient disk space!" " -> Total WAV source size:  $((total_size_bytes / 1024 / 1024)) MB" " -> Available disk space:   $((available_space_bytes / 1024 / 1024)) MB"; exit 1
-else echo "Disk space check passed: $((available_space_bytes / 1024 / 1024)) MB available."; fi
-estimated_seconds=$((total_size_bytes / 50000000)); if [ "$estimated_seconds" -lt 10 ]; then estimated_seconds=10; fi
-if date -u -d "@$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatted_est=$(date -u -d "@$estimated_seconds" +'%Hh %Mm %Ss')
-elif date -u -r "$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatted_est=$(date -u -r "$estimated_seconds" +'%Hh %Mm %Ss')
-else formatted_est="$estimated_seconds seconds"; fi
-printf 'Estimated processing time: ~%s\n%s\n' "$formatted_est" "$D50"
-declare -a successfully_processed_wavs=() newly_exported_flacs=(); all_groups_successful=true
+
 _write_tracklist_header() { printf '%s\n' "$S50" "RELEASE INFO & SOURCE MANIFEST" "$S50" "Artist:        MPlanetarian" "Album:         Stream of Frequency" "Title:         $readable_title" "Conversion Date: $START_TIME" "$D50" "Source Files Merged/Converted (${#current_wavs[@]} file(s)):"; for w in "${current_wavs[@]}"; do echo " - ${w##*/}"; done; printf '%s\n' "$S50" "$1" "$S50"; }
 build_session_tracklist() {
 tracklist_found=false; matched_history=""
@@ -297,15 +348,21 @@ if [ ! -s "$path" ]; then cp "$backup" "$path"; echo "The edit was empty, so the
 }
 review_converted_tracklist() {
 show_tracklist_file; if [ "$tracklist_found" = true ]; then return 0; fi
-echo "ALERT: No tracklist was found in the Traktor history for this mix."; echo "The text above is a placeholder, not the tracks that were played."
+echo "ALERT: No tracklist was found in the Traktor history for this mix." >/dev/tty
+echo "The text above is a placeholder, not the tracks that were played." >/dev/tty
 if ! has_interactive_tty; then return 0; fi
+local tl_opts=(
+"1|Generate tracklist again from Traktor history|(Rescan Traktor SMB / local logs)"
+"2|Update the tracklist manually|(Open in text editor)"
+"0|Continue with the current tracklist|(Keep placeholder and continue)"
+)
 while true; do
-printf '  1) Generate the tracklist again from Traktor history\n  2) Update the tracklist manually\n  0) Continue with the current tracklist\n' >/dev/tty
-local track_choice=""; read -r -p "Tracklist [1/2/0]: " track_choice </dev/tty || track_choice=""
+local track_choice=""
+select_menu_option "REVIEW CONVERTED TRACKLIST" "No Traktor history was found for this mix. Choose an action:" tl_opts 0 track_choice
 case "$track_choice" in
-1) sync_missing_traktor_history "$LOCAL_HISTORY_DIR"; build_session_tracklist; show_tracklist_file; if [ "$tracklist_found" = true ]; then echo "Tracklist generated from Traktor history and saved."; return 0; fi; echo "ALERT: Traktor history still has no tracklist for this mix." ;;
+1) sync_missing_traktor_history "$LOCAL_HISTORY_DIR"; build_session_tracklist; show_tracklist_file; if [ "$tracklist_found" = true ]; then echo "Tracklist generated from Traktor history and saved." >/dev/tty; return 0; fi; echo "ALERT: Traktor history still has no tracklist for this mix." >/dev/tty ;;
 2) edit_tracklist_and_save "$tracklist_path"; show_tracklist_file; return 0 ;;
-0) echo "Continuing with the tracklist saved at: $tracklist_path"; return 0 ;;
+0|ESC|[qQ]) echo "Continuing with the tracklist saved at: $tracklist_path" >/dev/tty; return 0 ;;
 *) echo "Choose 1, 2, or 0." >/dev/tty ;;
 esac
 done
@@ -316,26 +373,6 @@ if [ -n "${CUSTOM_COVER_IMAGE:-}" ] && [ -f "$CUSTOM_COVER_IMAGE" ]; then echo "
 for cand in "$adir/${astem}."{png,jpg,jpeg} "${astem}."{png,jpg,jpeg} "COVERS/${astem}."{png,jpg,jpeg} "Cover.png" "${COVER_ART:-Cover.png}"; do if [ -n "$cand" ] && [ -f "$cand" ]; then echo "$cand"; return 0; fi; done
 echo "Cover.png"
 }
-load_conversion_theme() {
-local mgr="" cand fn_src saved_theme="dreamworlds"
-for cand in "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$PARENT_DIR/Mix_Archive_Manager.sh" "${MIX_ARCHIVE_DIR:-}/Mix_Archive_Manager.sh" "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; do if [ -f "$cand" ]; then mgr="$cand"; break; fi; done
-if [ -n "$mgr" ]; then fn_src="$(awk '/^set_theme_colors\(\)/{f=1} f{print} f&&/^}/{exit}' "$mgr" 2>/dev/null || true)"; if [ -n "$fn_src" ]; then eval "$fn_src"; fi; fi
-if ! declare -F set_theme_colors >/dev/null 2>&1; then
-set_theme_colors() {
-NC='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
-case "${1:-dreamworlds}" in
-cosmic_supernova|supernova|cosmic) RED='\033[38;2;255;51;102m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;254;228;64m'; BLUE='\033[38;2;94;96;206m'; MAGENTA='\033[38;2;224;86;253m'; CYAN='\033[38;2;76;201;240m'; CURRENT_THEME="cosmic_supernova" ;;
-*) RED='\033[38;2;237;37;78m'; GREEN='\033[38;2;0;229;255m'; YELLOW='\033[38;2;255;170;0m'; BLUE='\033[38;2;155;89;182m'; MAGENTA='\033[38;2;247;37;133m'; CYAN='\033[38;2;0;193;228m'; CURRENT_THEME="dreamworlds" ;;
-esac
-}
-fi
-if [ -f "$HOME/.config/mix-manager/theme" ]; then IFS= read -r saved_theme < "$HOME/.config/mix-manager/theme" 2>/dev/null || true; saved_theme="${saved_theme//[[:space:]]/}"; fi
-set_theme_colors "${saved_theme:-dreamworlds}"
-if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then NC=''; BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; BLUE=''; MAGENTA=''; CYAN=''; fi; return 0
-}
-load_conversion_theme
-SOF_RULE_HEAVY="══════════════════════════════════════════════════════════════════════"; SOF_RULE_LIGHT="──────────────────────────────────────────────────────────────────────"
-themed_header() { printf '%b\n  %b\n%b\n' "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}" "${BOLD}${2:-$MAGENTA}${1}${NC}" "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}"; }
 render_themed_tracklist() {
 local path="$1" line num rest artist title remix
 if [ -z "$path" ] || [ ! -f "$path" ]; then printf '%b\n' "  ${DIM}(no tracklist file was written)${NC}"; return 0; fi
@@ -421,7 +458,14 @@ printf '%b\n' "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}"
 if [ -r /dev/tty ]; then
 local stats_script="" cand full_stats=""
 for cand in "$SCRIPT_DIR/SOF_Archive_Stats.sh" "$PARENT_DIR/SOF_Archive_Stats.sh" "${MIX_ARCHIVE_DIR:-}/SOF_Archive_Stats.sh" "$SCRIPT_DIR/scripts/SOF_Archive_Stats.sh"; do if [ -f "$cand" ]; then stats_script="$cand"; break; fi; done
-if [ -n "$stats_script" ]; then read -r -p "Show the full multi-archive stats report as well? [y/N]: " full_stats </dev/tty || full_stats=""; if [[ "$full_stats" =~ ^[yY] ]]; then bash "$stats_script" </dev/tty || true; fi; fi
+if [ -n "$stats_script" ]; then
+local stats_opts=(
+"n|Skip Multi-Archive Stats Report|(Continue)"
+"y|Show Multi-Archive Stats Report|(Detailed report across all mix archives)"
+)
+select_menu_option "MIX ARCHIVE STATS" "Show the full multi-archive stats report as well?" stats_opts 0 full_stats
+if [[ "$full_stats" =~ ^[yY] ]]; then bash "$stats_script" </dev/tty || true; fi
+fi
 fi; return 0
 }
 listen_to_converted_audio() {
@@ -429,43 +473,118 @@ if [ ${#newly_exported_flacs[@]} -eq 0 ] || ! has_interactive_tty; then return 0
 local files=() f listen="" player="" p fp_app
 for f in "${newly_exported_flacs[@]}"; do if [ -f "$f" ]; then files+=("$f"); fi; done
 if [ ${#files[@]} -eq 0 ]; then return 0; fi
-echo ""; themed_header "🎧  LISTEN & REVIEW" "$CYAN"; printf '%b\n' "  Would you like to listen to the converted audio file now for reviewing?"
+echo ""; themed_header "🎧  LISTEN & REVIEW" "$CYAN"; printf '%b\n' "  The converted audio file(s) are ready for playback review:"
 for f in "${files[@]}"; do printf '%b\n' "   ${BOLD}${YELLOW}♪${NC} ${f##*/}"; done
-printf '%b\n' "  ${DIM}[y/N] (Default: Enter = No)${NC}" "${BOLD}${BLUE}${SOF_RULE_HEAVY}${NC}"; read -r -p "Listen now? [y/N]: " listen </dev/tty || listen=""
-case "$listen" in [yY]*) ;; *) echo " -> Skipping playback review."; return 0 ;; esac
+local listen_opts=(
+"n|Skip Playback Review|(Default, continue)"
+"y|Listen Now in Audio Player|(Audacious, VLC, MPV, Strawberry...)"
+)
+select_menu_option "LISTEN & REVIEW CONVERTED AUDIO" "Would you like to listen to the converted audio file now?" listen_opts 0 listen
+case "$listen" in [yY]*) ;; *) echo " -> Skipping playback review." >/dev/tty; return 0 ;; esac
 if [ -n "${SOF_REVIEW_PLAYER:-}" ] && command -v "$SOF_REVIEW_PLAYER" >/dev/null 2>&1; then player="$SOF_REVIEW_PLAYER"
 else for p in audacious strawberry clementine vlc celluloid; do if command -v "$p" >/dev/null 2>&1; then player="$p"; break; fi; done; fi
-if [ -n "$player" ]; then echo " -> Opening in ${player}..."; nohup "$player" "${files[@]}" >/dev/null 2>&1 & return 0; fi
-if command -v flatpak >/dev/null 2>&1; then for fp_app in org.atheme.audacious org.strawberrymusicplayer.strawberry org.videolan.VLC; do if flatpak info "$fp_app" >/dev/null 2>&1; then echo " -> Opening in ${fp_app} (Flatpak)..."; nohup flatpak run "$fp_app" "${files[@]}" >/dev/null 2>&1 & return 0; fi; done; fi
-if command -v mpv >/dev/null 2>&1; then echo " -> Playing with mpv (press q to stop)..."; mpv --no-video "${files[@]}" </dev/tty || true
-elif command -v ffplay >/dev/null 2>&1; then echo " -> Playing with ffplay (press q or Esc to stop)..."; for f in "${files[@]}"; do ffplay -nodisp -autoexit -loglevel error "$f" </dev/tty || true; done
+if [ -n "$player" ]; then echo " -> Opening in ${player}..." >/dev/tty; nohup "$player" "${files[@]}" >/dev/null 2>&1 & return 0; fi
+if command -v flatpak >/dev/null 2>&1; then for fp_app in org.atheme.audacious org.strawberrymusicplayer.strawberry org.videolan.VLC; do if flatpak info "$fp_app" >/dev/null 2>&1; then echo " -> Opening in ${fp_app} (Flatpak)..." >/dev/tty; nohup flatpak run "$fp_app" "${files[@]}" >/dev/null 2>&1 & return 0; fi; done; fi
+if command -v mpv >/dev/null 2>&1; then echo " -> Playing with mpv (press q to stop)..." >/dev/tty; mpv --no-video "${files[@]}" </dev/tty || true
+elif command -v ffplay >/dev/null 2>&1; then echo " -> Playing with ffplay (press q or Esc to stop)..." >/dev/tty; for f in "${files[@]}"; do ffplay -nodisp -autoexit -loglevel error "$f" </dev/tty || true; done
 elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then open "${files[0]}" 2>/dev/null || true
 elif command -v xdg-open >/dev/null 2>&1; then nohup xdg-open "${files[0]}" >/dev/null 2>&1 &
 elif command -v cmd.exe >/dev/null 2>&1; then cmd.exe /c start "" "${files[0]}" 2>/dev/null || true
-else echo "WARNING: No audio player was found on this system."; fi; return 0
+else echo "WARNING: No audio player was found on this system." >/dev/tty; fi; return 0
 }
 post_conversion_tasks() {
 if [ ${#newly_exported_flacs[@]} -eq 0 ] || ! has_interactive_tty; then return 0; fi
 if [ "$OUTPUT_FORMAT" != "mp4" ]; then
-printf '\n%s\n' "$S50" "             YOUTUBE VIDEO GENERATION             " "$S50" "Would you like to generate a YouTube Video?" "  [y/N] (Default: Enter = No, skip video generation)" "$S50"
-local gen_vid="" vid_res="1080p" res_choice="" vid_script="" vcand exp_audio cov_for_vid; read -r -p "Generate YouTube Video? [y/N]: " gen_vid </dev/tty || gen_vid=""
+local vid_opts=(
+"n|Skip YouTube Video Generation|(Continue to next task)"
+"y|Generate YouTube Video|(1080p / 4K / 720p with Cover Art)"
+)
+local gen_vid="" vid_res="1080p" vid_script="" vcand exp_audio cov_for_vid
+select_menu_option "YOUTUBE VIDEO GENERATION" "Would you like to generate a YouTube Video for this mix?" vid_opts 0 gen_vid
 case "$gen_vid" in
 [yY]*)
-printf '\nSelect YouTube Video Resolution:\n  1) 1080p Full HD (default, press Enter)\n  2) 4K Ultra HD\n  3) 720p HD\n'
-read -r -p "Resolution [1/2/3, Enter = 1080p]: " res_choice </dev/tty || res_choice=""
-case "$res_choice" in 2|[4kK]*) vid_res="4k" ;; 3|720*) vid_res="720p" ;; *) vid_res="1080p" ;; esac
+local res_opts=(
+"1080p|1080p Full HD|(Default, recommended for YouTube)"
+"4k|4K Ultra HD|(High resolution video render)"
+"720p|720p HD|(Faster encoding)"
+)
+select_menu_option "YOUTUBE VIDEO RESOLUTION" "Select YouTube Video Resolution:" res_opts 0 vid_res
 for vcand in "$SCRIPT_DIR/generate_youtube_video.sh" "$PARENT_DIR/generate_youtube_video.sh" "${MIX_ARCHIVE_DIR:-}/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/generate_youtube_video.sh" "$SCRIPT_DIR/Make_SOF_Episode_From_PNG_FLAC_Output_MP4_1080p_Video.sh"; do if [ -f "$vcand" ]; then vid_script="$vcand"; break; fi; done
 for exp_audio in "${newly_exported_flacs[@]}"; do if [ -f "$exp_audio" ]; then cov_for_vid="$(find_cover_for_audio "$exp_audio")"; echo " -> Generating YouTube video for ${exp_audio##*/}..."; if [ -n "$vid_script" ]; then if [[ "$vid_script" == *"generate_youtube_video.sh" ]]; then bash "$vid_script" -r "$vid_res" -i "$exp_audio" -c "$cov_for_vid" -o "${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}" </dev/tty; else bash "$vid_script" "$exp_audio" "$cov_for_vid" </dev/tty; fi; else echo "WARNING: YouTube video generation script not found."; fi; fi; done ;;
-*) echo " -> Skipping YouTube video generation." ;;
+*) echo " -> Skipping YouTube video generation." >/dev/tty ;;
 esac
 fi
-printf '\n%s\n' "$S50" "          AUDACITY AUDIO POST-PROCESSING          " "$S50" "Would you like to open the converted audio file in Audacity (for post processing)?" "  [y/N] (Default: Enter = No, continue)" "$S50"
-local open_aud="" exp_audio; read -r -p "Open in Audacity? [y/N]: " open_aud </dev/tty || open_aud=""
+local aud_opts=(
+"n|Skip Audacity Post-Processing|(Default, finish conversion)"
+"y|Open in Audacity|(Audio post-processing & mastering review)"
+)
+local open_aud="" exp_audio
+select_menu_option "AUDACITY AUDIO POST-PROCESSING" "Would you like to open the converted audio file in Audacity?" aud_opts 0 open_aud
 case "$open_aud" in
 [yY]*) for exp_audio in "${newly_exported_flacs[@]}"; do if [ -f "$exp_audio" ]; then echo " -> Launching Audacity with '${exp_audio##*/}'..."; if command -v audacity >/dev/null 2>&1; then nohup audacity "$exp_audio" >/dev/null 2>&1 & elif flatpak list 2>/dev/null | grep -q "org.audacityteam.Audacity"; then nohup flatpak run org.audacityteam.Audacity "$exp_audio" >/dev/null 2>&1 & elif [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then open -a "Audacity" "$exp_audio" 2>/dev/null & elif command -v cmd.exe >/dev/null 2>&1; then cmd.exe /c start "" audacity "$exp_audio" 2>/dev/null & else echo "WARNING: Audacity was not found on this system."; fi; fi; done ;;
-*) echo " -> Skipping Audacity post-processing." ;;
+*) echo " -> Skipping Audacity post-processing." >/dev/tty ;;
 esac; return 0
 }
+
+run_sof_conversion() {
+choose_conversion_output
+configure_conversion_metadata_and_cover
+case "$OUTPUT_FORMAT" in
+mp3) OUTPUT_EXT="mp3"; OUTPUT_LABEL="MP3"; OUTPUT_DIR="${MP3_OUTPUT_DIR:-MP3_CONVERTED_OUTPUTS}" ;;
+wav) OUTPUT_EXT="wav"; OUTPUT_LABEL="WAV"; OUTPUT_DIR="${WAV_OUTPUT_DIR:-WAV_CONVERTED_OUTPUTS}" ;;
+mp4) OUTPUT_EXT="mp4"; OUTPUT_LABEL="MP4"; OUTPUT_DIR="${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}" ;;
+ogg) OUTPUT_EXT="ogg"; OUTPUT_LABEL="OGG"; OUTPUT_DIR="${OGG_OUTPUT_DIR:-OGG_CONVERTED_OUTPUTS}" ;;
+*)   OUTPUT_FORMAT="flac"; OUTPUT_EXT="flac"; OUTPUT_LABEL="FLAC" ;;
+esac
+if [ "$OUTPUT_FORMAT" != "flac" ] && [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR" ] && [[ "$OUTPUT_DIR" != /* ]]; then OUTPUT_DIR="$MIX_ARCHIVE_DIR/${OUTPUT_DIR#./}"; fi
+START_TIME=$(date '+%Y-%m-%d %H:%M:%S'); START_SECONDS=${EPOCHSECONDS:-$(date +%s)}; _CUR_YEAR="${START_TIME%%-*}"; mkdir -p "$OUTPUT_DIR" "$ARCHIVE_DIR" "$SPEK_DIR"; : > "$LOG_FILE"; exec > >(tee -a "$LOG_FILE") 2>&1
+printf '%s\n%s conversion started at: %s\n%s\n' "$S50" "$OUTPUT_LABEL" "$START_TIME" "$S50"
+if [ -d "$LOCAL_HISTORY_DIR" ]; then echo " -> Traktor History directory located successfully at: $LOCAL_HISTORY_DIR"
+elif [ -n "${TRAKTOR_HISTORY_DIR:-}" ]; then LOCAL_HISTORY_DIR="$TRAKTOR_HISTORY_DIR"; echo " -> WARNING: Traktor History directory was missing. It will be created if the share can be reached."
+else echo " -> WARNING: Traktor History directory not found at specified path!"; fi
+sync_missing_traktor_history "$LOCAL_HISTORY_DIR"
+if [ -d "$LOCAL_HISTORY_DIR" ]; then echo " -> Traktor History directory ready at: $LOCAL_HISTORY_DIR"; fi
+if [ -n "${CUSTOM_COVER_IMAGE:-}" ] && [ -f "$CUSTOM_COVER_IMAGE" ]; then COVER_ART="$CUSTOM_COVER_IMAGE"
+elif [ ! -f "$COVER_ART" ]; then
+for _c in "$SCRIPT_DIR/assets/Cover.png" "$SCRIPT_DIR/Cover.png" "$PARENT_DIR/Cover.png"; do if [ -f "$_c" ]; then COVER_ART="$_c"; break; fi; done
+if [ ! -f "$COVER_ART" ]; then echo "ERROR: Required artwork file '$COVER_ART' not found in the current directory!"; echo "Please place 'Cover.png' in this directory or specify a custom cover."; exit 1; fi
+fi
+echo "Cover art ready ($COVER_ART)."; shopt -s nullglob nocaseglob; declare -a TARGET_FILES=()
+if [ $# -gt 0 ]; then
+for arg in "$@"; do clean_arg="${arg//[$'\r\n']/}"; if [ -f "$clean_arg" ]; then TARGET_FILES+=("$(get_abs_path "$clean_arg")"); echo "Target file added: ${clean_arg##*/}"; else echo "ERROR: Specified file '$clean_arg' not found!"; exit 1; fi; done
+echo "Multi-file/Explicit target mode enabled. Total targets: ${#TARGET_FILES[@]}"
+fi
+GROUP_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sof_groups_XXXXXX" 2>/dev/null || mktemp -d /tmp/sof_groups_XXXXXX)
+trap 'rm -rf "$GROUP_TMP_DIR" "${OPTIMIZED_COVER:-}" 2>/dev/null || true' EXIT; declare -a group_keys=()
+if [ ${#TARGET_FILES[@]} -gt 0 ]; then search_list=("${TARGET_FILES[@]}")
+else
+search_list=(); shopt -s nullglob nocaseglob
+for arch_d in "${all_mix_archive_roots[@]}"; do if [ ! -d "$arch_d" ]; then continue; fi; for cand_file in "$arch_d"/*.[wW][aA][vV] "$arch_d"/*.[oO][gG][gG] "$arch_d/UNCONVERTED_WAVS"/*.[wW][aA][vV] "$arch_d/UNCONVERTED_WAVS"/*.[oO][gG][gG]; do if [ -f "$cand_file" ]; then search_list+=("$cand_file"); fi; done; done
+for cand_file in ./*.[wW][aA][vV] ./*.[oO][gG][gG]; do if [ -f "$cand_file" ]; then search_list+=("$cand_file"); fi; done; shopt -u nullglob nocaseglob
+fi
+total_size_bytes=0
+for file in "${search_list[@]}"; do
+if [ ! -e "$file" ]; then continue; fi; abs_file=$(get_abs_path "$file"); if [ ! -f "$abs_file" ]; then continue; fi
+file_hash=$(get_str_hash "$abs_file"); if [ -f "$GROUP_TMP_DIR/seen_${file_hash}" ]; then continue; fi; : > "$GROUP_TMP_DIR/seen_${file_hash}"
+base_name=$(get_session_base_name "$file"); base_name="${base_name##*/}"; base_hash=$(get_str_hash "$base_name")
+if [ ! -f "$GROUP_TMP_DIR/group_${base_hash}.base" ]; then printf '%s\n' "$base_name" > "$GROUP_TMP_DIR/group_${base_hash}.base"; group_keys+=("$base_hash"); fi
+printf '%s\n' "$abs_file" >> "$GROUP_TMP_DIR/group_${base_hash}.wavs"; size=$(file_size_bytes "$abs_file"); total_size_bytes=$((total_size_bytes + ${size:-0}))
+done
+total_groups=${#group_keys[@]}; if [ "$total_groups" -eq 0 ]; then echo "Error: No matching .wav files found to process."; exit 1; fi
+echo "Found $total_groups unique audio session group(s) to process."
+check_target_dir="$OUTPUT_DIR"
+if [ -f "$GROUP_TMP_DIR/group_${group_keys[0]}.wavs" ]; then IFS= read -r first_w < "$GROUP_TMP_DIR/group_${group_keys[0]}.wavs" || true; first_w="${first_w%$'\r'}"; if [ -n "$first_w" ]; then check_target_dir="${first_w%/*}"; fi; fi
+if [ ! -d "$check_target_dir" ]; then check_target_dir="$OUTPUT_DIR"; fi; if [ ! -d "$check_target_dir" ]; then check_target_dir="$PWD"; fi
+if [ "$_HAS_PY3" -eq 1 ]; then available_space_bytes=$(python3 -c "import shutil,sys;print(shutil.disk_usage(sys.argv[1]).free)" "$check_target_dir" 2>/dev/null || echo 0); else available_space_bytes=$(df -k "$check_target_dir" 2>/dev/null | awk 'NR==2 {print $4 * 1024}'); fi
+available_space_bytes="${available_space_bytes%$'\r'}"; if [ -z "$available_space_bytes" ]; then available_space_bytes=0; fi
+if [ "$available_space_bytes" -gt 0 ] && [ "$available_space_bytes" -lt "$total_size_bytes" ]; then printf '%s\n' "$D50" "ERROR: Insufficient disk space!" " -> Total WAV source size:  $((total_size_bytes / 1024 / 1024)) MB" " -> Available disk space:   $((available_space_bytes / 1024 / 1024)) MB"; exit 1
+else echo "Disk space check passed: $((available_space_bytes / 1024 / 1024)) MB available."; fi
+estimated_seconds=$((total_size_bytes / 50000000)); if [ "$estimated_seconds" -lt 10 ]; then estimated_seconds=10; fi
+if date -u -d "@$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatted_est=$(date -u -d "@$estimated_seconds" +'%Hh %Mm %Ss')
+elif date -u -r "$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatted_est=$(date -u -r "$estimated_seconds" +'%Hh %Mm %Ss')
+else formatted_est="$estimated_seconds seconds"; fi
+printf 'Estimated processing time: ~%s\n%s\n' "$formatted_est" "$D50"
+declare -a successfully_processed_wavs=() newly_exported_flacs=(); all_groups_successful=true
 counter=1
 for g_hash in "${group_keys[@]}"; do
 IFS= read -r base < "$GROUP_TMP_DIR/group_${g_hash}.base" || true; base="${base%$'\r'}"; wav_file_list="$GROUP_TMP_DIR/group_${g_hash}.wavs"; declare -a current_wavs=()
@@ -554,10 +673,16 @@ final_out_sz=$(file_size_bytes "$output_path"); log_conversion_event "$output_pa
 spek_image="${spek_image%$'\r'}"
 if [ ! -f "$spek_image" ]; then echo -e "${BOLD}${CYAN} -> Generating 1080p Spectrogram Analysis (${spek_image##*/})...${NC}"; run_ffmpeg_with_progress "Generating Spectrogram" "$conv_duration" 250000 -y -i "$output_path" -lavfi "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log" -frames:v 1 "$spek_image"; fi
 printf '\n%s\n✓ Audio Conversion Finished: %s\n%s\n' "$S50" "${output_path##*/}" "$S50"; ask_split=""
-if has_interactive_tty; then read -r -p "Would you like to split '$output_filename' into separate parts/sets? [y/N]: " ask_split </dev/tty || ask_split=""; fi
+if has_interactive_tty; then
+local split_opts=(
+"n|Skip Splitting|(Keep mix as a single complete file)"
+"y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+)
+select_menu_option "SPLIT MIX FILE" "Would you like to split '${output_path##*/}' into separate parts/sets?" split_opts 0 ask_split
+fi
 case "$ask_split" in
-[yY]|[yY][eE][sS]) splitter_bin=""; for sc in "$SCRIPT_DIR/Split_FLAC_File.sh" "$SCRIPT_DIR/scripts/Split_FLAC_File.sh" "./Split_FLAC_File.sh"; do if [ -f "$sc" ]; then splitter_bin="$sc"; break; fi; done; if [ -n "$splitter_bin" ]; then bash "$splitter_bin" "$output_path" </dev/tty || true; else echo "WARNING: Split_FLAC_File.sh not found!"; fi ;;
-*) echo " -> Skipping splitting." ;;
+[yY]|[yY][eE][sS]) splitter_bin=""; for sc in "$SCRIPT_DIR/Split_FLAC_File.sh" "$SCRIPT_DIR/scripts/Split_FLAC_File.sh" "./Split_FLAC_File.sh"; do if [ -f "$sc" ]; then splitter_bin="$sc"; break; fi; done; if [ -n "$splitter_bin" ]; then bash "$splitter_bin" "$output_path" </dev/tty || true; else echo "WARNING: Split_FLAC_File.sh not found!" >/dev/tty; fi ;;
+*) echo " -> Skipping splitting." >/dev/tty ;;
 esac
 echo " -> Moving successfully processed files to '$group_arch_dir'..."
 for w in "${current_wavs[@]}"; do if [ -f "$w" ]; then mv "$w" "$group_arch_dir/"; fi; successfully_processed_wavs+=("$w"); done
@@ -569,4 +694,8 @@ if [ ${#newly_exported_flacs[@]} -gt 0 ]; then
 echo "Generating M3U playlist: $PLAYLIST_NAME..."; printf '%s\n' "${newly_exported_flacs[@]}" > "$PLAYLIST_NAME"; echo "Playlist generated successfully at: $PLAYLIST_NAME"
 for arch_d in "${all_mix_archive_roots[@]}"; do if [ -d "$arch_d/PLAYLISTS_GENERATED" ]; then cp "$PLAYLIST_NAME" "$arch_d/PLAYLISTS_GENERATED/" 2>/dev/null || true; fi; done
 fi
-printf '%s\nCONVERSION COMPLETE\n%s\n' "$S50" "$S50"; post_conversion_tasks
+printf '%s\nCONVERSION COMPLETE\n%s\n' "$S50" "$S50"; listen_to_converted_audio; post_conversion_tasks
+}
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+run_sof_conversion "$@"
+fi

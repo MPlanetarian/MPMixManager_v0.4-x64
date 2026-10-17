@@ -34,6 +34,15 @@ if [ -z "${OS_TYPE:-}" ]; then
     esac
 fi
 
+# If running on Linux and current working directory is under /run/media or external mounts
+# inaccessible to rootless podman, switch PWD to HOME or /tmp so rootless podman / distrobox
+# does not fail with 'cannot chdir to /run/media/...: No such file or directory'.
+if [ "$OS_TYPE" = "linux" ]; then
+    if [[ "$PWD" == /run/media/* ]] || [[ "$PWD" == /media/* ]] || [[ "$PWD" == /mnt/* ]]; then
+        cd "$HOME" 2>/dev/null || cd /tmp 2>/dev/null || true
+    fi
+fi
+
 OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama-container}"
 OLLAMA_HOST="${OLLAMA_HOST:-0.0.0.0}"
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
@@ -228,7 +237,7 @@ EOFBAT
             systemctl --user restart ollama.service >/dev/null 2>&1 || true
         else
             echo -e "Launching 'ollama serve' in background via distrobox (${OLLAMA_CONTAINER}) [listening on ${OLLAMA_BIND}]..."
-            nohup distrobox enter -T "$OLLAMA_CONTAINER" -- env \
+            nohup distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- env \
                 LD_LIBRARY_PATH="/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-}" \
                 OLLAMA_HOST="${OLLAMA_BIND}" \
                 OLLAMA_ORIGINS="*" \
@@ -318,7 +327,7 @@ start_ollama_window() {
 
     local TITLE="Ollama Server (${OLLAMA_CONTAINER})"
     local OLLAMA_ENV="LD_LIBRARY_PATH=/run/host/usr/lib64:/run/host/usr/lib64/nvidia:\${LD_LIBRARY_PATH:-} OLLAMA_HOST=${OLLAMA_BIND} OLLAMA_ORIGINS=\"*\" OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=32768 OLLAMA_NUM_PARALLEL=1 OLLAMA_GPU_OVERHEAD=536870912 OLLAMA_VULKAN=0"
-    local CMD="distrobox enter ${OLLAMA_CONTAINER} -- env ${OLLAMA_ENV} ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
+    local CMD="distrobox enter --no-workdir ${OLLAMA_CONTAINER} -- env ${OLLAMA_ENV} ollama serve; echo ''; echo 'Ollama server exited. Press [Enter] to close...'; read -r"
 
     echo -e "Opening terminal window for 'ollama serve' [listening on ${OLLAMA_BIND}]..."
     if command -v konsole >/dev/null 2>&1; then
@@ -390,7 +399,7 @@ stop_ollama() {
             systemctl --user stop ollama.service >/dev/null 2>&1 || true
         fi
         # Graceful TERM on Linux
-        distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -TERM -f "ollama serve" 2>/dev/null || true
+        distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- pkill -TERM -f "ollama serve" 2>/dev/null || true
         pkill -TERM -f "ollama serve" 2>/dev/null || true
 
         sleep 1.5
@@ -403,7 +412,7 @@ stop_ollama() {
             return 0
         else
             echo -e "${RED}Process still running. Force killing...${NC}"
-            distrobox enter -T "$OLLAMA_CONTAINER" -- pkill -9 -f "ollama serve" 2>/dev/null || true
+            distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- pkill -9 -f "ollama serve" 2>/dev/null || true
             pkill -9 -f "ollama serve" 2>/dev/null || true
             sleep 1
             if ! is_ollama_running; then
@@ -491,7 +500,7 @@ show_status() {
         elif [ "$OS_TYPE" = "windows" ]; then
             "$OLLAMA_BIN" list 2>/dev/null | sed 's/^/  /' || true
         else
-            distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | sed 's/^/  /'
+            distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | sed 's/^/  /'
         fi
     else
         local found_offline=false
@@ -534,7 +543,7 @@ run_chat_cli() {
         if [ "$OS_TYPE" = "windows" ]; then
             mapfile -t models < <("$OLLAMA_BIN" list 2>/dev/null | awk 'NR>1 {print $1}')
         else
-            mapfile -t models < <(distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+            mapfile -t models < <(distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
         fi
     fi
 
@@ -583,7 +592,7 @@ run_chat_cli() {
                 "$OLLAMA_BIN" run "$chosen_model"
             fi
         else
-            distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$chosen_model"
+            distrobox enter --no-workdir "$OLLAMA_CONTAINER" -- ollama run "$chosen_model"
         fi
     else
         echo -e "${RED}Invalid selection.${NC}"
@@ -615,7 +624,7 @@ run_voice_chat_cli() {
         if [ "$OS_TYPE" = "windows" ]; then
             mapfile -t models < <("$OLLAMA_BIN" list 2>/dev/null | awk 'NR>1 {print $1}')
         else
-            mapfile -t models < <(distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
+            mapfile -t models < <(distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- ollama list 2>/dev/null | awk 'NR>1 {print $1}')
         fi
     fi
 
@@ -967,7 +976,7 @@ case "${1:-}" in
         if [ "$OS_TYPE" = "windows" ]; then
             "$OLLAMA_BIN" list
         else
-            distrobox enter -T "$OLLAMA_CONTAINER" -- ollama list
+            distrobox enter --no-workdir -T "$OLLAMA_CONTAINER" -- ollama list
         fi
         ;;
     chat|run)
@@ -980,7 +989,7 @@ case "${1:-}" in
                     "$OLLAMA_BIN" run "$1"
                 fi
             else
-                distrobox enter "$OLLAMA_CONTAINER" -- ollama run "$1"
+                distrobox enter --no-workdir "$OLLAMA_CONTAINER" -- ollama run "$1"
             fi
         else
             run_chat_cli

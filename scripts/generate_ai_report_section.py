@@ -33,6 +33,21 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
+
 # Matplotlib headless backend
 import matplotlib
 matplotlib.use('Agg')
@@ -707,7 +722,7 @@ def generate_pdf_report(report_data: Dict[str, Any], output_pdf: Path, chart_pat
     # Title & Metadata
     target_date = report_data["target_date"]
     story.append(Paragraph("MP REPORTER — DAILY AI BRAIN LOGS & SOFTWARE SUMMARY", title_style))
-    story.append(Paragraph(f"Reporting Date: <b>{target_date}</b> | Engine: <b>Dreamworlds AI Intelligence v0.3</b> | Voice Synthesis: <b>Stephen Hawking (Enters the Matrix)</b>", subtitle_style))
+    story.append(Paragraph(f"Reporting Date: <b>{target_date}</b> | Engine: <b>Dreamworlds AI Intelligence v{VERSION}</b> | Voice Synthesis: <b>Stephen Hawking (Enters the Matrix)</b>", subtitle_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#0284c7"), spaceAfter=10))
 
     # Executive Spoken Summary (Audio Briefing Box)

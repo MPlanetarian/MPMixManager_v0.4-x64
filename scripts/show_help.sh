@@ -25,10 +25,15 @@ fi
 unset _RESOLVED_SRC _RESOLVED_DIR _SCRIPT_DIR
 
 # Determine version
-VERSION="0.3.0"
-if [ -f "$CODEBASE_DIR/VERSION" ]; then
-    VERSION="$(head -n 1 "$CODEBASE_DIR/VERSION" | tr -d ' \t\r\n')"
+VERSION="${VERSION:-}"
+if [ -z "$VERSION" ]; then
+    if [ -f "$CODEBASE_DIR/VERSION" ]; then
+        VERSION="$(head -n 1 "$CODEBASE_DIR/VERSION" | tr -d '\r\n')"
+    else
+        VERSION="0.3.6 Beta"
+    fi
 fi
+export VERSION
 
 # Terminal colors (respect NO_COLOR and non-interactive output)
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then

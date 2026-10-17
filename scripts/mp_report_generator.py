@@ -19,6 +19,21 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Dict, Any, List
 
+def _get_app_version() -> str:
+    ver = os.environ.get("VERSION")
+    if ver:
+        return ver.strip()
+    s_dir = Path(__file__).resolve().parent
+    for cand in [s_dir / "VERSION", s_dir.parent / "VERSION"]:
+        if cand.is_file():
+            try:
+                return cand.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+    return "0.3.6 Beta"
+
+VERSION = _get_app_version()
+
 # Matplotlib headless backend
 import matplotlib
 matplotlib.use('Agg')
@@ -272,7 +287,7 @@ def build_pdf_report(kind: str,
 
     today_str = datetime.now().strftime("%A, %B %d, %Y (%H:%M:%S)")
     story.append(Paragraph(f"MP MIX ARCHIVE MANAGER — {period_title}", title_style))
-    story.append(Paragraph(f"Report Generated: {today_str}  |  Host: Linux Bazzite Workstation  |  Engine: Dreamworlds v0.3", subtitle_style))
+    story.append(Paragraph(f"Report Generated: {today_str}  |  Host: Linux Bazzite Workstation  |  Engine: Dreamworlds v{VERSION}", subtitle_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#ff007f"), spaceAfter=10))
 
     # Executive Summary Box
