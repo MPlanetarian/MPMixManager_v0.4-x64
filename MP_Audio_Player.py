@@ -724,12 +724,11 @@ class AudioResampler:
         return arr[:, :2].astype(np.float32)
 
     def process(self, read_func, out_frames: int, speed_ratio: float) -> np.ndarray:
-        if speed_ratio == 1.0 and self.in_pos == 0.0 and len(self.buffer) == 0:
+        if abs(speed_ratio - 1.0) < 1e-4 and self.in_pos == 0.0 and len(self.buffer) == 0:
             raw = read_func(out_frames)
             return np.zeros((0, 2), dtype=np.float32) if len(raw) == 0 else self._to_stereo(raw)
 
         t_out = self.in_pos + np.arange(out_frames, dtype=np.float64) * speed_ratio
-        self.in_pos = t_out[-1] + speed_ratio
         needed = int(np.ceil(t_out[-1])) + 4
 
         while len(self.buffer) < needed:
@@ -738,7 +737,10 @@ class AudioResampler:
             stereo_more = self._to_stereo(more)
             self.buffer = np.vstack((self.buffer, stereo_more)) if len(self.buffer) else stereo_more
 
-        if len(self.buffer) == 0: return np.zeros((0, 2), dtype=np.float32)
+        if len(self.buffer) == 0:
+            return np.zeros((0, 2), dtype=np.float32)
+
+        self.in_pos = t_out[-1] + speed_ratio
         if len(self.buffer) <= int(np.ceil(t_out[-1])):
             pad = int(np.ceil(t_out[-1])) + 4 - len(self.buffer)
             self.buffer = np.vstack((self.buffer, np.zeros((pad, 2), dtype=np.float32)))
@@ -784,9 +786,14 @@ class SoundFileAudioSource(AudioSource):
                     self.sf = None
                 self.sf = sf.SoundFile(self.path)
                 if target_frame > 0:
-                    try: self.sf.seek(target_frame)
-                    except Exception: pass
-                self._current_frame = target_frame
+                    try:
+                        self.sf.seek(target_frame)
+                    except Exception:
+                        pass
+                try:
+                    self._current_frame = int(self.sf.tell())
+                except Exception:
+                    self._current_frame = target_frame
                 return
             except Exception as e:
                 last_exc = e
@@ -814,7 +821,7 @@ class SoundFileAudioSource(AudioSource):
                     pass
                 if attempt == 3:
                     return np.zeros((0, self.channels), dtype=np.float32)
-                time.sleep(0.2 * attempt)
+                time.sleep(0.15 * attempt)
         return np.zeros((0, self.channels), dtype=np.float32)
 
     def seek(self, frame: int):
@@ -825,7 +832,10 @@ class SoundFileAudioSource(AudioSource):
                     self._open_with_retry(max_retries=2, target_frame=target)
                     return
                 self.sf.seek(target)
-                self._current_frame = target
+                try:
+                    self._current_frame = int(self.sf.tell())
+                except Exception:
+                    self._current_frame = target
                 return
             except Exception:
                 try:
@@ -838,7 +848,9 @@ class SoundFileAudioSource(AudioSource):
     def tell(self) -> int:
         try:
             if self.sf:
-                return int(self.sf.tell())
+                pos = int(self.sf.tell())
+                self._current_frame = pos
+                return pos
         except Exception:
             pass
         return self._current_frame
@@ -855,6 +867,7 @@ class SoundFileAudioSource(AudioSource):
 class FFmpegAudioSource(AudioSource):
     """Universal audio decoder fallback using FFmpeg PCM pipe for AAC/M4A/WMA or damaged soundfile headers."""
     def __init__(self, path: str, target_samplerate: int = 44100):
+        _ensure_audio_backends()
         self.path = str(path)
         self.samplerate = target_samplerate
         self.channels = 2
@@ -864,19 +877,23 @@ class FFmpegAudioSource(AudioSource):
         self._start_ffmpeg(start_sec=0.0)
 
     def _probe_frames(self) -> int:
+        _ensure_audio_backends()
         try:
-            cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.path]
-            out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=6).decode().strip().split()
-            if out:
-                dur = float(out[0])
-                if len(out) > 1 and out[1].isdigit():
-                    self.samplerate = int(out[1])
-                return int(dur * self.samplerate)
+            dur_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", self.path]
+            dur_out = subprocess.check_output(dur_cmd, stderr=subprocess.DEVNULL, timeout=6).decode().strip()
+            dur = float(dur_out) if dur_out else 0.0
+
+            sr_cmd = ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate", "-of", "default=noprint_wrappers=1:nokey=1", self.path]
+            sr_out = subprocess.check_output(sr_cmd, stderr=subprocess.DEVNULL, timeout=6).decode().strip()
+            if sr_out and sr_out.isdigit():
+                self.samplerate = int(sr_out)
+            return int(dur * self.samplerate)
         except Exception:
             pass
         return 0
 
     def _start_ffmpeg(self, start_sec: float = 0.0):
+        _ensure_audio_backends()
         self.close()
         cmd = ["ffmpeg", "-v", "error"]
         if start_sec > 0:
@@ -893,6 +910,7 @@ class FFmpegAudioSource(AudioSource):
             self.proc = None
 
     def read(self, frames: int) -> np.ndarray:
+        _ensure_audio_backends()
         if not self.proc or not self.proc.stdout:
             return np.zeros((0, 2), dtype=np.float32)
         bytes_needed = frames * 2 * 4
@@ -1094,25 +1112,33 @@ class AudioFeederThread(threading.Thread):
                     written = self.audio_buffer.write(chunk, timeout=0.1)
             else:
                 cur_pos = self.source.tell()
+                total_frames = self.source.total_frames()
                 if total_frames > 0 and cur_pos < (total_frames - (read_chunk_size * 2)):
-                    time.sleep(0.2)
+                    # Transient disk/network read hitch - never set EOF prematurely on remote/large mix
+                    time.sleep(0.15)
                     continue
 
-                time.sleep(0.1)
-                try:
-                    verify_chunk = self.source.read(read_chunk_size)
-                except Exception:
-                    verify_chunk = np.zeros((0, 2), dtype=np.float32)
-
-                if len(verify_chunk) > 0:
-                    self.audio_buffer.write(verify_chunk)
-                    self.current_frame = self.source.tell()
+                got_data = False
+                for _ in range(4):
+                    time.sleep(0.1)
+                    try:
+                        verify_chunk = self.source.read(read_chunk_size)
+                        if len(verify_chunk) > 0:
+                            self.audio_buffer.write(verify_chunk)
+                            self.current_frame = self.source.tell()
+                            got_data = True
+                            break
+                    except Exception:
+                        pass
+                if got_data:
                     continue
 
-                self.audio_buffer.set_eof()
-                while self._running and self._seek_target is None:
-                    with self._wake_cond:
-                        self._wake_cond.wait(timeout=0.2)
+                # Truly at end of stream
+                if total_frames <= 0 or cur_pos >= (total_frames - (read_chunk_size * 2)):
+                    self.audio_buffer.set_eof()
+                    while self._running and self._seek_target is None:
+                        with self._wake_cond:
+                            self._wake_cond.wait(timeout=0.2)
 
 class AudioEngine:
     def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE"):
@@ -1550,26 +1576,35 @@ class AudioEngine:
             else: self.stop_playback()
 
     def play(self):
-        if not getattr(self, "audio_source", None) and not self.sf_file:
+        if getattr(self, "audio_source", None) is None or getattr(self, "feeder", None) is None or self.state == "stopped":
             self.load_track(self.current_index, True)
         else:
             self.state = "playing"
             self._ensure_stream()
+            if getattr(self, "bt_router", None) and hasattr(self.bt_router, "running") and not self.bt_router.running:
+                try: self.bt_router.start()
+                except Exception: pass
+            self._sync_state_file()
 
-    def pause(self): self.state = "paused"
+    def pause(self):
+        self.state = "paused"
+        self._sync_state_file()
+
     def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
+
     def stop_playback(self):
         self.state, self.position_sec = "stopped", 0.0
         self._stop_feeder()
-        if getattr(self, "bt_router", None):
-            try: self.bt_router.stop()
-            except Exception: pass
+        with self._sf_lock:
+            old_sf, self.sf_file = self.sf_file, None
+        self._retire_sf(old_sf)
         self.smoothed_levels.fill(0)
         self.smoothed_levels_left.fill(0)
         self.smoothed_levels_right.fill(0)
         self.peaks.fill(0)
         self.peaks_left.fill(0)
         self.peaks_right.fill(0)
+        self._sync_state_file()
 
     def queue_track(self, track_or_path: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         with self._queue_lock:
@@ -2039,20 +2074,34 @@ class PlayerIPCServer:
             self.engine._sync_state_file()
             time.sleep(0.02)
 
+def _cleanup_stale_daemon_files():
+    for p in (PID_FILE, SOCKET_PATH, PORT_FILE):
+        try:
+            if p.exists(): p.unlink()
+        except OSError: pass
+    try:
+        STATE_FILE.write_text(json.dumps({"running": False, "state": "stopped"}), encoding="utf-8")
+    except OSError: pass
+
 def send_ipc_command(cmd: str, **kwargs) -> Optional[Dict[str, Any]]:
     has_unix = hasattr(socket, "AF_UNIX")
-    if (has_unix and not SOCKET_PATH.exists()) or (not has_unix and not PORT_FILE.exists()): return None
-    for _ in range(3):
+    use_unix = has_unix and SOCKET_PATH.exists()
+    use_port = not use_unix and PORT_FILE.exists()
+    if not use_unix and not use_port: return None
+    for _ in range(4):
         try:
-            s = socket.socket(socket.AF_UNIX if has_unix else socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(2.0)
-            s.connect(str(SOCKET_PATH) if has_unix else ("127.0.0.1", int(PORT_FILE.read_text().strip())))
+            s = socket.socket(socket.AF_UNIX if use_unix else socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2.5)
+            s.connect(str(SOCKET_PATH) if use_unix else ("127.0.0.1", int(PORT_FILE.read_text().strip())))
             payload = {"cmd": cmd, **kwargs}
             s.sendall(json.dumps(payload).encode('utf-8'))
             raw = s.recv(65536).decode('utf-8')
             s.close()
             if raw: return json.loads(raw)
-        except Exception: time.sleep(0.05)
+        except (ConnectionRefusedError, FileNotFoundError):
+            break
+        except Exception:
+            time.sleep(0.08)
     return None
 
 def is_player_daemon_running() -> bool:
@@ -2070,33 +2119,45 @@ def is_player_daemon_running() -> bool:
                     if ok and ec.value == 259: return True
             else:
                 os.kill(pid, 0)
-                return True
-        except (OSError, ValueError): pass
-        for p in (PID_FILE, SOCKET_PATH, PORT_FILE):
-            try: p.unlink()
-            except OSError: pass
+                try:
+                    cmd_path = Path(f"/proc/{pid}/cmdline")
+                    if cmd_path.exists():
+                        cmd_str = cmd_path.read_text(errors="ignore")
+                        if "MP_Audio_Player" in cmd_str or "python" in cmd_str:
+                            return True
+                    else:
+                        return True
+                except Exception:
+                    return True
+        except (OSError, ValueError):
+            pass
+        _cleanup_stale_daemon_files()
 
     if hasattr(socket, "AF_UNIX") and SOCKET_PATH.exists():
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.settimeout(0.1)
+            s.settimeout(0.8)
             s.connect(str(SOCKET_PATH))
             s.close()
             return True
-        except Exception:
+        except (ConnectionRefusedError, FileNotFoundError):
             try: SOCKET_PATH.unlink()
             except OSError: pass
+        except Exception:
+            return True
     elif not hasattr(socket, "AF_UNIX") and PORT_FILE.exists():
         try:
             port = int(PORT_FILE.read_text().strip())
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.1)
+            s.settimeout(0.8)
             s.connect(("127.0.0.1", port))
             s.close()
             return True
-        except Exception:
+        except (ConnectionRefusedError, OSError):
             try: PORT_FILE.unlink()
             except OSError: pass
+        except Exception:
+            return True
     return False
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -4226,7 +4287,10 @@ class TerminalPlayerUI:
 
 def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True,
                          mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None,
-                         playlist_path: Optional[str] = None):
+                         playlist_path: Optional[str] = None) -> Optional[int]:
+    if not is_player_daemon_running():
+        _cleanup_stale_daemon_files()
+
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"]
     if not auto_bluetooth: cmd.append("--no-bluetooth-auto")
     if mode == "MUSIC":
@@ -4235,12 +4299,22 @@ def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool =
             cmd.extend(["--music-folder", str(music_folder)])
         if playlist_path:
             cmd.extend(["--playlist", str(playlist_path)])
-    if file_path: cmd.append(str(file_path))
-    proc = subprocess.Popen(cmd,
-                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            start_new_session=True)
-    try: PID_FILE.write_text(str(proc.pid))
-    except OSError: pass
+    if file_path:
+        norm_p = os.path.abspath(file_path) if os.path.exists(file_path) else str(file_path)
+        cmd.append(norm_p)
+    repo_base = str(get_base_dir())
+    try:
+        proc = subprocess.Popen(cmd,
+                                cwd=repo_base,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
+        try: PID_FILE.write_text(str(proc.pid))
+        except OSError: pass
+        return proc.pid
+    except Exception as exc:
+        try: mp_log_error("MP_Audio_Player", f"Failed spawning player daemon: {exc}", exc)
+        except Exception: pass
+        return None
 
 def _install_windows_console_close():
     if sys.platform != "win32": return
@@ -4418,15 +4492,19 @@ def main():
     if args.play_latest:
         latest = MixArchiveScanner(base_dir).get_latest_mix()
         if latest:
-            send_ipc_command("play", file=latest["path"]) if daemon_running else _spawn_player_daemon(latest["path"])
+            res = send_ipc_command("play", file=latest["path"]) if daemon_running else None
+            if not res:
+                _spawn_player_daemon(latest["path"], auto_bluetooth=(not args.no_bluetooth_auto), mode=current_mode)
             sys.exit(0)
         sys.exit(1)
 
     if args.toggle:
-        if daemon_running: sys.exit(0 if send_ipc_command("toggle") else 1)
+        if daemon_running:
+            res = send_ipc_command("toggle")
+            if res: sys.exit(0)
         if args.only_if_running: sys.exit(0)
         latest = MixArchiveScanner(base_dir).get_latest_mix()
-        if latest: _spawn_player_daemon(latest["path"])
+        if latest: _spawn_player_daemon(latest["path"], auto_bluetooth=(not args.no_bluetooth_auto), mode=current_mode)
         sys.exit(0)
 
     if args.pause or args.stop or args.next or args.prev:
@@ -4464,13 +4542,14 @@ def main():
         sys.exit(0)
 
     if args.play is not None:
-        ftp = args.play or (args.file or "")
-        if daemon_running: send_ipc_command("play", file=ftp or None)
-        else:
+        ftp = os.path.abspath(args.play or (args.file or "")) if (args.play or args.file) else ""
+        res = send_ipc_command("play", file=ftp or None) if daemon_running else None
+        if not res:
             if not ftp:
                 l = MixArchiveScanner(base_dir).get_latest_mix()
                 ftp = l["path"] if l else ""
-            if ftp: _spawn_player_daemon(ftp)
+            if ftp:
+                _spawn_player_daemon(ftp, auto_bluetooth=(not args.no_bluetooth_auto), mode=current_mode)
         sys.exit(0)
 
     if args.clear_queue:
@@ -4483,18 +4562,17 @@ def main():
         sys.exit(0)
 
     if args.queue is not None:
-        q_target = args.queue or (args.file or "")
+        q_target = os.path.abspath(args.queue or (args.file or "")) if (args.queue or args.file) else ""
         if not q_target:
             latest = MixArchiveScanner(base_dir).get_latest_mix()
             if latest: q_target = latest["path"]
         if q_target and os.path.exists(q_target):
-            q_target = os.path.abspath(q_target)
-            if daemon_running:
-                res = send_ipc_command("queue", file=q_target)
-                q_len = res.get("queue_len", "?") if res else "?"
+            res = send_ipc_command("queue", file=q_target) if daemon_running else None
+            if res:
+                q_len = res.get("queue_len", "?")
                 print(f"✔ Queued track (#{q_len} in queue): {os.path.basename(q_target)}")
             else:
-                _spawn_player_daemon(q_target)
+                _spawn_player_daemon(q_target, auto_bluetooth=(not args.no_bluetooth_auto), mode=current_mode)
                 print(f"✔ Started player daemon with mix: {os.path.basename(q_target)}")
             sys.exit(0)
         else:
@@ -4542,6 +4620,11 @@ def main():
         mixes = scanner.get_mixes()
 
         tf = os.path.abspath(args.file) if args.file else None
+        if daemon_running:
+            st = send_ipc_command("status")
+            if not st:
+                daemon_running = False
+
         if not daemon_running:
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_file = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
@@ -4566,6 +4649,15 @@ def main():
         try: PID_FILE.write_text(str(os.getpid()))
         except OSError: pass
         _install_windows_console_close()
+        def _daemon_sig_handler(signum, frame):
+            raise SystemExit(0)
+        try:
+            signal.signal(signal.SIGTERM, _daemon_sig_handler)
+            signal.signal(signal.SIGINT, _daemon_sig_handler)
+            if hasattr(signal, "SIGHUP"):
+                signal.signal(signal.SIGHUP, _daemon_sig_handler)
+        except Exception:
+            pass
 
     if is_music:
         scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
