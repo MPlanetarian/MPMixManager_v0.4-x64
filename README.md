@@ -1,4 +1,4 @@
-# MP Mix Manager v0.3.6 Beta by Dreamworlds Productions (MPlanetarian)
+# MP Mix Manager 0.3.6 Beta by Dreamworlds Productions (MPlanetarian)
 
 > 📅 **Last Updated:** October 17, 2026 • **Latest Release:** `v0.3.6 Beta`
 
