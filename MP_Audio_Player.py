@@ -1051,13 +1051,20 @@ class AudioEngine:
             self.pending_seek_sec = self.position_sec = max(0.0, min(self.duration_sec - 1.0, target_sec))
 
     def seek_relative(self, delta_sec: float): self.seek(self.position_sec + delta_sec)
-    def set_volume(self, vol_pct: int): self.volume, self.muted = max(0.0, min(1.0, float(vol_pct) / 100.0)), False
+    def set_volume(self, vol_pct: int):
+        self.volume, self.muted = max(0.0, min(1.0, float(vol_pct) / 100.0)), False
+        self._sync_state_file()
     def change_volume(self, delta_pct: int): self.set_volume(int(self.volume * 100) + delta_pct)
-    def toggle_mute(self): self.muted = not self.muted
-    def toggle_shuffle(self): self.shuffle = not self.shuffle
+    def toggle_mute(self):
+        self.muted = not self.muted
+        self._sync_state_file()
+    def toggle_shuffle(self):
+        self.shuffle = not self.shuffle
+        self._sync_state_file()
     def cycle_repeat(self):
         modes = ["all", "one", "off"]
         self.repeat_mode = modes[(modes.index(self.repeat_mode) + 1) % len(modes)]
+        self._sync_state_file()
 
     def get_mini_visualizer(self) -> str:
         if self.state != "playing": return "·······"
@@ -1098,6 +1105,7 @@ class AudioEngine:
             "levels": [round(float(x), 3) for x in self.smoothed_levels], "peaks": [round(float(x), 3) for x in self.peaks],
             "levels_left": [round(float(x), 3) for x in self.smoothed_levels_left], "levels_right": [round(float(x), 3) for x in self.smoothed_levels_right],
             "peaks_left": [round(float(x), 3) for x in self.peaks_left], "peaks_right": [round(float(x), 3) for x in self.peaks_right],
+            "waveform": [round(float(x), 3) for x in self.recent_mono_buffer[::7][:80]] if hasattr(self, "recent_mono_buffer") else [],
             "rms_level": round(float(self.rms_level), 4), "peak_db": round(float(self.peak_db), 1), "pid": os.getpid()
         }
 
@@ -1182,9 +1190,15 @@ class PlayerIPCServer:
                 elif cmd == "set_pitch": self.engine.set_pitch(int(req.get("percent", 0)))
                 else: self.engine.reset_pitch()
                 res.update(pitch_percent=self.engine.pitch_percent, pitch_factor=self.engine.pitch_factor)
-            elif cmd == "mute": self.engine.toggle_mute()
-            elif cmd == "shuffle": self.engine.toggle_shuffle()
-            elif cmd == "repeat": self.engine.cycle_repeat()
+            elif cmd == "mute":
+                self.engine.toggle_mute()
+                res["muted"] = self.engine.muted
+            elif cmd == "shuffle":
+                self.engine.toggle_shuffle()
+                res["shuffle"] = self.engine.shuffle
+            elif cmd == "repeat":
+                self.engine.cycle_repeat()
+                res["repeat"] = self.engine.repeat_mode
             elif cmd == "select_index": threading.Thread(target=self.engine.load_track, args=(int(req.get("index", 0)), True), daemon=True).start()
             elif cmd == "get_playlist": res["playlist"] = [{"index": i, "name": t["name"], "path": t["path"], "ext": t["ext"]} for i, t in enumerate(self.engine.playlist[:100])]
             elif cmd in ("open_file_manager", "reveal"):
@@ -2010,14 +2024,114 @@ class EqualizerVisualizer:
                       f"  {BOLD}{MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯{NC}"])
         return lines
 
-    def render_oscilloscope(self, levels: np.ndarray, height: int = 5) -> List[str]:
-        lines = [f"  {BOLD}{MAGENTA}╭── DYNAMIC OSCILLOSCOPE AUDIO WAVEFORM ───────────────────────────────────╮{NC}"]
-        pts = [math.sin(i * 0.4) * (levels[i % len(levels)] if len(levels) else 0.0) for i in range(70)]
+    def render_oscilloscope(self, levels: np.ndarray, status: Optional[Dict[str, Any]] = None,
+                            width: int = 80, height: int = 5) -> List[str]:
+        if status is None:
+            status = {}
+
+        if width >= 80:
+            iw = 70
+            box_w = 76
+            top_line = f"  {BOLD}{MAGENTA}╭── DYNAMIC OSCILLOSCOPE AUDIO WAVEFORM ───────────────────────────────────╮{NC}"
+            bot_line = f"  {BOLD}{MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯{NC}"
+        else:
+            box_w = max(24, min(76, width - 4))
+            iw = max(16, box_w - 6)
+            box_w = iw + 6
+            hdr = "── OSCILLOSCOPE WAVEFORM "
+            if box_w - 2 >= len(hdr):
+                fill = "─" * (box_w - 2 - len(hdr))
+                top_line = f"  {BOLD}{MAGENTA}╭{hdr}{fill}╮{NC}"
+            else:
+                fill = "─" * (box_w - 2)
+                top_line = f"  {BOLD}{MAGENTA}╭{fill}╮{NC}"
+            bot_fill = "─" * (box_w - 2)
+            bot_line = f"  {BOLD}{MAGENTA}╰{bot_fill}╯{NC}"
+
         hh = max(1, height // 2)
+        state = status.get("state", "stopped")
+        is_playing = (state == "playing")
+        rms = float(status.get("rms_level", 0.0))
+        pitch_pct = int(status.get("pitch_percent", 0))
+        pitch_mul = max(0.5, min(2.0, 1.0 + (pitch_pct / 100.0)))
+        now = time.time()
+
+        waveform = status.get("waveform", [])
+        wf_arr = np.array(waveform, dtype=float) if waveform else np.zeros(0)
+        has_live_pcm = len(wf_arr) >= 16 and float(np.max(np.abs(wf_arr))) > 0.01
+
+        x_dst = np.linspace(0.0, 1.0, iw)
+
+        if is_playing:
+            bass = float(np.mean(levels[:4])) if len(levels) >= 4 else max(0.15, rms)
+            mid = float(np.mean(levels[4:14])) if len(levels) >= 14 else rms * 0.7
+            treble = float(np.mean(levels[14:])) if len(levels) >= 15 else rms * 0.4
+            dyn_amp = max(0.25, min(1.0, rms * 2.2 + (float(np.max(levels)) * 0.8 if len(levels) else 0.0)))
+
+            sweep_bass = now * (9.0 * pitch_mul)
+            sweep_mid = now * (19.0 * pitch_mul)
+            sweep_treble = now * (37.0 * pitch_mul)
+
+            synth_w1 = np.sin(x_dst * (3.0 * math.pi) - sweep_bass) * (0.55 * max(0.2, bass))
+            synth_w2 = np.sin(x_dst * (8.0 * math.pi) + sweep_mid) * (0.35 * max(0.1, mid))
+            synth_w3 = np.sin(x_dst * (18.0 * math.pi) - sweep_treble) * (0.20 * max(0.05, treble))
+            synth_pts = (synth_w1 + synth_w2 + synth_w3) * dyn_amp * 1.6
+
+            if has_live_pcm:
+                x_src = np.linspace(0.0, 1.0, len(wf_arr))
+                pcm_interp = np.interp(x_dst, x_src, wf_arr)
+                max_abs = max(0.15, float(np.max(np.abs(pcm_interp))))
+                pcm_scaled = (pcm_interp / max_abs) * min(1.0, max(0.25, rms * 2.0))
+                pts = 0.65 * pcm_scaled + 0.35 * synth_pts
+            else:
+                pts = synth_pts
+        elif state == "paused":
+            pts = np.sin(x_dst * (4.0 * math.pi) + now * 1.2) * 0.12
+        else:
+            pts = np.zeros(iw)
+
+        y_floats = [float(p) * hh for p in pts]
+        y_indices = [max(-hh, min(hh, int(round(yf)))) for yf in y_floats]
+
+        lines = [top_line]
+        center_x = iw // 2
+
         for r in range(hh, -hh - 1, -1):
-            row = ["  │  "] + [(f"{COLOR_ELECTRIC_CYAN}∿{NC}" if int(p * (hh + 0.5)) == r else (f"{DIM}─{NC}" if r == 0 else " ")) for p in pts] + ["  │"]
-            lines.append("".join(row))
-        lines.append(f"  {BOLD}{MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯{NC}")
+            row_chars = []
+            for i in range(iw):
+                prev_y = y_indices[i - 1] if i > 0 else y_indices[i]
+                curr_y = y_indices[i]
+                r_min = min(prev_y, curr_y)
+                r_max = max(prev_y, curr_y)
+
+                if r_min <= r <= r_max:
+                    c_frac = i / float(max(1, iw - 1))
+                    curr_yf = y_floats[i]
+                    intensity = min(1.0, abs(curr_yf) / float(hh) * 0.85 + rms * 0.35)
+                    is_crest = (abs(curr_y) == hh and abs(curr_yf) >= hh * 0.75)
+                    color = self._get_neon_prism_color(c_frac, intensity, is_peak=is_crest)
+
+                    if r_min == r_max:
+                        ch = "━"
+                    elif curr_y > prev_y:
+                        ch = "╱" if r in (r_min, r_max) else "│"
+                    else:
+                        ch = "╲" if r in (r_min, r_max) else "│"
+                    row_chars.append(f"{color}{BOLD}{ch}{NC}")
+                else:
+                    is_tick = ((i - center_x) % 10 == 0)
+                    if r == 0:
+                        ch = "┼" if is_tick else "─"
+                        row_chars.append(f"{DIM}{ch}{NC}")
+                    elif is_tick:
+                        row_chars.append(f"{DIM}·{NC}")
+                    else:
+                        row_chars.append(" ")
+
+            row_content = "".join(row_chars)
+            lines.append(f"  │  {row_content}  │")
+
+        lines.append(bot_line)
         return lines
 
     def render_vertical_pitch_fader(self, pitch_pct: int, total_lines: int = 10) -> List[str]:
@@ -2119,7 +2233,7 @@ class EqualizerVisualizer:
         elif s == "analog_vu":
             lines = self.render_analog_vu(peak_db, ll, lr)
         elif s == "oscilloscope":
-            lines = self.render_oscilloscope(levels, height=min(5, height))
+            lines = self.render_oscilloscope(levels, status=status, width=width, height=height)
         else:
             lines = self.render_stereo_eq(ll, lr, peaks, width=width, height=height)
 
@@ -2139,11 +2253,46 @@ def _get_dynamic_gradient(step: float) -> Tuple[Tuple[int, int, int], Tuple[int,
     g2 = int(127.5 + 127.5 * math.sin(step * 0.8408964152 + 5.28318))
     b2 = int(127.5 + 127.5 * math.sin(step * 0.7071067811 + 1.04719))
 
-    bg_r = max(6, min(36, int(14 + 14 * math.sin(step * 0.31 + 0.5))))
-    bg_g = max(6, min(36, int(12 + 12 * math.sin(step * 0.43 + 2.2))))
-    bg_b = max(10, min(42, int(20 + 16 * math.sin(step * 0.37 + 4.1))))
+    # Dynamic ambient background tint: rich, evolving chromatic hues clearly visible at 30% opacity
+    bg_r = int(60 + 52 * math.sin(step * 0.41 + 0.5))
+    bg_g = int(48 + 42 * math.sin(step * 0.53 + 2.4))
+    bg_b = int(78 + 58 * math.sin(step * 0.47 + 4.1))
 
     return (r, g, b), (r2, g2, b2), (bg_r, bg_g, bg_b)
+
+
+def _setup_mini_terminal_appearance():
+    """Configures 30% background transparency and colorscheme for Konsole and other terminals."""
+    if sys.platform.startswith(("linux", "freebsd")):
+        k_dir = Path.home() / ".local" / "share" / "konsole"
+        if k_dir.is_dir():
+            try:
+                c_scheme = k_dir / "MP_Mini_Player.colorscheme"
+                c_content = (
+                    "[Background]\nColor=16,18,28\nOpacity=0.30\n\n"
+                    "[BackgroundFaint]\nColor=18,22,34\n\n"
+                    "[Color0]\nColor=16,18,28\n[Color1]\nColor=247,37,133\n[Color2]\nColor=0,229,255\n"
+                    "[Color3]\nColor=255,170,0\n[Color4]\nColor=102,102,255\n[Color5]\nColor=166,77,255\n"
+                    "[Color6]\nColor=0,193,228\n[Color7]\nColor=209,209,224\n"
+                )
+                c_scheme.write_text(c_content, encoding="utf-8")
+                prof = k_dir / "MP_Mini_Player.profile"
+                if not prof.exists():
+                    prof.write_text(
+                        "[Appearance]\nColorScheme=MP_Mini_Player\nFont=Monospace,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0\n\n"
+                        "[General]\nEnvironment=TERM=xterm-256color,COLORTERM=truecolor\nInheritContainerContext=true\n"
+                        "Name=MP_Mini_Player\nParent=FALLBACK/\nTerminalColumns=74\nTerminalRows=14\n\n"
+                        "[Terminal Features]\nBlinkingCursorEnabled=true\n",
+                        encoding="utf-8"
+                    )
+            except Exception:
+                pass
+        if os.environ.get("KONSOLE_VERSION") or os.environ.get("KONSOLE_DBUS_SERVICE"):
+            try:
+                sys.stdout.write("\033]50;ColorScheme=MP_Mini_Player\a")
+                sys.stdout.flush()
+            except Exception:
+                pass
 
 
 def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "",
@@ -2165,30 +2314,7 @@ def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL
         cmd_args.extend(["--style", str(style)])
 
     if sys.platform.startswith(("linux", "freebsd")):
-        k_dir = Path.home() / ".local" / "share" / "konsole"
-        if k_dir.is_dir():
-            try:
-                prof = k_dir / "MP_Mini_Player.profile"
-                c_scheme = k_dir / "MP_Mini_Player.colorscheme"
-                if not c_scheme.exists():
-                    c_scheme.write_text(
-                        "[Background]\nColor=16,18,28\nOpacity=0.80\n\n"
-                        "[BackgroundFaint]\nColor=18,22,34\n\n"
-                        "[Color0]\nColor=16,18,28\n[Color1]\nColor=247,37,133\n[Color2]\nColor=0,229,255\n"
-                        "[Color3]\nColor=255,170,0\n[Color4]\nColor=102,102,255\n[Color5]\nColor=166,77,255\n"
-                        "[Color6]\nColor=0,193,228\n[Color7]\nColor=209,209,224\n",
-                        encoding="utf-8"
-                    )
-                if not prof.exists():
-                    prof.write_text(
-                        "[Appearance]\nColorScheme=MP_Mini_Player\nFont=Monospace,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0\n\n"
-                        "[General]\nEnvironment=TERM=xterm-256color,COLORTERM=truecolor\nInheritContainerContext=true\n"
-                        "Name=MP_Mini_Player\nParent=FALLBACK/\nTerminalColumns=74\nTerminalRows=14\n\n"
-                        "[Terminal Features]\nBlinkingCursorEnabled=true\n",
-                        encoding="utf-8"
-                    )
-            except Exception:
-                pass
+        _setup_mini_terminal_appearance()
 
         if shutil.which("konsole"):
             k_cmd = ["konsole", "--profile", "MP_Mini_Player", "--hide-menubar", "--hide-tabbar", "--separate",
@@ -2197,15 +2323,15 @@ def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL
             if _run_bg(k_cmd):
                 if shutil.which("xprop"):
                     threading.Thread(target=lambda: (time.sleep(0.2), subprocess.run(
-                        ["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0xd0000000"],
+                        ["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0x4d000000"],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)), daemon=True).start()
                 return True
 
         for term, targs in [
             ("gnome-terminal", [f"--title={title}", "--geometry=74x14", "--"] + cmd_args),
             ("xfce4-terminal", [f"--title={title}", "--geometry=74x14", "--hide-menubar", "--hide-borders", "-e", " ".join(f'"{a}"' for a in cmd_args)]),
-            ("alacritty", ["--title", title, "-o", "window.opacity=0.80", "-o", "window.dimensions.columns=74", "-o", "window.dimensions.lines=14", "-e"] + cmd_args),
-            ("foot", ["-T", title, "-w", "74x14", "-a", "0.80"] + cmd_args),
+            ("alacritty", ["--title", title, "-o", "window.opacity=0.30", "-o", "window.dimensions.columns=74", "-o", "window.dimensions.lines=14", "-e"] + cmd_args),
+            ("foot", ["-T", title, "-w", "74x14", "-a", "0.30"] + cmd_args),
             ("xterm", ["-title", title, "-geometry", "74x14", "-e"] + cmd_args),
             ("xdg-terminal-exec", cmd_args)
         ]:
@@ -2318,6 +2444,7 @@ class TerminalPlayerUI:
                               "levels": [0.0]*24, "peaks": [0.0]*24,
                               "levels_left": [0.0]*24, "levels_right": [0.0]*24,
                               "peaks_left": [0.0]*24, "peaks_right": [0.0]*24,
+                              "waveform": [0.0]*80,
                               "rms_level": 0.0, "peak_db": -60.0}
 
     def _start_duration_worker(self):
@@ -2577,8 +2704,10 @@ class TerminalPlayerUI:
 
         cstate = _win_console_begin()
         if self.ui_size_mode == "MINI":
+            _setup_mini_terminal_appearance()
             sys.stdout.write("\033]0;MP Mini Audio Player\007")
         elif self.ui_size_mode == "MICRO":
+            _setup_mini_terminal_appearance()
             sys.stdout.write("\033]0;MP Micro Audio Player\007")
         else:
             sys.stdout.write("\033]0;MP Audio Player\007")
@@ -2705,14 +2834,35 @@ class TerminalPlayerUI:
         elif data in (b"+", b"="): self._send_cmd("pitch_up", step=1)
         elif data in (b"-", b"_"): self._send_cmd("pitch_down", step=1)
         elif data == b"0": self._send_cmd("reset_pitch")
-        elif data in (b"u", b"U"): self._send_cmd("mute")
+        elif data in (b"]", b"}", b"v"):
+            self._send_cmd("vol_up", step=5)
+            self.cached_status["volume"] = min(100, int(self.cached_status.get("volume", 85)) + 5)
+            self.cached_status["muted"] = False
+        elif data in (b"[", b"{", b"V"):
+            self._send_cmd("vol_down", step=5)
+            self.cached_status["volume"] = max(0, int(self.cached_status.get("volume", 85)) - 5)
+            self.cached_status["muted"] = False
+        elif data in (b"u", b"U"):
+            self._send_cmd("mute")
+            is_muted = self.engine.muted if (self.engine and not self.is_remote) else not self.cached_status.get("muted", False)
+            self.cached_status["muted"] = is_muted
+            self.notification_msg = f"Audio: {'MUTED' if is_muted else 'UNMUTED'}"
+            self.notification_time = time.time() + 2.0
+        elif data in (b"s", b"S"):
+            self._send_cmd("shuffle")
+            shuf_on = self.engine.shuffle if (self.engine and not self.is_remote) else not self.cached_status.get("shuffle", False)
+            self.cached_status["shuffle"] = shuf_on
+            self.notification_msg = f"Shuffle: {'ON' if shuf_on else 'OFF'}"
+            self.notification_time = time.time() + 2.5
         elif data in (b"m", b"M"):
             if self.ui_size_mode == "MINI":
                 self.ui_size_mode = "MICRO"
+                _setup_mini_terminal_appearance()
                 sys.stdout.write("\033]0;MP Micro Audio Player\007")
                 sys.stdout.flush()
             elif self.ui_size_mode == "MICRO":
                 self.ui_size_mode = "MINI"
+                _setup_mini_terminal_appearance()
                 sys.stdout.write("\033]0;MP Mini Audio Player\007")
                 sys.stdout.flush()
             else:
@@ -2722,8 +2872,15 @@ class TerminalPlayerUI:
                                                style=self.visualizer.style)
                 self.notification_msg = "✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window"
                 self.notification_time = time.time() + 3.0
-        elif data in (b"r", b"R"): self._send_cmd("repeat")
-        elif data == b"e":
+        elif data in (b"r", b"R"):
+            self._send_cmd("repeat")
+            modes = ["all", "one", "off"]
+            cur_rep = self.engine.repeat_mode if (self.engine and not self.is_remote) else self.cached_status.get("repeat", "all")
+            next_rep = modes[(modes.index(cur_rep) + 1) % len(modes)] if cur_rep in modes else "all"
+            self.cached_status["repeat"] = next_rep
+            self.notification_msg = f"Repeat: {next_rep.upper()}"
+            self.notification_time = time.time() + 2.5
+        elif (data in (b"e", b"E") if self.ui_size_mode in ("MINI", "MICRO") else data == b"e"):
             self.visualizer.cycle_style()
             st_name = self.visualizer.get_style_display_name()
             self.notification_msg = f"Visualizer: {st_name}"
@@ -2755,7 +2912,7 @@ class TerminalPlayerUI:
             self.notification_time = time.time() + 3.5
         elif data in (b"o", b"O"): self._open_audio_file()
         elif data in (b"t", b"T"): self._view_selected_tracklist()
-        elif data in (b"E", b"w", b"W"): self._export_playlist()
+        elif (data in (b"w", b"W") if self.ui_size_mode in ("MINI", "MICRO") else data in (b"E", b"w", b"W")): self._export_playlist()
         elif data == b"/": self.search_mode, self.search_query = True, ""
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
         elif data in (b"g", b"G"): self._generate_selected_spek()
@@ -2953,9 +3110,9 @@ class TerminalPlayerUI:
             ], max(20, w - 1)))
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  n/p Skip  a BT  O Open  b/q Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [r] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  r Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  r Rep  n/p Skip  a BT  O Open  b/q Exit{NC}"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -3025,7 +3182,7 @@ class TerminalPlayerUI:
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -3038,9 +3195,9 @@ class TerminalPlayerUI:
 
         sys.stdout.write(f"\033]11;#{gbg[0]:02x}{gbg[1]:02x}{gbg[2]:02x}\007\033]0;MP Micro Audio Player\007")
 
-        iw = max(24, min(w - 4, 74))
+        iw = max(24, min(w - 4, 70))
         tname = st.get("title", "Unknown Track")
-        avail = max(10, iw - 38)
+        avail = max(10, iw - 43)
         if _display_width(tname) > avail:
             tname = _clip_display(tname, avail - 2) + ".."
 
@@ -3052,27 +3209,73 @@ class TerminalPlayerUI:
         pval = int(st.get("pitch_percent", 0))
         pbadge = f"{pval:+d}%" if pval != 0 else "0%"
 
-        # Animated 16-band unicode micro-spectrum meter
+        # Dynamic micro-meter responding to active EQ style
+        cur_style = self.visualizer.style
         levels = np.array(st.get("levels", [0.0] * 24))
-        meter_bars = []
-        for val in levels[:16]:
-            idx = min(8, int(val * 9))
-            meter_bars.append(UNICODE_BLOCKS[idx])
-        meter_str = "".join(meter_bars)
+        if cur_style == "oscilloscope":
+            wave_chars = ["─", "∿", "~", "≈", "∽", "∿"]
+            meter_bars = []
+            for i in range(14):
+                val = levels[i % len(levels)] if len(levels) else 0.0
+                wave_val = math.sin(i * 0.7 + t_now * 8.0) * val
+                idx = max(0, min(len(wave_chars) - 1, int(abs(wave_val) * (len(wave_chars) - 1))))
+                meter_bars.append(f"{c_g2}{wave_chars[idx] if val > 0.05 else '─'}{NC}")
+            meter_str = "".join(meter_bars)
+        elif cur_style == "analog_vu":
+            ll = np.mean(st.get("levels_left", levels)) if len(levels) else 0.0
+            lr = np.mean(st.get("levels_right", levels)) if len(levels) else 0.0
+            l_bar = int(min(5, round(ll * 5)))
+            r_bar = int(min(5, round(lr * 5)))
+            meter_str = f"{c_g1}L{NC}{c_g2}{'█'*l_bar}{DIM}{'░'*(5-l_bar)}{NC} {c_g1}R{NC}{c_g2}{'█'*r_bar}{DIM}{'░'*(5-r_bar)}{NC}"
+        elif cur_style == "stardust_particles_eq":
+            dust_chars = [" ", "·", "˙", ":", "⋆", "✦", "◆", "█"]
+            meter_bars = []
+            for i, val in enumerate(levels[:14]):
+                idx = min(len(dust_chars) - 1, int(val * len(dust_chars)))
+                meter_bars.append(f"{c_g2}{dust_chars[idx]}{NC}")
+            meter_str = "".join(meter_bars)
+        elif cur_style == "neon_prism_eq":
+            meter_bars = []
+            for i, val in enumerate(levels[:14]):
+                idx = min(8, int(val * 9))
+                col = self.visualizer._get_neon_prism_color(i / 13.0, val)
+                meter_bars.append(f"{col}{UNICODE_BLOCKS[idx]}{NC}")
+            meter_str = "".join(meter_bars)
+        else:
+            meter_bars = []
+            for val in levels[:14]:
+                idx = min(8, int(val * 9))
+                meter_bars.append(f"{c_g2}{UNICODE_BLOCKS[idx]}{NC}")
+            meter_str = "".join(meter_bars)
 
         eq_name = self.visualizer.get_style_display_name()
         th_name = self.visualizer.theme.replace("_", " ").title()
 
         rem_dash = max(0, iw - 28)
         lines.append(f"  {BOLD}{c_g1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * rem_dash}╮{NC}")
-        lines.append(f"  {BOLD}{c_g1}│{NC} {badge} {BOLD}{c_g2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{pos_str}/{dur_str}{NC} │ Vol: {vol} │ {c_g1}Pitch: {pbadge}{NC} {BOLD}{c_g1}│{NC}")
-        lines.append(f"  {BOLD}{c_g1}│{NC} 🎛 [{c_g2}{meter_str}{NC}] │ EQ: {eq_name[:12]} │ Theme: {th_name[:10]} │ {c_g2}[M] Mini{NC} {BOLD}{c_g1}│{NC}")
+        row1_inner = f" {badge} {BOLD}{c_g2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{pos_str}/{dur_str}{NC} │ Vol: {vol} │ {c_g1}Pitch: {pbadge}{NC} "
+        row1_pad = max(0, iw - _display_width(row1_inner))
+        lines.append(f"  {BOLD}{c_g1}│{NC}{row1_inner}{' ' * row1_pad}{BOLD}{c_g1}│{NC}")
+
+        row2_inner = f" 🎛 [{meter_str}] │ EQ: {BOLD}{c_g2}{eq_name[:14]}{NC} │ 🎨 {c_g1}{th_name[:10]}{NC} │ {c_g2}[M] Mini{NC} "
+        row2_pad = max(0, iw - _display_width(row2_inner))
+        lines.append(f"  {BOLD}{c_g1}│{NC}{row2_inner}{' ' * row2_pad}{BOLD}{c_g1}│{NC}")
         lines.append(f"  {BOLD}{c_g1}╰{'─' * iw}╯{NC}")
+
+        # Equalizer display in micro mode
+        if h >= 9:
+            vis_h = 2 if h >= 12 else 1
+            vis_lines = self.visualizer.render(st, width=iw + 4, height=vis_h)
+            lines.extend(vis_lines)
 
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close")
+            lines.append(_fit_text_line([
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
+                f"  {c_g1}Space{NC} Play  {c_g1}n/p{NC} Skip  {c_g1}v/V{NC} Vol  {c_g1}s{NC} Shuf  {c_g1}e{NC} EQ  {c_g1}c{NC} Theme  {c_g2}M{NC} Mini  {c_g1}q{NC} Close"
+            ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
 
@@ -3141,6 +3344,8 @@ def main():
     parser.add_argument("--spek", "--generate-spek", "-g", action="store_true", help="Generate 1080p spectrogram (Spek) for active or target audio track/mix and store locally")
     parser.add_argument("--new-window", "--window", "-w", action="store_true", help="Launch interactive MP Audio Player in a new dedicated window")
     parser.add_argument("--only-if-running", action="store_true", help="Only perform toggle/action if player daemon is currently running")
+    parser.add_argument("--shuffle", action="store_true", help="Toggle shuffle mode (on/off)")
+    parser.add_argument("--repeat", action="store_true", help="Cycle repeat mode (all -> one -> off)")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -3271,6 +3476,22 @@ def main():
     if args.pause or args.stop or args.next or args.prev:
         cmd = "pause" if args.pause else ("stop" if args.stop else ("next" if args.next else "prev"))
         if daemon_running: send_ipc_command(cmd)
+        sys.exit(0)
+
+    if args.shuffle:
+        if daemon_running:
+            res = send_ipc_command("shuffle")
+            st_shuf = res.get("shuffle") if res else None
+            if st_shuf is not None: print(f"✔ Shuffle mode: {'ON' if st_shuf else 'OFF'}")
+            else: print("✔ Shuffle toggled")
+        sys.exit(0)
+
+    if args.repeat:
+        if daemon_running:
+            res = send_ipc_command("repeat")
+            st_rep = res.get("repeat") if res else None
+            if st_rep is not None: print(f"✔ Repeat mode: {st_rep.upper()}")
+            else: print("✔ Repeat mode cycled")
         sys.exit(0)
 
     if args.play is not None:

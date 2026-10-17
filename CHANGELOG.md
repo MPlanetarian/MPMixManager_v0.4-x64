@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.7 Beta] - 2026-10-17
 
+- **Fix Equalizer Display and `E` / `e` Cycling in MP Micro Audio Player Mode** (`MP_Audio_Player.py`, `tests/test_micro_player_eq.py`):
+  - **Full Animated EQ Visualizer in MICRO Mode**: Restored real-time equalizer visualizer rendering in `_draw_micro_frame` when viewport height `h >= 9`. All 6 equalizer styles (Neon Chroma Prism, Stardust Chroma, Dual Stereo Spectrum, Master Spectrum, Analog Studio VU, and CRT Oscilloscope) now fully render below the micro-status card.
+  - **Style-Adaptive Micro Meter**: Overhauled the top micro-meter `meter_str` inside the micro-card so it dynamically reflects the active EQ style (oscilloscope waveform, dual stereo VU bars, stardust falling dust particles, neon prism colored spectrum, or master frequency bands).
+  - **Dual `e` / `E` EQ Shortcut Handling**: Upgraded key handler `_process_key` in `MP_Audio_Player.py` so both lowercase `e` and uppercase `E` (Shift+E / CapsLock) cycle the visualizer equalizer in `MINI` and `MICRO` modes without erroneously triggering playlist export mode (`export_mode`).
+  - **Aligned Border Geometry**: Corrected rectangular border widths and padding in `_draw_micro_frame` to maintain razor-sharp vertical borders across dynamic track title lengths and terminal resizes.
+  - **Unit Test Coverage**: Added `tests/test_micro_player_eq.py` verifying `e` and `E` key handling, visualizer rendering across all 6 styles in micro mode, and lack of false playlist export triggers.
+
+- **Dynamic Animated CRT Oscilloscope Equalizer Waveform on Linux & Across Platforms** (`MP_Audio_Player.py`, `tests/test_oscilloscope_visualizer.py`):
+  - **Fluid Real-Time Waveform Animation**: Completely overhauled the `"oscilloscope"` style in `EqualizerVisualizer`. Added moving temporal sweep phases (`sweep_bass`, `sweep_mid`, `sweep_treble`) driven by continuous high-precision timestamps and live pitch factors, resolving the frozen/static horizontal line on Linux.
+  - **Live Audio PCM Buffer Integration**: Connected `AudioEngine.get_status_dict()`'s `waveform` buffer (`recent_mono_buffer`) to the oscilloscope renderer with dynamic linear interpolation (`np.interp`) and amplitude normalization, blending authentic sound wave samples with undulating traveling harmonics.
+  - **Vector Beam Continuity & Slopes**: Replaced integer-truncated quantization with smooth vertical span drawing using slope and vector characters (`╱`, `╲`, `━`, `│`), preventing gaps or quantization collapse on soft audio inputs.
+  - **Authentic CRT Graticule Grid & Phosphor Themes**: Rendered a retro cathode-ray tube graticule scale with center crosshairs (`┼`), subtle coordinate ticks (`·`), and horizontal zero-axis (`─`), with dynamic theme coloring via `_get_neon_prism_color` across all 8 visualizer themes.
+  - **Adaptive Width & Height Scaling**: Dynamically scales inner box widths (full terminal, 78-col standard, or compact mini-mode) and supports multi-height viewports (height 7, 5, or 3) with exact character boundaries.
+  - **Comprehensive Unit Test Suite**: Added `tests/test_oscilloscope_visualizer.py` covering multi-interval animation verification, live PCM ingestion, height/width scaling, and `EqualizerVisualizer.render` dispatch.
+
 - **Global `Space` (Toggle Audio Playback) and `M` (Open MP Audio Player Window) Shortcuts Across Manager** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/music_folders_manager.py`):
   - **Global `Space` Toggle Playback**: Pressing `Space` anywhere inside the MP Mix Archive Manager (in the main menu, all interactive submenus via `run_interactive_submenu()`, and all `press_enter()` pause prompts) instantly stops or resumes audio playback if MP Audio Player is running. If playback is stopped, `Space` never starts a cold audio stream (`--only-if-running` guard flag).
   - **Global `M` Player Window**: Pressing `M` or `m` anywhere inside the manager immediately opens the interactive MP Audio Player in a dedicated standalone terminal window (`--new-window` with auto-detection for Konsole, GNOME Terminal, XDG Terminal Exec, XFCE, Terminal.app, or Windows Terminal).
@@ -19,8 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **In-Player 1080p Spek Generation (`G` / `g`)**: Press `G` during playback, playlist browsing, or inside the `[I]` Track Audio Inspector HUD to asynchronously generate and save a local 1920x1080 logarithmic Spek spectrogram (`*_spectrogram.png`) for any playing/selected track or mix directly into `SPEK_OUTPUTS`.
 
 - **MP Mini Audio Player Mode (`M` Key), Hidden MICRO Mode & Retro Unix Theme** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `Congen/Congen`, `mix_web_companion.py`):
-  - **MP Mini Mode (`M`)**: Launches an independent compact transparent console window with dynamic quasi-periodic color gradients shifting via irrational phase modulation (`OSC 11`), real-time mini equalizer, volume/pitch controls, and full track metadata without the playlist.
-  - **Hidden MICRO Mode (`M` inside Mini Mode)**: Toggles an ultra-compact single-strip playback view inside Mini Mode; moved mute control to `u` / `U`.
+  - **MP Mini Mode (`M`)**: Launches an independent compact transparent console window configured with 30% background opacity (`Opacity=0.30`, 70% transparency) with vibrant dynamic color-shifting ambient background tints (`OSC 11`) via irrational phase modulation, real-time mini equalizer, volume/pitch controls, and full track metadata without the playlist.
+  - **Hidden MICRO Mode (`M` inside Mini Mode)**: Toggles an ultra-compact single-strip playback view inside Mini Mode with 30% background opacity and dynamic color-changing tints; moved mute control to `u` / `U`.
   - **Old Style Unix Terminal Retro Mode (White on Black)**: Added classic high-contrast monochrome Unix terminal theme across the suite.
 
 - **Extreme Low-Spec Zero-Fork Rewrite of `.probe_mgr.sh`** (`.probe_mgr.sh`):
