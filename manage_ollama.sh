@@ -117,6 +117,17 @@ get_lan_ip() {
     echo "$ip"
 }
 
+ensure_vroc_mounted() {
+    [ "$OS_TYPE" = "windows" ] && return 0
+    if [ ! -d "/run/media/mplanetarian/VROC/OLLAMAMODELS" ]; then
+        if [ -b "/dev/disk/by-uuid/662A18402A180FA3" ]; then
+            udisksctl mount -b /dev/disk/by-uuid/662A18402A180FA3 >/dev/null 2>&1 || true
+        elif [ -b "/dev/md126p2" ]; then
+            udisksctl mount -b /dev/md126p2 >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
 is_ollama_running() {
     if curl -s --connect-timeout 1 "${OLLAMA_CHECK_URL}/" 2>/dev/null | grep -qi "Ollama is running"; then
         return 0
@@ -152,6 +163,7 @@ get_ollama_pids() {
 
 ensure_container_started() {
     [ "$OS_TYPE" = "windows" ] && return 0
+    ensure_vroc_mounted
     if command -v podman >/dev/null 2>&1; then
         if ! podman ps --filter "name=${OLLAMA_CONTAINER}" --format "{{.Names}}" 2>/dev/null | grep -q "^${OLLAMA_CONTAINER}$"; then
             echo -e "  ${YELLOW}Starting podman container '${OLLAMA_CONTAINER}'...${NC}"
@@ -413,6 +425,7 @@ restart_ollama() {
 }
 
 show_status() {
+    ensure_vroc_mounted
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
     echo -e "${BOLD}${MAGENTA}                    OLLAMA SERVER STATUS & MODELS                     ${NC}"
     echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
@@ -468,6 +481,11 @@ show_status() {
     if is_ollama_running; then
         local model_list
         model_list=$(curl -s "${OLLAMA_CHECK_URL}/api/tags" 2>/dev/null)
+        local api_err
+        api_err=$(echo "$model_list" | jq -r '.error // empty' 2>/dev/null)
+        if [ -n "$api_err" ]; then
+            echo -e "  ${RED}Notice: Ollama reported an error: ${api_err}${NC}"
+        fi
         if [ -n "$model_list" ] && command -v jq >/dev/null 2>&1; then
             echo "$model_list" | jq -r '.models[]? | "  • \(.name) (\((.size / 1073741824 * 10 | floor) / 10) GB, \(.details.parameter_size // "N/A"), \(.details.quantization_level // "N/A"))"' 2>/dev/null
         elif [ "$OS_TYPE" = "windows" ]; then
@@ -479,6 +497,7 @@ show_status() {
         local found_offline=false
         local manifest_dir="X:/OLLAMA/models/manifests"
         [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        [ ! -d "$manifest_dir" ] && [ -d "/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests" ] && manifest_dir="/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests"
         if [ -d "$manifest_dir" ]; then
             echo -e "  ${YELLOW}(Server stopped - detected models in storage):${NC}"
             while IFS= read -r mf; do
@@ -498,6 +517,7 @@ show_status() {
 }
 
 run_chat_cli() {
+    ensure_vroc_mounted
     if ! is_ollama_running; then
         echo -e "\n${YELLOW}Ollama server is not running. Starting server first...${NC}"
         start_ollama_bg
@@ -521,6 +541,7 @@ run_chat_cli() {
     if [ ${#models[@]} -eq 0 ]; then
         local manifest_dir="X:/OLLAMA/models/manifests"
         [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        [ ! -d "$manifest_dir" ] && [ -d "/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests" ] && manifest_dir="/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests"
         if [ -d "$manifest_dir" ]; then
             while IFS= read -r mf; do
                 [ -z "$mf" ] && continue
@@ -571,6 +592,7 @@ run_chat_cli() {
 }
 
 run_voice_chat_cli() {
+    ensure_vroc_mounted
     local target_model="${1:-}"
     local target_voice="${2:-}"
 
@@ -600,6 +622,7 @@ run_voice_chat_cli() {
     if [ ${#models[@]} -eq 0 ]; then
         local manifest_dir="X:/OLLAMA/models/manifests"
         [ ! -d "$manifest_dir" ] && [ -n "$OLLAMA_MODELS" ] && manifest_dir="$(cygpath -u "$OLLAMA_MODELS" 2>/dev/null)/manifests"
+        [ ! -d "$manifest_dir" ] && [ -d "/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests" ] && manifest_dir="/run/media/mplanetarian/VROC/OLLAMAMODELS/manifests"
         if [ -d "$manifest_dir" ]; then
             while IFS= read -r mf; do
                 [ -z "$mf" ] && continue
