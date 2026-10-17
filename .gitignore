@@ -55,6 +55,8 @@ Cover_old.png
 *.ogg
 *.wma
 *.mp4
+!MP_loader.mp4
+!assets/MP_loader.mp4
 *.mkv
 *.avi
 *.mov
@@ -72,6 +74,8 @@ Cover_old.png
 *.7z
 *.bak*
 *.exe
+!MP_Mix_Manager.exe
+!manager.exe
 
 # Execution Logs
 *.log

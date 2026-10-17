@@ -207,7 +207,7 @@ def find_tracklist_for_mix(mix_file: Union[str, Path, None]) -> Optional[str]:
             pass
     return None
 
-def open_tracklist_window(target_tracklist: Union[str, Path, None]) -> bool:
+def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None) -> bool:
     if not target_tracklist: return False
     tl = Path(target_tracklist).expanduser().resolve()
     if not tl.is_file(): return False
@@ -216,6 +216,10 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None]) -> bool:
     v_sh = base / "scripts" / "view_tracklist_console.sh"
     if not v_sh.is_file(): v_sh = base / "view_tracklist_console.sh"
     t_str, v_str, title = str(tl), str(v_sh), "Mix Tracklist Viewer"
+    a_str = str(Path(audio_path).expanduser().resolve()) if audio_path and os.path.exists(str(audio_path)) else ""
+    if a_str:
+        os.environ["MP_TRACKLIST_AUDIO_FILE"] = a_str
+    sh_args = [v_str, t_str] + ([a_str] if a_str else [])
 
     cust = os.environ.get("TRACKLIST_VIEWER")
     if cust and cust not in ("console", "auto") and shutil.which(cust) and _run_bg([cust, t_str]):
@@ -224,22 +228,24 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None]) -> bool:
     if sys.platform.startswith(("linux", "freebsd")):
         if shutil.which("konsole") and v_sh.is_file():
             if _run_bg(["konsole", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title,
-                        "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "-p", "TerminalColumns=95", "-p", "TerminalRows=35", "-e", "bash", v_str, t_str]):
+                        "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "-p", "TerminalColumns=95", "-p", "TerminalRows=35", "-e", "bash"] + sh_args):
                 threading.Thread(target=lambda: (time.sleep(0.15), shutil.which("xprop") and subprocess.run(
                     ["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x2, 0x0, 0x0, 0x0, 0x0"], capture_output=True)), daemon=True).start()
                 return True
+        xfce_cmd = f"bash '{v_str}' '{t_str}'" + (f" '{a_str}'" if a_str else "")
         for term, args in [
-            ("gnome-terminal", [f"--title={title}", "--hide-menubar", "--", "bash", v_str, t_str]),
-            ("xfce4-terminal", [f"--title={title}", "--hide-menubar", "--hide-borders", "-e", f"bash '{v_str}' '{t_str}'"]),
-            ("alacritty", ["--title", title, "-e", "bash", v_str, t_str]),
-            ("foot", ["-T", title, "bash", v_str, t_str]),
-            ("xterm", ["-title", title, "-bd", "0", "-geometry", "95x35", "-e", "bash", v_str, t_str]),
+            ("gnome-terminal", [f"--title={title}", "--hide-menubar", "--", "bash"] + sh_args),
+            ("xfce4-terminal", [f"--title={title}", "--hide-menubar", "--hide-borders", "-e", xfce_cmd]),
+            ("alacritty", ["--title", title, "-e", "bash"] + sh_args),
+            ("foot", ["-T", title, "bash"] + sh_args),
+            ("xterm", ["-title", title, "-bd", "0", "-geometry", "95x35", "-e", "bash"] + sh_args),
             ("xdg-open", [t_str])
         ]:
             if shutil.which(term) and _run_bg([term] + args): return True
     elif sys.platform == "darwin":
         if v_sh.is_file():
-            cmd = f'tell application "Terminal" to do script "bash \\"{v_str}\\" \\"{t_str}\\""'
+            mac_args = f'\\"{v_str}\\" \\"{t_str}\\"' + (f' \\"{a_str}\\"' if a_str else "")
+            cmd = f'tell application "Terminal" to do script "bash {mac_args}"'
             if _run_bg(["osascript", "-e", cmd]): return True
         return _run_bg(["open", t_str])
     elif sys.platform == "win32":
@@ -368,13 +374,64 @@ def get_recording_output_dir(base_dir: Optional[Path] = None) -> Path:
 REC_MAX_FILE_BYTES = 3 * 1024 * 1024 * 1024
 
 
-def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None) -> Tuple[bool, str]:
+def find_existing_spek(audio_path: Optional[Union[str, Path]], mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None) -> Optional[str]:
+    """Checks if a Spek spectrogram image already exists on disk for the given audio file."""
+    if not audio_path:
+        return None
+    p = Path(audio_path).expanduser()
+    stem = p.stem
+    clean_stem = re.sub(r'[\/\\:\*\?"<>\|]', '_', stem)
+    base = get_base_dir()
+
+    cand_dirs: List[Path] = []
+    if output_dir:
+        cand_dirs.append(Path(output_dir))
+    cand_dirs.append(get_default_spek_dir(base, mode=mode, audio_path=str(audio_path)))
+    if p.parent.is_dir():
+        cand_dirs.append(p.parent / "SPEK_OUTPUTS")
+        cand_dirs.append(p.parent)
+        if p.parent.parent.is_dir():
+            cand_dirs.append(p.parent.parent / "SPEK_OUTPUTS")
+    cand_dirs.append(base / "SPEK_OUTPUTS")
+
+    seen_dirs = set()
+    names: List[str] = []
+    for s in (clean_stem, stem):
+        for n in (f"{s}_spectrogram.png", f"{s}.spek.png", f"{s}.spek", f"{s}_spectrogram.jpg"):
+            if n not in names:
+                names.append(n)
+
+    for d in cand_dirs:
+        try:
+            rd = str(d.resolve())
+        except Exception:
+            rd = str(d)
+        if rd in seen_dirs or not d.is_dir():
+            continue
+        seen_dirs.add(rd)
+        for name in names:
+            cand = d / name
+            try:
+                if cand.is_file() and cand.stat().st_size > 0:
+                    return str(cand.resolve())
+            except Exception:
+                pass
+    return None
+
+
+def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None, force: bool = False) -> Tuple[bool, str]:
     """
     Generates a 1080p high-resolution spectrogram analysis (Spek) from an audio track or mix,
     saving the output locally into the configured SPEK_OUTPUTS folder.
+    If the spectrogram already exists (and force is False), returns the existing file immediately.
     """
     if not audio_path or not os.path.isfile(audio_path):
         return False, "Audio file not found"
+
+    if not force:
+        existing = find_existing_spek(audio_path, mode=mode, output_dir=output_dir)
+        if existing:
+            return True, existing
 
     out_dir = Path(output_dir) if output_dir else get_default_spek_dir(get_base_dir(), mode=mode, audio_path=audio_path)
     try:
@@ -679,6 +736,8 @@ class AudioEngine:
         _ensure_audio_backends()
         self.mode = str(mode or "MIX_ARCHIVE").upper()
         self.playlist = playlist
+        self.play_queue: List[Dict[str, Any]] = []
+        self._queue_lock = threading.Lock()
         self.current_index = 0
         self.current_track = playlist[0] if playlist else None
         self.state, self.volume, self.muted, self.shuffle, self.repeat_mode = "stopped", 0.85, False, False, "all"
@@ -1071,7 +1130,7 @@ class AudioEngine:
         if self.track_ended:
             self.track_ended = False
             if self.repeat_mode == "one": self.seek(0)
-            elif self.repeat_mode == "all" or self.current_index < len(self.playlist) - 1: self.next_track()
+            elif self.repeat_mode == "all" or bool(self.play_queue) or self.current_index < len(self.playlist) - 1: self.next_track()
             else: self.stop_playback()
 
     def play(self):
@@ -1094,7 +1153,60 @@ class AudioEngine:
         self.peaks_left.fill(0)
         self.peaks_right.fill(0)
 
+    def queue_track(self, track_or_path: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        with self._queue_lock:
+            track_dict: Optional[Dict[str, Any]] = None
+            if isinstance(track_or_path, dict):
+                track_dict = dict(track_or_path)
+            elif isinstance(track_or_path, str) and track_or_path:
+                tp = str(track_or_path)
+                for t in self.playlist:
+                    if t.get("path") == tp or t.get("name") == os.path.basename(tp):
+                        track_dict = dict(t)
+                        break
+                if track_dict is None:
+                    ext = os.path.splitext(tp)[1].lstrip(".").upper()
+                    sz = os.path.getsize(tp) / (1024 * 1024) if os.path.isfile(tp) else 0.0
+                    track_dict = {"name": os.path.basename(tp), "path": tp, "size_mb": sz, "mtime": time.time(), "ext": ext}
+            if track_dict:
+                self.play_queue.append(track_dict)
+                self._sync_state_file()
+                return {"queued": True, "track": track_dict, "queue_len": len(self.play_queue)}
+            return {"queued": False, "queue_len": len(self.play_queue)}
+
+    def dequeue_next(self) -> Optional[Dict[str, Any]]:
+        with self._queue_lock:
+            if self.play_queue:
+                t = self.play_queue.pop(0)
+                self._sync_state_file()
+                return t
+        return None
+
+    def clear_queue(self) -> int:
+        with self._queue_lock:
+            n = len(self.play_queue)
+            self.play_queue.clear()
+            self._sync_state_file()
+            return n
+
+    def get_queue(self) -> List[Dict[str, Any]]:
+        with self._queue_lock:
+            return list(self.play_queue)
+
     def _step_track(self, direction: int):
+        if direction > 0:
+            queued_item = self.dequeue_next()
+            if queued_item:
+                qpath = queued_item.get("path")
+                for i, t in enumerate(self.playlist):
+                    if t.get("path") == qpath:
+                        if self.load_track(i, True):
+                            return
+                        break
+                else:
+                    self.playlist.insert(0, queued_item)
+                    if self.load_track(0, True):
+                        return
         if not self.playlist: return
         n = len(self.playlist)
         for s in range(1, min(10, n) + 1):
@@ -1296,6 +1408,8 @@ class AudioEngine:
             "recording": bool(self.is_recording), "recording_file": str(self.recording_current_path),
             "recording_bytes": int(self.recording_bytes_written),
             "recording_duration": round(float(self.recording_duration_sec), 2),
+            "queue_len": len(self.play_queue),
+            "queue": [t.get("path") for t in self.play_queue if isinstance(t, dict)],
             "output_rate": int(self.output_rate or 0), "output_device": cur_out,
             "bluetooth_connected": is_bt, "bluetooth_device": bt_dev, "bluetooth_codec": bt_codec,
             "bluetooth_auto_route": bool(getattr(self, "auto_bluetooth", True)),
@@ -1407,6 +1521,16 @@ class PlayerIPCServer:
                 ok, rec_f = self.engine.stop_recording()
                 res.update(recording=False, recording_file=rec_f)
             elif cmd == "select_index": threading.Thread(target=self.engine.load_track, args=(int(req.get("index", 0)), True), daemon=True).start()
+            elif cmd == "queue":
+                f = req.get("file") or req.get("track")
+                q_res = self.engine.queue_track(f) if f else {"queued": False, "queue_len": len(self.engine.play_queue)}
+                res.update(q_res)
+            elif cmd == "get_queue":
+                res["queue"] = self.engine.get_queue()
+                res["queue_len"] = len(res["queue"])
+            elif cmd == "clear_queue":
+                cleared = self.engine.clear_queue()
+                res["cleared"] = cleared
             elif cmd == "get_playlist": res["playlist"] = [{"index": i, "name": t["name"], "path": t["path"], "ext": t["ext"]} for i, t in enumerate(self.engine.playlist[:100])]
             elif cmd in ("open_file_manager", "reveal"):
                 tf = req.get("file") or (self.engine.current_track.get("path") if self.engine.current_track else str(get_base_dir()))
@@ -1635,7 +1759,7 @@ class EqualizerVisualizer:
     }
     THEMES = ["dreamworlds_ultra", "cosmic_supernova", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold", "retro_terminal"]
 
-    def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None):
+    def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
         _ensure_numpy()
         self.style_idx = self.theme_idx = 0
         self.dust_particles: List[Dict[str, Any]] = []
@@ -1643,35 +1767,17 @@ class EqualizerVisualizer:
         self.dust_rng = random.Random()
         try:
             th_file = CONFIG_DIR / "theme"
-            if default_theme and default_theme in self.THEMES:
-                self.theme_idx = self.THEMES.index(default_theme)
-            elif th_file.is_file():
-                saved = th_file.read_text(encoding="utf-8").strip().lower()
-                if saved in self.THEMES:
-                    self.theme_idx = self.THEMES.index(saved)
-                elif saved in ("retro_terminal", "unix_terminal", "retro_unix", "white_on_black", "old_style_unix", "terminal", "classic"):
-                    self.theme_idx = self.THEMES.index("retro_terminal")
-                elif saved in ("cosmic_supernova", "cosmic", "supernova"):
-                    self.theme_idx = self.THEMES.index("cosmic_supernova")
-                elif saved in ("cyberpunk", "cyber", "cyber_neon"):
-                    self.theme_idx = self.THEMES.index("cyber_neon")
-                elif saved in ("matrix", "phosphor"):
-                    self.theme_idx = self.THEMES.index("phosphor")
-                elif saved in ("nord", "ice_cold"):
-                    self.theme_idx = self.THEMES.index("ice_cold")
-                elif saved in ("dracula", "dreamworlds_neon"):
-                    self.theme_idx = self.THEMES.index("dreamworlds_neon")
-                elif saved in ("gruvbox", "retro_studio"):
-                    self.theme_idx = self.THEMES.index("retro_studio")
-                elif saved in ("dreamworlds_ultra", "dreamworlds", "default", "mplanetarian"):
-                    self.theme_idx = self.THEMES.index("dreamworlds_ultra")
+            saved = theme or default_theme or (th_file.read_text(encoding="utf-8").strip().lower() if th_file.is_file() else None)
+            if saved:
+                self.set_theme(saved)
         except Exception:
             pass
 
         try:
             eq_file = CONFIG_DIR / "eq_style"
-            if default_style and default_style in self.STYLES:
-                self.style_idx = self.STYLES.index(default_style)
+            target_style = style or default_style
+            if target_style and target_style in self.STYLES:
+                self.style_idx = self.STYLES.index(target_style)
             elif eq_file.is_file():
                 saved_eq = eq_file.read_text(encoding="utf-8").strip().lower()
                 if saved_eq in self.STYLES:
@@ -1687,6 +1793,32 @@ class EqualizerVisualizer:
     def style(self) -> str: return self.STYLES[self.style_idx]
     @property
     def theme(self) -> str: return self.THEMES[self.theme_idx]
+
+    @theme.setter
+    def theme(self, name: str):
+        self.set_theme(name)
+
+    def set_theme(self, name: str):
+        clean = str(name).strip().lower()
+        if clean in self.THEMES:
+            self.theme_idx = self.THEMES.index(clean)
+        elif clean in ("retro_terminal", "unix_terminal", "retro_unix", "white_on_black", "old_style_unix", "terminal", "classic"):
+            self.theme_idx = self.THEMES.index("retro_terminal")
+        elif clean in ("cosmic_supernova", "cosmic", "supernova"):
+            self.theme_idx = self.THEMES.index("cosmic_supernova")
+        elif clean in ("cyberpunk", "cyber", "cyber_neon"):
+            self.theme_idx = self.THEMES.index("cyber_neon")
+        elif clean in ("matrix", "phosphor"):
+            self.theme_idx = self.THEMES.index("phosphor")
+        elif clean in ("nord", "ice_cold"):
+            self.theme_idx = self.THEMES.index("ice_cold")
+        elif clean in ("dracula", "dreamworlds_neon"):
+            self.theme_idx = self.THEMES.index("dreamworlds_neon")
+        elif clean in ("gruvbox", "retro_studio"):
+            self.theme_idx = self.THEMES.index("retro_studio")
+        elif clean in ("dreamworlds_ultra", "dreamworlds", "default", "mplanetarian"):
+            self.theme_idx = self.THEMES.index("dreamworlds_ultra")
+
     def cycle_style(self):
         self.style_idx = (self.style_idx + 1) % len(self.STYLES)
         try: (CONFIG_DIR / "eq_style").write_text(self.style, encoding="utf-8")
@@ -2831,6 +2963,10 @@ class TerminalPlayerUI:
             elif cmd == "pitch_down": e.change_pitch(-kwargs.get("step", 1))
             elif cmd == "set_pitch": e.set_pitch(kwargs.get("percent", 0))
             elif cmd == "select_index": e.load_track(kwargs.get("index", 0), True)
+            elif cmd == "queue":
+                f = kwargs.get("file") or kwargs.get("track")
+                if f: e.queue_track(f)
+            elif cmd == "clear_queue": e.clear_queue()
             elif cmd == "open_file_manager":
                 tf = kwargs.get("file") or (e.current_track.get("path") if e.current_track else str(get_base_dir()))
                 open_in_file_manager(tf)
@@ -2885,6 +3021,14 @@ class TerminalPlayerUI:
             self.notification_msg = "No audio track available for Spek generation."
             self.notification_time = time.time() + 3.0
             return
+        existing = find_existing_spek(tp, mode=self.mode)
+        if existing and os.path.isfile(existing):
+            sz_kb = os.path.getsize(existing) // 1024
+            self.notification_msg = f"✔ Spek exists — Opening: {os.path.basename(existing)} ({sz_kb} KB)"
+            self.notification_time = time.time() + 4.0
+            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+                open_image_viewer(existing)
+            return
         track_name = tn or os.path.basename(tp)
         self.notification_msg = f"⚡ Generating Spek: {track_name[:30]}..."
         self.notification_time = time.time() + 60.0
@@ -2938,7 +3082,7 @@ class TerminalPlayerUI:
             return
         tl = find_tracklist_for_mix(tp)
         if tl and os.path.isfile(tl):
-            ok = open_tracklist_window(tl)
+            ok = open_tracklist_window(tl, tp)
             self.notification_msg = f"{'Opened' if ok else 'Failed to open'} Tracklist: {os.path.basename(tl)}"
         else:
             self.notification_msg = f"No tracklist found for: {tn or os.path.basename(tp)}"
@@ -2987,6 +3131,25 @@ class TerminalPlayerUI:
             return
         self.export_mode = True
         self.export_path = os.path.join(os.path.expanduser("~/Desktop" if os.path.isdir(os.path.expanduser("~/Desktop")) else "~"), "MP_Archive_Playlist.m3u")
+
+    def _queue_selected(self):
+        tp, tn = self._get_target_path()
+        if not tp:
+            self.notification_msg = "No mix selected to queue."
+            self.notification_time = time.time() + 2.5
+            return
+        bname = tn or os.path.basename(tp)
+        self._send_cmd("queue", file=tp)
+        if not self.is_remote and self.engine:
+            q_len = len(self.engine.play_queue)
+        else:
+            cur_q = list(self.cached_status.get("queue", []))
+            if tp not in cur_q: cur_q.append(tp)
+            self.cached_status["queue"] = cur_q
+            self.cached_status["queue_len"] = len(cur_q)
+            q_len = len(cur_q)
+        self.notification_msg = f"✔ Queued Mix: {bname} (#{q_len} in Queue)"
+        self.notification_time = time.time() + 3.5
 
     def run(self):
         fd = sys.stdin.fileno() if sys.stdin.isatty() else None
@@ -3218,9 +3381,9 @@ class TerminalPlayerUI:
         elif (data in (b"w", b"W") if self.ui_size_mode in ("MINI", "MICRO") else data in (b"E", b"w", b"W")): self._export_playlist()
         elif data == b"/": self.search_mode, self.search_query = True, ""
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
-        elif data in (b"g", b"G"): self._generate_selected_spek()
+        elif data in (b"q", b"Q"): self._queue_selected()
         elif data in (b"x", b"X"): self._send_cmd("stop"); self.running = False
-        elif data in (b"q", b"Q", b"\x1b", b"\x03"): self.running = False
+        elif data in (b"\x1b", b"\x03"): self.running = False
 
     def _navigate_list(self, delta: int):
         m = self._get_active_tracks()
@@ -3318,14 +3481,22 @@ class TerminalPlayerUI:
         if self.inspector_hud_active:
             lines.extend(self._render_inspector_hud(st, iw))
         else:
-            box_label = f"── MUSIC LIBRARY PLAYLIST: /{self.folder_name} ({len(active_tracks)} Tracks) " if self.mode == "MUSIC" else f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available) "
-            lines.append(_boxed_rule("┌", box_label, "┐", iw, f"{BOLD}{MAGENTA}"))
+            pal = self.visualizer.get_theme_palette()
+            hl_col = pal.get("highlight", COLOR_HOT_PURPLE)
+            act_col = pal.get("active", COLOR_NEON_PINK)
+            b_col = f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
+
+            q_len = int(st.get("queue_len", 0))
+            q_paths = list(st.get("queue", []))
+            q_badge = f" • Queue: {q_len}" if q_len > 0 else ""
+
+            box_label = f"── MUSIC LIBRARY PLAYLIST: /{self.folder_name} ({len(active_tracks)} Tracks{q_badge}) " if self.mode == "MUSIC" else f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{q_badge}) "
+            lines.append(_boxed_rule("┌", box_label, "┐", iw, b_col))
             vrows = max(0, h - len(lines) - 4)
             if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
             elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
             elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
 
-            b_col = f"{BOLD}{MAGENTA}"
             avail_name = max(4, iw - 23)
             if not active_tracks:
                 empty_msg1 = "No audio tracks found in playlist." if self.mode == "MUSIC" else "No audio mixes found in archive. (Mix archive folders not yet configured)"
@@ -3339,13 +3510,20 @@ class TerminalPlayerUI:
                 for i in range(self.scroll_offset, min(len(active_tracks), self.scroll_offset + vrows)):
                     m = active_tracks[i]
                     act, sel = (m["path"] == st.get("path")), (i == self.selected_row)
+                    in_q = (m["path"] in q_paths)
                     raw_name = str(m.get("name", ""))
                     if _display_width(raw_name) > avail_name:
                         mn = _clip_display(raw_name, max(1, avail_name - 3)) + "..." if avail_name > 3 else _clip_display(raw_name, avail_name)
                     else:
                         mn = raw_name
                     name_pad = " " * max(0, avail_name - _display_width(mn))
-                    pfx = "▶ " if act else "  "
+                    if act:
+                        pfx = "▶ "
+                    elif in_q:
+                        q_idx = q_paths.index(m["path"]) + 1
+                        pfx = f"Q{q_idx}" if q_idx < 10 else "Q*"
+                    else:
+                        pfx = "  "
                     ext_str = f"{m.get('ext', ''):<4}"[:4]
                     if self.mode == "MUSIC":
                         dur = m.get("duration_fmt")
@@ -3380,20 +3558,20 @@ class TerminalPlayerUI:
                     elif curr_w > iw:
                         inner_plain = _clip_display(inner_plain, iw)
 
-                    if sel and act:
-                        lstr = f"  {b_col}│{NC}\033[7m{BOLD}{GREEN}{inner_plain}\033[0m{b_col}│{NC}"
-                    elif sel:
-                        lstr = f"  {b_col}│{NC}\033[7m{inner_plain}\033[0m{b_col}│{NC}"
+                    if sel:
+                        lstr = f"  {b_col}│{NC}\033[7m{BOLD}{hl_col}{inner_plain}\033[0m{b_col}│{NC}"
                     elif act:
-                        lstr = f"  {b_col}│{NC}{BOLD}{GREEN}{inner_plain}{NC}{b_col}│{NC}"
+                        lstr = f"  {b_col}│{NC}{BOLD}{act_col}{inner_plain}{NC}{b_col}│{NC}"
+                    elif in_q:
+                        lstr = f"  {b_col}│{NC}{BOLD}{COLOR_ELECTRIC_CYAN}{inner_plain}{NC}{b_col}│{NC}"
                     else:
                         lstr = f"  {b_col}│{NC}{inner_plain}{b_col}│{NC}"
                     lines.append(lstr)
 
             if self.mode == "MUSIC":
-                lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Space: Pause • G: Spek • I: Track Inspector • /: Search • q: Exit ", "┘", iw, f"{BOLD}{MAGENTA}"))
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • /: Search • b/Esc: Exit ", "┘", iw, b_col))
             else:
-                lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
 
         shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
         rep = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
@@ -3413,20 +3591,20 @@ class TerminalPlayerUI:
 
         if self.mode == "MUSIC":
             lines.append(_fit_text_line([
-                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
-                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini Mode  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
-                f"  Space Play  [R] Rec  [M] Mini  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
+                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit{NC}",
+                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit",
+                f"  Space Play  [R] Rec  [M] Mini  [Q] Queue  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/Esc Exit"
             ], max(20, w - 1)))
             lines.append(_fit_text_line([
                 f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [l] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
                 f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
-                f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  b/q Exit{NC}"
+                f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  b/Esc Exit{NC}"
             ], max(20, w - 1)))
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [l] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  b/q Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [l] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/Esc] Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/Esc Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  b/Esc Exit{NC}"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -3499,7 +3677,7 @@ class TerminalPlayerUI:
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[Q]{NC} Queue  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[b]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -3593,9 +3771,9 @@ class TerminalPlayerUI:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
             lines.append(_fit_text_line([
-                f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
-                f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
-                f"  {c_g1}Space{NC} Play  {c_g1}R{NC} Rec  {c_g1}n/p{NC} Skip  {c_g1}v/V{NC} Vol  {c_g1}s{NC} Shuf  {c_g1}e{NC} EQ  {c_g1}c{NC} Theme  {c_g2}M{NC} Mini  {c_g1}q{NC} Close"
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[Q]{NC} Que  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[b]{NC} Close",
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[Q]{NC} Que  {c_g1}[R]{NC} Rec  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[b]{NC} Close",
+                f"  {c_g1}Space{NC} Play  {c_g1}Q{NC} Que  {c_g1}R{NC} Rec  {c_g1}n/p{NC} Skip  {c_g1}v/V{NC} Vol  {c_g1}s{NC} Shuf  {c_g1}e{NC} EQ  {c_g1}c{NC} Theme  {c_g2}M{NC} Mini  {c_g1}b{NC} Close"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -3667,6 +3845,8 @@ def main():
     parser.add_argument("--only-if-running", action="store_true", help="Only perform toggle/action if player daemon is currently running")
     parser.add_argument("--shuffle", action="store_true", help="Toggle shuffle mode (on/off)")
     parser.add_argument("--repeat", action="store_true", help="Cycle repeat mode (all -> one -> off)")
+    parser.add_argument("--queue", "-q", type=str, nargs="?", const="", help="Queue audio file or mix to play next")
+    parser.add_argument("--clear-queue", action="store_true", help="Clear playback queue")
     parser.add_argument("--record", "--toggle-record", "-r", action="store_true", help="Toggle live WAV recording to MP_AUDIOWAV_REC_OUTPUT (max 3GB per WAV)")
 
     args, _ = parser.parse_known_args()
@@ -3728,7 +3908,7 @@ def main():
             sys.exit(0 if ok else 1)
         else:
             tl = find_tracklist_for_mix(tp) if tp else None
-            if tl and os.path.isfile(tl) and open_tracklist_window(tl):
+            if tl and os.path.isfile(tl) and open_tracklist_window(tl, tp):
                 print(f"✔ Opened tracklist: {tl}"); sys.exit(0)
             print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr)
             sys.exit(1)
@@ -3759,6 +3939,13 @@ def main():
         if not tp or not os.path.isfile(tp):
             print("✖ No audio file available for Spek generation", file=sys.stderr)
             sys.exit(1)
+        existing = find_existing_spek(tp, mode=current_mode)
+        if existing and os.path.isfile(existing):
+            sz_kb = os.path.getsize(existing) // 1024
+            print(f"✔ Spek already exists ({sz_kb} KB): {existing}")
+            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+                open_image_viewer(existing)
+            sys.exit(0)
         print(f"⚡ Generating Spek spectrogram for: {os.path.basename(tp)}...")
         ok, res = generate_track_spek(tp, mode=current_mode)
         if ok:
@@ -3838,6 +4025,34 @@ def main():
                 ftp = l["path"] if l else ""
             if ftp: _spawn_player_daemon(ftp)
         sys.exit(0)
+
+    if args.clear_queue:
+        if daemon_running:
+            res = send_ipc_command("clear_queue")
+            cleared = res.get("cleared", 0) if res else 0
+            print(f"✔ Cleared {cleared} mix(es) from playback queue.")
+        else:
+            print("Player daemon not running.")
+        sys.exit(0)
+
+    if args.queue is not None:
+        q_target = args.queue or (args.file or "")
+        if not q_target:
+            latest = MixArchiveScanner(base_dir).get_latest_mix()
+            if latest: q_target = latest["path"]
+        if q_target and os.path.exists(q_target):
+            q_target = os.path.abspath(q_target)
+            if daemon_running:
+                res = send_ipc_command("queue", file=q_target)
+                q_len = res.get("queue_len", "?") if res else "?"
+                print(f"✔ Queued track (#{q_len} in queue): {os.path.basename(q_target)}")
+            else:
+                _spawn_player_daemon(q_target)
+                print(f"✔ Started player daemon with mix: {os.path.basename(q_target)}")
+            sys.exit(0)
+        else:
+            print(f"✖ File not found to queue: {q_target}", file=sys.stderr)
+            sys.exit(1)
 
     if args.pitch is not None or args.pitch_up is not None or args.pitch_down is not None or args.pitch_reset:
         if daemon_running:
