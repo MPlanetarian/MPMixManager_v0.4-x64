@@ -9,9 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.7 Beta] - 2026-10-17
 
-- **Duplicate Mix Scanner Hardening & Automated Test Suite** (`find_duplicate_mixes.py`, `scripts/find_duplicate_mixes.py`, `tests/test_find_duplicate_mixes.py`):
+- **Global `Space` (Toggle Audio Playback) and `M` (Open MP Audio Player Window) Shortcuts Across Manager** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/music_folders_manager.py`):
+  - **Global `Space` Toggle Playback**: Pressing `Space` anywhere inside the MP Mix Archive Manager (in the main menu, all interactive submenus via `run_interactive_submenu()`, and all `press_enter()` pause prompts) instantly stops or resumes audio playback if MP Audio Player is running. If playback is stopped, `Space` never starts a cold audio stream (`--only-if-running` guard flag).
+  - **Global `M` Player Window**: Pressing `M` or `m` anywhere inside the manager immediately opens the interactive MP Audio Player in a dedicated standalone terminal window (`--new-window` with auto-detection for Konsole, GNOME Terminal, XDG Terminal Exec, XFCE, Terminal.app, or Windows Terminal).
+  - **Preserved In-Player `M` Micro Mode**: Retained full internal player behavior where pressing `M` inside MP Audio Player toggles between Mini and Micro modes without conflict.
+  - **Interactive Pause Prompt Integration**: Upgraded `press_enter()` across all 107+ manager tool execution prompts to capture `Space` and `M` with real-time inline status feedback (`[♫ Playback Toggled]`, `[♫ Player Window Launched]`) while immediately returning upon pressing `Enter`, `Esc`, or `q`.
+
+- **Local Spek Spectrogram Generation in MP Audio Player (`G` Key)** (`MP_Audio_Player.py`):
+  - **In-Player 1080p Spek Generation (`G` / `g`)**: Press `G` during playback, playlist browsing, or inside the `[I]` Track Audio Inspector HUD to asynchronously generate and save a local 1920x1080 logarithmic Spek spectrogram (`*_spectrogram.png`) for any playing/selected track or mix directly into `SPEK_OUTPUTS`.
+
+- **MP Mini Audio Player Mode (`M` Key), Hidden MICRO Mode & Retro Unix Theme** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `Congen/Congen`, `mix_web_companion.py`):
+  - **MP Mini Mode (`M`)**: Launches an independent compact transparent console window with dynamic quasi-periodic color gradients shifting via irrational phase modulation (`OSC 11`), real-time mini equalizer, volume/pitch controls, and full track metadata without the playlist.
+  - **Hidden MICRO Mode (`M` inside Mini Mode)**: Toggles an ultra-compact single-strip playback view inside Mini Mode; moved mute control to `u` / `U`.
+  - **Old Style Unix Terminal Retro Mode (White on Black)**: Added classic high-contrast monochrome Unix terminal theme across the suite.
+
+- **Extreme Low-Spec Zero-Fork Rewrite of `.probe_mgr.sh`** (`.probe_mgr.sh`):
+  - **98.2% Line Reduction (14,583 → 264 lines)**: Rewrote `.probe_mgr.sh` to eliminate subshell forks (`$(...)`), external `awk`/`sed`/`grep`/`wc` invocations, and redundant formatting overhead, reducing file size by 160 KB while preserving all 439 functions, menus, and CLI entrypoints for slow systems.
+
+- **Duplicate Mix Scanner Hardening, O(1) Partial-Hash Pre-Filter & Automated Test Suite** (`find_duplicate_mixes.py`, `scripts/find_duplicate_mixes.py`, `tests/test_find_duplicate_mixes.py`):
+  - **Two-Tier Hashing (`compute_partial_hash` + `compute_hash`)**: Added a fast 128 KB head+tail partial hash pre-filter before running full-file SHA-256 on multi-gigabyte FLAC/WAV mixes, plus non-interactive EOF protection (`safe_input`).
   - **Deterministic Original Selection**: Hardened duplicate detection with canonical path and timestamp sorting (`len(basename)`, `mtime`), ensuring clean canonical track filenames (e.g. `Mix_042.flac`) are consistently preserved as original rather than copy artifacts (`Mix_042_copy.flac`), independent of filesystem traversal order.
-  - **Comprehensive Unit Tests**: Created `tests/test_find_duplicate_mixes.py` with 7 test cases covering format size conversion, episode regex extraction, chunked SHA-256 fingerprinting, exact/multi-render detection, quarantine handling with collision-safe naming, and interactive deletion confirmation.
+  - **Comprehensive Unit Tests**: Created `tests/test_find_duplicate_mixes.py` with 8 test cases covering format size conversion, episode regex extraction, partial & full SHA-256 fingerprinting, exact/multi-render detection, quarantine handling with collision-safe naming, and interactive deletion confirmation.
   - **Synchronized Scripts**: Verified 100% synchronization and clean compilation between root and `scripts/` directories.
 
 - **Menu Option Search by Pressing `/` in MP Mix Archive Manager** (`Mix_Archive_Manager.sh`, `tests/test_music_folders_presentation.py`):

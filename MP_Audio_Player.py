@@ -2232,6 +2232,62 @@ def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL
     return False
 
 
+def launch_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "",
+                         theme: Optional[str] = None, style: Optional[str] = None) -> bool:
+    """Spawns an interactive MP Audio Player instance in a dedicated new terminal window."""
+    script_path = str(Path(__file__).resolve())
+    py_exe = sys.executable or "python3"
+    title = "MP Audio Player"
+    cmd_args = [py_exe, script_path, "--interactive"]
+    if mode == "MUSIC":
+        cmd_args.append("--music-mode")
+        if folder_name and folder_name != "ALL":
+            cmd_args.extend(["--music-folder", str(folder_name)])
+        if playlist_path:
+            cmd_args.extend(["--playlist", str(playlist_path)])
+    if theme:
+        cmd_args.extend(["--theme", str(theme)])
+    if style:
+        cmd_args.extend(["--style", str(style)])
+
+    if sys.platform.startswith(("linux", "freebsd")):
+        if shutil.which("konsole"):
+            k_cmd = ["konsole", "--separate", "--workdir", str(Path.cwd()),
+                     "--qwindowtitle", title, "-p", f"tabtitle={title}", "-e"] + cmd_args
+            if _run_bg(k_cmd):
+                return True
+
+        for term, targs in [
+            ("xdg-terminal-exec", cmd_args),
+            ("gnome-terminal", [f"--title={title}", "--"] + cmd_args),
+            ("xfce4-terminal", [f"--title={title}", "-e", " ".join(f'"{a}"' for a in cmd_args)]),
+            ("alacritty", ["--title", title, "-e"] + cmd_args),
+            ("foot", ["-T", title] + cmd_args),
+            ("xterm", ["-title", title, "-e"] + cmd_args),
+        ]:
+            if shutil.which(term) and _run_bg([term] + targs if isinstance(targs, list) else [term, targs]):
+                return True
+
+    elif sys.platform == "darwin":
+        c_str = " ".join(f'\\"{a}\\"' for a in cmd_args)
+        apple_sc = f'tell application "Terminal" to do script "{c_str}"'
+        if _run_bg(["osascript", "-e", apple_sc]):
+            return True
+
+    elif sys.platform == "win32":
+        if shutil.which("wt.exe"):
+            if _run_bg(["wt.exe", "-w", "new", "--title", title, "-p", "Command Prompt"] + cmd_args):
+                return True
+        c_str = " ".join(f'"{a}"' for a in cmd_args)
+        try:
+            subprocess.Popen(f'start "{title}" {c_str}', shell=True)
+            return True
+        except Exception:
+            pass
+
+    return False
+
+
 class TerminalPlayerUI:
     def __init__(self, engine: Optional[AudioEngine], scanner: Union[MixArchiveScanner, MusicFolderPlaylistScanner], is_remote: bool = False,
                  default_style: Optional[str] = None, default_theme: Optional[str] = None,
@@ -3083,6 +3139,8 @@ def main():
     parser.add_argument("--mini", action="store_true", help="Launch in compact MP Mini Audio Player mode")
     parser.add_argument("--micro", action="store_true", help="Launch in ultra-compact MP Micro Audio Player mode")
     parser.add_argument("--spek", "--generate-spek", "-g", action="store_true", help="Generate 1080p spectrogram (Spek) for active or target audio track/mix and store locally")
+    parser.add_argument("--new-window", "--window", "-w", action="store_true", help="Launch interactive MP Audio Player in a new dedicated window")
+    parser.add_argument("--only-if-running", action="store_true", help="Only perform toggle/action if player daemon is currently running")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -3186,6 +3244,11 @@ def main():
             print(f"✖ Spek generation failed: {res}", file=sys.stderr)
             sys.exit(1)
 
+    if args.new_window:
+        ok = launch_player_window(mode=current_mode, folder_name=folder_target, playlist_path=args.playlist,
+                                  theme=args.theme, style=args.style)
+        sys.exit(0 if ok else 1)
+
     if args.cmd:
         res = send_ipc_command(args.cmd)
         if res: print(json.dumps(res)); sys.exit(0)
@@ -3200,6 +3263,7 @@ def main():
 
     if args.toggle:
         if daemon_running: sys.exit(0 if send_ipc_command("toggle") else 1)
+        if args.only_if_running: sys.exit(0)
         latest = MixArchiveScanner(base_dir).get_latest_mix()
         if latest: _spawn_player_daemon(latest["path"])
         sys.exit(0)

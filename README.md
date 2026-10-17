@@ -2,35 +2,37 @@
 
 > 📅 **Last Updated:** October 17, 2026 • **Latest Release:** `v0.3.6 Beta`
 
-[![Last Updated](https://img.shields.io/badge/Last%20Updated-October%209%2C%202026-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.3.5%20Stable-f72585.svg)](VERSION)
+[![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2017%2C%202026-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-0.3.6%20Beta-f72585.svg)](VERSION)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-00e5ff.svg)](README.md)
 [![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20%7C%20Apple%20Silicon%20M1--M4%20%26%20Intel-silver.svg)]()
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011%20%7C%20Git%20Bash%20%7C%20WSL2-0078D6.svg)]()
 [![FreeBSD](https://img.shields.io/badge/FreeBSD-14.x%20%7C%2015--CURRENT%20%7C%20Ports%20%26%20Pkg-red.svg)]()
 [![Shell](https://img.shields.io/badge/Language-Bash%205.x%20%7C%20Python%203.10%2B%20%7C%20PowerShell-ff8c00.svg)]()
 [![Audio](https://img.shields.io/badge/Audio-32bit%20Lossless%20FLAC%20%7C%20EBU%20R128-00ff66.svg)]()
-[![Player](https://img.shields.io/badge/MP%20Audio%20Player-Terminal%20Audio%20Visualizer-bd93f9.svg)](MP_Audio_Player.py)
+[![Player](https://img.shields.io/badge/MP%20Audio%20Player-Mini%20%26%20Micro%20Modes%20%7C%2031K%2B%20SMB%20Tracks-bd93f9.svg)](MP_Audio_Player.py)
 [![Web Companion](https://img.shields.io/badge/Web%20Companion-DJ%20Booth%20Remote%20%3A8888-ff007f.svg)](mix_web_companion.py)
-[![AI Suite](https://img.shields.io/badge/AI%20Suite-Harmony%20%7C%20Ollama%20%7C%20OpenWebUI%20%7C%20WAN2GP-9b59b6.svg)](scripts/manage_harmony_agent.sh)
+[![AI Suite](https://img.shields.io/badge/AI%20Suite-Harmony%20%7C%20Matrix%20XTTS--v2%20%7C%20Infinite%20Talker%20%7C%20WAN2GP-9b59b6.svg)](scripts/manage_harmony_agent.sh)
+[![MP Reporter](https://img.shields.io/badge/MP%20Reporter-Daily%2FWeekly%2FMonthly%2FYearly%20%2B%20AI%20Brain%20Logs-00e5ff.svg)](mp_report_generator.py)
 [![Alarm Clock](https://img.shields.io/badge/Alarm%20Clock-Steam%20%26%20FLAC%20Mix%20(Linux)-FF5722.svg)](mplanetarians-alarm-clock/README.md)
-[![Congen](https://img.shields.io/badge/Congen-KDE%20Connect%20Remote%20Control-1D99F3.svg)](Congen/README.md)
+[![Congen](https://img.shields.io/badge/Congen%20v1.1-KDE%20Connect%2018--Theme%20Workstation%20Bridge-1D99F3.svg)](Congen/README.md)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-An enterprise-grade workstation orchestration console and media management suite designed for high-resolution audio production, multi-hour DJ mix archiving, automated 32-bit FLAC mastering, Traktor Pro playlist extraction, live tracklist tracking, YouTube video synthesis, system maintenance, and AI workflow control across **Linux (Bazzite / SteamOS / Fedora / Ubuntu)**, **macOS (Latest Sequoia / Sonoma, Apple Silicon M1–M4 & Intel)**, **Microsoft Windows 10 & 11**, and **FreeBSD (14.x / 15-CURRENT)**.
+An enterprise-grade workstation orchestration console and media management suite designed for high-resolution audio production, multi-hour DJ mix archiving, automated 32-bit FLAC mastering, 31,000+ track SMB network streaming, Traktor Pro playlist extraction, live tracklist tracking, YouTube & AI Talking-Head video synthesis, automated multi-period intelligence reporting, system maintenance, and AI workflow control across **Linux (Bazzite / SteamOS / Fedora / Ubuntu)**, **macOS (Latest Sequoia / Sonoma, Apple Silicon M1–M4 & Intel)**, **Microsoft Windows 10 & 11**, and **FreeBSD (14.x / 15-CURRENT)**.
 
 ---
 
 ## 📑 Table of Contents
 
-- [🔥 What's New & Highlighted Features in v0.3.5](#-whats-new--highlighted-features-in-v035)
+- [🚀 New Features Added in the Last 3 Days (October 14–17, 2026)](#-new-features-added-in-the-last-3-days-october-1417-2026)
+- [🔥 Core v0.3.5 / v0.3.6 Architecture Highlights](#-core-v035--v036-architecture-highlights)
 - [🌌 MPlanetarian Dreamworlds & TUI Navigation](#-spotlight-mplanetarian-dreamworlds--tui-navigation)
 - [🎧 MP Audio Player (Terminal Audio Suite)](#-spotlight-mp-audio-player-terminal-audio-suite)
 - [📱 DJ Booth & Studio Mobile Web Companion](#-spotlight-dj-booth--studio-mobile-web-companion)
 - [🎬 YouTube Shorts 1080x1920 Promotional Video Generator](#-spotlight-youtube-shorts-1080x1920-promotional-video-generator)
 - [🎥 Screencast YouTube Video Generator with NVENC & Image Transitions](#-spotlight-screencast-youtube-video-generator-with-nvenc--image-transitions)
 - [🤖 Next-Gen AI Orchestration Suite](#-spotlight-next-gen-ai-orchestration-suite)
-- [📱 Congen v1.0.0 by Dreamworlds Productions (MPlanetarian)](#-spotlight-congen-v100-by-dreamworlds-productions-mplanetarian)
+- [📱 Congen v1.1 by Dreamworlds Productions (MPlanetarian)](#-spotlight-congen-v100-by-dreamworlds-productions-mplanetarian)
 - [✂️ Auto-Split DJ Mixes & Multi-Part Spek Spectrograms](#️-spotlight-auto-split-dj-mixes--multi-part-spek-spectrograms)
 - [⏰ MPlanetarians Alarm Clock (Wake Up Edition)](#-spotlight-mplanetarians-alarm-clock-wake-up-edition)
 - [⚡ Traktor History Harmonic Playlist & Stage Setup](#-spotlight-traktor-history-harmonic-playlist--stage-setup)
@@ -39,7 +41,7 @@ An enterprise-grade workstation orchestration console and media management suite
 - [🖥️ KDE Plasma Desktop Shortcuts & Global Keyboard Binder](#️-spotlight-kde-plasma-desktop-shortcuts--global-keyboard-binder)
 - [📢 Unified Multi-Channel Notification Dispatcher](#-spotlight-unified-multi-channel-notification-dispatcher)
 - [🚀 Quick Start by Operating System](#-quick-start-by-operating-system)
-- [🎛️ Master Feature Matrix (3 Sections, Options 0–35)](#️-master-feature-matrix-3-sections-options-035)
+- [🎛️ Master Feature Matrix (3 Sections, Options 0–36)](#️-master-feature-matrix-3-sections-options-035)
 - [💻 Command Line Interface & Direct Shortcuts](#-command-line-interface--direct-shortcuts)
 - [📂 Repository & Codebase Layout](#-repository--codebase-layout)
 - [⚙️ Configuration Guide (`config.env`)](#️-configuration-guide-configenv)
@@ -48,19 +50,38 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ---
 
-## 🔥 What's New & Highlighted Features in v0.3.5
+## 🚀 New Features Added in the Last 3 Days (October 14–17, 2026)
 
 > [!IMPORTANT]
-> **Release Highlights (`v0.3.5 Stable`):** This milestone release unifies mobile device remote orchestration, hardware-accelerated screencast video rendering, voice-driven AI autonomy, multi-archive origin-aware audio mastering, and terminal audio player rendering polish.
+> **72-Hour Velocity Sprint (`v0.3.6 Beta` — Oct 14–17, 2026):** Over the last 3 days, MP Mix Manager received major upgrades across **MP Audio Player**, **SMB Network Track Streaming**, **Zero-Fork Low-Spec Bash Optimization**, **Matrix & Stephen Hawking AI Voice Cloning**, **WAN2GP Infinite Talker AI Video**, and the **MP Reporter Intelligence & Email Suite**.
+
+| Feature Area | Component | New Capabilities Added (Oct 14–17, 2026) |
+| :--- | :--- | :--- |
+| **🪟 MP Mini & Micro Player** | **[MP Audio Player (`M` Key)](MP_Audio_Player.py)** | Press **`M`** in `MP_Audio_Player.py` to launch an independent compact transparent console window with **dynamic quasi-periodic color gradients** shifting via irrational phase modulation (`OSC 11`), real-time mini equalizer, volume/pitch controls, and full track metadata without the playlist. Press **`M`** again inside Mini Mode to toggle the ultra-compact hidden **MICRO Mode**. Mute moved to **`u` / `U`**, plus a new **Old Style Unix Terminal Retro Mode (White on Black)** theme. |
+| **📊 In-Player Spek Generator** | **[Local Spek in Player (`G` Key)](MP_Audio_Player.py)** | Press **`G`** during playback, playlist browsing, or inside the **`[I]` Track Inspector HUD** to asynchronously generate and save a local **1080p logarithmic Spek spectrogram** (`.png`) for any playing/selected track or mix directly into `SPEK_OUTPUTS`. |
+| **🌐 SMB DJ Music Streaming** | **[Option 1: MUSIC Folders Mode](MP_Audio_Player.py)** | Streams **31,271+ DJ tracks** from remote SMB network shares (`/MUSIC001` & `/MUSIC002` at `192.168.1.138`) with `rclone` VFS full caching (`--vfs-cache-mode full`), pre-cached `.m3u8` playlists, asynchronous background **Track Duration (`00:00`)** column in the playlist browser, and the modal **Track Audio Inspector HUD (`I` key)** displaying codec, sample rate, volume/pitch, output engine, and SMB path. |
+| **✨ Equalizers & Cosmic Theme** | **[Stardust Chroma & Cosmic Supernova](themes/Cosmic_Supernova_MP_Mix_Manager.theme)** | Added the **Stardust Chroma** equalizer (ultra-thin vertical bars with falling cosmic dust particle physics), **Neon Chroma Prism** EQ visualizer, and the **Cosmic Supernova [Special Edition]** 24-bit TrueColor theme across `Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `Congen`, `mix_web_companion.py`, and `btop`. |
+| **🎧 Bluetooth Auto-Routing** | **[Live Sink Switcher (`[a]` Key)](monitor_bluetooth_audio.py)** | Real-time `pactl subscribe` event listener + 1.2s heartbeat monitor for Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose). Auto-switches the default PipeWire/PulseAudio sink and live-migrates active audio streams (`pactl move-sink-input`) while respecting manual sink overrides. |
+| **🔍 Interactive `/` Menu Search** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh)** | Press **`/`** on the Main Page or any submenu to filter menu options in real time by number, title, or description (`_find_menu_search_match`). Navigate matches with `↑`/`↓`, press `Enter` to launch, or `Esc` to clear. |
+| **⚡ Zero-Fork Low-Spec Engine** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh) & [.probe_mgr.sh](.probe_mgr.sh)** | Massive performance rewrite for slow/low-spec hardware: reduced `Mix_Archive_Manager.sh` from 13,572 → **1,978 lines** (-85%) and `.probe_mgr.sh` from 14,583 → **264 lines** (-98% line count) by eliminating subshell forks (`$(...)`), external `awk`/`sed`/`grep`/`wc` calls, and redundant DOM/IPC overhead across `Make_SOF_FLAC_CONVERSION.sh`, `convert_audio_format.sh`, `traktor_monitor.py`, and `align_mix_windows.py` (KDE KWin DBus + X11 fallback). |
+| **📊 MP Reporter & AI Brain Logs** | **[Option 27: MP Reporter Suite](mp_report_generator.py)** | Automated **Daily, Weekly, Monthly, and Yearly** intelligence reports (`mp_report_generator.py`, `mp_scheduled_reporter.sh`, `manage_mp_reporter.sh`) with consolidated PDF/HTML rendering, `REPORTS/{DAILY,WEEKLY,MONTHLY,YEARLY}` hierarchy, interactive 12-month calendar dashboard, **Daily AI Brain Logs reporter** (scanning Gemini, Grok & local models), **Stephen Hawking AI Voice TTS audio briefings**, and automated **SMTP daily email delivery** (`mp_email_manager.sh`). |
+| **🕶️ Matrix & Hawking Voice Lab** | **[Ollama & WAN2GP Voice Suite](scripts/wan2gp_tts_batch.py)** | Expanded local XTTS-v2 neural voice cloning and Edge-TTS with **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)**, plus automatic voice chat recording to the **MP Harmony Agent Audio Speech Archive**. |
+| **🎬 WAN2GP Infinite Talker & Monitors** | **[Infinite Talker & Output Monitors](scripts/wan2gp.sh)** | Integrated **WAN2GP Infinite Talker** in Option 33 and MP Reporter to generate talking-head AI videos (including Stephen Hawking video briefings) with custom duration and auto-venv detection; added **WAN2GP Video Output Monitor (`--wan2gp-monitor`)**, **Audio/Video File Output Monitor (`--audio-monitor`)**, and one-click WAN2GP upstream Git updater. |
+| **🦙 Ollama 32K CUDA & Open WebUI** | **[manage_ollama.sh](scripts/manage_ollama.sh)** | Optimized Ollama local LLMs with a **32K context window** (`num_ctx 32768`), CUDA flash-attention tuning, automatic GPU VRAM unloading, **Open WebUI v0.12.2** support, and interactive **DSH Mobile Token Manager** (`dsh_mobile.sh`). |
+| **📱 Congen v1.1 & Deduplicator** | **[Congen v1.1](Congen/Congen) & [find_duplicate_mixes.py](find_duplicate_mixes.py)** | Upgraded **Congen to v1.1** with an expanded **18-theme palette** (adding Old Style Unix Terminal Retro, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald) and workstation bridge; refactored `find_duplicate_mixes.py` for deterministic O(1) partial-hash pre-filtering and safe non-interactive execution. |
+
+---
+
+## 🔥 Core v0.3.5 / v0.3.6 Architecture Highlights
 
 | Feature Area | Component | Highlights & Capability Summary |
 | :--- | :--- | :--- |
-| **📱 Mobile Remote Suite** | **[Congen v1.0.0](Congen/README.md)** | Full-featured KDE Connect interactive CLI manager with **11 menus**, **12 TrueColor palettes**, desktop shortcut runner/binder (`kioclient` & `kwriteconfig6`), algorithmic 2-tone synthetic chime sound daemon (`.congen_alert.wav`), multi-format manual generator (Plain Text, dark HTML5, PDF fallback cascade), mobile keyboard simulation (Wayland/X11), and 30+ bundled `.congen` profiles with multi-device deduplication. |
-| **🎥 YouTube Video Suite** | **[Screencast NVENC Generator](scripts/generate_screencast_youtube_video.py)** | Generates 1080p/4K YouTube videos with NVIDIA NVENC hardware acceleration (`h264_nvenc`), 5-second intro/outro fade effects, periodic 5-second image transition cycles every 5 minutes (cycling artwork), 320kbps looped studio AAC audio, and uniform 90000 timescale stream architecture. |
-| **🗣️ AI Video & Audio** | **[WAN2GP TTS Batch Suite](scripts/wan2gp_tts_batch.py)** | Integrated Text-to-Speech batch converter transforming `.txt` scripts into uncompressed `.wav` audio using British/international Neural (Edge-TTS) and offline (eSpeak-NG) voices, accompanying Flux Klein 9B and LTX Video 2B/13B video generators. |
-| **🎙️ AI Voice Autonomy** | **[MP Harmony AI Voice Agent](scripts/manage_harmony_agent.sh)** | Autonomous engineering agent running on port 11435 with background setsid detachment, zero-lag port readiness wait, model tag sanitization, and interactive **Voice Chat CLIs** (`local-voice-talk` for MP Harmony Bridge and local Ollama models with Matrix cast cloning). |
+| **📱 Mobile Remote Suite** | **[Congen v1.1](Congen/README.md)** | Full-featured KDE Connect interactive CLI manager with **11 menus**, **18 TrueColor palettes**, desktop shortcut runner/binder (`kioclient` & `kwriteconfig6`), algorithmic 2-tone synthetic chime sound daemon (`.congen_alert.wav`), multi-format manual generator (Plain Text, dark HTML5, PDF fallback cascade), mobile keyboard simulation (Wayland/X11), and 30+ bundled `.congen` profiles with multi-device deduplication. |
+| **🎥 YouTube Video Suite** | **[Screencast NVENC Generator](scripts/generate_screencast_youtube_video.py)** | Generates 1080p/4K YouTube videos with NVIDIA NVENC hardware acceleration (`h264_nvenc`), 5-second intro/outro fade effects, periodic 5-second image transition cycles every 5 minutes (cycling artwork), source-matched or 320kbps looped studio AAC audio, and uniform 90000 timescale stream architecture. |
+| **🗣️ AI Video & Audio** | **[WAN2GP TTS & Infinite Talker](scripts/wan2gp_tts_batch.py)** | Integrated Text-to-Speech batch converter and XTTS-v2 voice cloner transforming `.txt` scripts into uncompressed `.wav` audio and **Infinite Talker** talking-head AI videos alongside Flux Klein 9B and LTX Video 2B/13B video generators. |
+| **🎙️ AI Voice Autonomy** | **[MP Harmony AI Voice Agent](scripts/manage_harmony_agent.sh)** | Autonomous engineering agent running on port 11435 with background setsid detachment, zero-lag port readiness wait, model tag sanitization, automatic speech archiving, and interactive **Voice Chat CLIs** (`local-voice-talk` for MP Harmony Bridge and local Ollama models with Matrix & Stephen Hawking voice cloning). |
 | **🎛️ Audio Mastering & Storage** | **Multi-Archive Routing** | Ingest and batch-convert across multiple physical drives (`MIX_ARCHIVE_DIR` & `EXTRA_MIX_ARCHIVE_DIRS`), with origin-aware output routing that deposits converted FLACs and spectrograms back to their respective origin drives. |
-| **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column panoramic layout, widened tracklist & banner boxes aligned flush to the DJ pitch window, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files via native GUI dialog or CLI. |
+| **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column panoramic layout, **MP Mini & Micro Modes (`M` key)**, **In-Player Spek Generator (`G` key)**, **Track Audio Inspector HUD (`I` key)**, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files. |
 | **📱 Social Media Outreach** | **[YouTube Shorts Generator](generate_youtube_short_promo.py)** | 1080x1920 60fps vertical promo videos with animated waveform overlays for TikTok, Instagram Reels, and YouTube Shorts. |
 | **📑 Master Tracklists** | **HTML Auto-Open & Paths** | Generates master tracklists with rich file path metadata and auto-opens in default web browser. |
 
@@ -69,61 +90,68 @@ An enterprise-grade workstation orchestration console and media management suite
 ## 🌌 Spotlight: MPlanetarian Dreamworlds & TUI Navigation
 
 > [!IMPORTANT]
-> **Experience the new default aesthetic and seamless keyboard control!** MP Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a modern **interactive TUI menu system** with arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
+> **Experience the default aesthetic, Cosmic Supernova Special Edition, and instant `/` search navigation!** MP Mix Archive Manager defaults to the **MPlanetarian Dreamworlds** theme — inspired by the iconic KDE Plasma Sweet / Nice neon aesthetic (sweet hot pink `#f72585`, electric coral `#ed254e`, vibrant orange `#ff7200`, electric cyan `#00e5ff`, and neon violet `#bd93f9`). It features a modern **zero-fork interactive TUI menu system** with real-time **`/` search filtering**, arrow-key navigation, instant Enter selection, and single-key `Esc` returns across all menus.
 
 ```mermaid
 flowchart TD
-    A["🌈 MPlanetarian Dreamworlds [Default]"] --> C["⌨️ Interactive TUI Navigation (↑/↓ Arrows, Enter, Esc)"]
+    A["🌈 MPlanetarian Dreamworlds & Cosmic Supernova"] --> C["⌨️ Interactive TUI Navigation (↑/↓ Arrows, /, Enter, Esc)"]
     A --> D["🔊 Audio Chime Feedback on Theme Switch & Storage Config"]
-    C --> E["⚡ Sub-20ms Menu Redraw Latency (TTL Telemetry Caching)"]
-    C --> F["🚀 Instant Return: Press Esc in Any Submenu to Return to Previous Screen"]
+    C --> E["⚡ Sub-20ms Zero-Fork Menu Redraws (Pure Bash Built-Ins)"]
+    C --> F["🔍 Live '/' Menu Search Filtering Across Main & Submenus"]
 ```
 
-### 🎨 Dreamworlds & TUI Features:
-- 🌈 **MPlanetarian Dreamworlds Palette**: Hand-crafted 24-bit TrueColor RGB scheme matching KDE Plasma Sweet / Nice themes.
-- ⚡ **Sub-20ms Redraw Latency**: Slashed main menu redraw latency from ~1.7s down to **<20ms** via intelligent TTL caching for audio sinks, telemetry, alarm states, and planetary ephemeris.
+### 🎨 Dreamworlds, Cosmic Supernova & Zero-Fork TUI Features:
+- 🌈 **MPlanetarian Dreamworlds & Cosmic Supernova Palettes**: Hand-crafted 24-bit TrueColor RGB schemes matching KDE Plasma Sweet / Nice themes, plus the **Cosmic Supernova [Special Edition]** interstellar palette and **Old Style Unix Terminal Retro Mode (White on Black)**.
+- 🔍 **Interactive `/` Menu Option Search Filtering**: Press `/` on the Main Page or any submenu to filter options in real time as you type (matching option number, title, or description via `_find_menu_search_match`), cycle matches with `Up`/`Down` arrows, press `Enter` to execute, or press `Esc` to clear the filter.
+- ⚡ **Zero-Fork Bash Architecture & Sub-20ms Redraws**: Engineered for maximum responsiveness even on ultra-slow systems — `Mix_Archive_Manager.sh` and `.probe_mgr.sh` use pure Bash parameter expansion, in-memory caching, and zero external subshell forks during rendering.
 - ⌨️ **Interactive Arrow-Key Navigation**: Navigate effortlessly using `Up` and `Down` arrow keys, jump with `Home` and `End`, type numbers or letters to quick-search, press `Enter` to select, and press `Esc` to instantly return to the previous screen.
-- 🔊 **System Sound Feedback**: Plays soothing system audio chimes via PipeWire / ALSA when switching to Dreamworlds or Cosmic Supernova, or when configuring mix archive storage locations.
-- 🎭 **13 Built-in Themes**: Dreamworlds (Default), Dreamworlds Ultra (BTOP HotPurpleTrafficLight), Cosmic Supernova (Interstellar 24-bit TrueColor Celestial Special Edition with companion BTOP theme & Equalizer visualizer gradient), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI.
+- 🔊 **System Sound Feedback**: Plays soothing system audio chimes via PipeWire / ALSA when switching themes or configuring mix archive storage locations.
+- 🎭 **14+ Built-in Themes**: Dreamworlds (Default), Dreamworlds Ultra (BTOP HotPurpleTrafficLight), Cosmic Supernova [Special Edition], Old Style Unix Terminal Retro (White on Black), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI (synchronized with `mix_web_companion.py` and `Congen` v1.1's 18-theme selector).
 
 ---
 
 ## 🎧 Spotlight: MP Audio Player (Terminal Audio Suite)
 
 > [!TIP]
-> **Built-in Audio Playback with Real-Time Spectrum Visualization & DJ Mode!** Launchable directly via **Option 1** (NEW: Advanced MUSIC Mode for SMB music folders) or **Option 12** (Mix Archive Mode), or `mix-archive-manager p`, **MP Audio Player** (`MP_Audio_Player.py`) is an in-terminal high-resolution music player engineered for seamless playback of 32-bit, 24-bit, and 16-bit FLAC, WAV, MP3, OGG, and AAC tracks.
+> **Built-in Audio Playback with Mini/Micro Modes, Local Spek Generation, 31K+ SMB Track Streaming & DJ Mode!** Launchable directly via **Option 1** (Advanced MUSIC Mode for SMB music folders `/MUSIC001` & `/MUSIC002`) or **Option 12** (Mix Archive Mode), or `mix-archive-manager p`, **MP Audio Player** (`MP_Audio_Player.py`) is an in-terminal high-resolution music player engineered for seamless playback of 32-bit, 24-bit, and 16-bit FLAC, WAV, MP3, OGG, and AAC tracks.
 
 ```mermaid
 flowchart LR
-    A["🎵 High-Res Audio Archive & SMB MUSIC Folders"] --> B["🎛️ MP Audio Player (Option 1 & 12)"]
-    B --> C["📊 Real-Time Animated Spectrum Visualizer & Stereo Meters"]
-    B --> D["🎚️ DJ Pitch Control (-20% to +20% Fader Window)"]
-    B --> E["📜 Live Tracklist Window (Press T / --tracklist)"]
-    B --> F["💾 Export Playlist (.m3u Only via E / --export-playlist)"]
-    B --> G["📱 MPRIS / Metadata Broadcast for Remote Daemons"]
-    B --> H["🎧 5 Advanced DJ Features (Hot Cues, BPM Tap, Camelot, Drops, Tag HUD)"]
+    A["🎵 High-Res Audio Archive & 31K+ SMB MUSIC Folders"] --> B["🎛️ MP Audio Player (Option 1 & 12)"]
+    B --> C["🪟 MP Mini & Micro Modes (Press M) with OSC 11 Dynamic Gradients"]
+    B --> D["📊 Stardust Chroma & Neon Chroma Prism Equalizers"]
+    B --> E["🔍 Track Audio Inspector HUD (Press I) & Local Spek Generator (Press G)"]
+    B --> F["📜 Live Tracklist Window (Press T) & .m3u Exporter (Press E)"]
+    B --> G["🎧 Bluetooth Auto-Routing (Press a) & DJ Pitch Fader (-20% to +20%)"]
 ```
 
 ### 🎛️ Audio Player Highlights:
-- 🌌 **DREAMWORLDS ULTRA AUDIO MODE**: High-resolution studio playback console with real-time audio telemetry, bit-depth/sample-rate metrics, stereo level meters, and dedicated DJ pitch fader window.
-- 📐 **Full-Width 118-Column Panoramic Grid**: The top Banner box and the central **MP MIX ARCHIVE PLAYLIST** box are widened dynamically to 117 characters (inner width 115) aligning flush with the right boundary of the DJ Pitch Window (column 118) for a seamless console visualizer layout.
-- 📜 **Instant Tracklist Viewer (`T` / `t` / `--tracklist`)**: Press `T` during playback or browsing to automatically locate and launch the matching mix tracklist (`.txt`) in a dedicated borderless console window (`scripts/view_tracklist_console.sh` with Konsole/Alacritty/Kitty/XFCE/xterm support).
-- 💾 **Universal Playlist Exporter (`E` / `w` / `--export-playlist`)**: Export the entire 1,000+ mix archive playlist to any directory strictly as a standard `.m3u` file (`#EXTM3U` format with `#EXTINF` track descriptions). Seamlessly launches native KDE `kdialog` or GNOME `zenity` file-save dialogs, with automatic terminal prompt and CLI fallbacks.
-- 🎧 **Intelligent Bluetooth Audio Auto-Routing**: Automatically detects connected Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose) in real-time via event subscription (`pactl subscribe`) with a 1.2s polling fallback heartbeat. Instantly switches system default output (`wpctl set-default` / `pactl set-default-sink`) and migrates the active MP Audio Player stream live (`pactl move-sink-input`) without interrupting playback. Gracefully reverts to primary speakers/HDMI when headphones disconnect. Press `[a]` to inspect or force route Bluetooth audio anytime.
-- 🎚️ **DJ Pitch & Tempo Engine**: Real-time tempo adjustment from -20% to +20% via `[` / `]` with single-key reset via `\` and instant live visualizer pitch fader readout.
-- 📊 **Animated TrueColor Spectrum Visualizer**: Dynamic multi-band frequency visualizer and stereo level meters rendered live inside your terminal using Dreamworlds TrueColor gradients.
+- 🪟 **MP Mini Audio Player Mode (`M` Key) & Hidden MICRO Mode**: Press **`M`** to launch an independent compact transparent console window featuring **dynamic quasi-periodic color gradients** shifting smoothly via irrational phase modulation (`OSC 11`), a real-time mini equalizer, volume/pitch controls, and complete track metadata without the playlist. Press **`M`** again inside Mini Mode to toggle the ultra-compact **MICRO Mode**.
+- 📊 **Local 1080p Spek Spectrogram Generator (`G` / `g` Key)**: Press **`G`** at any time during playback, browsing, or inside the Track Inspector HUD to generate a high-resolution 1920x1080 logarithmic Spek spectrogram (`.png`) for the currently selected or playing track/mix, saved directly to `SPEK_OUTPUTS`.
+- 🔍 **Track Audio Inspector HUD (`I` / `i` Key)**: Opens a centered modal telemetry overlay inspecting active track format/codec, sample rate, bit depth, channels, file size, live volume & DJ pitch state, hardware audio output engine, and full SMB network or local disk path.
+- 🌐 **SMB Network MUSIC Folders Streaming (Option 1)**: Connects to `/MUSIC001` and `/MUSIC002` SMB shares (`192.168.1.138`, **31,271+ tracks**) using `rclone` VFS full caching (`--vfs-cache-mode full`), pre-cached `.m3u8` playlists, and an asynchronous background **Track Duration (`00:00`)** column in the playlist browser.
+- ✨ **Stardust Chroma & Neon Chroma Prism Equalizers (`e` Key)**: Includes the **Stardust Chroma** visualizer (thin vertical bars with falling dust particle physics), **Neon Chroma Prism**, Cosmic Supernova gradients, Stereo, Mirror, Fire, Rainbow, and Waves.
+- 🌌 **DREAMWORLDS ULTRA AUDIO MODE & 118-Column Panoramic Grid**: High-resolution studio playback console with real-time audio telemetry, bit-depth/sample-rate metrics, stereo level meters, and dedicated DJ pitch fader window aligned flush at column 118.
+- 📜 **Instant Tracklist Viewer (`T` / `t` / `--tracklist`)**: Press `T` during playback or browsing to automatically locate and launch the matching mix tracklist (`.txt`) in a dedicated borderless console window (`scripts/view_tracklist_console.sh`).
+- 💾 **Universal Playlist Exporter (`E` / `w` / `--export-playlist`)**: Export the entire mix archive playlist to any directory strictly as a standard `.m3u` file (`#EXTM3U` format with `#EXTINF` track descriptions) via native `kdialog`/`zenity` or CLI.
+- 🎧 **Intelligent Bluetooth Audio Auto-Routing (`[a]` Key & `monitor_bluetooth_audio.py`)**: Automatically detects connected Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose) in real-time via `pactl subscribe` + 1.2s polling heartbeat. Switches default output (`wpctl`/`pactl`) and migrates active streams live (`pactl move-sink-input`) while respecting manual user sink overrides.
+- 🎚️ **DJ Pitch & Tempo Engine**: Real-time tempo adjustment from -20% to +20% via `[` / `]` (or `+` / `-`) with single-key reset via `\`.
 - ⌨️ **Unbuffered Zero-Lag Keyboard Controls**:
   - `Space`: Instant pause / play toggle.
+  - `M` / `m`: Launch **MP Mini Audio Player Mode** (press `M` again inside Mini Mode for **MICRO Mode**).
+  - `G` / `g`: Generate local 1080p **Spek spectrogram** for selected / playing track or mix.
+  - `I` / `i`: Open **Track Audio Inspector HUD** modal overlay.
+  - `/`: Interactive live playlist search filter.
   - `Left` / `Right` arrows: Precision seek backward / forward (5s / 30s).
-  - `Up` / `Down` arrows: Volume control (0%–100%).
-  - `[` / `]`: Adjust DJ pitch (-20% to +20%).
-  - `\`: Reset pitch to 0.00%.
+  - `Up` / `Down` arrows (or `v` / `V`): Volume control (0%–100%).
+  - `u` / `U`: Instant audio mute / unmute toggle.
+  - `[` / `]` (or `-` / `+`): Adjust DJ pitch (-20% to +20%); `\` resets pitch to 0.00%.
   - `a` / `A`: Route / check Bluetooth audio output status.
   - `T` / `t`: Open tracklist for currently selected or playing mix in dedicated window.
   - `E` / `w` / `W`: Export entire mix playlist to `.m3u` file.
   - `n` / `p`: Next / Previous track in mix catalog.
-  - `c` / `C`: Cycle TrueColor visualizer theme palette.
-  - `e`: Toggle EQ visualizer style (Stereo, Mirror, Fire, Rainbow, Waves, Classic, etc.).
+  - `c` / `C`: Cycle TrueColor visualizer theme palette (including Cosmic Supernova & Retro Unix White-on-Black).
+  - `e`: Toggle EQ visualizer style (Stardust Chroma, Neon Chroma Prism, Stereo, Mirror, Fire, Rainbow, Waves, Classic).
   - `F`: Open currently selected / playing mix in desktop file manager (Dolphin / Nautilus / Explorer / Finder).
   - `s` / `r`: Shuffle / Repeat mode toggles.
   - `q` / `Esc`: Return cleanly to master manager menu.
@@ -203,41 +231,58 @@ flowchart LR
 
 ---
 
-## 🤖 Spotlight: Next-Gen AI Orchestration Suite
+## 🤖 Spotlight: Next-Gen AI Orchestration, Matrix Voice Lab & Infinite Talker Suite
 
 > [!IMPORTANT]
-> **Orchestrate LLMs, Voice Chat, Video Synthesis, and System Diagnostics from One Central Hub!** Main menu **Option 32** unites local and remote artificial intelligence pipelines:
+> **Orchestrate Local LLMs, Matrix & Stephen Hawking Neural Voice Cloning, Infinite Talker AI Video Synthesis, and System Diagnostics from One Central Hub!** Main menu **Option 33** unites local and remote artificial intelligence pipelines:
 
 ```mermaid
 flowchart TD
-    A["🤖 AI Assistant & Local LLM Servers Suite (Option 32)"] --> B["🎙️ MP Harmony AI Agent (:11435)"]
-    A --> C["🌐 Open WebUI Chat Harness (:42004 / :8080)"]
-    A --> D["🦙 Ollama Server & Local Models (:11434)"]
+    A["🤖 AI Assistant & Local LLM Servers Suite (Option 33)"] --> B["🎙️ MP Harmony AI Agent (:11435)"]
+    A --> C["🌐 Open WebUI v0.12.2 Chat Harness (:42004 / :8080)"]
+    A --> D["🦙 Ollama Server & 32K CUDA Models (:11434)"]
     A --> E["📱 DeepSeek Harness Server dsh-mobile (:3080)"]
-    A --> F["🎥 WAN2GP AI Video & TTS Suite"]
+    A --> F["🎥 WAN2GP AI Video, Infinite Talker & TTS Suite"]
     A --> G["📊 Beszel Workstation & GPU Hub (:8090)"]
-    B --> B1["🗣️ Voice Chat CLI via local-voice-talk"]
-    D --> D1["⚡ NVIDIA CUDA Acceleration (Qwen 2.5, Llama 3.1)"]
-    F --> F1["🗣️ Text-to-Speech (TTS) Batch Converter (.txt -> .wav)"]
-    F --> F2["🎞️ Flux Klein 9B & LTX Video 2B/13B Batch Synthesizers"]
+    B --> B1["🗣️ Matrix & Stephen Hawking Voice Chat CLI + Speech Archive"]
+    D --> D1["⚡ 32K Context CUDA Flash-Attention & Auto VRAM Unload"]
+    F --> F1["🗣️ XTTS-v2 & Edge-TTS Voice Cloning Batch Converter"]
+    F --> F2["🎬 WAN2GP Infinite Talker (Talking-Head AI Video)"]
+    F --> F3["🎞️ Flux Klein 9B, LTX Video 2B/13B & Live Output Monitor"]
 ```
 
 ### 🧠 AI Suite Capabilities:
-- 🎙️ **MP Harmony AI Agent** (`manage_harmony_agent.sh` / Option 32.4): Autonomous engineering agent and voice bridge running on port 11435. Includes background daemon with setsid detachment, zero-lag port readiness wait, and interactive **Voice Chat CLIs** (`local-voice-talk` via Option 32.4.2 for Harmony Agent or Option 32.4.3 for local Ollama models).
-- 🌐 **Open WebUI Web Chat** (`scripts/manage_open_webui.sh` / Option 32.3): Browser-based chat interface connected to local models on port 42004 / 8080.
-- 🦙 **Ollama Server & Models** (`manage_ollama.sh` / Option 32.2): Distrobox container / host controller on port 11434 with GPU CUDA monitoring, background daemon modes, model puller (`qwen2.5`, `llama3.1`, `nemotron`), and CLI interactive chat.
-- 📱 **DeepSeek Harness (`dsh-mobile`)** (`scripts/dsh_mobile.sh` / Option 32.5): Web chat harness on port 3080 optimized for mobile devices with trusted host flags.
-- 🎥 **WAN2GP AI Video & TTS Suite** (`wan2gp.sh`, `wan2gp_tts_batch.py`, `wan2gp_flux_batch.py`, `wan2gp_ltx_batch.py`):
-  - **Text-to-Speech (TTS) Batch Suite**: Converts `.txt` scripts into uncompressed `.wav` speech audio with British and international voices (Edge-TTS Neural & eSpeak-NG offline) and interactive playback.
+- 🎙️ **MP Harmony AI Agent & Speech Archive** (`manage_harmony_agent.sh` / Option 33.4): Autonomous engineering agent and voice bridge running on port 11435. Includes background daemon with setsid detachment, zero-lag port readiness wait, automatic speech recording to the **MP Harmony Agent Audio Speech Archive**, and interactive **Voice Chat CLIs** (`local-voice-talk` for Harmony Agent or local Ollama models).
+- 🕶️ **Matrix Cast & Stephen Hawking Voice Cloning Lab**: Full neural XTTS-v2 and Edge-TTS voice synthesis featuring **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)** with authentic acoustic pacing.
+- 🎬 **WAN2GP Infinite Talker AI Video & Output Monitors** (`wan2gp.sh`, `wan2gp_tts_batch.py`, `wan2gp_flux_batch.py`, `wan2gp_ltx_batch.py`):
+  - **Infinite Talker Integration**: Generates talking-head AI videos (including Stephen Hawking talking-head video briefings) with configurable video length and automatic Python `.venv` discovery.
+  - **Live Output Monitors**: Dedicated real-time **WAN2GP Video Output Monitor (`--wan2gp-monitor`)** and **Audio/Video File Output Monitor (`--audio-monitor`)**, plus one-click WAN2GP upstream Git updating.
+  - **Text-to-Speech (TTS) Batch Suite**: Converts `.txt` scripts into uncompressed `.wav` speech audio with Matrix/Hawking/British neural voices and interactive playback.
   - **Video Batch Generators**: Flux Klein 9B and LTX Video 2B/13B generation profiles (Profiles 2 and 4.5).
-- 📊 **Beszel Server Monitoring Hub & Agent** (`beszel.sh` / Option 32.7): Real-time hardware, CPU, NVIDIA GPU, and container telemetry web dashboard on port 8090.
+- 🌐 **Open WebUI v0.12.2 Web Chat** (`scripts/manage_open_webui.sh` / Option 33.3): Browser-based chat interface connected to local models on port 42004 / 8080 with automatic version update support.
+- 🦙 **Ollama Server & 32K CUDA Models** (`manage_ollama.sh` / Option 33.2): Distrobox / host controller on port 11434 tuned for **32K context windows (`num_ctx 32768`)**, CUDA flash-attention, automatic GPU VRAM unloading, model puller (`qwen2.5`, `llama3.1`, `nemotron`), and CLI voice/text chat.
+- 📱 **DeepSeek Harness (`dsh-mobile`) & Token Manager** (`scripts/dsh_mobile.sh` / Option 33.5): Web chat harness on port 3080 optimized for mobile devices with interactive access token management.
+- 📊 **Beszel Server Monitoring Hub & Agent** (`beszel.sh` / Option 33.7): Real-time hardware, CPU, NVIDIA GPU, and container telemetry web dashboard on port 8090.
 
 ---
 
-## 📱 Spotlight: Congen v1.0.0 by Dreamworlds Productions (MPlanetarian)
+## 📊 Spotlight: MP Reporter Suite, AI Brain Logs & Automated Email Briefings
 
 > [!IMPORTANT]
-> **Control your entire Linux workstation, custom scripts, and media workflows straight from your smartphone!** Located in [Congen/](Congen/README.md) and launchable directly via `mix-archive-manager --congen` or Option 28.2, **Congen v1.0.0 by Dreamworlds Productions (MPlanetarian)** is an enterprise-grade terminal command orchestration suite and interactive CLI manager for KDE Connect (Plasma 6 & 5).
+> **Automated Daily, Weekly, Monthly, and Yearly Workstation & Mix Intelligence Reports!** Launchable via **Option 27** (`mp_report_generator.py`, `mp_scheduled_reporter.sh`, `manage_mp_reporter.sh`), the **MP Reporter Suite** aggregates mix archive statistics, task completions, AI agent activity, and system telemetry into styled HTML5 dashboards, printable PDFs, Stephen Hawking audio/video briefings, and scheduled SMTP emails.
+
+### 📈 MP Reporter Highlights:
+- 🗓️ **Multi-Period Intelligence Architecture**: Generates **Daily, Weekly, Monthly, and Yearly** reports organized cleanly into `REPORTS/{DAILY,WEEKLY,MONTHLY,YEARLY}` with backward-compatible symlinks and an interactive **12-Month Calendar Dashboard**.
+- 🧠 **Daily AI Brain Logs Reporter**: Automatically scans and summarizes activity across **Google Gemini**, **Grok**, and **local LLM models** alongside system and mix archive tasks.
+- 🗣️ **Stephen Hawking TTS Audio & Infinite Talker Video Briefings**: Synthesizes spoken audio report briefings in Stephen Hawking's signature voice and optionally renders talking-head AI video briefings via **WAN2GP Infinite Talker**.
+- 📧 **Automated SMTP Email Distribution (`mp_email_manager.sh`)**: Sends formatted daily/periodic HTML & PDF intelligence briefings directly to configured email recipients on a systemd/cron schedule.
+
+---
+
+## 📱 Spotlight: Congen v1.1 by Dreamworlds Productions (MPlanetarian)
+
+> [!IMPORTANT]
+> **Control your entire Linux workstation, custom scripts, and media workflows straight from your smartphone!** Located in [Congen/](Congen/README.md) and launchable directly via `mix-archive-manager --congen` or Option 29, **Congen v1.1 by Dreamworlds Productions (MPlanetarian)** is an enterprise-grade terminal command orchestration suite and interactive CLI manager for KDE Connect (Plasma 6 & 5).
 
 ```mermaid
 flowchart TD
@@ -246,8 +291,8 @@ flowchart TD
         iPhone["Apple iPhone / iPad\n(KDE Connect App)"]
     end
 
-    subgraph CongenEngine["⚡ Congen v1.0.0 Engine"]
-        TUI["11 Interactive Menus\n(12 TrueColor Palettes)"]
+    subgraph CongenEngine["⚡ Congen v1.1 Engine"]
+        TUI["11 Interactive Menus\n(18 TrueColor Palettes)"]
         AlertDaemon["Auditory Chime Daemon\n(.congen_alert_daemon.sh)"]
         DocGenerator["Multi-Format Manuals\n(TXT / HTML5 / PDF)"]
         SchedulerEngine["Dual-Backend Scheduler\n(at / systemd-run)"]
@@ -267,9 +312,9 @@ flowchart TD
     AlertDaemon -.->|Plays .congen_alert.wav on Trigger| DesktopTargets
 ```
 
-### 📱 Congen v1.0.0 Feature Highlights:
+### 📱 Congen v1.1 Feature Highlights:
 - 🎛️ **11 Interactive Menus**: Create commands (`[1]`), view & remove (`[2]`), direct terminal execution (`[3]`), task scheduling (`[4]`), audit logging (`[5]`), import/export management (`[6]`), multi-format documentation (`[7]`), auditory alerts (`[8]`), keyboard shortcut generator (`[9]`), desktop shortcut manager (`[10]`), and theme switcher (`[11]`).
-- 🎨 **12 TrueColor Themes**: Choose between MPlanetarian Dreamworlds (default), Dreamworlds Ultra, Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, and Classic ANSI.
+- 🎨 **18 TrueColor Themes**: Choose between MPlanetarian Dreamworlds (default), Dreamworlds Ultra, Cosmic Supernova [Special Edition], Old Style Unix Terminal Retro (White on Black), Cyberpunk, Dracula, Nord, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald, Classic ANSI, and more.
 - 🔔 **Algorithmic Chime Alert Daemon**: Background daemon (`.congen_alert_daemon.sh`) monitors remote executions and plays an algorithmic two-tone chime (`.congen_alert.wav`, 1047 Hz → 1319 Hz) generated purely via Python standard library with zero binary media dependencies.
 - 🖥️ **Desktop Shortcut Manager (`[10]`)**: Discovers `.desktop` launchers, executes immediately via `kioclient exec`, binds global hotkeys via `kwriteconfig6` into `kglobalshortcutsrc`, and schedules future launches via `at` or `systemd-run`.
 - ⌨️ **Keyboard Shortcut Generator (`[9]`)**: Translates KDE global shortcuts into standalone executable scripts using `xdotool` (X11) or `ydotool` (Wayland), registering them as remote mobile triggers.
@@ -521,13 +566,13 @@ chmod +x manager_freebsd.sh install.sh
 | # | Operation | Description & Sub-Features |
 |---|---|---|
 | **0** | **Run Any Desktop Shortcuts — Linux** | Interactive launcher and global keyboard shortcut binder for all KDE Plasma desktop applications, games, audio tools, and AI servers (`_run_desktop_shortcut_manual` & `_bind_desktop_shortcut_keyboard`). |
-| **1** | **NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player (Advanced Mode)** | High-performance DJ tracks playback engine connecting to remote SMB network shares (`/MUSIC001` and `/MUSIC002` at 192.168.1.138, 31,000+ tracks). Features rclone VFS full caching, pre-cached playlists (`DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8`), and 5 exclusive DJ features: Hot Cues (1-4, C), BPM Tap & Pitch Nudge (B, `,`, `.`), Camelot Wheel Harmonic Key Matcher (K), DJ Drop Audition (D), and Track Extended Metadata HUD (I). |
-| **2** | **Run Mix Conversion** | High-performance batch conversion (`Make_SOF_FLAC_CONVERSION.sh`): multi-archive scanning across configured storage drives, origin-aware output destination routing, sample-accurate split WAV concatenation, 32-bit FLAC encoding, cover art embedding, and Spek spectrogram generation with post-conversion splitting prompt. |
+| **1** | **NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player (Advanced Mode)** | High-performance music tracks playback engine connecting to remote SMB network shares (`/MUSIC001` and `/MUSIC002` at 192.168.1.138, 31,271+ tracks). Features `rclone` VFS full caching (`--vfs-cache-mode full`), pre-cached playlists (`DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8`), asynchronous **Track Duration (`00:00`)** column, **MP Mini & Micro Modes (`M`)**, **In-Player Spek Generator (`G`)**, and the modal **Track Audio Inspector HUD (`I`)**. |
+| **2** | **Run Mix Conversion** | High-performance zero-fork batch conversion (`Make_SOF_FLAC_CONVERSION.sh`): multi-archive scanning across configured storage drives, origin-aware output destination routing, sample-accurate split WAV concatenation, 32-bit FLAC encoding, cover art embedding, and Spek spectrogram generation with post-conversion splitting prompt. |
 | **3** | **Audio Conversion, EBU R128 Mastering & CUE Sheets** | Comprehensive audio conversion and mastering suite (`convert_audio_format.sh`): converts between FLAC, MP3, Ogg Vorbis, Opus, AAC, ALAC, and WAV bit depths (16/24/32-bit float/int); 2-pass EBU R128 loudness normalizer (`master_audio_loudness.py`); Red Book CUE sheet engine (`generate_cue_sheet.py`); mastering quality audit (`verify_audio_mastering.py`); and Vorbis tag / ReplayGain tagger (`tag_audio_metadata.py`). |
 | **4** | **Retrieve Unconverted WAVs from Archive** | Scans archive storage and quarantines/moves unconverted WAV files lacking a matching FLAC master back to the staging area (`MOVE_NOT_CONVERTED_WAVS.sh`). |
 | **5** | **Search & Import Mixes from Local Drives & SMB** | Auto-discovers local storage volumes, USB drives, and SMB network shares (`search_and_import_mixes.sh` / `import_new_mixes.sh`). Filters by mix size (>=100MB), deduplicates against archive, and copies with live progress and audit logging. |
 | **6** | **Rename a Mix and Associated Assets** | Atomically renames master FLAC files, `.txt` tracklists, and `.png` Spek spectrograms across all archive directories simultaneously. |
-| **7** | **Find & Remove Duplicate Audio Files / Mixes** | Fast chunk-content hashing and episode duplicate detector (`find_duplicate_mixes.py`); supports audit reports, quarantine to `DUPLICATES_QUARANTINE/`, or safe deletion. |
+| **7** | **Find & Remove Duplicate Audio Files / Mixes** | Deterministic two-tier O(1) partial-hash pre-filter + full SHA-256 and episode duplicate detector (`find_duplicate_mixes.py`); supports audit reports, quarantine to `DUPLICATES_QUARANTINE/`, or safe deletion. |
 | **8** | **Export / Copy Mixes to Specified Path** | Bundles and copies complete mix packages (FLAC + Covers + Tracklists TXT/HTML/PDF + Spek) or filtered assets to removable USB flash drives or external directories. |
 | **9** | **Audio Integrity, Bit-Rot Scrub & FLAC Verification** | Multi-level integrity suite (`manage_integrity_and_verification`): SHA-256 manifests (`manage_checksums.sh`), multi-threaded FLAC bitstream scanner (`Verify_FLAC_Files.sh`), FFT spectral cutoff inspector to detect fake FLACs (`verify_lossless_spectral.py`), and non-destructive background bit-rot scrub daemon with systemd user timer (`scrub_mix_archive.sh`). |
 | **10**| **Cloud & Remote Backup Suite** | Automated multi-cloud backup engine (`backup_mix_archive.sh`): rclone integration for Google Drive, iCloud Drive, Dropbox, and custom destinations with companion asset bundling and sync state badging. |
@@ -538,7 +583,7 @@ chmod +x manager_freebsd.sh install.sh
 ### ─── [ SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO ] ──
 | # | Operation | Description & Sub-Features |
 |---|---|---|
-| **12**| **Play Mix/Audio File (MP Audio Player)** | Built-in terminal audio player (`MP_Audio_Player.py`): "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column layout, widened tracklist & banner boxes aligned to the DJ pitch window, dedicated tracklist viewer (`T` / `-t`), universal playlist exporter (`E` / `-e` strictly saving as `.m3u` files), animated TrueColor spectrum visualizer, stereo level meters, DJ pitch fader (-20% to +20%), unbuffered keyboard controls, and bit-perfect lossless 32-bit/24-bit/16-bit FLAC/WAV/MP3/OGG playback. |
+| **12**| **Play Mix/Audio File (MP Audio Player)** | Built-in terminal audio player (`MP_Audio_Player.py`): "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column layout, **MP Mini & Micro Modes (`M` key)** with dynamic OSC 11 color gradients, **In-Player Spek Generator (`G` key)**, **Track Audio Inspector HUD (`I` key)**, **Stardust Chroma & Neon Chroma Prism** equalizers, Bluetooth auto-routing (`a` key), dedicated tracklist viewer (`T` / `-t`), universal playlist exporter (`E` / `-e` strictly saving as `.m3u` files), DJ pitch fader (-20% to +20%), and bit-perfect lossless 32-bit/24-bit/16-bit FLAC/WAV/MP3/OGG playback. |
 | **13**| **Tracklist Management, Scanning & Metadata Suite** | Complete metadata suite (`manage_tracklist_suite`): browse/search archive tracklists, view in borderless console, export to styled HTML and vector PDF (`generate_tracklist_docs.py`), Traktor XML history extractor (`Check_Find_Tracklists.sh`), master HTML index generator with browser auto-open (`Generate_Master_Tracklist.sh`), MusicBrainz Picard tagger, YouTube/SoundCloud chapter exporter (`export_chapters.py`), and AcoustID audio fingerprint identifier (`identify_mix_tracks.py`). |
 | **14**| **Audio Players & Retro Playback Suite** | Universal player launcher (`manage_audio_players`): cliamp retro terminal player, Audacious, VLC, Haruna, Kodi, Strawberry, foobar2000 (macOS & Windows), Winamp (Windows), Apple Music (macOS), Apple Podcasts, Audacity, and MIDI hardware device inspector. |
 | **15**| **Configure Mix Archive Storage Locations** | Interactive setup wizard for primary mix storage folder (`MIX_ARCHIVE_DIR`) and additional secondary archive drives (`EXTRA_MIX_ARCHIVE_DIRS`). |
@@ -547,7 +592,7 @@ chmod +x manager_freebsd.sh install.sh
 | **18**| **Studio Hardware, Audio Interfaces & Master Volume Control** | Studio diagnostics (`manage_studio_hardware_and_volume`): PipeWire, ALSA, PulseAudio, macOS CoreAudio, and Windows WASAPI hardware inspector (`inspect_audio_studio.sh`), USB MIDI controller mapper, and instant live master audio mute/unmute toggle (`wpctl`/`pactl`/AppleScript). |
 | **19**| **Spectrogram Generation & Audio Frequency Analysis** | Acoustic spectrogram suite (`manage_spek_generation` / `generate_spek.sh`): single-file and batch directory 1080p logarithmic Spek generation, native Spek GUI launcher, SPEK_OUTPUTS browser, Sonic Visualiser, SoX multi-colormap spectrograms, and Praat analysis. |
 | **20**| **Morning Alarm Clock & DJ Mix Playback Suite** | Morning wake-up suite (`manage_mix_scheduler` / `mplanetarians-alarm-clock/alarm.sh`): random lossless mix playback with 3-minute volume ramp, mouse motion wake detection, secondary right-monitor browser opening, 3 random Steam games for breakfast, and future mix playback scheduler (`schedule_mix_playback.py`). |
-| **21**| **YouTube Video Suite** | Video production suite (`generate_youtube_video`): encode 4K UHD, 1080p Full HD, and 720p HD videos with NVENC/VideoToolbox/libx264 acceleration; Screencast YouTube video generator with NVENC transitions and 320kbps AAC audio loop (`generate_screencast_youtube_video.py`); vertical 1080x1920 YouTube Shorts promo video generator (`generate_youtube_short_promo.py`); looping MP4-to-MP4 video generator; and full-resolution YouTube Channel and Shorts downloader (`MP_YouTube_Channel_Downloader.sh`). |
+| **21**| **YouTube Video Suite** | Video production suite (`generate_youtube_video`): encode 4K UHD, 1080p Full HD, and 720p HD videos with NVENC/VideoToolbox/libx264 acceleration and source-matched audio bitrates; Screencast YouTube video generator with NVENC transitions (`generate_screencast_youtube_video.py`); vertical 1080x1920 YouTube Shorts promo video generator (`generate_youtube_short_promo.py`); looping MP4-to-MP4 video generator; and full-resolution YouTube Channel and Shorts downloader (`MP_YouTube_Channel_Downloader.sh`). |
 | **22**| **Visual Media, Cover Art & Companion Video Suite** | Visual media hub (`manage_visual_media_suite`): NFT & Defasten video playlists, start/end video cutter (`Cut_Video.sh`), MP4 video splitter (`Split_Video_File.sh`), cover art converter & 1MB podcast byte targeter (`convert_cover_art.py`), procedural Netpbm P6 PPM gradient generator (`generate_ppm_cover.sh`), Electric Sheep screensaver, GeeXLab demo runner, and synchronized mix-video companion daemon (`sync_video_companion.sh`). |
 | **23**| **Record Video of DJ Mix using GPU Screen Recorder (Linux)** | Direct launcher (`launch_gpu_screen_recorder`): launches hardware-accelerated GPU Screen Recorder in a new desktop window (`gpu-screen-recorder-gtk` or Flatpak) and returns cleanly to the menu. |
 | **24**| **Listen to Your Top 5 Tracks Right Now (Special Option)** | Instant music discovery (`manage_top_5_tracks` / `top_5_tracks_manager.py`): unlocks and launches a curated top 5 tracks listening session. |
@@ -557,17 +602,17 @@ chmod +x manager_freebsd.sh install.sh
 ### ─── [ SECTION 3: SYSTEM, NETWORK, AI & SETTINGS ] ───────────
 | # | Operation | Description & Sub-Features |
 |---|---|---|
-| **25**| **Live Session, Stream & Transfer Monitors Suite** | Diagnostics suite (`manage_live_monitors`): real-time CLI tracklist monitor (`SOF_Live_Tracker.sh`), Traktor Live Monitor & Audio Recorder (`traktor_monitor.py`), live file transfer inspector (`transfer-monitor`), Chrome / podcast web upload monitor (`chrome_upload_monitor.py`), and running background tasks inspector. |
-| **26**| **System & Hardware Process Monitors Suite** | System telemetry (`manage_system_process_monitors`): launches `btop` with auto-applied Dreamworlds Ultra theme, `nvtop` for NVIDIA GPU clock and VRAM monitoring, and `top`. |
-| **27**| **MP Reporter Suite & Automated Reports Management** | Comprehensive automated reporting engine (`manage_mix_reports_menu`): generates Daily, Weekly, Monthly, and Yearly intelligence reports with PDF & HTML rendering, interactive 12-month calendar dashboard, Hawking AI Voice TTS briefings, and SMTP email distribution. |
+| **25**| **Live Session, Stream & Transfer Monitors Suite** | Diagnostics suite (`manage_live_monitors`): real-time CLI tracklist monitor (`SOF_Live_Tracker.sh`), Traktor Live Monitor & Audio Recorder (`traktor_monitor.py`), Audio/Video Conversion Output Monitor (`MP_Mix_Manager_Audio_File_Output_Monitor.py` / `--audio-monitor`), WAN2GP Video Output Monitor (`--wan2gp-monitor`), live file transfer inspector (`transfer-monitor`), Chrome / podcast web upload monitor (`chrome_upload_monitor.py`), and running background tasks inspector. |
+| **26**| **System & Hardware Process Monitors Suite** | System telemetry (`manage_system_process_monitors`): launches `btop` with auto-applied Dreamworlds Ultra or Cosmic Supernova theme, `nvtop` for NVIDIA GPU clock and VRAM monitoring, and `top`. |
+| **27**| **MP Reporter Suite & Automated Reports Management** | Comprehensive automated reporting engine (`manage_mix_reports_menu` / `mp_report_generator.py`): generates Daily, Weekly, Monthly, and Yearly intelligence reports in `REPORTS/{DAILY,WEEKLY,MONTHLY,YEARLY}` with PDF & HTML rendering, interactive 12-month calendar dashboard, **Daily AI Brain Logs reporter** (Gemini, Grok & local models), **Stephen Hawking AI Voice TTS & Infinite Talker video briefings**, and automated SMTP email distribution (`mp_email_manager.sh`). |
 | **28**| **Promotional Outreach, Syndication & Music Shopping** | Marketing suite (`manage_promo_and_syndication`): send rich HTML/plaintext promo emails with artwork attachments (`send_promo_email.py`), manage publishing calendar & podcast RSS feeds (`publish_calendar_scheduler.sh`), and launch parallel music store browser tabs for Beatport, Apple Music, and Bandcamp (`shop_music.sh`). |
-| **29**| **Network Services, Congen & Internet Control** | Networking suite (`manage_network_and_internet`): bulk control for SSH, Samba, and FTP; Congen v1.0.0 KDE Connect mobile remote control suite with 11 menus, 12 themes, desktop shortcut manager, chime sound daemon, and multi-device deduplication (`Congen/Congen` & [Congen/README.md](Congen/README.md)); isolated LAN-only firewall toggle (`block-internet` / `unblock-internet`); and DJ Booth Mobile Web Companion server on port 8888 (`mix_web_companion.py`). |
-| **30**| **Desktop Display Settings, Audio Routing & App Control** | Desktop manager (`manage_desktop_and_display`): switch between Plasma Wayland and X11 on Linux; open macOS / Windows Display and Sound Settings; and gracefully close external desktop applications (`close_allapps.sh`). |
+| **29**| **Network Services, Congen & Internet Control** | Networking suite (`manage_network_and_internet`): bulk control for SSH, Samba, and FTP; **Congen v1.1** KDE Connect mobile remote control suite with 11 menus, 18 themes, desktop shortcut manager, chime sound daemon, and multi-device deduplication (`Congen/Congen` & [Congen/README.md](Congen/README.md)); isolated LAN-only firewall toggle (`block-internet` / `unblock-internet`); and DJ Booth Mobile Web Companion server on port 8888 (`mix_web_companion.py`). |
+| **30**| **Desktop Display Settings, Audio Routing & App Control** | Desktop manager (`manage_desktop_and_display`): switch between Plasma Wayland and X11 on Linux; align mix windows via KDE KWin DBus / X11 (`align_mix_windows.py`); open macOS / Windows Display and Sound Settings; and gracefully close external desktop applications (`close_allapps.sh`). |
 | **31**| **Universal System Maintenance & Cleanup** | OS-tailored maintenance (`manage_system_maintenance`): Linux (`ujust clean-system`, `dnf5 clean`, systemd journal vacuum, SSD fstrim, system RAM & PageCache drop `sudo sync && drop_caches=3` with swap cycling), macOS (`brew cleanup` & `sudo purge`), Windows (`winget upgrade --all`, temp clean, TRIM), and FreeBSD (`pkg clean`/`upgrade`). |
 | **32**| **Monitor System Processes and Bash Commands with System Info** | Real-time terminal diagnostic monitor (`MP_Monitor_Bash.sh`): opens a dedicated terminal tab tracking system vitals, active CPU load, RAM usage, and Bash execution history. |
-| **33**| **AI Assistant & Local LLM Servers Suite** | Complete AI control center (`manage_ai_and_servers`): Antigravity CLI AI assistant sessions (Claude Sonnet/Opus, GPT-OSS, Gemini); Ollama local LLM server (:11434); Open WebUI web chat harness (:42004 / :8080); MP Harmony AI Agent with background daemon and Voice Chat CLI `local-voice-talk` (:11435); DeepSeek Harness mobile web server (:3080); WAN2GP AI Video & Text-to-Speech (TTS) batch suite (`wan2gp_tts_batch.py`); and Beszel server monitoring hub & agent (:8090). |
-| **34**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
-| **35**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch between 13 TrueColor terminal themes (including MPlanetarian Dreamworlds, Dreamworlds Ultra, and the new Cosmic Supernova Special Edition); manage installation paths, snapshot backups, and portable config bundle export/import (`manage_installation_config.sh`); execute interactive Bash CLI commands; automated manager updater (`update_manager.sh`); and cross-platform reboot. |
+| **33**| **AI Assistant & Local LLM Servers Suite** | Complete AI control center (`manage_ai_and_servers`): Antigravity CLI AI assistant sessions (Claude Sonnet/Opus, GPT-OSS, Gemini); Ollama local LLM server with 32K CUDA context (:11434); Open WebUI v0.12.2 web chat harness (:42004 / :8080); MP Harmony AI Agent with background daemon, Speech Archive, and Matrix/Hawking Voice Chat CLI `local-voice-talk` (:11435); DeepSeek Harness mobile web server & token manager (:3080); WAN2GP AI Video, **Infinite Talker**, & XTTS-v2/Edge-TTS batch suite (`wan2gp_tts_batch.py`); and Beszel server monitoring hub & agent (:8090). |
+| **34**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting live running kernel (`uname -r`), recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
+| **35**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch between 14+ TrueColor terminal themes (including MPlanetarian Dreamworlds, Dreamworlds Ultra, Cosmic Supernova Special Edition, and Old Style Unix Terminal Retro); manage installation paths, snapshot backups, and portable config bundle export/import (`manage_installation_config.sh`); execute interactive Bash CLI commands; automated manager updater (`update_manager.sh`); and cross-platform reboot. |
 | **36**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
 
 ---
@@ -590,29 +635,31 @@ mix-archive-manager specs             # Inspect technical audio specifications o
 mix-archive-manager top5              # Listen to Top 5 Pre-Selected Tracks
 ./mix_web_companion.sh                # Launch DJ Booth Mobile Web Companion on port 8888
 
-# Audio & Video Splitting
+# Audio & Video Splitting & Output Monitors
 mix-archive-manager --split-flac      # Launch interactive lossless FLAC audio splitter
 mix-archive-manager --split-video     # Launch interactive YouTube MP4 video splitter
 mix-archive-manager --cut-video       # Precision start/end timestamp video cutter
+mix-archive-manager --audio-monitor   # Launch live Audio/Video Conversion Output Monitor
+mix-archive-manager --wan2gp-monitor  # Launch live WAN2GP AI Video Output Monitor
 
 # Morning Alarm Clock
 mix-archive-manager --alarm           # Launch MPlanetarians Alarm Clock menu
 mix-archive-manager --alarm brief     # Display morning brief: weather, hardware & Steam games
 mix-archive-manager --alarm 07:30     # Schedule morning alarm for 07:30 AM
 
-# AI & LLM Servers
+# AI, Voice Cloning & LLM Servers
 mix-archive-manager --harmony         # Manage MP Harmony AI Agent (:11435)
-mix-archive-manager --harmony-voice   # Launch Voice Chat CLI (local-voice-talk)
-mix-archive-manager --open-webui      # Launch Open WebUI web chat harness (:42004 / :8080)
-mix-archive-manager --ollama-serve    # Start Ollama server in background (:11434)
-mix-archive-manager --ollama-chat     # Open interactive terminal chat with local LLM
+mix-archive-manager --harmony-voice   # Launch Matrix/Hawking Voice Chat CLI (local-voice-talk)
+mix-archive-manager --open-webui      # Launch Open WebUI v0.12.2 web chat harness (:42004 / :8080)
+mix-archive-manager --ollama-serve    # Start Ollama 32K CUDA server in background (:11434)
+mix-archive-manager --ollama-chat     # Open interactive terminal/voice chat with local LLM
 mix-archive-manager --dsh-mobile      # Launch DeepSeek Harness mobile web server (:3080)
-mix-archive-manager --wan2gp-start-4.5# Launch WAN2GP AI Video server in Profile 4.5
-mix-archive-manager --tts             # Launch WAN2GP Text-to-Speech (TTS) batch suite
+mix-archive-manager --wan2gp-start-4.5# Launch WAN2GP AI Video & Infinite Talker server
+mix-archive-manager --tts             # Launch WAN2GP XTTS-v2 & Neural TTS batch suite
 mix-archive-manager --beszel-start    # Launch Beszel monitoring hub & agent (:8090)
 
 # Remote Control & Backups
-mix-archive-manager --congen          # Launch Congen KDE Connect mobile remote generator
+mix-archive-manager --congen          # Launch Congen v1.1 KDE Connect mobile remote generator
 mix-archive-manager --backup          # Run automated multi-cloud backup to Google Drive/iCloud
 ```
 
@@ -622,24 +669,32 @@ mix-archive-manager --backup          # Run automated multi-cloud backup to Goog
 
 ```
 MP_Mix_Manager_v0.3/
-├── Mix_Archive_Manager.sh       # Master interactive orchestrator console (36 operations across 3 sections)
+├── Mix_Archive_Manager.sh       # Master zero-fork interactive console (37 operations, 1,978 lines)
+├── .probe_mgr.sh                # Ultra-compact zero-fork telemetry & probe engine (264 lines)
 ├── manager.sh                   # Linux Bash execution wrapper
 ├── manager_macos.command        # macOS double-clickable Finder launcher
 ├── manager_freebsd.sh           # FreeBSD Bourne shell launcher
 ├── manager.bat                  # Windows native Command Prompt / Batch launcher
 ├── manager.ps1                  # Windows native PowerShell launcher
 │
-├── MP_Audio_Player.py           # Standalone terminal audio player with animated spectrum visualizer
+├── MP_Audio_Player.py           # Terminal audio player (Mini/Micro modes, Spek G, Inspector I, 31K SMB tracks)
 ├── MP_Audio_Player.sh           # Shell launcher for MP Audio Player
+├── monitor_bluetooth_audio.py   # Real-time PipeWire/PulseAudio Bluetooth headphone auto-router
 ├── mix_web_companion.py         # Zero-dependency DJ Booth Mobile Web Companion server (port 8888)
 ├── mix_web_companion.sh         # Shell launcher for Mobile Web Companion
 │
+├── mp_report_generator.py       # Daily/Weekly/Monthly/Yearly intelligence & AI Brain Logs report engine
+├── mp_scheduled_reporter.sh     # Automated multi-period report scheduler & Hawking TTS/Video dispatcher
+├── manage_mp_reporter.sh        # Interactive MP Reporter management console
+├── mp_email_manager.sh          # Automated SMTP intelligence report email delivery engine
+│
 ├── Make_SOF_FLAC_CONVERSION.sh  # Master 32-bit FLAC conversion, multi-archive routing & split prompt
 ├── convert_audio_format.sh      # Universal format converter (FLAC, MP3, OGG, WAV bit depths)
+├── MP_Mix_Manager_Audio_File_Output_Monitor.py # Real-time audio/video conversion output monitor
 ├── MOVE_NOT_CONVERTED_WAVS.sh   # Unconverted WAV retrieval and quarantine engine
 ├── search_and_import_mixes.py   # Universal mix search & importer across local disks and SMB shares
 ├── search_and_import_mixes.sh   # Shell launcher for mix search & import
-├── find_duplicate_mixes.py      # Chunk-content hashing audio deduplicator
+├── find_duplicate_mixes.py      # Deterministic O(1) partial-hash + SHA-256 audio deduplicator
 ├── remove_duplicate_images.py   # Byte-for-byte duplicate image cleaner
 │
 ├── master_audio_loudness.py     # EBU R128 loudness analyzer & 2-pass transparent normalizer
@@ -696,6 +751,7 @@ MP_Mix_Manager_v0.3/
 ├── generate_ppm_cover.sh        # Shell launcher for PPM cover art generator
 ├── sync_video_companion.py      # Synchronized mix-video companion playback daemon
 ├── sync_video_companion.sh      # Shell launcher for video companion daemon
+├── align_mix_windows.py         # KDE KWin DBus & X11 desktop window geometry aligner
 │
 ├── inspect_audio_studio.py      # Studio hardware (PipeWire/ALSA/MIDI) & DAW diagnostic inspector
 ├── inspect_audio_studio.sh      # Shell launcher for studio inspector
@@ -715,11 +771,11 @@ MP_Mix_Manager_v0.3/
 ├── send_notification.sh         # Unified notification dispatcher (Desktop, Discord, Telegram, Pushover)
 ├── shop_music.sh                # Parallel music store quick-launcher (Beatport, Apple, Bandcamp)
 │
-├── manage_harmony_agent.sh      # MP Harmony AI Agent manager & Voice Chat CLI (:11435)
-├── manage_ollama.sh             # Ollama server (distrobox), models manager & chat CLI (:11434)
-├── dsh_mobile.sh                # DeepSeek Harness mobile web server (:3080)
-├── wan2gp.sh                    # WAN2GP AI Video server runner (Profiles 2 & 4.5)
-├── wan2gp_tts_batch.py          # Text-to-Speech (TTS) batch converter & player (.txt -> .wav)
+├── manage_harmony_agent.sh      # MP Harmony AI Agent manager, Speech Archive & Voice Chat CLI (:11435)
+├── manage_ollama.sh             # Ollama 32K CUDA server, models manager & Matrix voice chat (:11434)
+├── dsh_mobile.sh                # DeepSeek Harness mobile web server & token manager (:3080)
+├── wan2gp.sh                    # WAN2GP AI Video & Infinite Talker server runner (Profiles 2 & 4.5)
+├── wan2gp_tts_batch.py          # XTTS-v2 & Edge-TTS batch voice cloner & player (.txt -> .wav)
 ├── wan2gp_flux_batch.py         # Flux Klein 9B AI video batch generator
 ├── wan2gp_ltx_batch.py          # LTX Video 2B/13B AI video batch generator
 ├── clear-wan2gp-logs.sh         # WAN2GP AI generation log cleaner
@@ -729,7 +785,7 @@ MP_Mix_Manager_v0.3/
 ├── switch-to-plasma-wayland.sh  # Desktop session switcher to Plasma Wayland
 ├── switch-to-plasma-x11.sh      # Desktop session switcher to Plasma X11
 ├── close_allapps.sh             # Graceful desktop application closer (protects manager)
-├── manage_motd.py               # Dynamic System MOTD generator (recent mixes & technical specs)
+├── manage_motd.py               # Dynamic System MOTD generator (live kernel, mixes & technical specs)
 ├── update_system_motd.sh        # Shell launcher for dynamic system MOTD
 ├── manage_installation_config.sh# Migration wizard & configuration backup/export/import suite
 ├── update_manager.sh            # System updater & version checker (`mix-archive-manager update`)
@@ -750,7 +806,7 @@ MP_Mix_Manager_v0.3/
 │   ├── beszel                   # Beszel monitoring hub & agent controller CLI
 │   ├── manage-ollama            # Ollama server controller CLI
 │   ├── dsh-mobile               # DeepSeek Harness mobile web server CLI
-│   ├── congen                   # Congen KDE Connect remote control CLI
+│   ├── congen                   # Congen v1.1 KDE Connect remote control CLI
 │   ├── transfer-monitor         # Live file write & transfer inspector
 │   ├── chrome-upload-monitor    # Real-time web upload monitor
 │   ├── list-midi-devices        # USB MIDI hardware inspector
@@ -760,13 +816,13 @@ MP_Mix_Manager_v0.3/
 ├── scripts/                     # Synchronized canonical script repository
 ├── tests/
 │   └── run_tests.sh             # Automated verification test suite (243+ tests)
-├── themes/                      # Terminal color palettes (Dreamworlds, Dreamworlds Ultra, Cosmic Supernova...)
+├── themes/                      # Terminal & BTOP color palettes (Dreamworlds, Cosmic Supernova...)
 ├── mplanetarians-alarm-clock/   # Standalone morning alarm clock package
-├── Congen/                      # Congen - KDE Connect commands generator & remote control
+├── Congen/                      # Congen v1.1 - KDE Connect commands generator & 18-theme workstation bridge
 ├── assets/                      # Artwork templates, promo contact book, publishing calendars
 ├── config.env                   # Active user configuration overrides
 ├── config.env.example           # Configuration template
-├── VERSION                      # Semantic version file (0.3.5)
+├── VERSION                      # Semantic version file (0.3.6 Beta)
 ├── README.md                    # System documentation & feature matrix
 └── CHANGELOG.md                 # Complete release history and audit log
 ```

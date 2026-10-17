@@ -431,7 +431,26 @@ def run_music_folders_menu():
         print(f"  {BOLD}{CYAN}7){NC} View Track Audio Inspector & Player Shortcuts Guide")
         print(f"  {BOLD}{CYAN}0){NC} Return to Main Menu\n")
 
-        choice = input("Enter choice [0-7]: ").strip()
+        raw_choice = input("Enter choice [0-7]: ")
+        choice = raw_choice.strip()
+
+        if choice in ("m", "M"):
+            base_dir = get_base_dir()
+            player_py = base_dir / "MP_Audio_Player.py"
+            if not player_py.is_file():
+                player_py = base_dir / "scripts" / "MP_Audio_Player.py"
+            if player_py.is_file():
+                subprocess.Popen([sys.executable, str(player_py), "--new-window"])
+            continue
+
+        if raw_choice == " " or choice.lower() == "space":
+            base_dir = get_base_dir()
+            player_py = base_dir / "MP_Audio_Player.py"
+            if not player_py.is_file():
+                player_py = base_dir / "scripts" / "MP_Audio_Player.py"
+            if player_py.is_file():
+                subprocess.Popen([sys.executable, str(player_py), "--toggle", "--only-if-running"])
+            continue
 
         if choice in ("1", "all", "ALL"):
             if not all_st["exists"]:
