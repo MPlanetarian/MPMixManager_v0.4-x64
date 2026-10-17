@@ -1649,11 +1649,21 @@ class EqualizerVisualizer:
                 saved = th_file.read_text(encoding="utf-8").strip().lower()
                 if saved in self.THEMES:
                     self.theme_idx = self.THEMES.index(saved)
-                elif saved in ("retro_terminal", "unix_terminal", "retro_unix", "white_on_black", "old_style_unix", "terminal"):
+                elif saved in ("retro_terminal", "unix_terminal", "retro_unix", "white_on_black", "old_style_unix", "terminal", "classic"):
                     self.theme_idx = self.THEMES.index("retro_terminal")
                 elif saved in ("cosmic_supernova", "cosmic", "supernova"):
                     self.theme_idx = self.THEMES.index("cosmic_supernova")
-                elif saved in ("dreamworlds_ultra", "dreamworlds"):
+                elif saved in ("cyberpunk", "cyber", "cyber_neon"):
+                    self.theme_idx = self.THEMES.index("cyber_neon")
+                elif saved in ("matrix", "phosphor"):
+                    self.theme_idx = self.THEMES.index("phosphor")
+                elif saved in ("nord", "ice_cold"):
+                    self.theme_idx = self.THEMES.index("ice_cold")
+                elif saved in ("dracula", "dreamworlds_neon"):
+                    self.theme_idx = self.THEMES.index("dreamworlds_neon")
+                elif saved in ("gruvbox", "retro_studio"):
+                    self.theme_idx = self.THEMES.index("retro_studio")
+                elif saved in ("dreamworlds_ultra", "dreamworlds", "default", "mplanetarian"):
                     self.theme_idx = self.THEMES.index("dreamworlds_ultra")
         except Exception:
             pass
@@ -1689,6 +1699,65 @@ class EqualizerVisualizer:
 
     def get_style_display_name(self) -> str:
         return self.STYLE_NAMES.get(self.style, self.style.replace("_", " ").title())
+
+    def get_theme_palette(self) -> Dict[str, str]:
+        t = self.theme
+        if t == "cosmic_supernova":
+            return {
+                "highlight": "\033[38;2;224;86;253m",  # Nebula Orchid
+                "active": "\033[38;2;0;245;212m",      # Aurora Mint
+                "border": "\033[38;2;224;86;253m",
+                "accent": "\033[38;2;76;201;240m",
+            }
+        elif t == "dreamworlds_neon":
+            return {
+                "highlight": COLOR_ELECTRIC_CYAN,
+                "active": COLOR_NEON_PINK,
+                "border": COLOR_NEON_PINK,
+                "accent": COLOR_ELECTRIC_CYAN,
+            }
+        elif t == "retro_studio":
+            return {
+                "highlight": "\033[38;2;241;196;15m",  # Amber Gold
+                "active": "\033[38;2;230;126;34m",      # Studio Orange
+                "border": "\033[38;2;241;196;15m",
+                "accent": "\033[38;2;243;156;18m",
+            }
+        elif t in ("cyber_neon", "cyberpunk"):
+            return {
+                "highlight": "\033[38;2;76;201;240m",  # Cyber Cyan
+                "active": "\033[38;2;255;0;85m",       # Neon Pink
+                "border": "\033[38;2;76;201;240m",
+                "accent": "\033[38;2;255;0;85m",
+            }
+        elif t in ("phosphor", "matrix"):
+            return {
+                "highlight": "\033[38;2;57;255;20m",   # Phosphor Green
+                "active": "\033[38;2;166;255;0m",      # Mint Green
+                "border": "\033[38;2;57;255;20m",
+                "accent": "\033[38;2;0;255;102m",
+            }
+        elif t in ("ice_cold", "nord"):
+            return {
+                "highlight": "\033[38;2;0;229;255m",   # Polar Ice Cyan
+                "active": "\033[38;2;136;192;208m",    # Frost Slate
+                "border": "\033[38;2;0;229;255m",
+                "accent": "\033[38;2;129;161;193m",
+            }
+        elif t in ("retro_terminal", "classic"):
+            return {
+                "highlight": "\033[1;37m",             # High-contrast White
+                "active": "\033[1;37m",
+                "border": "\033[1;37m",
+                "accent": "\033[1;37m",
+            }
+        else:  # dreamworlds_ultra, dreamworlds, default
+            return {
+                "highlight": COLOR_HOT_PURPLE,         # Hot Purple
+                "active": COLOR_NEON_PINK,             # Neon Pink
+                "border": COLOR_HOT_PURPLE,
+                "accent": COLOR_ELECTRIC_CYAN,
+            }
 
     def _get_neon_prism_color(self, c_frac: float, r_frac: float, is_peak: bool = False, is_cap: bool = False) -> str:
         t = self.theme
