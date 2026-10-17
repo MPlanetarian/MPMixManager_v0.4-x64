@@ -80,6 +80,7 @@ THEMES: dict[str, tuple[str, str, str, str, str, str, str, str, str, str, str]] 
     "gruvbox": ("Gruvbox Dark", "Warm Earth, Gold, Dusty Orange & Forest Sage", "#fabd2f", "#fe8019", "#83a598", "#665c54", "#ebdbb2", "#928374", "#b8bb26", "#fb4934", "#fabd2f"),
     "emerald": ("Emerald Isle", "Deep Ocean, Spring Emerald, Mint & Rose", "#10b981", "#06b6d4", "#34d399", "#047857", "#ecfdf5", "#6ee7b7", "#10b981", "#f43f5e", "#fbbf24"),
     "classic": ("Classic Monochrome", "High-Contrast Monochrome / Standard ANSI", "#ffffff", "#cccccc", "#aaaaaa", "#777777", "#ffffff", "#666666", "#ffffff", "#ffffff", "#ffffff"),
+    "retro_terminal": ("Old Style Unix Terminal Retro Mode (White on Black)", "Monochrome VT100: White Text Only on Black Background", "#ffffff", "#ffffff", "#ffffff", "#777777", "#ffffff", "#888888", "#ffffff", "#ffffff", "#ffffff"),
 }
 
 THEME_ALIASES: dict[str, str] = {
@@ -89,6 +90,11 @@ THEME_ALIASES: dict[str, str] = {
     "cosmic": "cosmic_supernova", "cosmic supernova": "cosmic_supernova", "cosmic-supernova": "cosmic_supernova",
     "tokyo_night": "tokyo", "tokyo-night": "tokyo", "tokyonight": "tokyo",
     "monochrome": "classic", "mono": "classic", "white": "classic", "ansi": "classic", "none": "classic", "off": "classic",
+    "retro_terminal": "retro_terminal", "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal",
+    "old_style_unix": "retro_terminal", "unix_retro": "retro_terminal", "white_on_black": "retro_terminal",
+    "retro": "retro_terminal", "terminal": "retro_terminal", "vt100": "retro_terminal",
+    "old style unix terminal retro mode (white on black)": "retro_terminal",
+    "old style unix terminal": "retro_terminal",
 }
 
 class ThemeColors:

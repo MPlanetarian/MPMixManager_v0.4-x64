@@ -212,6 +212,16 @@ set_theme_colors() {
             CYAN='\033[38;2;224;247;250m'    # Arctic Glacial White (#e0f7fa)
             CURRENT_THEME="ice_cold"
             ;;
+        retro_terminal|unix_terminal|retro_unix|old_style_unix|unix_retro|white_on_black|retro|terminal|vt100|"Old Style Unix Terminal Retro Mode (White on Black)"|"Old Style Unix Terminal Retro Mode"|"Old Style Unix Terminal")
+            # Old Style Unix Terminal Retro Mode (White on Black)
+            RED='\033[1;37m'
+            GREEN='\033[1;37m'
+            YELLOW='\033[1;37m'
+            BLUE='\033[0;37m'
+            MAGENTA='\033[1;37m'
+            CYAN='\033[1;37m'
+            CURRENT_THEME="retro_terminal"
+            ;;
         *)
             set_theme_colors "dreamworlds"
             return

@@ -313,6 +313,28 @@ THEMES: Dict[str, Dict[str, Any]] = {
         "badge_color": "#00cdcd",
         "eq_bar": "#00cdcd",
         "eq_peak": "#cd00cd",
+    },
+    "retro_terminal": {
+        "id": "retro_terminal",
+        "name": "Old Style Unix Terminal Retro Mode (White on Black)",
+        "bg": "#000000",
+        "card_bg": "#0a0a0a",
+        "card_border": "rgba(255, 255, 255, 0.4)",
+        "card_shadow": "0 12px 35px rgba(0, 0, 0, 0.95)",
+        "text_main": "#ffffff",
+        "text_dim": "#aaaaaa",
+        "accent_primary": "#ffffff",
+        "accent_secondary": "#cccccc",
+        "accent_tertiary": "#ffffff",
+        "accent_crimson": "#ffffff",
+        "header_gradient": "linear-gradient(135deg, #ffffff 0%, #aaaaaa 100%)",
+        "btn_gradient": "linear-gradient(135deg, #333333, #111111)",
+        "btn_shadow": "0 4px 18px rgba(255, 255, 255, 0.2)",
+        "progress_fill": "linear-gradient(90deg, #666666, #ffffff)",
+        "badge_bg": "rgba(255, 255, 255, 0.15)",
+        "badge_color": "#ffffff",
+        "eq_bar": "#ffffff",
+        "eq_peak": "#ffffff",
     }
 }
 
@@ -335,7 +357,17 @@ THEME_ALIASES: Dict[str, str] = {
     "monokai pro": "monokai",
     "gruvbox dark": "gruvbox",
     "emerald isle": "emerald",
-    "classic ansi": "classic"
+    "classic ansi": "classic",
+    "retro_terminal": "retro_terminal",
+    "unix_terminal": "retro_terminal",
+    "retro_unix": "retro_terminal",
+    "old_style_unix": "retro_terminal",
+    "white_on_black": "retro_terminal",
+    "retro": "retro_terminal",
+    "terminal": "retro_terminal",
+    "vt100": "retro_terminal",
+    "old style unix terminal retro mode (white on black)": "retro_terminal",
+    "old style unix terminal": "retro_terminal",
 }
 
 CLI_THEME: Optional[str] = None

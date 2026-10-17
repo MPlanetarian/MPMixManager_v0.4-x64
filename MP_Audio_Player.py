@@ -1307,7 +1307,7 @@ class EqualizerVisualizer:
         "analog_vu": "Analog Studio VU",
         "oscilloscope": "Oscilloscope Waveform",
     }
-    THEMES = ["dreamworlds_ultra", "cosmic_supernova", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold"]
+    THEMES = ["dreamworlds_ultra", "cosmic_supernova", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold", "retro_terminal"]
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None):
         _ensure_numpy()
@@ -1323,6 +1323,8 @@ class EqualizerVisualizer:
                 saved = th_file.read_text(encoding="utf-8").strip().lower()
                 if saved in self.THEMES:
                     self.theme_idx = self.THEMES.index(saved)
+                elif saved in ("retro_terminal", "unix_terminal", "retro_unix", "white_on_black", "old_style_unix", "terminal"):
+                    self.theme_idx = self.THEMES.index("retro_terminal")
                 elif saved in ("cosmic_supernova", "cosmic", "supernova"):
                     self.theme_idx = self.THEMES.index("cosmic_supernova")
                 elif saved in ("dreamworlds_ultra", "dreamworlds"):
@@ -1424,6 +1426,8 @@ class EqualizerVisualizer:
             b = 0.95 - 0.20 * c_frac
         elif t == "phosphor":
             r, g, b = 0.10 * (1.0 - c_frac), 0.95, 0.20
+        elif t == "retro_terminal":
+            r, g, b = 1.0, 1.0, 1.0
         else: # ice_cold
             r = 0.10 + 0.75 * (c_frac ** 1.5)
             g = 0.50 + 0.45 * c_frac
@@ -2019,13 +2023,118 @@ class EqualizerVisualizer:
             return [f"{el}{' ' * max(0, 91 - _display_width(el))}  {fl}" for el, fl in zip(lines, faders)]
         return lines
 
+
+def _get_dynamic_gradient(step: float) -> Tuple[Tuple[int, int, int], Tuple[int, int, int], Tuple[int, int, int]]:
+    """Generates non-repeating dynamic color gradients and ambient background tints via irrational phase modulation."""
+    r = int(127.5 + 127.5 * math.sin(step * 0.6180339887 + 0.3))
+    g = int(127.5 + 127.5 * math.sin(step * 0.8408964152 + 2.1))
+    b = int(127.5 + 127.5 * math.sin(step * 0.7071067811 + 4.2))
+
+    r2 = int(127.5 + 127.5 * math.sin(step * 0.6180339887 + 3.14159))
+    g2 = int(127.5 + 127.5 * math.sin(step * 0.8408964152 + 5.28318))
+    b2 = int(127.5 + 127.5 * math.sin(step * 0.7071067811 + 1.04719))
+
+    bg_r = max(6, min(36, int(14 + 14 * math.sin(step * 0.31 + 0.5))))
+    bg_g = max(6, min(36, int(12 + 12 * math.sin(step * 0.43 + 2.2))))
+    bg_b = max(10, min(42, int(20 + 16 * math.sin(step * 0.37 + 4.1))))
+
+    return (r, g, b), (r2, g2, b2), (bg_r, bg_g, bg_b)
+
+
+def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "",
+                              theme: Optional[str] = None, style: Optional[str] = None) -> bool:
+    """Spawns an independent MP Mini Audio Player instance in a dedicated compact transparent terminal window."""
+    script_path = str(Path(__file__).resolve())
+    py_exe = sys.executable or "python3"
+    title = "MP Mini Audio Player"
+    cmd_args = [py_exe, script_path, "--interactive", "--mini"]
+    if mode == "MUSIC":
+        cmd_args.append("--music-mode")
+        if folder_name and folder_name != "ALL":
+            cmd_args.extend(["--music-folder", str(folder_name)])
+        if playlist_path:
+            cmd_args.extend(["--playlist", str(playlist_path)])
+    if theme:
+        cmd_args.extend(["--theme", str(theme)])
+    if style:
+        cmd_args.extend(["--style", str(style)])
+
+    if sys.platform.startswith(("linux", "freebsd")):
+        k_dir = Path.home() / ".local" / "share" / "konsole"
+        if k_dir.is_dir():
+            try:
+                prof = k_dir / "MP_Mini_Player.profile"
+                c_scheme = k_dir / "MP_Mini_Player.colorscheme"
+                if not c_scheme.exists():
+                    c_scheme.write_text(
+                        "[Background]\nColor=16,18,28\nOpacity=0.80\n\n"
+                        "[BackgroundFaint]\nColor=18,22,34\n\n"
+                        "[Color0]\nColor=16,18,28\n[Color1]\nColor=247,37,133\n[Color2]\nColor=0,229,255\n"
+                        "[Color3]\nColor=255,170,0\n[Color4]\nColor=102,102,255\n[Color5]\nColor=166,77,255\n"
+                        "[Color6]\nColor=0,193,228\n[Color7]\nColor=209,209,224\n",
+                        encoding="utf-8"
+                    )
+                if not prof.exists():
+                    prof.write_text(
+                        "[Appearance]\nColorScheme=MP_Mini_Player\nFont=Monospace,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0\n\n"
+                        "[General]\nEnvironment=TERM=xterm-256color,COLORTERM=truecolor\nInheritContainerContext=true\n"
+                        "Name=MP_Mini_Player\nParent=FALLBACK/\nTerminalColumns=74\nTerminalRows=14\n\n"
+                        "[Terminal Features]\nBlinkingCursorEnabled=true\n",
+                        encoding="utf-8"
+                    )
+            except Exception:
+                pass
+
+        if shutil.which("konsole"):
+            k_cmd = ["konsole", "--profile", "MP_Mini_Player", "--hide-menubar", "--hide-tabbar", "--separate",
+                     "--qwindowtitle", title, "-p", f"tabtitle={title}",
+                     "-p", "TerminalColumns=74", "-p", "TerminalRows=14", "-e"] + cmd_args
+            if _run_bg(k_cmd):
+                if shutil.which("xprop"):
+                    threading.Thread(target=lambda: (time.sleep(0.2), subprocess.run(
+                        ["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0xd0000000"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)), daemon=True).start()
+                return True
+
+        for term, targs in [
+            ("gnome-terminal", [f"--title={title}", "--geometry=74x14", "--"] + cmd_args),
+            ("xfce4-terminal", [f"--title={title}", "--geometry=74x14", "--hide-menubar", "--hide-borders", "-e", " ".join(f'"{a}"' for a in cmd_args)]),
+            ("alacritty", ["--title", title, "-o", "window.opacity=0.80", "-o", "window.dimensions.columns=74", "-o", "window.dimensions.lines=14", "-e"] + cmd_args),
+            ("foot", ["-T", title, "-w", "74x14", "-a", "0.80"] + cmd_args),
+            ("xterm", ["-title", title, "-geometry", "74x14", "-e"] + cmd_args),
+            ("xdg-terminal-exec", cmd_args)
+        ]:
+            if shutil.which(term) and _run_bg([term] + targs if isinstance(targs, list) else [term, targs]):
+                return True
+
+    elif sys.platform == "darwin":
+        c_str = " ".join(f'\\"{a}\\"' for a in cmd_args)
+        apple_sc = f'tell application "Terminal" to do script "{c_str}"'
+        if _run_bg(["osascript", "-e", apple_sc]):
+            return True
+
+    elif sys.platform == "win32":
+        if shutil.which("wt.exe"):
+            if _run_bg(["wt.exe", "-w", "new", "--title", title, "-p", "Command Prompt", "--size", "74,14"] + cmd_args):
+                return True
+        c_str = " ".join(f'"{a}"' for a in cmd_args)
+        try:
+            subprocess.Popen(f'start "{title}" {c_str}', shell=True)
+            return True
+        except Exception:
+            pass
+
+    return False
+
+
 class TerminalPlayerUI:
     def __init__(self, engine: Optional[AudioEngine], scanner: Union[MixArchiveScanner, MusicFolderPlaylistScanner], is_remote: bool = False,
                  default_style: Optional[str] = None, default_theme: Optional[str] = None,
-                 mode: str = "MIX_ARCHIVE", folder_name: str = "ALL"):
+                 mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", ui_size_mode: str = "NORMAL"):
         self.engine, self.scanner, self.is_remote = engine, scanner, is_remote
         self.mode = str(mode or "MIX_ARCHIVE").upper()
         self.folder_name = str(folder_name or "ALL").upper()
+        self.ui_size_mode = str(ui_size_mode or "NORMAL").upper()
         self.visualizer = EqualizerVisualizer(default_style=default_style, default_theme=default_theme)
         self.running = True
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
@@ -2282,6 +2391,12 @@ class TerminalPlayerUI:
             except Exception: pass
 
         cstate = _win_console_begin()
+        if self.ui_size_mode == "MINI":
+            sys.stdout.write("\033]0;MP Mini Audio Player\007")
+        elif self.ui_size_mode == "MICRO":
+            sys.stdout.write("\033]0;MP Micro Audio Player\007")
+        else:
+            sys.stdout.write("\033]0;MP Audio Player\007")
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[2J\033[H")
         sys.stdout.flush()
         threading.Thread(target=self._input_loop, daemon=True).start()
@@ -2297,7 +2412,7 @@ class TerminalPlayerUI:
             if fd is not None and old_settings and termios:
                 try: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
                 except Exception: pass
-            sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
+            sys.stdout.write("\033]111\007\033[49m\033[?7h\033[?25h\033[?1049l\033]0;MP Audio Player\007")
             sys.stdout.flush()
             _win_console_end(cstate)
 
@@ -2402,10 +2517,23 @@ class TerminalPlayerUI:
         elif data in (b"+", b"="): self._send_cmd("pitch_up", step=1)
         elif data in (b"-", b"_"): self._send_cmd("pitch_down", step=1)
         elif data == b"0": self._send_cmd("reset_pitch")
-        elif data in (b"]", b"}", b"v"): self._send_cmd("vol_up", step=5)
-        elif data in (b"[", b"{", b"V"): self._send_cmd("vol_down", step=5)
-        elif data in (b"m", b"M"): self._send_cmd("mute")
-        elif data in (b"s", b"S"): self._send_cmd("shuffle")
+        elif data in (b"u", b"U"): self._send_cmd("mute")
+        elif data in (b"m", b"M"):
+            if self.ui_size_mode == "MINI":
+                self.ui_size_mode = "MICRO"
+                sys.stdout.write("\033]0;MP Micro Audio Player\007")
+                sys.stdout.flush()
+            elif self.ui_size_mode == "MICRO":
+                self.ui_size_mode = "MINI"
+                sys.stdout.write("\033]0;MP Mini Audio Player\007")
+                sys.stdout.flush()
+            else:
+                p_path = getattr(self.scanner, "playlist_path", "")
+                ok = launch_mini_player_window(mode=self.mode, folder_name=self.folder_name,
+                                               playlist_path=p_path, theme=self.visualizer.theme,
+                                               style=self.visualizer.style)
+                self.notification_msg = "✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window"
+                self.notification_time = time.time() + 3.0
         elif data in (b"r", b"R"): self._send_cmd("repeat")
         elif data == b"e":
             self.visualizer.cycle_style()
@@ -2451,8 +2579,16 @@ class TerminalPlayerUI:
 
     def _draw_frame(self):
         w, h = _win_visible_size((80, 24))
-        w, h = max(40, w), max(8, h)
+        w, h = max(40, w), max(5, h)
         st = self._get_status()
+
+        if self.ui_size_mode == "MINI":
+            self._draw_mini_frame(w, h, st)
+            return
+        if self.ui_size_mode == "MICRO":
+            self._draw_micro_frame(w, h, st)
+            return
+
         self._sync_initial_selection(st)
         lines = []
 
@@ -2617,21 +2753,137 @@ class TerminalPlayerUI:
 
         if self.mode == "MUSIC":
             lines.append(_fit_text_line([
-                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [I] Track Inspector HUD  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [b/q] Exit{NC}",
-                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [b/q] Exit",
-                f"  Space Play  [I] Inspector  [/] Search  n/p Skip  b/q Exit"
+                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [M] Mini Mode  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
+                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [M] Mini Mode  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
+                f"  Space Play  [M] Mini  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
             ], max(20, w - 1)))
             lines.append(_fit_text_line([
-                f"  {DIM}[0] Pitch Reset  [m] Mute  [s] Shuffle  [r] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
-                f"  {DIM}0 Reset  m Mute  s Shuf  r Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
-                f"  {DIM}0 Reset  m Mute  s Shuf  r Rep  e EQ  c Theme  b/q Exit{NC}"
+                f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [r] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
+                f"  {DIM}0 Reset  u Mute  s Shuf  r Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
+                f"  {DIM}0 Reset  u Mute  s Shuf  r Rep  e EQ  c Theme  b/q Exit{NC}"
             ], max(20, w - 1)))
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-                f"  {DIM}Space Play  +/- Pitch  0 Reset  v/V Vol  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-                f"  {DIM}Space Play  +/- Pitch  v/V Vol  n/p Skip  a BT  O Open  b/q Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  M Mini  +/- Pitch  0 Reset  v/V Vol  u Mute  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  M Mini  +/- Pitch  v/V Vol  u Mute  n/p Skip  a BT  O Open  b/q Exit{NC}"
             ], max(20, w - 1)))
+
+        _present_frame(lines, w, h)
+
+    def _draw_mini_frame(self, w: int, h: int, st: Dict[str, Any]):
+        lines = []
+        t_now = time.time()
+        g1, g2, gbg = _get_dynamic_gradient(t_now)
+        c_g1 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m"
+        c_g2 = f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
+
+        # Dynamically change terminal background color via OSC 11 for transparent consoles
+        sys.stdout.write(f"\033]11;#{gbg[0]:02x}{gbg[1]:02x}{gbg[2]:02x}\007\033]0;MP Mini Audio Player\007")
+
+        iw = max(24, min(w - 4, 74))
+
+        # Title Box - MP Mini Audio Player
+        title_text = "✦ MP MINI AUDIO PLAYER ✦"
+        lines.append(f"  {BOLD}{c_g1}╭{'─'*iw}╮{NC}")
+        lines.append(f"  {BOLD}{c_g1}│{c_g2}{title_text.center(iw)}{c_g1}│{NC}")
+        lines.append(f"  {BOLD}{c_g1}╰{'─'*iw}╯{NC}")
+
+        # Track name & Playback Badge
+        tname = st.get("title", "Unknown Track")
+        avail_title = max(18, iw - 18)
+        if _display_width(tname) > avail_title:
+            tname = _clip_display(tname, avail_title - 3) + "..."
+        state = st.get("state", "stopped")
+        badge = f"{BOLD}{GREEN}▶ PLAY{NC}" if state == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSE{NC}" if state == "paused" else f"{BOLD}{RED}⏹ STOP{NC}")
+        mode_badge = f"{DIM}{c_g1}[MUSIC]{NC}" if self.mode == "MUSIC" else f"{DIM}{c_g1}[MIX]{NC}"
+        lines.append(f"  {badge} {mode_badge} {BOLD}{c_g2}♫ {tname}{NC}")
+
+        # Format & Output Device
+        ext = os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
+        sr = st.get("sample_rate", 44100)
+        ch_str = "Stereo" if st.get("channels", 2) == 2 else "Mono"
+        out_dev = st.get("output_device", "Speakers")
+        is_bt = bool(st.get("bluetooth_connected", False))
+        dev_str = f"🎧 {out_dev}" if is_bt else f"🔊 {out_dev}"
+        if _display_width(dev_str) > 22:
+            dev_str = dev_str[:19] + "..."
+        lines.append(f"  {DIM}{CYAN}{ext} • {sr/1000:.1f}kHz • {ch_str}  │  {dev_str}{NC}")
+
+        # Progress bar & duration
+        pct = float(st.get("progress_pct", 0.0))
+        bw = max(16, min(34, iw - 30))
+        fw = int((pct / 100.0) * bw)
+        bstr = "━" * fw + "●" + "─" * max(0, bw - fw - 1)
+        pos_str = st.get("position_fmt", "00:00")
+        dur_str = st.get("duration_fmt", "00:00")
+        lines.append(f"  {COLOR_ELECTRIC_CYAN}{pos_str}{NC} {c_g1}{bstr}{NC} {COLOR_ELECTRIC_CYAN}{dur_str}{NC} {DIM}({pct:.1f}%){NC}")
+
+        # Volume & Pitch & EQ & Theme
+        vol = f"{st.get('volume', 85)}%" if not st.get("muted") else f"{COLOR_TRAFFIC_RED}MUTED{NC}"
+        pval = int(st.get("pitch_percent", 0))
+        pbadge = f"{COLOR_TRAFFIC_GREEN}0%{NC}" if pval == 0 else f"{COLOR_TRAFFIC_AMBER}{pval:+d}%{NC}"
+        eq_name = self.visualizer.get_style_display_name()
+        th_name = self.visualizer.theme.replace("_", " ").title()
+        lines.append(f"  🔊 {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC} │ 🎚 {pbadge} │ 🎛 {BOLD}{c_g2}{eq_name[:16]}{NC} │ 🎨 {c_g1}{th_name[:14]}{NC}")
+
+        # Equalizer enabled (mini mode)
+        vis_h = 3 if h >= 14 else 2
+        vis_lines = self.visualizer.render(st, width=iw + 4, height=vis_h)
+        lines.extend(vis_lines)
+
+        # Controls & Notifications
+        if time.time() < self.notification_time and self.notification_msg:
+            lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
+        else:
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
+
+        _present_frame(lines, w, h)
+
+    def _draw_micro_frame(self, w: int, h: int, st: Dict[str, Any]):
+        lines = []
+        t_now = time.time()
+        g1, g2, gbg = _get_dynamic_gradient(t_now)
+        c_g1 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m"
+        c_g2 = f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
+
+        sys.stdout.write(f"\033]11;#{gbg[0]:02x}{gbg[1]:02x}{gbg[2]:02x}\007\033]0;MP Micro Audio Player\007")
+
+        iw = max(24, min(w - 4, 74))
+        tname = st.get("title", "Unknown Track")
+        avail = max(10, iw - 38)
+        if _display_width(tname) > avail:
+            tname = _clip_display(tname, avail - 2) + ".."
+
+        state = st.get("state", "stopped")
+        badge = f"{BOLD}{GREEN}▶{NC}" if state == "playing" else (f"{BOLD}{YELLOW}⏸{NC}" if state == "paused" else f"{BOLD}{RED}⏹{NC}")
+        pos_str = st.get("position_fmt", "00:00")
+        dur_str = st.get("duration_fmt", "00:00")
+        vol = f"{st.get('volume', 85)}%"
+        pval = int(st.get("pitch_percent", 0))
+        pbadge = f"{pval:+d}%" if pval != 0 else "0%"
+
+        # Animated 16-band unicode micro-spectrum meter
+        levels = np.array(st.get("levels", [0.0] * 24))
+        meter_bars = []
+        for val in levels[:16]:
+            idx = min(8, int(val * 9))
+            meter_bars.append(UNICODE_BLOCKS[idx])
+        meter_str = "".join(meter_bars)
+
+        eq_name = self.visualizer.get_style_display_name()
+        th_name = self.visualizer.theme.replace("_", " ").title()
+
+        rem_dash = max(0, iw - 28)
+        lines.append(f"  {BOLD}{c_g1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * rem_dash}╮{NC}")
+        lines.append(f"  {BOLD}{c_g1}│{NC} {badge} {BOLD}{c_g2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{pos_str}/{dur_str}{NC} │ Vol: {vol} │ {c_g1}Pitch: {pbadge}{NC} {BOLD}{c_g1}│{NC}")
+        lines.append(f"  {BOLD}{c_g1}│{NC} 🎛 [{c_g2}{meter_str}{NC}] │ EQ: {eq_name[:12]} │ Theme: {th_name[:10]} │ {c_g2}[M] Mini{NC} {BOLD}{c_g1}│{NC}")
+        lines.append(f"  {BOLD}{c_g1}╰{'─' * iw}╯{NC}")
+
+        if time.time() < self.notification_time and self.notification_msg:
+            lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
+        else:
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -2695,6 +2947,8 @@ def main():
     parser.add_argument("--no-bluetooth-auto", action="store_true", help="Disable automatic Bluetooth audio routing")
     parser.add_argument("--bluetooth-status", action="store_true", help="Print current Bluetooth audio router status")
     parser.add_argument("--bluetooth-route", action="store_true", help="Route active audio to connected Bluetooth headphones")
+    parser.add_argument("--mini", action="store_true", help="Launch in compact MP Mini Audio Player mode")
+    parser.add_argument("--micro", action="store_true", help="Launch in ultra-compact MP Micro Audio Player mode")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -2833,7 +3087,7 @@ def main():
             else: print("○ MP Audio Player: Stopped")
         sys.exit(0)
 
-    if args.interactive or (not args.daemon and sys.stdin.isatty()):
+    if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
         if is_music:
             scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
         else:
@@ -2856,8 +3110,9 @@ def main():
             if tf:
                 send_ipc_command("play", file=tf)
 
+        ui_mode = "MICRO" if getattr(args, "micro", False) else ("MINI" if getattr(args, "mini", False) else "NORMAL")
         TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme,
-                         mode=current_mode, folder_name=folder_target).run()
+                         mode=current_mode, folder_name=folder_target, ui_size_mode=ui_mode).run()
         sys.exit(0)
 
     if args.daemon:
