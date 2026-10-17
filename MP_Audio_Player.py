@@ -265,6 +265,97 @@ def export_playlist_m3u(mixes: List[Dict[str, Any]], target_path: Union[str, Pat
     except Exception as e:
         return False, str(e)
 
+
+def open_image_viewer(image_path: Union[str, Path]) -> bool:
+    """Opens an image file (e.g. Spek spectrogram or cover art) in the system's preferred viewer."""
+    ip = Path(image_path).expanduser().resolve()
+    if not ip.is_file(): return False
+    t_str = str(ip)
+    if sys.platform.startswith(("linux", "freebsd")):
+        for viewer in ["gwenview", "loupe", "eog", "feh", "xdg-open"]:
+            if shutil.which(viewer):
+                if _run_bg([viewer, t_str]):
+                    return True
+    elif sys.platform == "darwin":
+        return _run_bg(["open", "-a", "Preview", t_str]) or _run_bg(["open", t_str])
+    elif sys.platform == "win32":
+        try:
+            os.startfile(t_str)
+            return True
+        except Exception: pass
+    return False
+
+
+def get_default_spek_dir(base_dir: Optional[Path] = None, mode: str = "MIX_ARCHIVE", audio_path: Optional[str] = None) -> Path:
+    """Resolves local storage directory for Spek spectrograms (SPEK_OUTPUTS)."""
+    base = base_dir or get_base_dir()
+    cand_dirs: List[Path] = []
+
+    mix_arc = os.environ.get("MIX_ARCHIVE_DIR")
+    if not mix_arc:
+        for cfg_cand in [base / "config.env", Path.home() / ".config" / "mix-manager" / "config.env"]:
+            if cfg_cand.is_file():
+                try:
+                    for line in cfg_cand.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("MIX_ARCHIVE_DIR="):
+                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            if val and os.path.isdir(val):
+                                mix_arc = val
+                                break
+                except Exception:
+                    pass
+            if mix_arc:
+                break
+
+    if mix_arc and os.path.isdir(mix_arc):
+        cand_dirs.append(Path(mix_arc) / "SPEK_OUTPUTS")
+
+    cand_dirs.append(base / "SPEK_OUTPUTS")
+    cand_dirs.append(Path.home() / ".config" / "mix-manager" / "SPEK_OUTPUTS")
+
+    for d in cand_dirs:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            return d.resolve()
+        except Exception:
+            pass
+
+    fallback = base / "SPEK_OUTPUTS"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback.resolve()
+
+
+def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None) -> Tuple[bool, str]:
+    """
+    Generates a 1080p high-resolution spectrogram analysis (Spek) from an audio track or mix,
+    saving the output locally into the configured SPEK_OUTPUTS folder.
+    """
+    if not audio_path or not os.path.isfile(audio_path):
+        return False, "Audio file not found"
+
+    out_dir = Path(output_dir) if output_dir else get_default_spek_dir(get_base_dir(), mode=mode, audio_path=audio_path)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return False, f"Failed to create SPEK output directory: {e}"
+
+    stem = Path(audio_path).stem
+    clean_stem = re.sub(r'[\/\\:\*\?"<>\|]', '_', stem)
+    spek_file = out_dir / f"{clean_stem}_spectrogram.png"
+
+    cmd = [
+        "ffmpeg", "-y", "-i", str(audio_path),
+        "-lavfi", "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log",
+        "-update", "1", "-frames:v", "1", str(spek_file)
+    ]
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        if spek_file.is_file() and spek_file.stat().st_size > 0:
+            return True, str(spek_file.resolve())
+        return False, "FFmpeg failed to produce spectrogram image"
+    except Exception as exc:
+        return False, f"Spectrogram generation error: {exc}"
+
 def choose_export_m3u_gui() -> Optional[str]:
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")): return None
     dt = os.path.join(os.path.expanduser("~/Desktop" if os.path.isdir(os.path.expanduser("~/Desktop")) else "~"), "MP_Archive_Playlist.m3u")
@@ -1150,6 +1241,20 @@ class PlayerIPCServer:
                     self.engine.load_track(0, True)
                 res["loaded"] = len(pl)
                 res["mode"] = self.engine.mode
+            elif cmd in ("generate_spek", "spek"):
+                tf = req.get("file") or (self.engine.current_track.get("path") if self.engine.current_track else None)
+                if not tf and self.engine.playlist:
+                    tf = self.engine.playlist[0].get("path")
+                if tf:
+                    ok, spek_res = generate_track_spek(tf, mode=self.engine.mode)
+                    res["success"] = ok
+                    res["spek_path"] = spek_res if ok else ""
+                    if not ok:
+                        res["status"] = "error"
+                        res["message"] = spek_res
+                else:
+                    res["status"] = "error"
+                    res["message"] = "No track available for Spek generation"
 
 
             conn.sendall(json.dumps(res, default=float).encode('utf-8'))
@@ -2299,7 +2404,7 @@ class TerminalPlayerUI:
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Volume/Pitch{NC} : Volume: {st.get('volume', 85)}%  │  Pitch: {p_pct:+d}%",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Audio Engine{NC} : Output Rate: {st.get('output_rate', 44100)/1000:.1f} kHz • Device: {dev}",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Network Path{NC} : {disp_smb}",
-            f"  {BOLD}{COLOR_HOT_PURPLE}╰── Press [I], [Esc], or [Enter] to Close Inspector Overlay ────────────────╯{NC}"
+            f"  {BOLD}{COLOR_HOT_PURPLE}╰── [G] Generate Spek • Press [I], [Esc], or [Enter] to Close ─────────────╯{NC}"
         ]
         return hud
 
@@ -2311,6 +2416,30 @@ class TerminalPlayerUI:
         if st.get("path"): return st.get("path"), st.get("title")
         latest = self.scanner.get_latest_mix()
         return (latest["path"], latest["name"]) if latest else (None, None)
+
+    def _generate_selected_spek(self):
+        tp, tn = self._get_target_path()
+        if not tp or not os.path.isfile(tp):
+            self.notification_msg = "No audio track available for Spek generation."
+            self.notification_time = time.time() + 3.0
+            return
+        track_name = tn or os.path.basename(tp)
+        self.notification_msg = f"⚡ Generating Spek: {track_name[:30]}..."
+        self.notification_time = time.time() + 60.0
+
+        def _worker():
+            ok, res = generate_track_spek(tp, mode=self.mode)
+            if ok:
+                sz_kb = os.path.getsize(res) // 1024
+                self.notification_msg = f"✔ Spek saved: {os.path.basename(res)} ({sz_kb} KB)"
+                self.notification_time = time.time() + 5.0
+                if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+                    open_image_viewer(res)
+            else:
+                self.notification_msg = f"✖ Spek failed: {res[:35]}"
+                self.notification_time = time.time() + 4.0
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _open_selected_in_file_manager(self):
         tp, _ = self._get_target_path()
@@ -2476,6 +2605,9 @@ class TerminalPlayerUI:
             return
 
         if getattr(self, "inspector_hud_active", False):
+            if data in (b"g", b"G"):
+                self._generate_selected_spek()
+                return
             if data in (b"\x1b", b"i", b"I", b"\r", b"\n", b"q", b"Q", b" "):
                 self.inspector_hud_active = False
                 return
@@ -2570,6 +2702,7 @@ class TerminalPlayerUI:
         elif data in (b"E", b"w", b"W"): self._export_playlist()
         elif data == b"/": self.search_mode, self.search_query = True, ""
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
+        elif data in (b"g", b"G"): self._generate_selected_spek()
         elif data in (b"x", b"X"): self._send_cmd("stop"); self.running = False
         elif data in (b"q", b"Q", b"\x1b", b"\x03"): self.running = False
 
@@ -2731,9 +2864,9 @@ class TerminalPlayerUI:
                     lines.append(lstr)
 
             if self.mode == "MUSIC":
-                lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Space: Pause • I: Track Inspector • /: Search • q: Exit ", "┘", iw, f"{BOLD}{MAGENTA}"))
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Space: Pause • G: Spek • I: Track Inspector • /: Search • q: Exit ", "┘", iw, f"{BOLD}{MAGENTA}"))
             else:
-                lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
+                lines.append(_boxed_rule("└", "── ↑/↓: Scroll  •  Enter: Play  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, f"{BOLD}{MAGENTA}"))
 
         shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
         rep = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
@@ -2753,9 +2886,9 @@ class TerminalPlayerUI:
 
         if self.mode == "MUSIC":
             lines.append(_fit_text_line([
-                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [M] Mini Mode  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
-                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [M] Mini Mode  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
-                f"  Space Play  [M] Mini  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
+                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
+                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [M] Mini Mode  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
+                f"  Space Play  [M] Mini  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
             ], max(20, w - 1)))
             lines.append(_fit_text_line([
                 f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [r] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
@@ -2764,9 +2897,9 @@ class TerminalPlayerUI:
             ], max(20, w - 1)))
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-                f"  {DIM}Space Play  M Mini  +/- Pitch  0 Reset  v/V Vol  u Mute  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-                f"  {DIM}Space Play  M Mini  +/- Pitch  v/V Vol  u Mute  n/p Skip  a BT  O Open  b/q Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  n/p Skip  a BT  O Open  b/q Exit{NC}"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -2836,7 +2969,7 @@ class TerminalPlayerUI:
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -2883,7 +3016,7 @@ class TerminalPlayerUI:
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close")
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[e]{NC} EQ  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -2949,6 +3082,7 @@ def main():
     parser.add_argument("--bluetooth-route", action="store_true", help="Route active audio to connected Bluetooth headphones")
     parser.add_argument("--mini", action="store_true", help="Launch in compact MP Mini Audio Player mode")
     parser.add_argument("--micro", action="store_true", help="Launch in ultra-compact MP Micro Audio Player mode")
+    parser.add_argument("--spek", "--generate-spek", "-g", action="store_true", help="Generate 1080p spectrogram (Spek) for active or target audio track/mix and store locally")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -3020,6 +3154,37 @@ def main():
         ok, res = export_playlist_m3u(mixes, dest)
         print(f"✔ Exported {len(mixes)} mixes to .m3u playlist: {res}" if ok else f"✖ Failed to export playlist: {res}")
         sys.exit(0 if ok else 1)
+
+    if args.spek:
+        tp = None
+        if args.file and os.path.exists(args.file):
+            tp = os.path.abspath(args.file)
+        elif daemon_running:
+            st = send_ipc_command("status")
+            if st and "data" in st and st["data"].get("path"):
+                tp = st["data"]["path"]
+        if not tp:
+            if is_music:
+                scanner = MusicFolderPlaylistScanner(folder_target, playlist_path=args.playlist)
+                mixes = scanner.get_mixes()
+                if mixes: tp = mixes[0]["path"]
+            else:
+                latest = MixArchiveScanner(base_dir).get_latest_mix()
+                if latest: tp = latest["path"]
+        if not tp or not os.path.isfile(tp):
+            print("✖ No audio file available for Spek generation", file=sys.stderr)
+            sys.exit(1)
+        print(f"⚡ Generating Spek spectrogram for: {os.path.basename(tp)}...")
+        ok, res = generate_track_spek(tp, mode=current_mode)
+        if ok:
+            sz_kb = os.path.getsize(res) // 1024
+            print(f"✔ Spek generated successfully ({sz_kb} KB): {res}")
+            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+                open_image_viewer(res)
+            sys.exit(0)
+        else:
+            print(f"✖ Spek generation failed: {res}", file=sys.stderr)
+            sys.exit(1)
 
     if args.cmd:
         res = send_ipc_command(args.cmd)
