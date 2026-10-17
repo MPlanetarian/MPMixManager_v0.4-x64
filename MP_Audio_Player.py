@@ -13,7 +13,7 @@ Features:
 """
 
 from __future__ import annotations
-import os, re, sys, time, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -323,6 +323,49 @@ def get_default_spek_dir(base_dir: Optional[Path] = None, mode: str = "MIX_ARCHI
     fallback = base / "SPEK_OUTPUTS"
     fallback.mkdir(parents=True, exist_ok=True)
     return fallback.resolve()
+
+
+def get_recording_output_dir(base_dir: Optional[Path] = None) -> Path:
+    """Resolves local storage directory for MP Audio Player recordings (MP_AUDIOWAV_REC_OUTPUT)."""
+    base = base_dir or get_base_dir()
+    cand_dirs: List[Path] = []
+
+    mix_arc = os.environ.get("MIX_ARCHIVE_DIR")
+    if not mix_arc:
+        for cfg_cand in [base / "config.env", Path.home() / ".config" / "mix-manager" / "config.env"]:
+            if cfg_cand.is_file():
+                try:
+                    for line in cfg_cand.read_text(encoding="utf-8").splitlines():
+                        if line.strip().startswith("MIX_ARCHIVE_DIR="):
+                            val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            if val and os.path.isdir(val):
+                                mix_arc = val
+                                break
+                except Exception:
+                    pass
+            if mix_arc:
+                break
+
+    if mix_arc and os.path.isdir(mix_arc):
+        cand_dirs.append(Path(mix_arc) / "MP_AUDIOWAV_REC_OUTPUT")
+
+    cand_dirs.append(base / "MP_AUDIOWAV_REC_OUTPUT")
+    cand_dirs.append(Path.home() / ".config" / "mix-manager" / "MP_AUDIOWAV_REC_OUTPUT")
+
+    for d in cand_dirs:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            return d.resolve()
+        except Exception:
+            pass
+
+    fallback = base / "MP_AUDIOWAV_REC_OUTPUT"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback.resolve()
+
+
+# Maximum file size per WAV recording part before rolling over to a new file (3GB)
+REC_MAX_FILE_BYTES = 3 * 1024 * 1024 * 1024
 
 
 def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None) -> Tuple[bool, str]:
@@ -668,6 +711,20 @@ class AudioEngine:
         self.fft_scale = 1024.0 / 2.0
         self._cached_bt_info: Dict[str, Any] = {}
         self._last_bt_query: float = 0.0
+
+        # Recording state (MP_AUDIOWAV_REC_OUTPUT, max 3GB per WAV file)
+        self.is_recording = False
+        self.recording_current_path = ""
+        self.recording_bytes_written = 0
+        self.recording_duration_sec = 0.0
+        self._rec_queue: Optional[queue.Queue] = None
+        self._rec_worker_thread: Optional[threading.Thread] = None
+        self._rec_lock = threading.Lock()
+        self._rec_part_index = 1
+        self._rec_base_stem = ""
+        self._rec_dir: Optional[Path] = None
+        self._rec_samplerate = 48000
+
         self._ensure_stream()
 
         self.auto_bluetooth = auto_bluetooth
@@ -939,6 +996,12 @@ class AudioEngine:
                 outdata[ncopy:].fill(0)
                 if at_end: self.track_ended = True
 
+            if self.is_recording and self._rec_queue is not None and ncopy > 0:
+                try:
+                    self._rec_queue.put_nowait(np.copy(stereo_data[:ncopy]))
+                except Exception:
+                    pass
+
             self._compute_fft_spectrum(stereo_data[:ncopy], mono_data[:ncopy])
         finally:
             if sf_ref is not None: self._release_sf()
@@ -1066,6 +1129,138 @@ class AudioEngine:
         self.repeat_mode = modes[(modes.index(self.repeat_mode) + 1) % len(modes)]
         self._sync_state_file()
 
+    def start_recording(self) -> str:
+        with self._rec_lock:
+            if self.is_recording:
+                return self.recording_current_path
+
+            rec_dir = get_recording_output_dir()
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            curr_title = ""
+            if self.current_track and isinstance(self.current_track, dict):
+                curr_title = str(self.current_track.get("name") or self.current_track.get("title", ""))
+            if curr_title:
+                clean = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', os.path.splitext(curr_title)[0])[:32].strip("_")
+                name_suffix = f"_{clean}" if clean else ""
+            else:
+                name_suffix = ""
+
+            self._rec_base_stem = f"MP_REC_{timestamp}{name_suffix}"
+            self._rec_dir = rec_dir
+            self._rec_part_index = 1
+            part_filename = f"{self._rec_base_stem}_pt{self._rec_part_index:02d}.wav"
+            self.recording_current_path = str(self._rec_dir / part_filename)
+            self.recording_bytes_written = 0
+            self.recording_duration_sec = 0.0
+            self._rec_samplerate = int(self.output_rate or self.sample_rate or 48000)
+
+            self.is_recording = True
+            self._rec_queue = queue.Queue(maxsize=1200)
+            self._rec_worker_thread = threading.Thread(target=self._recording_worker, daemon=True)
+            self._rec_worker_thread.start()
+            self._sync_state_file()
+            return self.recording_current_path
+
+    def stop_recording(self) -> Tuple[bool, str]:
+        with self._rec_lock:
+            if not self.is_recording:
+                return False, ""
+            self.is_recording = False
+            last_path = self.recording_current_path
+            if self._rec_queue is not None:
+                try:
+                    self._rec_queue.put_nowait(None)
+                except Exception:
+                    pass
+            self.recording_current_path = ""
+            self._sync_state_file()
+            return True, last_path
+
+    def toggle_recording(self) -> Tuple[bool, str]:
+        if self.is_recording:
+            _, path = self.stop_recording()
+            return False, path
+        else:
+            path = self.start_recording()
+            return True, path
+
+    def _recording_worker(self):
+        samplerate = getattr(self, "_rec_samplerate", 48000)
+        # 3GB maximum size per WAV recording part: REC_MAX_FILE_BYTES bytes
+        max_wav_bytes = getattr(self, "_rec_max_bytes", None) or REC_MAX_FILE_BYTES
+        current_file = None
+        current_file_bytes = 0
+
+        def _open_wav(fpath: str):
+            _ensure_audio_backends()
+            if sf is not None:
+                return sf.SoundFile(str(fpath), mode="w", samplerate=samplerate, channels=2, subtype="PCM_16", format="WAV")
+            import wave
+            wf = wave.open(str(fpath), "wb")
+            wf.setnchannels(2)
+            wf.setsampwidth(2)
+            wf.setframerate(samplerate)
+            return wf
+
+        try:
+            current_file = _open_wav(self.recording_current_path)
+        except Exception:
+            self.is_recording = False
+            return
+
+        while True:
+            try:
+                chunk = self._rec_queue.get(timeout=0.2)
+            except Exception:
+                if not self.is_recording and (self._rec_queue is None or self._rec_queue.empty()):
+                    break
+                continue
+
+            if chunk is None:
+                break
+
+            chunk_len = len(chunk)
+            if chunk_len <= 0:
+                continue
+
+            # 2 channels * 16-bit (2 bytes) = 4 bytes per frame
+            chunk_bytes = chunk_len * 4
+
+            # Automatically split when current file hits or would exceed 3GB
+            if current_file_bytes + chunk_bytes >= max_wav_bytes:
+                try:
+                    current_file.close()
+                except Exception:
+                    pass
+                with self._rec_lock:
+                    self._rec_part_index += 1
+                    next_filename = f"{self._rec_base_stem}_pt{self._rec_part_index:02d}.wav"
+                    self.recording_current_path = str(self._rec_dir / next_filename)
+                try:
+                    current_file = _open_wav(self.recording_current_path)
+                    current_file_bytes = 0
+                except Exception:
+                    break
+
+            try:
+                if sf is not None and isinstance(current_file, sf.SoundFile):
+                    current_file.write(chunk)
+                else:
+                    i16 = np.clip(chunk * 32767.0, -32768, 32767).astype(np.int16)
+                    current_file.writeframes(i16.tobytes())
+                current_file_bytes += chunk_bytes
+                self.recording_bytes_written += chunk_bytes
+                self.recording_duration_sec += chunk_len / float(samplerate)
+            except Exception:
+                pass
+
+        if current_file:
+            try:
+                current_file.close()
+            except Exception:
+                pass
+        self._sync_state_file()
+
     def get_mini_visualizer(self) -> str:
         if self.state != "playing": return "·······"
         step = max(1, self.num_bands // 8)
@@ -1098,6 +1293,9 @@ class AudioEngine:
             "duration_fmt": format_seconds(self.duration_sec), "progress_pct": float(pct), "volume": int(self.volume * 100),
             "pitch_percent": int(self.pitch_percent), "pitch_factor": round(float(self.pitch_factor), 3), "muted": bool(self.muted),
             "shuffle": bool(self.shuffle), "repeat": str(self.repeat_mode), "sample_rate": int(self.sample_rate),
+            "recording": bool(self.is_recording), "recording_file": str(self.recording_current_path),
+            "recording_bytes": int(self.recording_bytes_written),
+            "recording_duration": round(float(self.recording_duration_sec), 2),
             "output_rate": int(self.output_rate or 0), "output_device": cur_out,
             "bluetooth_connected": is_bt, "bluetooth_device": bt_dev, "bluetooth_codec": bt_codec,
             "bluetooth_auto_route": bool(getattr(self, "auto_bluetooth", True)),
@@ -1199,6 +1397,15 @@ class PlayerIPCServer:
             elif cmd == "repeat":
                 self.engine.cycle_repeat()
                 res["repeat"] = self.engine.repeat_mode
+            elif cmd in ("record", "toggle_record"):
+                is_rec, rec_f = self.engine.toggle_recording()
+                res.update(recording=is_rec, recording_file=rec_f)
+            elif cmd == "start_record":
+                rec_f = self.engine.start_recording()
+                res.update(recording=True, recording_file=rec_f)
+            elif cmd == "stop_record":
+                ok, rec_f = self.engine.stop_recording()
+                res.update(recording=False, recording_file=rec_f)
             elif cmd == "select_index": threading.Thread(target=self.engine.load_track, args=(int(req.get("index", 0)), True), daemon=True).start()
             elif cmd == "get_playlist": res["playlist"] = [{"index": i, "name": t["name"], "path": t["path"], "ext": t["ext"]} for i, t in enumerate(self.engine.playlist[:100])]
             elif cmd in ("open_file_manager", "reveal"):
@@ -2441,6 +2648,7 @@ class TerminalPlayerUI:
         self.cached_status = {"title": "Loading...", "path": "", "state": "stopped", "position_fmt": "00:00",
                               "duration_fmt": "00:00", "progress_pct": 0.0, "volume": 85, "muted": False,
                               "shuffle": False, "repeat": "all", "mode": self.mode,
+                              "recording": False, "recording_file": "", "recording_bytes": 0, "recording_duration": 0.0,
                               "levels": [0.0]*24, "peaks": [0.0]*24,
                               "levels_left": [0.0]*24, "levels_right": [0.0]*24,
                               "peaks_left": [0.0]*24, "peaks_right": [0.0]*24,
@@ -2533,7 +2741,9 @@ class TerminalPlayerUI:
             mapping = {
                 "toggle": e.toggle_play_pause, "pause": e.pause, "next": e.next_track, "prev": e.prev_track,
                 "reset_pitch": e.reset_pitch, "mute": e.toggle_mute, "shuffle": e.toggle_shuffle,
-                "repeat": e.cycle_repeat, "stop": e.stop_playback
+                "repeat": e.cycle_repeat, "stop": e.stop_playback,
+                "record": e.toggle_recording, "toggle_record": e.toggle_recording,
+                "start_record": e.start_recording, "stop_record": e.stop_recording
             }
             if cmd in mapping: mapping[cmd]()
             elif cmd == "play":
@@ -2632,6 +2842,25 @@ class TerminalPlayerUI:
         self.notification_msg = f"{'Opened in' if ok else 'Failed to open'} File Manager: {name}"
         self.notification_time = time.time() + 3.0
 
+    def _toggle_recording(self):
+        if self.is_remote:
+            res = send_ipc_command("toggle_record")
+            is_rec = bool(res.get("recording", False))
+            rec_file = str(res.get("recording_file", ""))
+        elif self.engine:
+            is_rec, rec_file = self.engine.toggle_recording()
+        else:
+            return
+
+        self.cached_status["recording"] = is_rec
+        self.cached_status["recording_file"] = rec_file
+        if is_rec:
+            bname = os.path.basename(rec_file)
+            self.notification_msg = f"● RECORDING TO WAV STARTED: {bname} (3GB Max / File)"
+        else:
+            self.notification_msg = "■ RECORDING STOPPED & SAVED TO MP_AUDIOWAV_REC_OUTPUT"
+        self.notification_time = time.time() + 4.0
+
     def _view_selected_tracklist(self):
         tp, tn = self._get_target_path()
         if not tp:
@@ -2723,6 +2952,9 @@ class TerminalPlayerUI:
         except (KeyboardInterrupt, SystemExit): pass
         finally:
             self.running = False
+            if self.engine and not self.is_remote:
+                try: self.engine.stop_recording()
+                except Exception: pass
             if fd is not None and old_settings and termios:
                 try: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
                 except Exception: pass
@@ -2873,6 +3105,8 @@ class TerminalPlayerUI:
                 self.notification_msg = "✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window"
                 self.notification_time = time.time() + 3.0
         elif data in (b"r", b"R"):
+            self._toggle_recording()
+        elif data in (b"l", b"L"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
             cur_rep = self.engine.repeat_mode if (self.engine and not self.is_remote) else self.cached_status.get("repeat", "all")
@@ -2972,7 +3206,18 @@ class TerminalPlayerUI:
         badge = f"{BOLD}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{BOLD}{RED}⏹ STOPPED{NC}")
         mode_badge = f" {BOLD}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {DIM}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
 
-        lines.append(f"  {badge}{mode_badge}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
+        is_rec = bool(st.get("recording", False))
+        flash_on = (int(time.time() * 1.5) % 2 == 0)
+        rec_badge = f"  {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash_on) else (f"  {DIM}{RED}○ REC{NC}" if is_rec else "")
+
+        lines.append(f"  {badge}{mode_badge}{rec_badge}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
+
+        if is_rec:
+            rec_f = os.path.basename(st.get("recording_file", ""))
+            rec_mb = float(st.get("recording_bytes", 0)) / (1024 * 1024)
+            rec_dur = format_seconds(float(st.get("recording_duration", 0.0)))
+            rec_dot_sub = f"{BOLD}{COLOR_TRAFFIC_RED}●{NC}" if flash_on else f"{DIM}{RED}○{NC}"
+            lines.append(f"  {rec_dot_sub} {BOLD}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}{rec_f}{NC} {DIM}[{rec_mb:.1f} MB  •  {rec_dur}  •  Max 3GB/WAV]{NC}")
 
         out_name = bt_dev or st.get("output_device", "Speakers")
         if is_bt or ("bluetooth" in str(out_name).lower()):
@@ -3099,20 +3344,20 @@ class TerminalPlayerUI:
 
         if self.mode == "MUSIC":
             lines.append(_fit_text_line([
-                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
-                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [M] Mini Mode  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
-                f"  Space Play  [M] Mini  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
+                f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit{NC}",
+                f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini Mode  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/q] Exit",
+                f"  Space Play  [R] Rec  [M] Mini  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/q Exit"
             ], max(20, w - 1)))
             lines.append(_fit_text_line([
-                f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [r] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
-                f"  {DIM}0 Reset  u Mute  s Shuf  r Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
-                f"  {DIM}0 Reset  u Mute  s Shuf  r Rep  e EQ  c Theme  b/q Exit{NC}"
+                f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [l] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
+                f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
+                f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  b/q Exit{NC}"
             ], max(20, w - 1)))
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [r] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
-                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  r Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
-                f"  {DIM}Space Play  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  r Rep  n/p Skip  a BT  O Open  b/q Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [l] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/q] Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/q Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  b/q Exit{NC}"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -3143,7 +3388,10 @@ class TerminalPlayerUI:
         state = st.get("state", "stopped")
         badge = f"{BOLD}{GREEN}▶ PLAY{NC}" if state == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSE{NC}" if state == "paused" else f"{BOLD}{RED}⏹ STOP{NC}")
         mode_badge = f"{DIM}{c_g1}[MUSIC]{NC}" if self.mode == "MUSIC" else f"{DIM}{c_g1}[MIX]{NC}"
-        lines.append(f"  {badge} {mode_badge} {BOLD}{c_g2}♫ {tname}{NC}")
+        is_rec = bool(st.get("recording", False))
+        flash_on = (int(time.time() * 1.5) % 2 == 0)
+        rec_badge = f" {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash_on) else (f" {DIM}{RED}○ REC{NC}" if is_rec else "")
+        lines.append(f"  {badge} {mode_badge}{rec_badge} {BOLD}{c_g2}♫ {tname}{NC}")
 
         # Format & Output Device
         ext = os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
@@ -3182,7 +3430,7 @@ class TerminalPlayerUI:
         if time.time() < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
+            lines.append(f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Micro  {c_g1}[q]{NC} Close")
 
         _present_frame(lines, w, h)
 
@@ -3251,9 +3499,13 @@ class TerminalPlayerUI:
         eq_name = self.visualizer.get_style_display_name()
         th_name = self.visualizer.theme.replace("_", " ").title()
 
+        is_rec = bool(st.get("recording", False))
+        flash_on = (int(time.time() * 1.5) % 2 == 0)
+        rec_dot = f" {BOLD}{COLOR_TRAFFIC_RED}●{NC}" if (is_rec and flash_on) else (f" {DIM}{RED}○{NC}" if is_rec else "")
+
         rem_dash = max(0, iw - 28)
         lines.append(f"  {BOLD}{c_g1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * rem_dash}╮{NC}")
-        row1_inner = f" {badge} {BOLD}{c_g2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{pos_str}/{dur_str}{NC} │ Vol: {vol} │ {c_g1}Pitch: {pbadge}{NC} "
+        row1_inner = f" {badge}{rec_dot} {BOLD}{c_g2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{pos_str}/{dur_str}{NC} │ Vol: {vol} │ {c_g1}Pitch: {pbadge}{NC} "
         row1_pad = max(0, iw - _display_width(row1_inner))
         lines.append(f"  {BOLD}{c_g1}│{NC}{row1_inner}{' ' * row1_pad}{BOLD}{c_g1}│{NC}")
 
@@ -3272,9 +3524,9 @@ class TerminalPlayerUI:
             lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
         else:
             lines.append(_fit_text_line([
-                f"  {c_g1}[Space]{NC} Play  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
-                f"  {c_g1}[Space]{NC} Play  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
-                f"  {c_g1}Space{NC} Play  {c_g1}n/p{NC} Skip  {c_g1}v/V{NC} Vol  {c_g1}s{NC} Shuf  {c_g1}e{NC} EQ  {c_g1}c{NC} Theme  {c_g2}M{NC} Mini  {c_g1}q{NC} Close"
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[G]{NC} Spek  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
+                f"  {c_g1}[Space]{NC} Play  {c_g1}[R]{NC} Rec  {c_g1}[n/p]{NC} Skip  {c_g1}[v/V]{NC} Vol  {c_g1}[s]{NC} Shuf  {c_g1}[e]{NC} EQ  {c_g1}[c]{NC} Theme  {c_g2}[M]{NC} Mini  {c_g1}[q]{NC} Close",
+                f"  {c_g1}Space{NC} Play  {c_g1}R{NC} Rec  {c_g1}n/p{NC} Skip  {c_g1}v/V{NC} Vol  {c_g1}s{NC} Shuf  {c_g1}e{NC} EQ  {c_g1}c{NC} Theme  {c_g2}M{NC} Mini  {c_g1}q{NC} Close"
             ], max(20, w - 1)))
 
         _present_frame(lines, w, h)
@@ -3346,6 +3598,7 @@ def main():
     parser.add_argument("--only-if-running", action="store_true", help="Only perform toggle/action if player daemon is currently running")
     parser.add_argument("--shuffle", action="store_true", help="Toggle shuffle mode (on/off)")
     parser.add_argument("--repeat", action="store_true", help="Cycle repeat mode (all -> one -> off)")
+    parser.add_argument("--record", "--toggle-record", "-r", action="store_true", help="Toggle live WAV recording to MP_AUDIOWAV_REC_OUTPUT (max 3GB per WAV)")
 
     args, _ = parser.parse_known_args()
     base_dir = get_base_dir()
@@ -3492,6 +3745,19 @@ def main():
             st_rep = res.get("repeat") if res else None
             if st_rep is not None: print(f"✔ Repeat mode: {st_rep.upper()}")
             else: print("✔ Repeat mode cycled")
+        sys.exit(0)
+
+    if args.record:
+        if daemon_running:
+            res = send_ipc_command("toggle_record")
+            rec_on = res.get("recording", False) if res else False
+            rec_file = res.get("recording_file", "") if res else ""
+            if rec_on:
+                print(f"✔ Live WAV Recording Started: {rec_file} (Max 3GB per WAV)")
+            else:
+                print("✔ Live WAV Recording Stopped & Saved to MP_AUDIOWAV_REC_OUTPUT")
+        else:
+            print("Player daemon not running.")
         sys.exit(0)
 
     if args.play is not None:

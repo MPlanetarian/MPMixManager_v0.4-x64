@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+- **Live WAV Audio Recording with 3GB Auto-Rollover & Flashing Red Dot REC Indicator in MP Audio Player** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `tests/test_player_recording.py`):
+  - **Live WAV Recording Feature (`R` / `r`)**: Added live audio stream recording capability directly to MP Audio Player. Users can press `R` or `r` during playback to instantly start recording output audio directly to standard 16-bit PCM stereo WAV files inside `MP_AUDIOWAV_REC_OUTPUT`. Pressing `R` or `r` again cleanly finalizes and stops the recording.
+  - **Continuous Recording & 3GB File Rollover**: If the user leaves recording running continuously, the audio engine automatically splits recordings at a maximum size of 3GB (`3 * 1024 * 1024 * 1024` bytes) without audio dropouts or sample loss, rolling over to sequential parts (`*_pt01.wav`, `*_pt02.wav`, etc.) to guarantee 100% standard RIFF WAV header compatibility and eliminate header overflow.
+  - **Non-Blocking Background Worker Thread**: Recording chunks are enqueued via a non-blocking queue (`_rec_queue.put_nowait()`) directly in the audio engine callback, completely isolating real-time audio playback from disk I/O latency.
+  - **Slow Flashing Red Dot REC Indicator**: Implemented a pulsating red dot indicator (`● REC` / `○ REC`) in Normal, Mini, and Micro player frames and the terminal window title, pulsing steadily during active recording sessions.
+  - **Loop / Repeat Key Remapping (`L` / `l`)**: Remapped Repeat / Loop mode cycling to `L` / `l`, reserving `R` / `r` exclusively for start/stop recording.
+  - **Manager Integration & Status Badges**: Added live `MP_PLAYER_RECORDING` detection and red recording badges (`● REC`) to `Mix_Archive_Manager.sh`'s top player banner and `manage_audio_players()` dashboard.
+  - **IPC & CLI Dispatch**: Added `record`, `toggle_record`, `start_record`, and `stop_record` IPC socket commands, and added `--record` / `--toggle-record` (`-r`) CLI flags to `MP_Audio_Player.py`.
+  - **Automated Unit Test Suite**: Added `tests/test_player_recording.py` covering directory resolution, start/stop/toggle lifecycle, WAV data formatting, 3GB size rollover, UI keybindings, IPC commands, and argument parsing.
+
 - **Restored Shuffle Mode Toggle (`s` / `S`) and Volume Controls in MP Audio Player** (`MP_Audio_Player.py`, `tests/test_player_shuffle.py`):
   - **Restored `s` / `S` Shuffle Mode Shortcut**: Fixed key processing regression in `_process_key` where pressing `s` or `S` failed to toggle shuffle mode. Pressing `s` or `S` now instantly toggles playlist shuffle state in standard, Mini, and Micro player modes, giving instant visual notification feedback (`Shuffle: ON` / `Shuffle: OFF`).
   - **Restored `v` / `V` and `[` / `]` Volume Controls**: Reinstated volume adjustment shortcuts (`v` / `]` for volume up by +5%, `V` / `[` for volume down by -5%) with automatic unmute and instantaneous status bar feedback.
