@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.3.7 Beta] - 2026-10-17
+- **Restored Shuffle Mode Toggle (`s` / `S`) and Volume Controls in MP Audio Player** (`MP_Audio_Player.py`, `tests/test_player_shuffle.py`):
+  - **Restored `s` / `S` Shuffle Mode Shortcut**: Fixed key processing regression in `_process_key` where pressing `s` or `S` failed to toggle shuffle mode. Pressing `s` or `S` now instantly toggles playlist shuffle state in standard, Mini, and Micro player modes, giving instant visual notification feedback (`Shuffle: ON` / `Shuffle: OFF`).
+  - **Restored `v` / `V` and `[` / `]` Volume Controls**: Reinstated volume adjustment shortcuts (`v` / `]` for volume up by +5%, `V` / `[` for volume down by -5%) with automatic unmute and instantaneous status bar feedback.
+  - **Immediate Audio Engine State Synchronization**: Updated `toggle_shuffle()`, `toggle_mute()`, and `cycle_repeat()` on `AudioEngine` to immediately flush state updates to disk (`STATE_FILE`), eliminating UI latency.
+  - **IPC & CLI Commands for Shuffle & Repeat**: Extended `PlayerIPCServer` to return updated state on `shuffle`, `repeat`, and `mute` commands, and added `--shuffle` and `--repeat` CLI arguments to `MP_Audio_Player.py`.
+  - **Unit Test Coverage**: Added `tests/test_player_shuffle.py` testing key handling for `s`/`S` and `v`/`V` in both local and remote modes, along with argument parser verification.
 
 - **Fix Equalizer Display and `E` / `e` Cycling in MP Micro Audio Player Mode** (`MP_Audio_Player.py`, `tests/test_micro_player_eq.py`):
   - **Full Animated EQ Visualizer in MICRO Mode**: Restored real-time equalizer visualizer rendering in `_draw_micro_frame` when viewport height `h >= 9`. All 6 equalizer styles (Neon Chroma Prism, Stardust Chroma, Dual Stereo Spectrum, Master Spectrum, Analog Studio VU, and CRT Oscilloscope) now fully render below the micro-status card.
