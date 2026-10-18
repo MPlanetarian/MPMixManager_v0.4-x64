@@ -3,17 +3,43 @@ import subprocess
 import unittest
 from pathlib import Path
 
-BASE_DIR = Path("/var/home/mplanetarian/MP_Mix_Manager_v0.3")
+BASE_DIR = Path(__file__).resolve().parent.parent
 SCRIPT = BASE_DIR / "scripts" / "display_loader_video.sh"
+
+
+def find_bash():
+    for cand in [
+        os.environ.get("ProgramFiles", "") + r"\Git\bin\bash.exe",
+        os.environ.get("ProgramFiles(x86)", "") + r"\Git\bin\bash.exe",
+        os.environ.get("LOCALAPPDATA", "") + r"\Programs\Git\bin\bash.exe",
+        r"C:\msys64\usr\bin\bash.exe",
+    ]:
+        if cand and os.path.isfile(cand):
+            return cand
+    import shutil
+    b = shutil.which("bash")
+    if b and "WindowsApps" not in b:
+        return b
+    return "bash"
+
+
+BASH_BIN = find_bash()
 
 
 class TestLoaderVideoIntegration(unittest.TestCase):
     def test_find_loader_video_path_finds_mp_loader(self):
-        cmd = ["bash", str(SCRIPT), "--path"]
+        script_posix = str(SCRIPT).replace('\\', '/')
+        cmd = [BASH_BIN, script_posix, "--path"]
         res = subprocess.run(cmd, cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertTrue(res.stdout.strip().endswith("MP_loader.mp4"))
-        self.assertTrue(os.path.isfile(res.stdout.strip()))
+        # Check either POSIX or Windows path
+        resolved = res.stdout.strip()
+        if resolved.startswith("/x/"):
+            resolved = "X:/" + resolved[3:]
+        elif resolved.startswith("/c/"):
+            resolved = "C:/" + resolved[3:]
+        self.assertTrue(os.path.isfile(resolved) or os.path.isfile(res.stdout.strip()))
 
     def test_is_manager_already_open_logic(self):
         script = r"""
@@ -32,7 +58,7 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         fi
         rm -f "${HOME}/.config/mix-manager/bridge_status.json"
         """
-        res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("MACOS_PROC_FALLBACK_OK", res.stdout)
 
@@ -45,7 +71,7 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         display_startup_loader_video 0
         echo "SKIPPED_CONFIG"
         """
-        res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("SKIPPED_CONFIG", res.stdout)
 
@@ -57,7 +83,7 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         display_startup_loader_video 0
         echo "SKIPPED_CLI_ACTION"
         """
-        res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("SKIPPED_CLI_ACTION", res.stdout)
 
@@ -70,7 +96,7 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         display_startup_loader_video 0
         echo "SKIPPED_ALREADY_OPEN"
         """
-        res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("SKIPPED_ALREADY_OPEN", res.stdout)
 
@@ -94,9 +120,41 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         test -f "$path"
         echo "PATH_VALID: $path"
         """
-        res = subprocess.run(["bash", "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
         self.assertIn("PATH_VALID:", res.stdout)
+
+    def test_windows_gui_detection_and_os_type(self):
+        """Verifies that on Windows/MINGW, OS_TYPE is windows and is_gui is 1."""
+        script = r"""
+        set -e
+        source scripts/display_loader_video.sh
+        echo "DETECTED_OS_TYPE: $OS_TYPE"
+        is_gui=0
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${OS_TYPE:-}" = "macos" ] || [ "${OS_TYPE:-}" = "windows" ] || [ "${OS_TYPE:-}" = "wsl" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            is_gui=1
+        fi
+        echo "IS_GUI: $is_gui"
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("IS_GUI: 1", res.stdout)
+
+    def test_manager_uname_s_initialization(self):
+        """Verifies that Mix_Archive_Manager.sh correctly initializes UNAME_S and OS_TYPE."""
+        script = r"""
+        set -e
+        # Evaluate up to line 257 where OS_TYPE and UNAME_S are exported
+        eval "$(sed -n '1,257p' Mix_Archive_Manager.sh)"
+        test -n "$UNAME_S"
+        echo "UNAME_S_VALID: $UNAME_S"
+        test -n "$OS_TYPE"
+        echo "OS_TYPE_VALID: $OS_TYPE"
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("UNAME_S_VALID:", res.stdout)
+        self.assertIn("OS_TYPE_VALID:", res.stdout)
 
 
 if __name__ == "__main__":

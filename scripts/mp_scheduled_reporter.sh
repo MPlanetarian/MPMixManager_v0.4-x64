@@ -28,6 +28,7 @@ DAILY_REPORTS_TIME="${DAILY_REPORTS_TIME:-10:00}"
 MONTHLY_REPORTS_ENABLED="${MONTHLY_REPORTS_ENABLED:-true}"
 YEARLY_REPORTS_ENABLED="${YEARLY_REPORTS_ENABLED:-true}"
 LAST_DAILY_REPORT_DATE="${LAST_DAILY_REPORT_DATE:-}"
+LAST_DAILY_EMAIL_DATE="${LAST_DAILY_EMAIL_DATE:-}"
 LAST_MONTHLY_REPORT_DATE="${LAST_MONTHLY_REPORT_DATE:-}"
 LAST_YEARLY_REPORT_DATE="${LAST_YEARLY_REPORT_DATE:-}"
 
@@ -123,10 +124,15 @@ check_and_run() {
     # 4. DAILY CONSOLIDATED EMAIL DISPATCH (1:00 PM / 13:00)
     local email_script="${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py"
     if [ -f "$email_script" ]; then
-        local cur_hm="${current_time//:/}"
-        cur_hm=$((10#$cur_hm))
-        if [ "$cur_hm" -ge 1300 ]; then
-            python3 "$email_script" --send >/dev/null 2>&1 || true
+        if [ "${LAST_DAILY_EMAIL_DATE:-}" != "$today" ]; then
+            local cur_hm="${current_time//:/}"
+            cur_hm=$((10#$cur_hm))
+            if [ "$cur_hm" -ge 1300 ]; then
+                if python3 "$email_script" --send >/dev/null 2>&1; then
+                    save_setting "LAST_DAILY_EMAIL_DATE" "$today"
+                    LAST_DAILY_EMAIL_DATE="$today"
+                fi
+            fi
         fi
     fi
 

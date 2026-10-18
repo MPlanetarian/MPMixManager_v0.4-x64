@@ -16,12 +16,18 @@ if [ -z "${VERSION:-}" ]; then
 fi
 export VERSION
 
-if [ -z "${OS_TYPE:-}" ]; then
-    case "$(uname -s)" in
+if [ -z "${OS_TYPE:-}" ] || [ "${OS_TYPE:-}" = "linux" -a -n "${WINDIR:-}" ] || [[ "${OS_TYPE:-}" = "linux" && "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+    case "$(uname -s 2>/dev/null)" in
         Darwin*) OS_TYPE="macos" ;;
         CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;;
         FreeBSD*) OS_TYPE="freebsd" ;;
-        *) OS_TYPE="linux" ;;
+        *)
+            if [[ "${OSTYPE:-}" =~ (msys|cygwin|win32) ]] || [ -n "${WINDIR:-}" ] || [ -n "${SYSTEMROOT:-}" ]; then
+                OS_TYPE="windows"
+            else
+                OS_TYPE="linux"
+            fi
+            ;;
     esac
 fi
 export OS_TYPE
@@ -95,13 +101,19 @@ is_manager_already_open() {
 # Locate MP_loader.mp4
 find_loader_video_path() {
     local cand
-    for cand in "${LOADER_VIDEO_FILE:-}" \
-                "$SCRIPT_DIR/MP_loader.mp4" \
-                "$SCRIPT_DIR/assets/MP_loader.mp4" \
-                "/var/home/mplanetarian/MP_Mix_Manager_v0.3/MP_loader.mp4" \
-                "$SCRIPT_DIR/gemini_generated_video_BEB1D608.mp4" \
-                "/var/home/mplanetarian/GoogleDrive/gemini_generated_video_BEB1D608.mp4"; do
-        if [ -n "$cand" ] && [ -s "$cand" ]; then
+    local cand_list=()
+    if [ -n "${LOADER_VIDEO_FILE:-}" ]; then
+        cand_list+=("${LOADER_VIDEO_FILE}" "$SCRIPT_DIR/${LOADER_VIDEO_FILE}")
+    fi
+    cand_list+=(
+        "$SCRIPT_DIR/MP_loader.mp4"
+        "$SCRIPT_DIR/assets/MP_loader.mp4"
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.3/MP_loader.mp4"
+        "$SCRIPT_DIR/gemini_generated_video_BEB1D608.mp4"
+        "/var/home/mplanetarian/GoogleDrive/gemini_generated_video_BEB1D608.mp4"
+    )
+    for cand in "${cand_list[@]}"; do
+        if [ -n "$cand" ] && [ -f "$cand" ] && [ -s "$cand" ]; then
             printf '%s\n' "$cand"
             return 0
         fi
@@ -162,33 +174,104 @@ display_startup_loader_video() {
     # Launch video player if GUI display environment is available
     local player_pid=""
     local is_gui=0
-    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${OS_TYPE:-}" = "macos" ] || [ "${OS_TYPE:-}" = "windows" ] || [ "$(uname -s)" = "Darwin" ]; then
+    if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${OS_TYPE:-}" = "macos" ] || [ "${OS_TYPE:-}" = "windows" ] || [ "${OS_TYPE:-}" = "wsl" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
         is_gui=1
     fi
 
+    # Prepare Windows-native path format if needed
+    local win_loader_vid="$loader_vid"
+    if [ "${OS_TYPE:-}" = "windows" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        if command -v cygpath &>/dev/null; then
+            win_loader_vid="$(cygpath -w "$loader_vid" 2>/dev/null || echo "$loader_vid")"
+        fi
+    fi
+
+    # Locate media players across platforms & Windows standard installations
+    local ffplay_bin=""
+    if command -v ffplay &>/dev/null; then
+        ffplay_bin="$(command -v ffplay)"
+    elif [ -n "${LOCALAPPDATA:-}" ] && [ -x "$LOCALAPPDATA/Microsoft/WinGet/Links/ffplay.exe" ]; then
+        ffplay_bin="$LOCALAPPDATA/Microsoft/WinGet/Links/ffplay.exe"
+    elif [ -x "/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links/ffplay.exe" ]; then
+        ffplay_bin="/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links/ffplay.exe"
+    elif [ -x "/c/ffmpeg/bin/ffplay.exe" ]; then
+        ffplay_bin="/c/ffmpeg/bin/ffplay.exe"
+    elif [ -x "/c/ProgramData/chocolatey/bin/ffplay.exe" ]; then
+        ffplay_bin="/c/ProgramData/chocolatey/bin/ffplay.exe"
+    fi
+
+    local mpv_bin=""
+    if command -v mpv &>/dev/null; then
+        mpv_bin="$(command -v mpv)"
+    elif [ -x "/c/Program Files/mpv/mpv.exe" ]; then
+        mpv_bin="/c/Program Files/mpv/mpv.exe"
+    elif [ -n "${LOCALAPPDATA:-}" ] && [ -x "$LOCALAPPDATA/Programs/mpv/mpv.exe" ]; then
+        mpv_bin="$LOCALAPPDATA/Programs/mpv/mpv.exe"
+    elif [ -x "/c/ProgramData/chocolatey/bin/mpv.exe" ]; then
+        mpv_bin="/c/ProgramData/chocolatey/bin/mpv.exe"
+    fi
+
+    local vlc_bin=""
+    if command -v cvlc &>/dev/null; then
+        vlc_bin="$(command -v cvlc)"
+    elif command -v vlc &>/dev/null; then
+        vlc_bin="$(command -v vlc)"
+    elif [ -x "/Applications/VLC.app/Contents/MacOS/VLC" ]; then
+        vlc_bin="/Applications/VLC.app/Contents/MacOS/VLC"
+    elif [ -x "/c/Program Files/VideoLAN/VLC/vlc.exe" ]; then
+        vlc_bin="/c/Program Files/VideoLAN/VLC/vlc.exe"
+    elif [ -x "/c/Program Files (x86)/VideoLAN/VLC/vlc.exe" ]; then
+        vlc_bin="/c/Program Files (x86)/VideoLAN/VLC/vlc.exe"
+    fi
+
     if [ "$is_gui" -eq 1 ]; then
-        if command -v ffplay &>/dev/null; then
-            ffplay -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" &>/dev/null &
+        if [ -n "$ffplay_bin" ]; then
+            "$ffplay_bin" -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" &>/dev/null &
             player_pid=$!
-        elif command -v mpv &>/dev/null; then
-            mpv --ontop --no-border --title="MP Mix Archive Manager" --no-terminal "$loader_vid" &>/dev/null &
+        elif [ -n "$mpv_bin" ]; then
+            "$mpv_bin" --ontop --no-border --title="MP Mix Archive Manager" --no-terminal "$loader_vid" &>/dev/null &
             player_pid=$!
-        elif command -v cvlc &>/dev/null; then
-            cvlc --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
+        elif [ -n "$vlc_bin" ]; then
+            "$vlc_bin" --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
             player_pid=$!
-        elif command -v vlc &>/dev/null; then
-            vlc --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
-            player_pid=$!
-        elif [ -x "/Applications/VLC.app/Contents/MacOS/VLC" ]; then
-            /Applications/VLC.app/Contents/MacOS/VLC --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
-            player_pid=$!
-        elif [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then
+        elif [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
             osascript -e 'tell application "QuickTime Player" to open POSIX file "'"$loader_vid"'"' \
                       -e 'tell application "QuickTime Player" to play document 1' &>/dev/null &
             player_pid="quicktime"
-        elif [ "${OS_TYPE:-}" = "windows" ]; then
-            cmd.exe /c start "" "$loader_vid" &>/dev/null &
-            player_pid=$!
+        elif [ "${OS_TYPE:-}" = "windows" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local ps_bin=""
+            if command -v powershell.exe &>/dev/null; then
+                ps_bin="powershell.exe"
+            elif [ -x "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" ]; then
+                ps_bin="/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+            fi
+            if [ -n "$ps_bin" ]; then
+                local win_esc_vid="${win_loader_vid//\'/\'\'}"
+                "$ps_bin" -NoProfile -Command "
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
+\$w = New-Object Windows.Window;
+\$w.Title = 'MP Mix Archive Manager';
+\$w.WindowStyle = 'None';
+\$w.AllowsTransparency = \$true;
+\$w.Background = [Windows.Media.Brushes]::Black;
+\$w.Topmost = \$true;
+\$w.WindowStartupLocation = 'CenterScreen';
+\$w.Width = 800;
+\$w.Height = 450;
+\$m = New-Object Windows.Controls.MediaElement;
+\$m.LoadedBehavior = 'Play';
+\$m.Source = [Uri]'$win_esc_vid';
+\$m.Add_MediaEnded({ \$w.Close() });
+\$w.Add_KeyDown({ param(\$s,\$e) \$w.Close() });
+\$w.Add_MouseDown({ param(\$s,\$e) \$w.Close() });
+\$w.Content = \$m;
+\$w.ShowDialog() | Out-Null
+" &>/dev/null &
+                player_pid=$!
+            else
+                cmd.exe /c start "" "$win_loader_vid" &>/dev/null &
+                player_pid=$!
+            fi
         fi
     fi
 
