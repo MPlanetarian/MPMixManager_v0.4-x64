@@ -39,7 +39,10 @@ _resize_pending() {
 local win_l win_c; if _win_console_size win_l win_c; then if [[ "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" || "${LINES:-}" != "$_SEEN_LINES" || "${COLUMNS:-}" != "$_SEEN_COLS" ]]; then _TERM_RESIZED=0; _SEEN_LINES="${LINES:-}"; _SEEN_COLS="${COLUMNS:-}"; return 0; fi; fi; return 1
 }
 _nav_pending=""; _NAV_WIN_CON=""; _NAV_ARROW_AT=""
-_nav_just_arrowed() { [ -n "${_NAV_ARROW_AT:-}" ]; }
+_nav_just_arrowed() {
+# Windows console arrow-echo guard: only true for a short window (150ms) after an arrow key. Previously this was a sticky flag that never cleared on TICK paths, so every Enter on Windows 10 consoles was swallowed as TICK.
+local at="${_NAV_ARROW_AT:-}" now="${EPOCHREALTIME:-}"; [[ -n "$at" ]] || return 1; at="${at/[.,]/}"; now="${now/[.,]/}"; if [[ ! "$at" =~ ^[0-9]{7,}$ || ! "$now" =~ ^[0-9]{7,}$ ]]; then _NAV_ARROW_AT=""; return 1; fi; at=$((10#$at)); now=$((10#$now)); if (( now - at >= 0 && now - at < 150000 )); then return 0; fi; _NAV_ARROW_AT=""; return 1
+}
 _nav_mark_console() {
 [[ -n "${_NAV_WIN_CON:-}" ]] && return 0; case "$(tty 2>/dev/null)" in /dev/cons*) _NAV_WIN_CON=1 ;; *) _NAV_WIN_CON=0 ;; esac
 }
@@ -58,7 +61,7 @@ local _out_var="$1" _k=""
 _emit_key() {
 if [[ -n "$_out_var" ]]; then printf -v "$_out_var" "%s" "$1"; else echo "$1"; fi; return 0
 }
-_nav_mark_console; local read_rc=0; _nav_pull 0.05 _k; read_rc=$?; if [[ "$read_rc" -ne 0 ]]; then _k=""; if _resize_pending; then _emit_key "RESIZE"; return 0; fi; if [[ "$read_rc" -gt 128 ]]; then _emit_key "TICK"; return 0; fi; if [[ -n "$_out_var" ]]; then printf -v "$_out_var" "%s" ""; fi; return 1; fi; if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then if [[ "${_NAV_WIN_CON:-0}" -eq 1 && -n "$_NAV_ARROW_AT" ]]; then _emit_key "TICK"; return 0; fi; _emit_key "ENTER"; elif [[ "$_k" == " " ]]; then _emit_key "SPACE"; elif [[ "$_k" == $'\x7f' || "$_k" == $'\x08' ]]; then _emit_key "BACKSPACE"; elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then local c2=""; if _nav_pull 0.02 c2; then if [[ "$c2" == "[" ]]; then local c3=""; if _nav_pull 0.02 c3; then case "$c3" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; "[") local c4=""; if _nav_pull 0.02 c4; then case "$c4" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; *) _emit_key "UNKNOWN" ;; esac; fi ;; [0-9]) local c4=""; if _nav_pull 0.02 c4; then case "${c3}${c4}" in
+_nav_mark_console; local read_rc=0; _nav_pull 0.05 _k; read_rc=$?; if [[ "$read_rc" -ne 0 ]]; then _k=""; if _resize_pending; then _emit_key "RESIZE"; return 0; fi; if [[ "$read_rc" -gt 128 ]]; then _emit_key "TICK"; return 0; fi; if [[ -n "$_out_var" ]]; then printf -v "$_out_var" "%s" ""; fi; return 1; fi; if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then if [[ "${_NAV_WIN_CON:-0}" -eq 1 ]] && _nav_just_arrowed; then _emit_key "TICK"; return 0; fi; _NAV_ARROW_AT=""; _emit_key "ENTER"; elif [[ "$_k" == " " ]]; then _emit_key "SPACE"; elif [[ "$_k" == $'\x7f' || "$_k" == $'\x08' ]]; then _emit_key "BACKSPACE"; elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then local c2=""; if _nav_pull 0.02 c2; then if [[ "$c2" == "[" ]]; then local c3=""; if _nav_pull 0.02 c3; then case "$c3" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; "[") local c4=""; if _nav_pull 0.02 c4; then case "$c4" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; *) _emit_key "UNKNOWN" ;; esac; fi ;; [0-9]) local c4=""; if _nav_pull 0.02 c4; then case "${c3}${c4}" in
 5~) _emit_key "PAGE_UP" ;;
 6~) _emit_key "PAGE_DOWN" ;;
 1~|7~) _emit_key "HOME" ;;
