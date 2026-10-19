@@ -102,10 +102,18 @@ DURATION_CACHE_FILE = CONFIG_DIR / "track_durations.json"
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 
+def music_library_label(folder_name: str) -> str:
+    """Label for a configured music folder. ALL covers every folder the user has added."""
+    name = str(folder_name or "ALL").strip() or "ALL"
+    if name.upper() in ("ALL", "ALL_MUSIC_FOLDERS"):
+        return "All Music Folders"
+    return name
+
 def is_cloud_or_remote_path(p: Union[str, Path, None]) -> bool:
     if not p: return False
     s = str(p)
-    return any(k in s for k in ("GoogleDrive", "google3:", "MUSIC_SMB", "/run/media/", "/mnt/", "/media/"))
+    if s.startswith(("\\\\", "//", "smb://")): return True
+    return any(k in s for k in ("GoogleDrive", "google3:", "MUSIC_SMB", "/run/media/", "/mnt/", "/media/", "/gvfs/smb-share:"))
 
 def get_base_dir() -> Path:
     p = Path(__file__).resolve()
@@ -612,7 +620,7 @@ class MixArchiveScanner:
         return self.mixes[0] if self.mixes else None
 
 class MusicFolderPlaylistScanner:
-    """Scanner for DJ Tracks Database from MUSIC Folders (SMB /MUSIC001, /MUSIC002).
+    """Scanner for DJ Tracks Database from user-configured MUSIC Folders (local drives & SMB shares).
     Does NOT use MIX_ARCHIVE folders at all.
     Loads from pre-generated .json cache or .m3u8 playlists in PLAYLISTS_GENERATED.
     """
@@ -620,10 +628,9 @@ class MusicFolderPlaylistScanner:
         if folder_name and (str(folder_name).endswith((".json", ".m3u", ".m3u8")) or os.path.exists(str(folder_name))):
             playlist_path = folder_name
             folder_name = "ALL"
-            for fn in ("MUSIC001", "MUSIC002"):
-                if fn in str(playlist_path):
-                    folder_name = fn
-                    break
+            m = re.match(r'^DJ_Tracks_(.+)\.(?:json|m3u8?)$', os.path.basename(str(playlist_path)), re.I)
+            if m and m.group(1).upper() != "ALL_MUSIC_FOLDERS":
+                folder_name = m.group(1)
         self.folder_name = str(folder_name or "ALL").upper()
         self.base_dir = get_base_dir()
         self.mixes: List[Dict[str, Any]] = []
@@ -3488,8 +3495,10 @@ class TerminalPlayerUI:
             iw = 115 if w >= 122 else max(20, w - 6)
         tp = st.get("path", "")
         tname = st.get("title", os.path.basename(tp))
-        folder = "MUSIC001" if "MUSIC001" in tp else ("MUSIC002" if "MUSIC002" in tp else self.folder_name)
-        smb_url = f"smb://192.168.1.138/{folder}/" + tp.split(f"/{folder}/")[-1] if f"/{folder}/" in tp else tp
+        folder = next((m.get("folder") for m in getattr(self.scanner, "mixes", []) if m.get("path") == tp and m.get("folder")), None) or self.folder_name
+        is_net = tp.startswith(("\\\\", "//")) or is_cloud_or_remote_path(tp)
+        folder_desc = f"{'SMB Share' if is_net else 'Local Drive'} [{folder}] • Music Library"
+        smb_url = tp
         max_str_len = max(20, iw - 22)
         disp_title = (tname[:max_str_len-3] + "...") if len(tname) > max_str_len else tname
         disp_smb = (smb_url[:max_str_len-3] + "...") if len(smb_url) > max_str_len else smb_url
@@ -3503,12 +3512,12 @@ class TerminalPlayerUI:
         hud = [
             f"  {BOLD}{COLOR_HOT_PURPLE}╭── ✦ TRACK AUDIO INSPECTOR (METADATA & HARDWARE HUD) ───────────────────────╮{NC}",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{WHITE}Track Title{NC}  : {disp_title}",
-            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Folder / SMB{NC} : SMB Network /{folder} (192.168.1.138) • Music Library",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Folder / Src{NC} : {folder_desc}",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Format/Codec{NC} : {ext} Lossless • {sr/1000:.1f} kHz • {ch_str}",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Time Position{NC}: {st.get('position_fmt','00:00')} / {st.get('duration_fmt','00:00')} ({st.get('progress_pct',0):.1f}%)",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Volume/Pitch{NC} : Volume: {st.get('volume', 85)}%  │  Pitch: {p_pct:+d}%",
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Audio Engine{NC} : Output Rate: {st.get('output_rate', 44100)/1000:.1f} kHz • Device: {dev}",
-            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}Network Path{NC} : {disp_smb}",
+            f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}{'Network Path' if is_net else 'File Path   '}{NC} : {disp_smb}",
             f"  {BOLD}{COLOR_HOT_PURPLE}╰── [G] Generate Spek • Press [I], [Esc], or [Enter] to Close ─────────────╯{NC}"
         ]
         return hud
@@ -3930,7 +3939,7 @@ class TerminalPlayerUI:
 
         if self.mode == "MUSIC":
             btitle = "✦ MP AUDIO PLAYER — MUSIC MODE (TRACKS LIBRARY) ✦"[:max(0, iw - 1)]
-            bsub = f"Music Library Database  •  SMB Shares /{self.folder_name}  •  Track Audio Inspector"[:max(0, iw - 1)]
+            bsub = f"Music Library  •  {music_library_label(self.folder_name)}  •  Local Drives & SMB Shares"[:max(0, iw - 1)]
         else:
             btitle = "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦"[:max(0, iw - 1)]
             bsub = "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition"[:max(0, iw - 1)]
@@ -3997,7 +4006,7 @@ class TerminalPlayerUI:
             q_paths = list(st.get("queue", []))
             q_badge = f" • Queue: {q_len}" if q_len > 0 else ""
 
-            box_label = f"── MUSIC LIBRARY PLAYLIST: /{self.folder_name} ({len(active_tracks)} Tracks{q_badge}) " if self.mode == "MUSIC" else f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{q_badge}) "
+            box_label = f"── MUSIC LIBRARY: {music_library_label(self.folder_name)} ({len(active_tracks)} Tracks{q_badge}) " if self.mode == "MUSIC" else f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{q_badge}) "
             lines.append(_boxed_rule("┌", box_label, "┐", iw, b_col))
             vrows = max(0, h - len(lines) - 4)
             if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
@@ -4007,7 +4016,7 @@ class TerminalPlayerUI:
             avail_name = max(4, iw - 23)
             if not active_tracks:
                 empty_msg1 = "No audio tracks found in playlist." if self.mode == "MUSIC" else "No audio mixes found in archive. (Mix archive folders not yet configured)"
-                empty_msg2 = "Check pre-generated playlists or SMB mount." if self.mode == "MUSIC" else "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
+                empty_msg2 = "Option 1: add a local drive or SMB folder, then generate its playlist." if self.mode == "MUSIC" else "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
                 for em in (empty_msg1, empty_msg2):
                     pad = " " * max(0, iw - _display_width(em) - 2)
                     lines.append(f"  {b_col}│{NC} {COLOR_TRAFFIC_AMBER}{em}{NC}{pad}{b_col}│{NC}")
@@ -4354,7 +4363,7 @@ def main():
     parser.add_argument("--theme", type=str, choices=EqualizerVisualizer.THEMES, help="Set color theme")
     parser.add_argument("--cmd", type=str, help="Send arbitrary IPC command")
     parser.add_argument("--music-mode", action="store_true", help="Launch in DJ Tracks MUSIC Mode")
-    parser.add_argument("--music-folder", type=str, default="ALL", help="Target MUSIC folder (e.g. MUSIC001, MUSIC002, or ALL)")
+    parser.add_argument("--music-folder", type=str, default="ALL", help="Configured music folder id, or ALL")
     parser.add_argument("--playlist", type=str, default="", help="Path to pre-generated playlist (.json or .m3u8)")
     parser.add_argument("--no-bluetooth-auto", action="store_true", help="Disable automatic Bluetooth audio routing")
     parser.add_argument("--bluetooth-status", action="store_true", help="Print current Bluetooth audio router status")
