@@ -140,7 +140,9 @@ BFS_LORA = "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors"
 BFS_LORA_URL = "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap/resolve/main/bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors"
 INFERENCE_STEPS = 4
 SAFE_PROFILE = "4.5"
-ATTENTION_MODE = "sage"
+# "auto" picks Sage when it is installed and SDPA otherwise. Forcing "sage"
+# makes WanGP load the model, then return success without writing a file.
+ATTENTION_MODE = "auto"
 
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -237,6 +239,7 @@ class BatchProgressTracker:
         self.percent: int = 0
         self.phase: str = "Preparing"
         self.status_detail: str = ""
+        self._last_info: str = ""
         self.active: bool = True
 
         self._lock = threading.Lock()
@@ -283,9 +286,19 @@ class BatchProgressTracker:
                     self.phase = "Encoding Prompt"
 
     def on_info(self, info: Any) -> None:
+        text = str(info or "").strip()
+        if not text:
+            return
         with self._lock:
-            if info:
-                self.status_detail = str(info)
+            self.status_detail = text
+            self._last_info = text
+        # The ticker redraws the current line. A new line keeps WanGP's notice visible.
+        sys.__stdout__.write(f"\n{YELLOW}[!] {text}{RESET}\n")
+        sys.__stdout__.flush()
+
+    def last_notice(self) -> str:
+        with self._lock:
+            return self._last_info or self.status_detail
 
     def on_error(self, error: Any) -> None:
         with self._lock:
@@ -483,6 +496,25 @@ def find_pending_images(batch_dir: Path) -> list[Path]:
     return images
 
 
+def find_new_output_images(output_dir: Path, started_at: float) -> list[Path]:
+    """Return image files written to output_dir during this conversion."""
+    if not output_dir.is_dir():
+        return []
+    found = []
+    for path in output_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS or path.name.startswith("."):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if stat.st_size <= 0 or stat.st_mtime < started_at - 1.0:
+            continue
+        found.append(path)
+    found.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return found
+
+
 def rename_converted_outputs(source_image: Path, generated_files: list[str], ctrl_image: Path | None = None, total_ctrls: int = 1) -> list[Path]:
     """Rename generated output files to preserve the original image filename with '_2' appended.
 
@@ -658,6 +690,7 @@ def main():
     from shared.api import WanGPSession
 
     print(f"\n{CYAN}[*] Initializing WAN2GP runtime (Profile {SAFE_PROFILE}, Attention: {ATTENTION_MODE})...{RESET}")
+    print(f"{CYAN}    auto uses Sage when that package is installed, and SDPA otherwise.{RESET}")
     session = WanGPSession(
         root=WAN_APP_ROOT,
         cli_args=["--profile", SAFE_PROFILE, "--attention", ATTENTION_MODE],
@@ -754,9 +787,21 @@ def main():
                 tracker.stop()
 
             if result.success:
+                generated = [path for path in (result.generated_files or []) if Path(path).is_file() and Path(path).stat().st_size > 0]
+                if not generated:
+                    recovered = find_new_output_images(OUTPUT_DIR, start_t)
+                    generated = [str(path) for path in recovered[:1]]
+                if not generated:
+                    reason = tracker.last_notice() or "WanGP finished without writing an image."
+                    print(f"{RED}[-] No output file for {image_path.name} with control {ctrl_path.name}. {reason}{RESET}")
+                    return False
                 completed_durations.append(elapsed)
-                renamed_outputs = rename_converted_outputs(image_path, result.generated_files, ctrl_image=ctrl_path, total_ctrls=total_ctrls)
-                output_names = [p.name for p in renamed_outputs]
+                renamed_outputs = rename_converted_outputs(image_path, generated, ctrl_image=ctrl_path, total_ctrls=total_ctrls)
+                saved_outputs = [path for path in renamed_outputs if path.is_file() and path.stat().st_size > 0]
+                if not saved_outputs:
+                    print(f"{RED}[-] No output file for {image_path.name} with control {ctrl_path.name} after rename.{RESET}")
+                    return False
+                output_names = [path.name for path in saved_outputs]
                 print(f"{GREEN}[✓] Generated conversion {conv_idx}/{total_convs} in {elapsed:.1f}s! Saved output: {', '.join(output_names)}{RESET}")
 
                 done_count = len(completed_durations)
