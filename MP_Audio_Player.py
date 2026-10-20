@@ -102,6 +102,87 @@ DURATION_CACHE_FILE = CONFIG_DIR / "track_durations.json"
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
 
+# Git Bash on this PC uses Lucida Console or Consolas. Neither font includes the
+# eighth-block caps (▂▃▅▆▇), the prism peaks (✦ ◆ ━), or the playlist triangle (▶).
+# Those cells render as the wrong glyph. WGL4 substitutes below are in both fonts.
+_PRISM_LEVELS_FULL = (" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
+_PRISM_LEVELS_LIMITED = (" ", "▄", "▄", "▄", "▄", "█", "█", "█", "█")
+PLAYLIST_ACTIVE_MARK = "\u25ba"  # ►
+
+
+def _use_limited_console_glyphs() -> bool:
+    if os.name == "nt" or sys.platform in ("win32", "cygwin"):
+        return True
+    return bool(os.environ.get("MSYSTEM"))
+
+
+def prism_level_glyph(eighth: int) -> str:
+    level = max(0, min(8, int(eighth)))
+    table = _PRISM_LEVELS_LIMITED if _use_limited_console_glyphs() else _PRISM_LEVELS_FULL
+    return table[level]
+
+
+def prism_peak_glyph(hot: bool, column: int = 0) -> str:
+    if _use_limited_console_glyphs():
+        return "\u25b2" if hot else "\u2500"  # ▲ sits on the bar; ─ is the hold line
+    if hot:
+        return "\u2726" if (column % 2 == 0) else "\u25c6"
+    return "\u2501"
+
+
+def meter_peak_glyph() -> str:
+    """Peak mark above a Dual Stereo or Master Spectrum bar."""
+    if _use_limited_console_glyphs():
+        return "\u2500"  # ─
+    return "\u2594"  # ▔
+
+
+def meter_level_char(frac: float, peak_here: bool) -> str:
+    if frac >= 1.0:
+        return "█"
+    if frac > 0.0:
+        return prism_level_glyph(max(1, min(8, int(frac * 8))))
+    if peak_here:
+        return meter_peak_glyph()
+    return " "
+
+
+# Stardust marks missing from Lucida Console and Consolas, mapped to marks both fonts draw.
+_STARDUST_SAFE = {
+    "✦": "•",
+    "✧": "°",
+    "⋆": "·",
+    "◆": "•",
+    "╵": "│",
+    "▔": "─",
+    "⠄": "·",
+    "⠂": ".",
+    "⠁": ".",
+    "⠈": "'",
+    "⡀": ".",
+}
+
+
+def console_symbol(ch: str) -> str:
+    if not _use_limited_console_glyphs():
+        return ch
+    return _STARDUST_SAFE.get(ch, ch)
+
+
+def stardust_dust_choices(tier: str) -> List[str]:
+    if _use_limited_console_glyphs():
+        return {
+            "hot": ["•", "°", "·", "˙", "+"],
+            "mid": ["•", "°", "·", "˙", ".", "*"],
+            "low": ["·", "˙", ".", "*", "'", ","],
+        }[tier]
+    return {
+        "hot": ["✦", "✧", "⋆", "•", "°"],
+        "mid": ["•", "°", "·", "˙", "⠄", "⠂"],
+        "low": ["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"],
+    }[tier]
+
+
 def music_library_label(folder_name: str) -> str:
     """Label for a configured music folder. ALL covers every folder the user has added."""
     name = str(folder_name or "ALL").strip() or "ALL"
@@ -1841,7 +1922,7 @@ class AudioEngine:
     def get_mini_visualizer(self) -> str:
         if self.state != "playing": return "·······"
         step = max(1, self.num_bands // 8)
-        return "".join(UNICODE_BLOCKS[max(0, min(8, int(self.smoothed_levels[i] * 8)))] for i in range(0, self.num_bands, step)[:8])
+        return "".join(prism_level_glyph(int(self.smoothed_levels[i] * 8)) for i in range(0, self.num_bands, step)[:8])
 
     def get_status_dict(self) -> Dict[str, Any]:
         pct = round((self.position_sec / self.duration_sec * 100.0), 1) if self.duration_sec > 0 else 0.0
@@ -2508,14 +2589,14 @@ class EqualizerVisualizer:
                         ch = "█"
                     elif frac > 0.0:
                         col = self._get_neon_prism_color(c_frac, r_frac, is_cap=True)
-                        ch = UNICODE_BLOCKS[max(1, min(8, int(frac * 8)))]
+                        ch = prism_level_glyph(max(1, min(8, int(frac * 8))))
                     elif is_pk:
                         if pk >= 0.90:
                             col = "\033[38;2;255;255;255m\033[1m"
-                            ch = "✦" if (c % 2 == 0) else "◆"
+                            ch = prism_peak_glyph(True, c)
                         else:
                             col = self._get_neon_prism_color(c_frac, r_frac, is_peak=True)
-                            ch = "━"
+                            ch = prism_peak_glyph(False, c)
                     else:
                         ch = " "
 
@@ -2641,18 +2722,19 @@ class EqualizerVisualizer:
         spark_col = "\033[1;38;2;255;255;255m" if is_beat else ("\033[1;38;2;255;215;0m" if rms > 0.07 else f"{COLOR_HOT_PURPLE}")
         div_col = "\033[1;38;2;247;37;133m" if is_beat else f"{COLOR_HOT_PURPLE}"
 
+        spark = console_symbol("✦")
         if is_wide:
             col_map = [1 + b * 2 for b in range(n)]
-            left_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} LEFT (21-BAND CHROMA STARDUST) "
+            left_hdr = f"── {spark_col}{spark}{NC}{BOLD}{MAGENTA} LEFT (21-BAND CHROMA STARDUST) "
             left_hdr = left_hdr + "─" * (43 - _display_width(left_hdr))
-            right_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} RIGHT (21-BAND CHROMA STARDUST) "
+            right_hdr = f"── {spark_col}{spark}{NC}{BOLD}{MAGENTA} RIGHT (21-BAND CHROMA STARDUST) "
             right_hdr = right_hdr + "─" * (43 - _display_width(right_hdr))
             header = f"╭{left_hdr}┬{right_hdr}╮"
         else:
             col_map = [2 + b * 2 for b in range(n)]
-            left_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} LEFT (16-BAND CHROMA DUST) "
+            left_hdr = f"── {spark_col}{spark}{NC}{BOLD}{MAGENTA} LEFT (16-BAND CHROMA DUST) "
             left_hdr = left_hdr + "─" * (36 - _display_width(left_hdr))
-            right_hdr = f"── {spark_col}✦{NC}{BOLD}{MAGENTA} RIGHT (16-BAND CHROMA DUST) "
+            right_hdr = f"── {spark_col}{spark}{NC}{BOLD}{MAGENTA} RIGHT (16-BAND CHROMA DUST) "
             right_hdr = right_hdr + "─" * (36 - _display_width(right_hdr))
             header = f"╭{left_hdr}┬{right_hdr}╮"
 
@@ -2666,11 +2748,11 @@ class EqualizerVisualizer:
                 if val > 0.15 and (self.dust_rng.random() < val * 0.40):
                     h_val = min(float(height - 1), val * height)
                     if val > 0.70 or pk > 0.85:
-                        sym = self.dust_rng.choice(["✦", "✧", "⋆", "•", "°"])
+                        sym = self.dust_rng.choice(stardust_dust_choices("hot"))
                     elif val > 0.35:
-                        sym = self.dust_rng.choice(["•", "°", "·", "˙", "⠄", "⠂"])
+                        sym = self.dust_rng.choice(stardust_dust_choices("mid"))
                     else:
-                        sym = self.dust_rng.choice(["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"])
+                        sym = self.dust_rng.choice(stardust_dust_choices("low"))
                     c_frac = b / float(n - 1)
                     col_rgb = self._get_stardust_rgb(c_frac, min(1.0, val), is_sparkle=(val > 0.75))
                     self.dust_particles.append({
@@ -2702,7 +2784,7 @@ class EqualizerVisualizer:
                     "y": float(min(height - 1, bl[rb] * height + self.dust_rng.uniform(0.5, 1.5))),
                     "vx": self.dust_rng.uniform(-0.8, 0.8),
                     "vy": self.dust_rng.uniform(0.6, 1.5),
-                    "symbol": self.dust_rng.choice(["✦", "✧", "⋆", "•", "°"]),
+                    "symbol": self.dust_rng.choice(stardust_dust_choices("hot")),
                     "color_rgb": (255, 255, 255) if self.dust_rng.random() < 0.4 else self._get_stardust_rgb(c_frac, r_frac, is_sparkle=True),
                     "life": self.dust_rng.uniform(2.0, 4.0),
                     "max_life": 4.0,
@@ -2758,17 +2840,17 @@ class EqualizerVisualizer:
                             grid_c[r][col] = "│"
                             grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
                         elif rem > 0.25:
-                            grid_c[r][col] = "╵"
+                            grid_c[r][col] = console_symbol("╵")
                             grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
                         elif rem > 0.05:
                             grid_c[r][col] = "·"
                             grid_col[r][col] = self._get_stardust_color(c_frac, r_frac)
                     elif r == pk_r:
                         if pk_val >= 0.85:
-                            grid_c[r][col] = "✦"
+                            grid_c[r][col] = console_symbol("✦")
                             grid_col[r][col] = "\033[1;38;2;255;255;255m"
                         elif pk_val >= 0.50:
-                            grid_c[r][col] = "✧"
+                            grid_c[r][col] = console_symbol("✧")
                             grid_col[r][col] = self._get_stardust_color(c_frac, r_frac, is_peak=True)
                         else:
                             grid_c[r][col] = "·"
@@ -2786,7 +2868,10 @@ class EqualizerVisualizer:
 
                 if twinkle > 0.78 and life_ratio > 0.25:
                     p_col = "\033[1;38;2;255;255;255m"
-                    p_sym = p["symbol"] if p["symbol"] in ("✦", "✧", "⋆", "•") else "✦"
+                    if _use_limited_console_glyphs():
+                        p_sym = p["symbol"] if p["symbol"] in ("•", "°", "·", "˙", "+") else "•"
+                    else:
+                        p_sym = p["symbol"] if p["symbol"] in ("✦", "✧", "⋆", "•") else "✦"
                 else:
                     r_c, g_c, b_c = p["color_rgb"]
                     fade = life_ratio * (0.60 + 0.40 * max(0.0, twinkle))
@@ -2796,8 +2881,8 @@ class EqualizerVisualizer:
                     gg = max(20, min(255, int(g_c * fade)))
                     bb = max(20, min(255, int(b_c * fade)))
                     p_col = f"\033[38;2;{rr};{gg};{bb}m"
-                    p_sym = p["symbol"]
-                    if life_ratio < 0.20 and p_sym in ("✦", "✧"):
+                    p_sym = console_symbol(p["symbol"])
+                    if life_ratio < 0.20 and p_sym in ("✦", "✧", "•", "°"):
                         p_sym = "·"
 
                 if grid_c[pr][pc] == " ":
@@ -2880,7 +2965,7 @@ class EqualizerVisualizer:
                 for c in range(n):
                     pk = peaks[(c + pk_off) % len(peaks)] if len(peaks) > 0 else 0.0
                     frac = bands[c] * height - r
-                    ch = "█" if frac >= 1.0 else (UNICODE_BLOCKS[max(1, min(8, int(frac * 8)))] if frac > 0.0 else ("▔" if int(pk * height) == r else " "))
+                    ch = meter_level_char(frac, int(pk * height) == r)
                     w = widths[c] if is_wide else 2
                     parts.append(f" {ch} " if w == 3 else f" {ch*2} ")
                 return (" " if is_wide else "  ") + "".join(parts) + ("" if is_wide else "  ")
@@ -2903,11 +2988,11 @@ class EqualizerVisualizer:
             row_chars = []
             for c, val in enumerate(il):
                 frac = val * height - r
-                ch = "█" if frac >= 1.0 else (UNICODE_BLOCKS[max(1, min(8, int(frac * 8)))] if frac > 0.0 else ("▔" if int(ip[c] * height) == r else " "))
+                ch = meter_level_char(frac, int(ip[c] * height) == r)
                 row_chars.append(f"{ch*2} ")
             lines.append(f"  │ {col}{''.join(row_chars)}{NC} │")
 
-        lines.extend([f"  {DIM}{CYAN}│  32  63  125  250  500   1k   2k   4k   8k  12k  16k  18k    PEAK HOLD ✦ │{NC}",
+        lines.extend([f"  {DIM}{CYAN}│  32  63  125  250  500   1k   2k   4k   8k  12k  16k  18k    PEAK HOLD {console_symbol('✦')} │{NC}",
                       f"  {BOLD}{MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯{NC}"])
         return lines
 
@@ -4034,7 +4119,7 @@ class TerminalPlayerUI:
                         mn = raw_name
                     name_pad = " " * max(0, avail_name - _display_width(mn))
                     if act:
-                        pfx = "▶ "
+                        pfx = f"{PLAYLIST_ACTIVE_MARK} "
                     elif in_q:
                         q_idx = q_paths.index(m["path"]) + 1
                         pfx = f"Q{q_idx}" if q_idx < 10 else "Q*"
@@ -4239,7 +4324,7 @@ class TerminalPlayerUI:
             r_bar = int(min(5, round(lr * 5)))
             meter_str = f"{c_g1}L{NC}{c_g2}{'█'*l_bar}{DIM}{'░'*(5-l_bar)}{NC} {c_g1}R{NC}{c_g2}{'█'*r_bar}{DIM}{'░'*(5-r_bar)}{NC}"
         elif cur_style == "stardust_particles_eq":
-            dust_chars = [" ", "·", "˙", ":", "⋆", "✦", "◆", "█"]
+            dust_chars = [console_symbol(ch) for ch in (" ", "·", "˙", ":", "⋆", "✦", "◆", "█")]
             meter_bars = []
             for i, val in enumerate(levels[:14]):
                 idx = min(len(dust_chars) - 1, int(val * len(dust_chars)))
@@ -4250,13 +4335,13 @@ class TerminalPlayerUI:
             for i, val in enumerate(levels[:14]):
                 idx = min(8, int(val * 9))
                 col = self.visualizer._get_neon_prism_color(i / 13.0, val)
-                meter_bars.append(f"{col}{UNICODE_BLOCKS[idx]}{NC}")
+                meter_bars.append(f"{col}{prism_level_glyph(idx)}{NC}")
             meter_str = "".join(meter_bars)
         else:
             meter_bars = []
             for val in levels[:14]:
                 idx = min(8, int(val * 9))
-                meter_bars.append(f"{c_g2}{UNICODE_BLOCKS[idx]}{NC}")
+                meter_bars.append(f"{c_g2}{prism_level_glyph(idx)}{NC}")
             meter_str = "".join(meter_bars)
 
         eq_name = self.visualizer.get_style_display_name()
