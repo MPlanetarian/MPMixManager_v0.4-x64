@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+- **MP Audio Player Files Key** (`MP_Audio_Player.py`, `tests/test_open_in_file_manager.py`):
+  - Pressing `F` opens the folder of the audio file that is playing and selects that file. Windows uses Explorer's select API, macOS uses Finder `open -R`, and Linux and FreeBSD use the desktop file-manager select interface with Dolphin, Nautilus, Nemo, and Caja as fallbacks.
+
 - **macOS Startup Loader Video** (`scripts/display_loader_video.sh`, `scripts/macos_borderless_loader.swift`, `tests/test_loader_video.py`):
   - The logo video plays in a borderless, always-on-top window on macOS before the Manager menu appears. The Manager compiles a small AppKit player once with `swiftc` and reuses it. ffplay (`-noborder`), mpv (`--no-border`), and VLC (`--no-video-deco`) remain borderless fallbacks. QuickTime Player is not used.
 

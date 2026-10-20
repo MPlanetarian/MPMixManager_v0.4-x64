@@ -229,48 +229,236 @@ def format_seconds(seconds: float) -> str:
     h, m, sec = s // 3600, (s % 3600) // 60, s % 60
     return f"{h:02d}:{m:02d}:{sec:02d}" if h > 0 else f"{m:02d}:{sec:02d}"
 
-def _run_bg(cmd: List[str]) -> bool:
+def _run_bg(cmd: Union[List[str], str]) -> bool:
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True)
         return True
     except Exception:
         return False
 
-def open_in_file_manager(target_path: Union[str, Path, None]) -> bool:
-    if not target_path: return False
-    p = Path(target_path).expanduser().resolve()
-    if not p.exists():
-        p = p.parent if p.parent.exists() else None
-        if not p: return False
+def _run_checked(cmd: List[str], timeout: float = 2.0) -> bool:
+    try:
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=timeout)
+        return res.returncode == 0
+    except Exception:
+        return False
 
-    is_file = p.is_file()
-    folder_dir, target_str = str(p.parent if is_file else p), str(p)
+def _normalize_reveal_path(target_path: Union[str, Path, None]) -> Optional[str]:
+    """Turn a player path into a local filesystem path. file:// and Git-bash /x/ paths are accepted."""
+    if target_path is None:
+        return None
+    raw = str(target_path).strip().strip('"')
+    if not raw:
+        return None
+    if raw.lower().startswith("file:"):
+        from urllib.parse import unquote, urlparse
+        parsed = urlparse(raw)
+        raw = unquote(parsed.path or "")
+        if os.name == "nt" and len(raw) >= 3 and raw[0] == "/" and raw[2] == ":":
+            raw = raw[1:]
+    raw = os.path.expanduser(raw)
+    if os.name == "nt":
+        slash = raw.replace("\\", "/")
+        drive = re.match(r"^/([a-zA-Z])/(.*)$", slash)
+        if drive and not os.path.exists(raw):
+            raw = drive.group(1).upper() + ":\\" + drive.group(2).replace("/", "\\")
+        raw = os.path.normpath(raw)
+    else:
+        raw = os.path.abspath(raw)
+    return raw
 
-    if sys.platform == "darwin":
-        return _run_bg(["open", "-R", target_str] if is_file else ["open", folder_dir])
-    if sys.platform == "win32":
-        return _run_bg(["explorer.exe", f"/select,{target_str}"] if is_file else ["explorer.exe", folder_dir])
+def choose_file_manager_target(current_path: Union[str, Path, None], selected_path: Union[str, Path, None] = None) -> Optional[str]:
+    """Prefer the loaded track, then the highlighted playlist row. Both must exist on disk."""
+    for candidate in (current_path, selected_path):
+        normalized = _normalize_reveal_path(candidate)
+        if normalized and os.path.exists(normalized):
+            return normalized
+    return None
 
-    if Path("/proc/version").exists():
+def windows_explorer_select_command(path: str) -> str:
+    """Command line Explorer actually parses. Quotes belong around the path only.
+
+    subprocess lists turn this into "/select,C:\\My Mix.flac", and Explorer then
+    opens Documents instead of the file.
+    """
+    shown = path.replace('"', "")
+    if os.name == "nt":
+        shown = os.path.normpath(shown)
+    return f'explorer.exe /select,"{shown}"'
+
+def _windows_shell_select(path: str) -> bool:
+    """Ask Explorer to open the parent folder and highlight the file."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        shell32 = ctypes.windll.shell32
+        ole32 = ctypes.windll.ole32
+        norm = os.path.normpath(path)
+        ole32.CoInitialize.argtypes = [ctypes.c_void_p]
+        ole32.CoInitialize.restype = ctypes.c_long
+        ole32.CoInitialize(None)
+        shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
+        shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+        shell32.ILFree.argtypes = [ctypes.c_void_p]
+        shell32.ILFree.restype = None
+        shell32.SHOpenFolderAndSelectItems.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_ulong
+        ]
+        shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+        pidl = shell32.ILCreateFromPathW(norm)
+        if not pidl:
+            return False
         try:
-            if "microsoft" in Path("/proc/version").read_text(errors="ignore").lower():
-                if shutil.which("wslpath") and shutil.which("explorer.exe"):
-                    wp = subprocess.run(["wslpath", "-w", target_str if is_file else folder_dir], capture_output=True, text=True).stdout.strip()
-                    if wp: return _run_bg(["explorer.exe", f"/select,{wp}"] if is_file else ["explorer.exe", wp])
-                if shutil.which("wslview"): return _run_bg(["wslview", folder_dir])
-        except Exception:
-            pass
+            return int(shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0)) == 0
+        finally:
+            shell32.ILFree(pidl)
+    except Exception:
+        return False
 
-    for bin_name, args in [
-        ("dolphin", ["--new-window"] + (["--select", target_str] if is_file else [folder_dir])),
-        ("nautilus", ["--select", target_str] if is_file else ["--new-window", folder_dir]),
-        ("nemo", ["--no-desktop", target_str] if is_file else [folder_dir]),
-        ("thunar", [folder_dir]), ("pcmanfm-qt", [folder_dir]), ("pcmanfm", [folder_dir]),
-        ("gio", ["open", folder_dir]), ("xdg-open", [folder_dir])
-    ]:
-        if shutil.which(bin_name) and _run_bg([bin_name] + args):
+def _file_uri(path: str) -> str:
+    from urllib.parse import quote
+    text = str(path).replace("\\", "/")
+    if re.match(r"^[a-zA-Z]:/", text):
+        return "file:///" + quote(text, safe="/:")
+    if not text.startswith("/"):
+        text = "/" + text
+    return "file://" + quote(text, safe="/:")
+
+def _reveal_folder(path: str, is_file: bool) -> str:
+    if not is_file:
+        return path
+    text = str(path).rstrip("\\/")
+    cut = max(text.rfind("/"), text.rfind("\\"))
+    return text[:cut] if cut > 0 else text
+
+def reveal_launch_plan(path: str, platform: str, is_file: Optional[bool] = None) -> List[Tuple[str, Union[List[str], str]]]:
+    """Ordered open attempts for one path. mode is 'checked' or 'bg'."""
+    kind = platform.lower()
+    if kind in ("linux", "freebsd", "darwin"):
+        target = str(path)
+    else:
+        target = _normalize_reveal_path(path) or str(path)
+    file_target = os.path.isfile(target) if is_file is None else bool(is_file)
+    folder = _reveal_folder(target, file_target)
+    plan: List[Tuple[str, Union[List[str], str]]] = []
+    if kind == "darwin":
+        if file_target:
+            plan.append(("bg", ["open", "-R", target]))
+        else:
+            plan.append(("bg", ["open", folder]))
+        return plan
+
+    if kind == "win32":
+        if file_target:
+            plan.append(("bg", windows_explorer_select_command(target)))
+        else:
+            plan.append(("bg", ["explorer.exe", folder]))
+        return plan
+
+    if kind == "wsl":
+        plan.append(("wsl", target if file_target else folder))
+        plan.append(("bg", ["wslview", folder]))
+        return plan
+
+    # Linux and FreeBSD. ShowItems selects the file in the desktop's file manager.
+    if file_target:
+        uri = _file_uri(target)
+        name = target[len(folder) + 1:] if folder and target.startswith(folder) else os.path.basename(target)
+        plan.append(("checked", [
+            "dbus-send", "--session", "--type=method_call",
+            "--dest=org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1.ShowItems",
+            f"array:string:{uri}", "string:",
+        ]))
+        plan.append(("checked", [
+            "gdbus", "call", "--session",
+            "--dest", "org.freedesktop.FileManager1",
+            "--object-path", "/org/freedesktop/FileManager1",
+            "--method", "org.freedesktop.FileManager1.ShowItems",
+            f"['{uri}']", "",
+        ]))
+        plan.append(("checked", [
+            "dbus-send", "--session", "--type=method_call",
+            "--dest=org.xfce.FileManager",
+            "/org/xfce/FileManager",
+            "org.xfce.FileManager.DisplayFolderAndSelect",
+            f"string:{folder}", f"string:{name}", "string:",
+        ]))
+        plan.extend([
+            ("bg", ["dolphin", "--select", target]),
+            ("bg", ["nautilus", "--select", target]),
+            ("bg", ["nemo", target]),
+            ("bg", ["caja", target]),
+        ])
+    plan.extend([
+        ("bg", ["thunar", folder]),
+        ("bg", ["pcmanfm-qt", folder]),
+        ("bg", ["pcmanfm", folder]),
+        ("bg", ["gio", "open", folder]),
+        ("bg", ["xdg-open", folder]),
+    ])
+    return plan
+
+def _execute_reveal_plan(plan: List[Tuple[str, Union[List[str], str]]], which=None) -> bool:
+    finder = which or shutil.which
+    for mode, cmd in plan:
+        if mode == "wsl":
+            win_path = str(cmd)
+            if not (finder("wslpath") and finder("explorer.exe")):
+                continue
+            try:
+                converted = subprocess.run(["wslpath", "-w", win_path], capture_output=True, text=True, timeout=2).stdout.strip()
+            except Exception:
+                converted = ""
+            if not converted:
+                continue
+            select = os.path.isfile(win_path)
+            launched = windows_explorer_select_command(converted) if select else f'explorer.exe "{converted}"'
+            if _run_bg(["cmd.exe", "/c", launched]):
+                return True
+            continue
+        if isinstance(cmd, str):
+            if mode == "bg" and _run_bg(cmd):
+                return True
+            continue
+        program = cmd[0]
+        if program in ("dbus-send", "gdbus") and not finder(program):
+            continue
+        if program not in ("dbus-send", "gdbus") and not finder(program):
+            continue
+        if mode == "checked":
+            if _run_checked(cmd):
+                return True
+        elif _run_bg(cmd):
             return True
     return False
+
+def open_in_file_manager(target_path: Union[str, Path, None]) -> bool:
+    normalized = _normalize_reveal_path(target_path)
+    if not normalized or not os.path.exists(normalized):
+        return False
+
+    if sys.platform == "win32" and os.path.isfile(normalized):
+        if _windows_shell_select(normalized):
+            return True
+
+    if sys.platform == "darwin":
+        platform = "darwin"
+    elif sys.platform == "win32":
+        platform = "win32"
+    elif Path("/proc/version").exists():
+        try:
+            wsl = "microsoft" in Path("/proc/version").read_text(errors="ignore").lower()
+        except Exception:
+            wsl = False
+        platform = "wsl" if wsl else ("freebsd" if sys.platform.startswith("freebsd") else "linux")
+    elif sys.platform.startswith("freebsd"):
+        platform = "freebsd"
+    else:
+        platform = "linux"
+    return _execute_reveal_plan(reveal_launch_plan(normalized, platform))
 
 def find_tracklist_for_mix(mix_file: Union[str, Path, None]) -> Optional[str]:
     if not mix_file: return None
@@ -2080,8 +2268,9 @@ class PlayerIPCServer:
                 res["cleared"] = cleared
             elif cmd == "get_playlist": res["playlist"] = [{"index": i, "name": t["name"], "path": t["path"], "ext": t["ext"]} for i, t in enumerate(self.engine.playlist[:100])]
             elif cmd in ("open_file_manager", "reveal"):
-                tf = req.get("file") or (self.engine.current_track.get("path") if self.engine.current_track else str(get_base_dir()))
-                res["success"] = open_in_file_manager(tf)
+                tf = req.get("file") or (self.engine.current_track.get("path") if self.engine.current_track else "")
+                target = choose_file_manager_target(tf)
+                res["success"] = bool(target) and open_in_file_manager(target)
             elif cmd in ("route_bluetooth", "switch_bluetooth"):
                 if getattr(self.engine, "bt_router", None):
                     ok = self.engine.bt_router.route_to_bluetooth()
@@ -3567,8 +3756,10 @@ class TerminalPlayerUI:
                 if f: e.queue_track(f)
             elif cmd == "clear_queue": e.clear_queue()
             elif cmd == "open_file_manager":
-                tf = kwargs.get("file") or (e.current_track.get("path") if e.current_track else str(get_base_dir()))
-                open_in_file_manager(tf)
+                tf = kwargs.get("file") or (e.current_track.get("path") if e.current_track else "")
+                target = choose_file_manager_target(tf)
+                if target:
+                    open_in_file_manager(target)
 
     def _get_active_tracks(self) -> List[Dict[str, Any]]:
         return self.scanner.get_mixes(self.search_query)
@@ -3649,8 +3840,17 @@ class TerminalPlayerUI:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _open_selected_in_file_manager(self):
-        tp, _ = self._get_target_path()
-        target = tp or str(get_base_dir())
+        st = self._get_status()
+        current = st.get("path") or ""
+        mixes = self._get_active_tracks()
+        selected = ""
+        if mixes and 0 <= self.selected_row < len(mixes):
+            selected = mixes[self.selected_row].get("path") or ""
+        target = choose_file_manager_target(current, selected)
+        if not target:
+            self.notification_msg = "No audio file to show in File Manager."
+            self.notification_time = time.time() + 3.0
+            return
         ok = open_in_file_manager(target)
         name = os.path.basename(target)
         self.notification_msg = f"{'Opened in' if ok else 'Failed to open'} File Manager: {name}"
@@ -4518,8 +4718,9 @@ def main():
             latest = MixArchiveScanner(base_dir).get_latest_mix()
             if latest: tp = latest["path"]
         if args.open_file_manager:
-            ok = open_in_file_manager(tp or str(base_dir))
-            print(f"✔ Opened in file manager: {tp or base_dir}" if ok else "✖ Failed to open file manager")
+            target = choose_file_manager_target(tp)
+            ok = bool(target) and open_in_file_manager(target)
+            print(f"✔ Opened in file manager: {target}" if ok else "✖ Failed to open file manager")
             sys.exit(0 if ok else 1)
         else:
             tl = find_tracklist_for_mix(tp) if tp else None
