@@ -121,6 +121,111 @@ find_loader_video_path() {
     return 1
 }
 
+# Console skip during the loader. Empty input is Enter.
+# Bash 3.2 (stock macOS) rejects a fractional read timeout, which made the
+# wait loop finish immediately and close the movie before it appeared.
+_loader_skip_requested() {
+    local key="" timeout="0.1" rc=0
+    if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+        timeout="1"
+    fi
+    if IFS= read -rsn1 -t "$timeout" key </dev/tty 2>/dev/null; then
+        case "$key" in
+            $'\e'|[qQ]|""|" ") return 0 ;;
+        esac
+        return 1
+    else
+        rc=$?
+    fi
+    # A rejected timeout or a missing tty returns at once. Pace the loop.
+    if [ "$rc" -le 128 ]; then
+        sleep 1
+    fi
+    return 1
+}
+
+# macOS has QuickTime Player on every system. open(1) starts playback without
+# an Automation prompt. A later AppleScript only presses play / presentation
+# and is allowed to fail.
+play_macos_loader_video() {
+    local vid="$1"
+    [ -n "$vid" ] && [ -f "$vid" ] || return 1
+    if ! type open >/dev/null 2>&1; then
+        return 1
+    fi
+    open -a "QuickTime Player" "$vid" >/dev/null 2>&1 || return 1
+    if type osascript >/dev/null 2>&1; then
+        osascript - "$vid" >/dev/null 2>&1 <<'APPLESCRIPT' &
+on run argv
+    set movieName to item 1 of argv
+    delay 0.6
+    tell application "QuickTime Player"
+        if (count of documents) is 0 then return
+        repeat with movieDoc in documents
+            try
+                if name of movieDoc contains "MP_loader" or POSIX path of movieDoc contains movieName then
+                    tell movieDoc
+                        play
+                        try
+                            set presenting to true
+                        end try
+                    end tell
+                    return
+                end if
+            end try
+        end repeat
+        try
+            tell front document to play
+        end try
+    end tell
+end run
+APPLESCRIPT
+    fi
+    return 0
+}
+
+close_macos_loader_video() {
+    type osascript >/dev/null 2>&1 || return 0
+    osascript >/dev/null 2>&1 <<'APPLESCRIPT' || true
+tell application "QuickTime Player"
+    if it is not running then return
+    repeat with movieDoc in documents
+        try
+            if name of movieDoc contains "MP_loader" then close movieDoc
+        end try
+    end repeat
+    try
+        if (count of documents) is 0 then quit
+    end try
+end tell
+APPLESCRIPT
+}
+
+# "yes" once QuickTime is actually playing the loader, "no" once that
+# document has stopped, or empty when AppleScript cannot see the player.
+_macos_loader_playback_state() {
+    type osascript >/dev/null 2>&1 || return 0
+    osascript 2>/dev/null <<'APPLESCRIPT' || true
+tell application "System Events"
+    if not (exists process "QuickTime Player") then
+        return "no"
+    end if
+end tell
+tell application "QuickTime Player"
+    if (count of documents) is 0 then return "no"
+    repeat with movieDoc in documents
+        try
+            if name of movieDoc contains "MP_loader" then
+                if playing of movieDoc then return "yes"
+                return "no"
+            end if
+        end try
+    end repeat
+end tell
+return ""
+APPLESCRIPT
+}
+
 # Display loader video whilst manager is loading
 display_startup_loader_video() {
     local force="${1:-0}"
@@ -225,19 +330,19 @@ display_startup_loader_video() {
     fi
 
     if [ "$is_gui" -eq 1 ]; then
-        if [ -n "$ffplay_bin" ]; then
-            "$ffplay_bin" -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" &>/dev/null &
+        if { [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; } && play_macos_loader_video "$loader_vid"; then
+            # QuickTime plays the logo on macOS. ffplay, mpv, and VLC stay as
+            # fallbacks when QuickTime cannot open the file.
+            player_pid="quicktime"
+        elif [ -n "$ffplay_bin" ]; then
+            "$ffplay_bin" -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" </dev/null &>/dev/null &
             player_pid=$!
         elif [ -n "$mpv_bin" ]; then
-            "$mpv_bin" --ontop --no-border --title="MP Mix Archive Manager" --no-terminal "$loader_vid" &>/dev/null &
+            "$mpv_bin" --ontop --no-border --title="MP Mix Archive Manager" --no-terminal "$loader_vid" </dev/null &>/dev/null &
             player_pid=$!
         elif [ -n "$vlc_bin" ]; then
-            "$vlc_bin" --play-and-exit --video-on-top --no-video-title-show "$loader_vid" &>/dev/null &
+            "$vlc_bin" --play-and-exit --video-on-top --no-video-title-show "$loader_vid" </dev/null &>/dev/null &
             player_pid=$!
-        elif [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-            osascript -e 'tell application "QuickTime Player" to open POSIX file "'"$loader_vid"'"' \
-                      -e 'tell application "QuickTime Player" to play document 1' &>/dev/null &
-            player_pid="quicktime"
         elif [ "${OS_TYPE:-}" = "windows" ] || [[ "$(uname -s 2>/dev/null)" =~ (MINGW|MSYS|CYGWIN) ]]; then
             local ps_bin=""
             if command -v powershell.exe &>/dev/null; then
@@ -266,7 +371,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
 \$w.Add_MouseDown({ param(\$s,\$e) \$w.Close() });
 \$w.Content = \$m;
 \$w.ShowDialog() | Out-Null
-" &>/dev/null &
+" </dev/null &>/dev/null &
                 player_pid=$!
             else
                 cmd.exe /c start "" "$win_loader_vid" &>/dev/null &
@@ -283,34 +388,40 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
     # Wait for player completion or interactive skip keypress in console
     if [ -n "$player_pid" ]; then
         local waited=0
+        local seen_playing=0
+        local wait_limit=105
+        local poll_every=10
+        # Stock macOS bash 3.2 can only wait in whole seconds.
+        if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+            wait_limit=11
+            poll_every=1
+        fi
         if [ "$player_pid" = "quicktime" ]; then
-            while [ "$waited" -lt 100 ]; do
-                local key=""
-                if read -rsn1 -t 0.1 key 2>/dev/null; then
-                    case "$key" in
-                        $'\e'|[qQ]|""|" ")
-                            break
-                            ;;
-                    esac
+            while [ "$waited" -lt "$wait_limit" ]; do
+                if _loader_skip_requested; then
+                    break
                 fi
-                ((waited++))
+                if [ $((waited % poll_every)) -eq 0 ]; then
+                    local qt_state=""
+                    qt_state="$(_macos_loader_playback_state | tr -d '[:space:]' || true)"
+                    if [ "$qt_state" = "yes" ]; then
+                        seen_playing=1
+                    elif [ "$qt_state" = "no" ] && [ "$seen_playing" -eq 1 ]; then
+                        break
+                    fi
+                fi
+                waited=$((waited + 1))
             done
-            osascript -e 'tell application "QuickTime Player" to close (every document whose name contains "MP_loader")' &>/dev/null || true
-            osascript -e 'tell application "QuickTime Player" to quit' &>/dev/null || true
+            close_macos_loader_video "$loader_vid"
         else
             while kill -0 "$player_pid" 2>/dev/null; do
-                local key=""
-                if read -rsn1 -t 0.1 key 2>/dev/null; then
-                    case "$key" in
-                        $'\e'|[qQ]|""|" ")
-                            kill -9 "$player_pid" 2>/dev/null || true
-                            break
-                            ;;
-                    esac
+                if _loader_skip_requested; then
+                    kill -9 "$player_pid" 2>/dev/null || true
+                    break
                 fi
-                ((waited++))
-                # Safety timeout of 10.5 seconds (video is 10.0s)
-                [ "$waited" -ge 105 ] && break
+                waited=$((waited + 1))
+                # Safety timeout of about 10.5 seconds (video is 10.0s)
+                [ "$waited" -ge "$wait_limit" ] && break
             done
             wait "$player_pid" 2>/dev/null || true
         fi

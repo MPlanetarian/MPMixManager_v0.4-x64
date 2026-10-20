@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+- **macOS Startup Loader Video** (`scripts/display_loader_video.sh`, `tests/test_loader_video.py`):
+  - The logo video now opens in QuickTime Player on macOS before the Manager menu appears. The old AppleScript asked QuickTime to play `document 1` and then quit, so the movie never stayed on screen. ffplay, mpv, and VLC remain the players on Windows and Linux, and the fallback on macOS when QuickTime cannot open the file.
+
 - **Startup Loader Video Integration (`MP_loader.mp4`) with Already-Open Manager Detection** (`Mix_Archive_Manager.sh`, `.probe_mgr.sh`, `scripts/display_loader_video.sh`, `config.env`, `config.env.example`, `tests/test_loader_video.py`):
   - **Animated Startup Loader Video (`MP_loader.mp4`)**: Integrated `MP_loader.mp4` into the MP Mix Archive Manager startup sequence. When launching the manager in the console, `MP_loader.mp4` is displayed in a sleek, borderless, always-on-top video window (using `ffplay`, `mpv`, `vlc`, or OS native players) with audio, while the console prepares the environment, warms up archive caches, and initializes terminal geometry.
   - **Smart Already-Open Manager Detection**: Added `is_manager_already_open()` to inspect active manager sessions in `~/.config/mix-manager/bridge_status.json` and scan the process table (`pgrep -f "Mix_Archive_Manager\.sh"`). If an active instance of the manager is already open in another console or terminal window, the loader video is automatically suppressed so work is never interrupted.

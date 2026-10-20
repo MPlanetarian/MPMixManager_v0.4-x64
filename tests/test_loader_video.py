@@ -144,8 +144,10 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         """Verifies that Mix_Archive_Manager.sh correctly initializes UNAME_S and OS_TYPE."""
         script = r"""
         set -e
-        # Evaluate up to line 257 where OS_TYPE and UNAME_S are exported
-        eval "$(sed -n '1,257p' Mix_Archive_Manager.sh)"
+        # Evaluate through the line that exports OS_TYPE. A fixed line number
+        # cuts the python3 helper in half once the header grows.
+        end=$(grep -n 'export OS_TYPE' Mix_Archive_Manager.sh | head -1 | cut -d: -f1)
+        eval "$(sed -n "1,${end}p" Mix_Archive_Manager.sh)"
         test -n "$UNAME_S"
         echo "UNAME_S_VALID: $UNAME_S"
         test -n "$OS_TYPE"
@@ -155,6 +157,57 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn("UNAME_S_VALID:", res.stdout)
         self.assertIn("OS_TYPE_VALID:", res.stdout)
+
+    def test_macos_loader_uses_quicktime_instead_of_ffplay(self):
+        """macOS must open the logo in QuickTime even when ffplay is installed."""
+        script = r"""
+        set -e
+        export OS_TYPE="macos"
+        source scripts/display_loader_video.sh
+        is_manager_already_open() { return 1; }
+        _loader_skip_requested() { return 0; }
+        close_macos_loader_video() { echo "CLOSED_QUICKTIME"; }
+        ffplay() { echo "FFPLAY_SHOULD_NOT_RUN"; return 0; }
+        mpv() { echo "MPV_SHOULD_NOT_RUN"; return 0; }
+        vlc() { echo "VLC_SHOULD_NOT_RUN"; return 0; }
+        open() { printf 'OPENED:%s\n' "$*" > /tmp/mp_loader_open_test.txt; return 0; }
+        rm -f /tmp/mp_loader_open_test.txt
+        display_startup_loader_video 0
+        echo "MARKER:$(cat /tmp/mp_loader_open_test.txt 2>/dev/null || true)"
+        rm -f /tmp/mp_loader_open_test.txt
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("MARKER:OPENED:-a QuickTime Player", res.stdout)
+        self.assertIn("MP_loader.mp4", res.stdout)
+        self.assertNotIn("FFPLAY_SHOULD_NOT_RUN", res.stdout)
+        self.assertNotIn("MPV_SHOULD_NOT_RUN", res.stdout)
+        self.assertNotIn("VLC_SHOULD_NOT_RUN", res.stdout)
+
+    def test_macos_loader_reports_failure_when_quicktime_cannot_open(self):
+        script = r"""
+        set -e
+        export OS_TYPE="macos"
+        source scripts/display_loader_video.sh
+        open() { echo "OPEN_FAILED"; return 1; }
+        path=$(find_loader_video_path)
+        if play_macos_loader_video "$path"; then
+            echo "PLAY_OK"
+        else
+            echo "PLAY_FAILED"
+        fi
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("PLAY_FAILED", res.stdout)
+        self.assertNotIn("PLAY_OK", res.stdout)
+
+    def test_loader_script_does_not_quit_quicktime_before_playback(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("play document 1", text)
+        self.assertIn("play_macos_loader_video", text)
+        self.assertIn('open -a "QuickTime Player"', text)
+        self.assertNotIn('tell application "QuickTime Player" to quit', text)
 
 
 if __name__ == "__main__":
