@@ -863,7 +863,7 @@ DROPBOX_PATH="${HOME}/Dropbox/MIX_ARCHIVE"
 # Options: mp_audio_player, cliamp, strawberry, vlc, haruna, kodi, audacious
 DEFAULT_AUDIO_PLAYER="mp_audio_player"
 AUTO_PLAY_ON_STARTUP="true"
-AUTO_SHOW_TRACKLIST_ON_STARTUP="true"
+AUTO_SHOW_TRACKLIST_ON_STARTUP="false"
 TRACKLIST_VIEWER="console"
 
 # Promotional Outreach & SMTP Settings
