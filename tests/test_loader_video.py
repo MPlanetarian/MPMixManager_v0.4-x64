@@ -158,56 +158,112 @@ class TestLoaderVideoIntegration(unittest.TestCase):
         self.assertIn("UNAME_S_VALID:", res.stdout)
         self.assertIn("OS_TYPE_VALID:", res.stdout)
 
-    def test_macos_loader_uses_quicktime_instead_of_ffplay(self):
-        """macOS must open the logo in QuickTime even when ffplay is installed."""
+    def test_macos_loader_prefers_borderless_window(self):
+        """macOS plays the logo in the borderless helper, not QuickTime or ffplay."""
         script = r"""
         set -e
         export OS_TYPE="macos"
         source scripts/display_loader_video.sh
         is_manager_already_open() { return 1; }
         _loader_skip_requested() { return 0; }
-        close_macos_loader_video() { echo "CLOSED_QUICKTIME"; }
+        play_macos_borderless_loader() {
+            printf 'BORDERLESS:%s\n' "$1" > /tmp/mp_loader_borderless_test.txt
+            player_pid=999999
+            return 0
+        }
         ffplay() { echo "FFPLAY_SHOULD_NOT_RUN"; return 0; }
         mpv() { echo "MPV_SHOULD_NOT_RUN"; return 0; }
         vlc() { echo "VLC_SHOULD_NOT_RUN"; return 0; }
-        open() { printf 'OPENED:%s\n' "$*" > /tmp/mp_loader_open_test.txt; return 0; }
-        rm -f /tmp/mp_loader_open_test.txt
+        open() { echo "QUICKTIME_SHOULD_NOT_RUN"; return 0; }
+        rm -f /tmp/mp_loader_borderless_test.txt
         display_startup_loader_video 0
-        echo "MARKER:$(cat /tmp/mp_loader_open_test.txt 2>/dev/null || true)"
-        rm -f /tmp/mp_loader_open_test.txt
+        echo "MARKER:$(cat /tmp/mp_loader_borderless_test.txt 2>/dev/null || true)"
+        rm -f /tmp/mp_loader_borderless_test.txt
         """
         res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("MARKER:OPENED:-a QuickTime Player", res.stdout)
+        self.assertIn("MARKER:BORDERLESS:", res.stdout)
         self.assertIn("MP_loader.mp4", res.stdout)
         self.assertNotIn("FFPLAY_SHOULD_NOT_RUN", res.stdout)
         self.assertNotIn("MPV_SHOULD_NOT_RUN", res.stdout)
         self.assertNotIn("VLC_SHOULD_NOT_RUN", res.stdout)
+        self.assertNotIn("QUICKTIME_SHOULD_NOT_RUN", res.stdout)
 
-    def test_macos_loader_reports_failure_when_quicktime_cannot_open(self):
+    def test_macos_loader_falls_back_to_borderless_ffplay(self):
+        """Without swiftc, macOS still uses a borderless ffplay window."""
         script = r"""
         set -e
         export OS_TYPE="macos"
+        export HOME="$(mktemp -d)"
         source scripts/display_loader_video.sh
-        open() { echo "OPEN_FAILED"; return 1; }
+        is_manager_already_open() { return 1; }
+        _loader_skip_requested() { sleep 0.2; return 1; }
+        fake="$(mktemp -d)"
+        cat > "$fake/ffplay" << 'EOF'
+#!/bin/sh
+printf '%s\n' "$*" > /tmp/mp_loader_ffplay_test.txt
+exit 0
+EOF
+        chmod +x "$fake/ffplay"
+        export PATH="$fake:/usr/bin:/bin"
+        hash -r
+        resolved="$(command -v ffplay || true)"
+        case "$resolved" in
+            "$fake"/*) ;;
+            *) echo "WRONG_FFPLAY:$resolved"; exit 1 ;;
+        esac
+        rm -f /tmp/mp_loader_ffplay_test.txt
+        display_startup_loader_video 0
+        echo "MARKER:$(cat /tmp/mp_loader_ffplay_test.txt 2>/dev/null || true)"
+        rm -f /tmp/mp_loader_ffplay_test.txt
+        rm -rf "$fake" "$HOME"
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("MARKER:", res.stdout)
+        self.assertIn("-noborder", res.stdout)
+        self.assertIn("-alwaysontop", res.stdout)
+        self.assertIn("MP_loader.mp4", res.stdout)
+        self.assertNotIn("QuickTime", res.stdout)
+
+    def test_macos_borderless_helper_skips_without_swiftc(self):
+        script = r"""
+        set -e
+        export OS_TYPE="macos"
+        export HOME="$(mktemp -d)"
+        source scripts/display_loader_video.sh
+        export PATH="/usr/bin:/bin"
+        hash -r
         path=$(find_loader_video_path)
-        if play_macos_loader_video "$path"; then
+        if play_macos_borderless_loader "$path"; then
             echo "PLAY_OK"
         else
             echo "PLAY_FAILED"
         fi
+        rm -rf "$HOME"
         """
         res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("PLAY_FAILED", res.stdout)
         self.assertNotIn("PLAY_OK", res.stdout)
 
-    def test_loader_script_does_not_quit_quicktime_before_playback(self):
+    def test_loader_script_uses_borderless_window_not_quicktime(self):
         text = SCRIPT.read_text(encoding="utf-8")
+        swift = (BASE_DIR / "scripts" / "macos_borderless_loader.swift").read_text(encoding="utf-8")
+        self.assertNotIn("QuickTime", swift)
         self.assertNotIn("play document 1", text)
-        self.assertIn("play_macos_loader_video", text)
-        self.assertIn('open -a "QuickTime Player"', text)
-        self.assertNotIn('tell application "QuickTime Player" to quit', text)
+        self.assertNotIn('open -a "QuickTime Player"', text)
+        self.assertNotIn('tell application "QuickTime Player"', text)
+        self.assertNotIn("play_macos_loader_video", text)
+        self.assertNotIn('open -a', text)
+        self.assertIn("play_macos_borderless_loader", text)
+        self.assertIn("macos_borderless_loader.swift", text)
+        self.assertIn("-noborder", text)
+        self.assertIn("--no-border", text)
+        self.assertIn("--no-video-deco", text)
+        self.assertNotIn('player_pid="$(', text)
+        self.assertIn(".borderless", swift)
+        self.assertIn(".floating", swift)
 
 
 if __name__ == "__main__":

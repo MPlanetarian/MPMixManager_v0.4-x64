@@ -144,86 +144,47 @@ _loader_skip_requested() {
     return 1
 }
 
-# macOS has QuickTime Player on every system. open(1) starts playback without
-# an Automation prompt. A later AppleScript only presses play / presentation
-# and is allowed to fail.
-play_macos_loader_video() {
+# Borderless always-on-top logo window. Sets player_pid in the caller.
+# Do not launch this player inside $(...): that subshell sends SIGHUP
+# as soon as the substitution returns, and the window disappears.
+play_macos_borderless_loader() {
     local vid="$1"
+    local src="" cache_dir="" bin="" swiftc_bin="" log=""
     [ -n "$vid" ] && [ -f "$vid" ] || return 1
-    if ! type open >/dev/null 2>&1; then
-        return 1
-    fi
-    open -a "QuickTime Player" "$vid" >/dev/null 2>&1 || return 1
-    if type osascript >/dev/null 2>&1; then
-        osascript - "$vid" >/dev/null 2>&1 <<'APPLESCRIPT' &
-on run argv
-    set movieName to item 1 of argv
-    delay 0.6
-    tell application "QuickTime Player"
-        if (count of documents) is 0 then return
-        repeat with movieDoc in documents
-            try
-                if name of movieDoc contains "MP_loader" or POSIX path of movieDoc contains movieName then
-                    tell movieDoc
-                        play
-                        try
-                            set presenting to true
-                        end try
-                    end tell
-                    return
-                end if
-            end try
-        end repeat
-        try
-            tell front document to play
-        end try
-    end tell
-end run
-APPLESCRIPT
-    fi
-    return 0
-}
 
-close_macos_loader_video() {
-    type osascript >/dev/null 2>&1 || return 0
-    osascript >/dev/null 2>&1 <<'APPLESCRIPT' || true
-tell application "QuickTime Player"
-    if it is not running then return
-    repeat with movieDoc in documents
-        try
-            if name of movieDoc contains "MP_loader" then close movieDoc
-        end try
-    end repeat
-    try
-        if (count of documents) is 0 then quit
-    end try
-end tell
-APPLESCRIPT
-}
+    src="$SCRIPT_DIR/scripts/macos_borderless_loader.swift"
+    [ -f "$src" ] || return 1
+    cache_dir="${HOME}/.cache/mix-manager"
+    bin="$cache_dir/macos_borderless_loader"
+    log="$cache_dir/macos_borderless_loader.log"
 
-# "yes" once QuickTime is actually playing the loader, "no" once that
-# document has stopped, or empty when AppleScript cannot see the player.
-_macos_loader_playback_state() {
-    type osascript >/dev/null 2>&1 || return 0
-    osascript 2>/dev/null <<'APPLESCRIPT' || true
-tell application "System Events"
-    if not (exists process "QuickTime Player") then
-        return "no"
-    end if
-end tell
-tell application "QuickTime Player"
-    if (count of documents) is 0 then return "no"
-    repeat with movieDoc in documents
-        try
-            if name of movieDoc contains "MP_loader" then
-                if playing of movieDoc then return "yes"
-                return "no"
-            end if
-        end try
-    end repeat
-end tell
-return ""
-APPLESCRIPT
+    if command -v swiftc >/dev/null 2>&1; then
+        swiftc_bin="$(command -v swiftc)"
+    elif command -v xcrun >/dev/null 2>&1; then
+        swiftc_bin="$(xcrun --find swiftc 2>/dev/null || true)"
+    fi
+
+    if [ -n "$swiftc_bin" ] && [ -x "$swiftc_bin" ]; then
+        mkdir -p "$cache_dir" 2>/dev/null || true
+        if [ ! -x "$bin" ] || [ "$src" -nt "$bin" ]; then
+            if ! "$swiftc_bin" -o "$bin" "$src" >"$log" 2>&1; then
+                rm -f "$bin"
+            fi
+        fi
+        if [ -x "$bin" ]; then
+            "$bin" "$vid" </dev/null &>/dev/null &
+            player_pid=$!
+            # A bad cached binary exits at once. Leave player_pid empty so
+            # the caller can try ffplay, mpv, or VLC instead.
+            sleep 0.2
+            if kill -0 "$player_pid" 2>/dev/null; then
+                return 0
+            fi
+            wait "$player_pid" 2>/dev/null || true
+            player_pid=""
+        fi
+    fi
+    return 1
 }
 
 # Display loader video whilst manager is loading
@@ -303,6 +264,10 @@ display_startup_loader_video() {
         ffplay_bin="/c/ffmpeg/bin/ffplay.exe"
     elif [ -x "/c/ProgramData/chocolatey/bin/ffplay.exe" ]; then
         ffplay_bin="/c/ProgramData/chocolatey/bin/ffplay.exe"
+    elif [ -x "/opt/homebrew/bin/ffplay" ]; then
+        ffplay_bin="/opt/homebrew/bin/ffplay"
+    elif [ -x "/usr/local/bin/ffplay" ]; then
+        ffplay_bin="/usr/local/bin/ffplay"
     fi
 
     local mpv_bin=""
@@ -314,6 +279,12 @@ display_startup_loader_video() {
         mpv_bin="$LOCALAPPDATA/Programs/mpv/mpv.exe"
     elif [ -x "/c/ProgramData/chocolatey/bin/mpv.exe" ]; then
         mpv_bin="/c/ProgramData/chocolatey/bin/mpv.exe"
+    elif [ -x "/opt/homebrew/bin/mpv" ]; then
+        mpv_bin="/opt/homebrew/bin/mpv"
+    elif [ -x "/usr/local/bin/mpv" ]; then
+        mpv_bin="/usr/local/bin/mpv"
+    elif [ -x "/Applications/mpv.app/Contents/MacOS/mpv" ]; then
+        mpv_bin="/Applications/mpv.app/Contents/MacOS/mpv"
     fi
 
     local vlc_bin=""
@@ -330,10 +301,20 @@ display_startup_loader_video() {
     fi
 
     if [ "$is_gui" -eq 1 ]; then
-        if { [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; } && play_macos_loader_video "$loader_vid"; then
-            # QuickTime plays the logo on macOS. ffplay, mpv, and VLC stay as
-            # fallbacks when QuickTime cannot open the file.
-            player_pid="quicktime"
+        if [ "${OS_TYPE:-}" = "macos" ] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+            # Borderless window on macOS. Never open QuickTime Player.
+            if ! play_macos_borderless_loader "$loader_vid"; then
+                if [ -n "$ffplay_bin" ]; then
+                    "$ffplay_bin" -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" </dev/null &>/dev/null &
+                    player_pid=$!
+                elif [ -n "$mpv_bin" ]; then
+                    "$mpv_bin" --ontop --no-border --title="MP Mix Archive Manager" --no-terminal "$loader_vid" </dev/null &>/dev/null &
+                    player_pid=$!
+                elif [ -n "$vlc_bin" ]; then
+                    "$vlc_bin" --play-and-exit --video-on-top --no-video-title-show --no-video-deco "$loader_vid" </dev/null &>/dev/null &
+                    player_pid=$!
+                fi
+            fi
         elif [ -n "$ffplay_bin" ]; then
             "$ffplay_bin" -autoexit -noborder -alwaysontop -window_title "MP Mix Archive Manager" -loglevel quiet "$loader_vid" </dev/null &>/dev/null &
             player_pid=$!
@@ -388,43 +369,25 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
     # Wait for player completion or interactive skip keypress in console
     if [ -n "$player_pid" ]; then
         local waited=0
-        local seen_playing=0
         local wait_limit=105
-        local poll_every=10
         # Stock macOS bash 3.2 can only wait in whole seconds.
         if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
             wait_limit=11
-            poll_every=1
         fi
-        if [ "$player_pid" = "quicktime" ]; then
-            while [ "$waited" -lt "$wait_limit" ]; do
-                if _loader_skip_requested; then
-                    break
-                fi
-                if [ $((waited % poll_every)) -eq 0 ]; then
-                    local qt_state=""
-                    qt_state="$(_macos_loader_playback_state | tr -d '[:space:]' || true)"
-                    if [ "$qt_state" = "yes" ]; then
-                        seen_playing=1
-                    elif [ "$qt_state" = "no" ] && [ "$seen_playing" -eq 1 ]; then
-                        break
-                    fi
-                fi
-                waited=$((waited + 1))
-            done
-            close_macos_loader_video "$loader_vid"
-        else
-            while kill -0 "$player_pid" 2>/dev/null; do
-                if _loader_skip_requested; then
-                    kill -9 "$player_pid" 2>/dev/null || true
-                    break
-                fi
-                waited=$((waited + 1))
-                # Safety timeout of about 10.5 seconds (video is 10.0s)
-                [ "$waited" -ge "$wait_limit" ] && break
-            done
-            wait "$player_pid" 2>/dev/null || true
-        fi
+        while kill -0 "$player_pid" 2>/dev/null; do
+            if _loader_skip_requested; then
+                kill -9 "$player_pid" 2>/dev/null || true
+                break
+            fi
+            waited=$((waited + 1))
+            # Safety timeout of about 10.5 seconds (video is 10.0s).
+            # Kill before wait, or a stuck player keeps the menu from appearing.
+            if [ "$waited" -ge "$wait_limit" ]; then
+                kill -9 "$player_pid" 2>/dev/null || true
+                break
+            fi
+        done
+        wait "$player_pid" 2>/dev/null || true
     else
         # In pure headless / no-display environments, provide a brief 1.2s loading beat
         sleep 1.2
