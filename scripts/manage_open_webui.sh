@@ -166,11 +166,27 @@ view_webui_logs() {
 update_open_webui() {
     echo -e "\n${BOLD}${MAGENTA}=== UPDATE OPEN WEBUI ===${NC}\n"
     if [ "$OS_TYPE" = "windows" ]; then
-        echo -e "${CYAN}Checking for Open WebUI updates in X:\\\\OPENWEBUI\\\\env...${NC}\n"
-        if [ -f "C:/ProgramData/anaconda3/Scripts/conda.exe" ]; then
-            "C:/ProgramData/anaconda3/Scripts/conda.exe" run -p "X:/OPENWEBUI/env" python -m pip install --upgrade open-webui
+        echo -e "${CYAN}Checking for Open WebUI updates in X:\\OPENWEBUI\\env...${NC}\n"
+        
+        local win_env_py="X:/OPENWEBUI/env/python.exe"
+        local win_env_pip="X:/OPENWEBUI/env/Scripts/pip.exe"
+
+        if [ -f "$win_env_pip" ]; then
+            echo -e "${CYAN}Executing direct pip upgrade inside target environment...${NC}\n"
+            MSYS_NO_PATHCONV=1 "$win_env_py" -m pip install --upgrade --no-user open-webui
+        elif [ -f "C:/ProgramData/anaconda3/condabin/conda.bat" ]; then
+            echo -e "${CYAN}Activating environment via Conda batch wrapper...${NC}\n"
+            MSYS_NO_PATHCONV=1 cmd.exe /c "call C:\ProgramData\anaconda3\condabin\conda.bat activate X:\OPENWEBUI\env && python -m pip install --upgrade --no-user open-webui"
         else
-            MSYS_NO_PATHCONV=1 cmd.exe /c "C:\ProgramData\anaconda3\condabin\conda.bat activate X:\OPENWEBUI\env && python -m pip install --upgrade open-webui"
+            echo -e "${RED}Error: Neither target environment Python nor Conda was located.${NC}"
+            press_enter
+            return 1
+        fi
+
+        if [ $? -eq 0 ]; then
+            echo -e "\n${GREEN}✓ Open WebUI Windows environment updated successfully.${NC}"
+        else
+            echo -e "\n${RED}✗ Update failed. Verify that Open WebUI is not running in the background.${NC}"
         fi
     else
         local exec_line=""
