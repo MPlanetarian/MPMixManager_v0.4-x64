@@ -136,13 +136,13 @@ _nav_mark_console; local read_rc=0; _nav_pull 0.05 _k; read_rc=$?; if [[ "$read_
 highlight_menu_line() {
 local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then base_r=255; base_g=255; base_b=255; base_pr=255; base_pg=255; base_pb=255; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then case "$c_mod" in 0) base_r=224; base_g=86; base_b=253; base_pr=224; base_pg=86; base_pb=253 ;; 1) base_r=0; base_g=245; base_b=212; base_pr=0; base_pg=245; base_pb=212 ;; 2) base_r=254; base_g=228; base_b=64; base_pr=254; base_pg=228; base_pb=64 ;; 3) base_r=94; base_g=96; base_b=206; base_pr=140; base_pg=160; base_pb=255 ;; esac; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl; if [ "$bf" -ge 60 ]; then if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; local rst="\033[0m" ptr="${ptr_col} ▶ ❯${rst}"; printf -v formatted_key "[%2s]" "$key"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${rst}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
 }
+
 _start_win_cursor_hider() {
 if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then return 0; fi; local _os="${OS_TYPE:-}"; if [ -z "$_os" ]; then case "$UNAME_S" in CYGWIN*|MINGW*|MSYS*) _os="windows" ;; esac; fi; [ "$_os" != "windows" ] && return 0; local py=""; if command -v python3 &>/dev/null; then py="python3"; elif command -v python &>/dev/null; then py="python"; else return 0; fi; local conf_dir="${HOME}/.config/mix-manager"; mkdir -p "$conf_dir" 2>/dev/null || true; rm -f "$conf_dir/console_size" 2>/dev/null || true; local hider_py="$conf_dir/win_cursor_hider.py"; 
 
 cat <<'PY' > "$hider_py"
 import ctypes, os, sys, time
 k = ctypes.WinDLL("kernel32", use_last_error=True)
-user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
 k.CreateFileW.restype = ctypes.c_void_p
@@ -152,6 +152,8 @@ k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.SetConsoleCursorInfo.restype = ctypes.c_int
 k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.GetConsoleScreenBufferInfo.restype = ctypes.c_int
+k.SetConsoleScreenBufferSize.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+k.SetConsoleScreenBufferSize.restype = ctypes.c_int
 
 GENERIC_RW = 0x80000000 | 0x40000000
 h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
@@ -170,7 +172,7 @@ class CSBI(ctypes.Structure):
         ("dwCursorPosition", ctypes.c_ulong),
         ("wAttributes", ctypes.c_ushort),
         ("srWindow", SMALL_RECT),
-        ("dwMaximumWindowSize", COORD),
+        ("dwMaximumWindowSize", ctypes.c_ulong),
     ]
 class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
@@ -201,11 +203,12 @@ def publish():
     if rows < 1 or cols < 1:
         return
 
-    # Hide scrollbar on-demand when dimensions change
+    # Match screen buffer size to window dimensions strictly on-demand during resize/maximization.
+    # This permanently hides the scrollbar and blocks the mouse scroll wheel from bringing it back,
+    # while leaving the loop unblocked so normal window scaling works fluidly.
     if (rows, cols) != last:
-        hwnd = k.GetConsoleWindow()
-        if hwnd:
-            user32.ShowScrollBar(hwnd, 1, False) # 1 = SB_VERT, False = hide
+        coord = (rows << 16) | (cols & 0xFFFF)
+        k.SetConsoleScreenBufferSize(h, coord)
 
     if (rows, cols) == last:
         return
@@ -235,6 +238,7 @@ PY
 MP_WIN_SIZE_FILE="$conf_dir/console_size" "$py" -u "$hider_py" &>/dev/null &
 _WIN_CURSOR_HIDER_PID=$!
 }
+
 _stop_win_cursor_hider() {
 local pid="${_WIN_CURSOR_HIDER_PID:-}"; _WIN_CURSOR_HIDER_PID=""; if [ -n "$pid" ]; then if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then local _win_pid; _win_pid=$(ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {print $4; exit}'); if [[ "$_win_pid" =~ ^[0-9]+$ ]]; then MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_win_pid" /F &>/dev/null || true; fi; fi; kill -9 "$pid" 2>/dev/null || true; fi
 }
