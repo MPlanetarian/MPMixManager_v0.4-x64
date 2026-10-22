@@ -15,10 +15,61 @@ local sig="TERM" pattern=""; while [[ $# -gt 0 ]]; do case "$1" in -9|-KILL) sig
 }
 export -f pkill 2>/dev/null || true; fi
 _win_console_size() {
-local _rows_var="$1" _cols_var="$2" pid="${_WIN_CURSOR_HIDER_PID:-}"; [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1; local f="${HOME}/.config/mix-manager/console_size"; [[ -f "$f" ]] || return 1; local r c; IFS=$' \t' read -r r c < "$f" || return 1; [[ "$r" =~ ^[0-9]+$ && "$c" =~ ^[0-9]+$ && "$r" -ge 1 && "$c" -ge 1 ]] || return 1; printf -v "$_rows_var" '%s' "$r"; printf -v "$_cols_var" '%s' "$c"
+local _rows_var="$1" _cols_var="$2" pid="${_WIN_CURSOR_HIDER_PID:-}"
+if [[ -n "$pid" ]]; then
+    if [[ "$OS_TYPE" == "windows" ]] || [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        ps -W 2>/dev/null | awk -v p="$pid" '$1 == p {found=1} END {exit !found}' || return 1
+    else
+        kill -0 "$pid" 2>/dev/null || return 1
+    fi
+fi
+local f="${HOME}/.config/mix-manager/console_size"
+[[ -f "$f" ]] || return 1
+local r c
+IFS=$' \t' read -r r c < "$f" 2>/dev/null || return 1
+[[ "$r" =~ ^[0-9]+$ && "$c" =~ ^[0-9]+$ && "$r" -ge 1 && "$c" -ge 1 ]] || return 1
+printf -v "$_rows_var" '%s' "$r"
+printf -v "$_cols_var" '%s' "$c"
 }
 update_terminal_geometry() {
-local force="${1:-0}" win_l="" win_c=""; if _win_console_size win_l win_c; then if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then _TERM_LINES="$win_l" _TERM_COLS="$win_c" _TERM_RESIZED=0; return 0; fi; return 1; fi; if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then local new_l="${LINES:-}" new_c="${COLUMNS:-}" need_stty=0; if [[ -z "$new_l" || -z "$new_c" || ( "$force" -eq 1 && "$new_l" = "${_TERM_LINES:-}" && "$new_c" = "${_TERM_COLS:-}" ) ]]; then need_stty=1; fi; if [[ "$need_stty" -eq 1 ]]; then local sz; if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then read -r new_l new_c <<< "$sz"; else new_l=$(tput lines 2>/dev/null || echo 40); new_c=$(tput cols 2>/dev/null || echo 100); fi; fi; _TERM_LINES="${new_l:-${_TERM_LINES:-40}}"; _TERM_COLS="${new_c:-${_TERM_COLS:-100}}"; _TERM_RESIZED=0; return 0; fi; return 1
+local force="${1:-0}" win_l="" win_c=""
+if _win_console_size win_l win_c; then 
+    if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then 
+        _TERM_LINES="$win_l" 
+        _TERM_COLS="$win_c" 
+        _TERM_RESIZED=0
+        
+        # CRITICAL: Force Windows Bash / stty / shell variables to match the new dimensions instantly
+        if [[ "$OS_TYPE" == "windows" ]] || [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            stty cols "$win_c" rows "$win_l" 2>/dev/null || true
+            export LINES="$win_l"
+            export COLUMNS="$win_c"
+        fi
+        return 0
+    fi
+    return 1
+fi
+
+if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then 
+    local new_l="${LINES:-}" new_c="${COLUMNS:-}" need_stty=0
+    if [[ -z "$new_l" || -z "$new_c" || ( "$force" -eq 1 && "$new_l" = "${_TERM_LINES:-}" && "$new_c" = "${_TERM_COLS:-}" ) ]]; then 
+        need_stty=1
+    fi
+    if [[ "$need_stty" -eq 1 ]]; then 
+        local sz
+        if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then 
+            read -r new_l new_c <<< "$sz"
+        else 
+            new_l=$(tput lines 2>/dev/null || echo 40)
+            new_c=$(tput cols 2>/dev/null || echo 100)
+        fi
+    fi 
+    _TERM_LINES="${new_l:-${_TERM_LINES:-40}}"
+    _TERM_COLS="${new_c:-${_TERM_COLS:-100}}"
+    _TERM_RESIZED=0
+    return 0
+fi 
+return 1
 }
 _set_menu_box_width() {
 local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"; [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80; [[ "$_cols" -lt 1 ]] && _cols=1; local _w; if [[ "$_cols" -ge 8 ]]; then _w=$((_cols - 4)); elif [[ "$_cols" -ge 3 ]]; then _w=$((_cols - 2)); else _w=1; fi; printf -v "$_dest" '%s' "$_w"
@@ -36,7 +87,19 @@ play_sound_effect() {
 local sound_type="${1:-storage}" sound_file=""; if [[ "$sound_type" == "dreamworlds" || "$sound_type" == "theme" ]]; then for cand in /usr/share/sounds/Oxygen-Sys-Special.ogg /usr/share/sounds/oxygen/stereo/dialog-special.ogg /usr/share/sounds/ocean/stereo/theme-demo.oga /usr/share/sounds/ocean/stereo/desktop-login.oga /usr/share/sounds/freedesktop/stereo/service-login.oga; do [[ -f "$cand" ]] && { sound_file="$cand"; break; }; done; elif [[ "$sound_type" == "storage" ]]; then for cand in /usr/share/sounds/ocean/stereo/device-added.oga /usr/share/sounds/freedesktop/stereo/device-added.oga /usr/share/sounds/Oxygen-Sys-App-Positive.ogg /usr/share/sounds/ocean/stereo/completion-success.oga; do [[ -f "$cand" ]] && { sound_file="$cand"; break; }; done; fi; if [[ -n "$sound_file" ]]; then for player in pw-play paplay canberra-gtk-play aplay; do if command -v "$player" &>/dev/null; then "$player" "$sound_file" &>/dev/null & break; fi; done; fi
 }
 _resize_pending() {
-local win_l win_c; if _win_console_size win_l win_c; then if [[ "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" || "${LINES:-}" != "$_SEEN_LINES" || "${COLUMNS:-}" != "$_SEEN_COLS" ]]; then _TERM_RESIZED=0; _SEEN_LINES="${LINES:-}"; _SEEN_COLS="${COLUMNS:-}"; return 0; fi; fi; return 1
+local win_l win_c
+if _win_console_size win_l win_c; then 
+    if [[ "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then 
+        _TERM_RESIZED=1
+        return 0
+    fi
+fi
+local cur_l="${LINES:-40}" cur_c="${COLUMNS:-100}"
+if [[ "$cur_l" != "${_SEEN_LINES:-}" || "$cur_c" != "${_SEEN_COLS:-}" ]]; then
+    _TERM_RESIZED=1
+    return 0
+fi
+return 1
 }
 _nav_pending=""; _NAV_WIN_CON=""; _NAV_ARROW_AT=""
 _nav_just_arrowed() {
@@ -74,10 +137,13 @@ highlight_menu_line() {
 local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then base_r=255; base_g=255; base_b=255; base_pr=255; base_pg=255; base_pb=255; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then case "$c_mod" in 0) base_r=224; base_g=86; base_b=253; base_pr=224; base_pg=86; base_pb=253 ;; 1) base_r=0; base_g=245; base_b=212; base_pr=0; base_pg=245; base_pb=212 ;; 2) base_r=254; base_g=228; base_b=64; base_pr=254; base_pg=228; base_pb=64 ;; 3) base_r=94; base_g=96; base_b=206; base_pr=140; base_pg=160; base_pb=255 ;; esac; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl; if [ "$bf" -ge 60 ]; then if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; local rst="\033[0m" ptr="${ptr_col} ▶ ❯${rst}"; printf -v formatted_key "[%2s]" "$key"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${rst}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
 }
 _start_win_cursor_hider() {
-if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then return 0; fi; local _os="${OS_TYPE:-}"; if [ -z "$_os" ]; then case "$UNAME_S" in CYGWIN*|MINGW*|MSYS*) _os="windows" ;; esac; fi; [ "$_os" != "windows" ] && return 0; local py=""; if command -v python3 &>/dev/null; then py="python3"; elif command -v python &>/dev/null; then py="python"; else return 0; fi; local conf_dir="${HOME}/.config/mix-manager"; mkdir -p "$conf_dir" 2>/dev/null || true; rm -f "$conf_dir/console_size" 2>/dev/null || true; local hider_py="$conf_dir/win_cursor_hider.py"; if [ ! -f "$hider_py" ]; then
+if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/dev/null; then return 0; fi; local _os="${OS_TYPE:-}"; if [ -z "$_os" ]; then case "$UNAME_S" in CYGWIN*|MINGW*|MSYS*) _os="windows" ;; esac; fi; [ "$_os" != "windows" ] && return 0; local py=""; if command -v python3 &>/dev/null; then py="python3"; elif command -v python &>/dev/null; then py="python"; else return 0; fi; local conf_dir="${HOME}/.config/mix-manager"; mkdir -p "$conf_dir" 2>/dev/null || true; rm -f "$conf_dir/console_size" 2>/dev/null || true; local hider_py="$conf_dir/win_cursor_hider.py"; 
+
 cat <<'PY' > "$hider_py"
 import ctypes, os, sys, time
 k = ctypes.WinDLL("kernel32", use_last_error=True)
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+
 k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
 k.CreateFileW.restype = ctypes.c_void_p
 k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -86,11 +152,13 @@ k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.SetConsoleCursorInfo.restype = ctypes.c_int
 k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
 k.GetConsoleScreenBufferInfo.restype = ctypes.c_int
+
 GENERIC_RW = 0x80000000 | 0x40000000
 h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
 invalid = ctypes.c_void_p(-1).value
 if not h or h == invalid:
     sys.exit(0)
+
 class COORD(ctypes.Structure):
     _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
 class SMALL_RECT(ctypes.Structure):
@@ -99,13 +167,14 @@ class SMALL_RECT(ctypes.Structure):
 class CSBI(ctypes.Structure):
     _fields_ = [
         ("dwSize", COORD),
-        ("dwCursorPosition", COORD),
+        ("dwCursorPosition", ctypes.c_ulong),
         ("wAttributes", ctypes.c_ushort),
         ("srWindow", SMALL_RECT),
         ("dwMaximumWindowSize", COORD),
     ]
 class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
+
 def _native_path(p):
     if os.name != "nt" or not p:
         return p
@@ -114,30 +183,46 @@ def _native_path(p):
     if p.startswith("/cygdrive/") and len(p) > 11 and p[10].isalpha() and p[11] == "/":
         return p[10].upper() + ":" + p[11:].replace("/", "\\")
     return p
+
 info = CCI()
 csbi = CSBI()
 size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
 if ctypes.sizeof(csbi) != 22:
     size_path = ""
 last = None
+
 def publish():
     global last
-    if not size_path:
-        return
     if not k.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
         return
     rows = int(csbi.srWindow.Bottom) - int(csbi.srWindow.Top) + 1
     cols = int(csbi.srWindow.Right) - int(csbi.srWindow.Left) + 1
-    if rows < 1 or cols < 1 or (rows, cols) == last:
+    
+    if rows < 1 or cols < 1:
         return
-    try:
-        tmp = "%s.%d" % (size_path, os.getpid())
-        with open(tmp, "w", encoding="ascii", newline="\n") as fh:
-            fh.write("%d %d\n" % (rows, cols))
-        os.replace(tmp, size_path)
-    except OSError:
+
+    # Hide scrollbar on-demand when dimensions change
+    if (rows, cols) != last:
+        hwnd = k.GetConsoleWindow()
+        if hwnd:
+            user32.ShowScrollBar(hwnd, 1, False) # 1 = SB_VERT, False = hide
+
+    if (rows, cols) == last:
         return
+
+    if size_path:
+        for _ in range(5):
+            try:
+                tmp = "%s.%d" % (size_path, os.getpid())
+                with open(tmp, "w", encoding="ascii", newline="\n") as fh:
+                    fh.write("%d %d\n" % (rows, cols))
+                os.replace(tmp, size_path)
+                break
+            except OSError:
+                time.sleep(0.01)
+            
     last = (rows, cols)
+
 publish()
 while True:
     if k.GetConsoleCursorInfo(h, ctypes.byref(info)) and info.bVisible:
@@ -146,7 +231,8 @@ while True:
     publish()
     time.sleep(0.04)
 PY
-fi; MP_WIN_SIZE_FILE="$conf_dir/console_size" "$py" -u "$hider_py" &>/dev/null &
+
+MP_WIN_SIZE_FILE="$conf_dir/console_size" "$py" -u "$hider_py" &>/dev/null &
 _WIN_CURSOR_HIDER_PID=$!
 }
 _stop_win_cursor_hider() {
@@ -170,10 +256,57 @@ IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_me
 }
 cleanup_submenu_screen() {
 _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
-}
+}                                            
 _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 6 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - 16 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 2 ] && l1_pad=2; local l1_sp
 printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle  [M] Window  [n] Next  [</>] Track  [p] UI  [f] FM"; local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} )); local l2_pad=$(( text_w - raw_l2_len )); [ "$l2_pad" -lt 2 ] && l2_pad=2; local l2_sp; printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 1 ? 1 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${CYAN}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
-frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; RESIZE) update_terminal_geometry 1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue; ;; TICK) local _now_s="${SECONDS:-0}"; if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then _LAST_MENU_TICK_S="$_now_s"; update_terminal_geometry 0; if [ -z "$menu_title" ]; then load_header_cache 2>/dev/null || true; build_header_block; maybe_spawn_header_refresh; _maybe_refresh_perf_cache; fi; _MENU_FRAME_FRESH=0; fi; local _idle_time=$(( _now_s - _LAST_NAV_TIME )); if [ "$_idle_time" -ge 10 ] && [ "${search_mode:-0}" -ne 1 ] && [ -z "${typed_buffer:-}" ]; then _IS_BREATHING=1; ((_BREATH_TICK_DIV++)); if [ "$_BREATH_TICK_DIV" -ge 2 ]; then _BREATH_TICK_DIV=0; _BREATH_STEP=$(( (_BREATH_STEP + 1) % 32 )); local cur_f="${_BREATH_FACTORS[_BREATH_STEP]}"; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_breath=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_breath "$box_w" "$cur_f"; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_breath"; fi; fi; elif [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_restored=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_restored "$box_w" 100; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_restored"; fi; fi; continue ;; CHAR:/) if [ "$search_mode" -eq 1 ]; then search_query+="/"; _find_menu_search_match "$search_query" 0 1; else search_mode=1; search_query=""; typed_buffer=""; fi; _MENU_FRAME_FRESH=0; continue ;; SPACE) if [ "$search_mode" -eq 1 ]; then search_query+=" "; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; toggle_mp_audio_player; _MENU_FRAME_FRESH=0; continue ;; CHAR:m|CHAR:M) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_window; _MENU_FRAME_FRESH=0; continue ;;
+frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
+
+RESIZE) 
+    # Force full geometry re-evaluation
+    update_terminal_geometry 1
+    _TERM_RESIZED=1
+    last_term_lines=0
+    _last_menu_frame=""
+    cached_header_block=""
+    
+    # Re-evaluate box widths and headers immediately
+    if declare -F _set_menu_box_width >/dev/null; then
+        _set_menu_box_width box_w "${_TERM_COLS:-80}"
+        _CURRENT_BOX_W="$box_w"
+    fi
+    if declare -F build_header_block >/dev/null; then
+        build_header_block
+    fi
+    printf '\033[?25l\033[?12l\033[?7l'
+    continue ;; 
+TICK) 
+    local _now_s="${SECONDS:-0}"
+    # Continuously check for pending resizes on every tick to catch window drags/maximizations instantly
+    if _resize_pending; then
+        update_terminal_geometry 1
+        last_term_lines=0
+        __TERM_RESIZED=1
+        _last_menu_frame=""
+        cached_header_block=""
+        if declare -F _set_menu_box_width >/dev/null; then
+            _set_menu_box_width box_w "${_TERM_COLS:-80}"
+            _CURRENT_BOX_W="$box_w"
+        fi
+        if declare -F build_header_block >/dev/null; then
+            build_header_block
+        fi
+    fi
+    if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then 
+        _LAST_MENU_TICK_S="$_now_s"
+        update_terminal_geometry 0
+        if [ -z "$menu_title" ]; then 
+            load_header_cache 2>/dev/null || true
+            build_header_block
+            maybe_spawn_header_refresh
+            _maybe_refresh_perf_cache
+        fi
+        _MENU_FRAME_FRESH=0
+    fi ; local _idle_time=$(( _now_s - _LAST_NAV_TIME )); if [ "$_idle_time" -ge 10 ] && [ "${search_mode:-0}" -ne 1 ] && [ -z "${typed_buffer:-}" ]; then _IS_BREATHING=1; ((_BREATH_TICK_DIV++)); if [ "$_BREATH_TICK_DIV" -ge 2 ]; then _BREATH_TICK_DIV=0; _BREATH_STEP=$(( (_BREATH_STEP + 1) % 32 )); local cur_f="${_BREATH_FACTORS[_BREATH_STEP]}"; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_breath=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_breath "$box_w" "$cur_f"; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_breath"; fi; fi; elif [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_restored=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_restored "$box_w" 100; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_restored"; fi; fi; continue ;; CHAR:/) if [ "$search_mode" -eq 1 ]; then search_query+="/"; _find_menu_search_match "$search_query" 0 1; else search_mode=1; search_query=""; typed_buffer=""; fi; _MENU_FRAME_FRESH=0; continue ;; SPACE) if [ "$search_mode" -eq 1 ]; then search_query+=" "; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; toggle_mp_audio_player; _MENU_FRAME_FRESH=0; continue ;; CHAR:m|CHAR:M) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_window; _MENU_FRAME_FRESH=0; continue ;;
 CHAR:n|CHAR:N|CHAR:\>|CHAR:\])
 if [ "$search_mode" -eq 1 ]; then search_query+="n"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --next &>/dev/null &
 ;;
@@ -250,8 +383,14 @@ elif [ -f "$br_py" ]; then (python3 "$br_py" update-action --action "$act" --cat
 fi
 }
 exit_mix_manager() {
-update_mp_bridge_menu "Stopped / Inactive" "false"
-_STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true; printf '\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true; echo ""; echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"; echo ""; exit 0
+    update_mp_bridge_menu "Stopped / Inactive" "false"
+    _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true
+    # Switch back from alternate screen buffer and restore cursor/wrap
+    printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
+    echo ""
+    echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"
+    echo ""
+    exit 0
 }
 if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then for _py_cand in "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312/Scripts" "/c/Program Files/Python312" "/c/Program Files/Python312/Scripts" "/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links"; do [ -d "$_py_cand" ] && export PATH="$_py_cand:$PATH"; done; _py3_path="$(type -p python3 2>/dev/null || true)"; if [ -z "$_py3_path" ] || [[ "$_py3_path" =~ WindowsApps ]]; then _py_path="$(type -p python 2>/dev/null || true)"; if [ -n "$_py_path" ] && [[ ! "$_py_path" =~ WindowsApps ]]; then
 python3() { python "$@"; }
