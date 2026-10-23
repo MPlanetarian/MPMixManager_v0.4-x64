@@ -42,7 +42,10 @@ RED, GREEN, YELLOW = COLOR_TRAFFIC_RED, COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER
 MAGENTA, CYAN = COLOR_HOT_PURPLE, COLOR_LILAC
 
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
-SKIP_DIR_NAMES = {"$recycle.bin", "system volume information", "@eadir", "#recycle", "#snapshot", ".trashes", ".spotlight-v100", ".fseventsd"}
+SKIP_DIR_NAMES = {
+    "$recycle.bin", "system volume information", "@eadir", "#recycle", 
+    "#snapshot", ".trashes", ".spotlight-v100", ".fseventsd", "logic pro library.bundle"
+}
 
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
@@ -474,7 +477,7 @@ def folder_statuses(folders: List[Dict[str, Any]], config: Dict[str, Any], timeo
     for f in folders:
         def _check(fx=f):
             results[fx["id"]] = access_path(fx, config, timeout)[1]
-        t = threading.Thread(target=_check, daemon=True)
+        t = threading.Thread(target=lambda: _check(), daemon=True)
         t.start()
         threads.append(t)
     deadline = time.time() + timeout + 0.5
@@ -579,7 +582,13 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         if not line:
             continue
         base = os.path.basename(line)
-        if base.startswith("._") or "/." in ("/" + line) or "$RECYCLE.BIN" in line:
+        line_lower = line.lower()
+        if (
+            base.startswith("._")
+            or "/." in ("/" + line)
+            or "$recycle.bin" in line_lower
+            or "logic pro library.bundle" in line_lower
+        ):
             continue
         if os.path.splitext(base)[1].lower() in AUDIO_EXTENSIONS:
             tracks.append(_track_entry(os.path.join(root, line), line, f["id"]))
