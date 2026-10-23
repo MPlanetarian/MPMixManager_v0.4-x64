@@ -19,7 +19,7 @@ def _get_app_version() -> str:
                 return cand.read_text(encoding="utf-8").strip()
             except Exception:
                 pass
-    return "0.3.6 Beta"
+    return "0.4.0 Stable"
 
 VERSION = _get_app_version()
 

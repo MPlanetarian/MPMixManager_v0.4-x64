@@ -44,7 +44,7 @@ get_current_version() {
     elif [ -f "$CODEBASE_DIR/CHANGELOG.md" ]; then
         grep -E '^## \[[0-9]+\.[0-9]+' "$CODEBASE_DIR/CHANGELOG.md" | head -1 | sed -E 's/.*\[([0-9]+\.[0-9]+\.[0-9]+.*)\].*/\1/'
     else
-        echo "0.3.6 Beta"
+        echo "0.4.0 Stable"
     fi
 }
 

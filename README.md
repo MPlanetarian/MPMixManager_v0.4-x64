@@ -822,7 +822,7 @@ MP_Mix_Manager_v0.3/
 ├── assets/                      # Artwork templates, promo contact book, publishing calendars
 ├── config.env                   # Active user configuration overrides
 ├── config.env.example           # Configuration template
-├── VERSION                      # Semantic version file (0.3.6 Beta)
+├── VERSION                      # Semantic version file (0.4.0 Stable)
 ├── README.md                    # System documentation & feature matrix
 └── CHANGELOG.md                 # Complete release history and audit log
 ```

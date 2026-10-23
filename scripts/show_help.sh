@@ -30,7 +30,7 @@ if [ -z "$VERSION" ]; then
     if [ -f "$CODEBASE_DIR/VERSION" ]; then
         VERSION="$(head -n 1 "$CODEBASE_DIR/VERSION" | tr -d '\r\n')"
     else
-        VERSION="0.3.6 Beta"
+        VERSION="0.4.0 Stable"
     fi
 fi
 export VERSION

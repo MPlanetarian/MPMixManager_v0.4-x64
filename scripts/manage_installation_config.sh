@@ -27,7 +27,7 @@ if [ -z "${VERSION:-}" ]; then
     elif [ -f "$SCRIPT_DIR/../VERSION" ]; then
         VERSION="$(head -n 1 "$SCRIPT_DIR/../VERSION" | tr -d '\r\n')"
     else
-        VERSION="0.3.6 Beta"
+        VERSION "0.4.0 Stable"
     fi
 fi
 export VERSION
