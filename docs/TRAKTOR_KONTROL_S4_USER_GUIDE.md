@@ -138,4 +138,4 @@ You can open these directly via Option 18 ➔ Option 3 in the Mix Archive Manage
 * **Issue: Permission denied reading `/dev/snd/midiC0D0`.**
   * *Fix*: Ensure your user is in the `audio` group (`sudo usermod -aG audio $USER`), or test running `amidi -p hw:0,0 --dump`.
 * **Issue: The MP Audio Player pitch does not move.**
-  * *Fix*: Ensure the MP Audio Player is running (`Option 12` or `Option 1`). The MIDI daemon automatically routes commands via IPC to any active player window.
+  * *Fix*: Ensure the MP Audio Player is running (`Option 1` or `Option 2`). The MIDI daemon automatically routes commands via IPC to any active player window.

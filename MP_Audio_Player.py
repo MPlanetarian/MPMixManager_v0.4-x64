@@ -1706,7 +1706,6 @@ def is_player_daemon_running() -> bool:
                 cp = Path(f"/proc/{pid}/cmdline")
                 if not cp.exists() or any(x in cp.read_text(errors="ignore") for x in ("MP_Audio_Player", "python")): return True
         except (OSError, ValueError): pass
-        _cleanup_stale_daemon_files()
     if hasattr(socket, "AF_UNIX") and SOCKET_PATH.exists():
         try:
             s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(0.8); s.connect(str(SOCKET_PATH)); s.close(); return True
@@ -3100,6 +3099,7 @@ class TerminalPlayerUI:
         _present_frame(lines, w, h)
 
     def _draw_mini_frame(self, w: int, h: int, st: Dict[str, Any]):
+        self._sync_initial_selection(st)
         t_now = time.time()
         g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
@@ -3137,6 +3137,7 @@ class TerminalPlayerUI:
         _present_frame(lines, w, h)
 
     def _draw_micro_frame(self, w: int, h: int, st: Dict[str, Any]):
+        self._sync_initial_selection(st)
         t_now = time.time()
         g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
@@ -3326,6 +3327,16 @@ def main():
         print(f"✖ Spek generation failed: {res}", file=sys.stderr); sys.exit(1)
 
     if args.new_window:
+        if daemon_running:
+            try:
+                st = send_ipc_command("status")
+                if st and isinstance(st.get("data"), dict):
+                    d_data = st["data"]
+                    if d_mode := d_data.get("mode"):
+                        if not args.music_mode:
+                            current_mode = d_mode
+                            is_music = (current_mode == "MUSIC")
+            except Exception: pass
         if args.mini or args.micro:
             sys.exit(0 if launch_mini_player_window(current_mode, folder_target, args.playlist, args.theme, args.style, micro=bool(args.micro)) else 1)
         sys.exit(0 if launch_player_window(current_mode, folder_target, args.playlist, args.theme, args.style) else 1)
@@ -3507,9 +3518,19 @@ def main():
             sys.exit(1)
 
     if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
+        d_status = send_ipc_command("status") if daemon_running else None
+        if daemon_running and not d_status:
+            daemon_running = False
+        elif daemon_running and d_status and isinstance(d_status.get("data"), dict):
+            d_data = d_status["data"]
+            if d_mode := d_data.get("mode"):
+                if not args.music_mode:
+                    current_mode = d_mode
+                    is_music = (current_mode == "MUSIC")
+
         scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
         mixes, tf = scanner.get_mixes(), (os.path.abspath(args.file) if args.file else None)
-        if daemon_running and not send_ipc_command("status"): daemon_running = False
+
         if not daemon_running:
             resume_f, resume_pos = None, 0.0
             if not tf and RESUME_STATE_FILE.is_file():
@@ -3527,8 +3548,16 @@ def main():
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running(): break
         else:
-            if is_music: send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
-            if tf: send_ipc_command("play", file=tf)
+            d_data = d_status.get("data", {}) if d_status else {}
+            d_state = d_data.get("state", "stopped")
+            if tf:
+                send_ipc_command("play", file=tf)
+            elif d_state == "stopped" or not d_data.get("path"):
+                if is_music:
+                    send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
+                elif latest := scanner.get_latest_mix():
+                    send_ipc_command("play", file=latest["path"])
+
         ui_mode = "MICRO" if args.micro else ("MINI" if args.mini else "NORMAL")
         TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme, mode=current_mode, folder_name=folder_target, ui_size_mode=ui_mode).run()
         sys.exit(0)
