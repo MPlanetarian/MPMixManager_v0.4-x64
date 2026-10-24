@@ -37,6 +37,11 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
             self.assertEqual(len(r_micro), 2, f"{mod.__name__} MICRO should return 2 panel rects (second empty)")
             self.assertEqual(r_micro[1], (0.0, 0.0, 0.0, 0.0))
 
+            r_tl = mod.player_panel_rects(100, 35, 9, 18, 14, 14, mode="TRACKLIST")
+            self.assertEqual(len(r_tl), 2, f"{mod.__name__} TRACKLIST should return 2 panel rects")
+            self.assertGreater(r_tl[0][2], 0)
+            self.assertGreater(r_tl[1][2], 0)
+
     def test_on_top_bezel_detection(self):
         """Verifies _on_top_bezel accurately identifies clicks within the top window bezel."""
         for mod in (lg_vulkan, lg_opengl):
@@ -310,6 +315,44 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
             was_down, dragging, origin, press = host._track_drag(False, False, (50, 50), (0, 0))
             self.assertTrue(dragging, f"{mod.__name__} should start dragging when top bezel is clicked")
             self.assertEqual(origin, (50, 50))
+
+    def test_tracklist_mode_cli_and_host_setup(self):
+        """Verifies tracklist mode argument creation, dimensions, and CLI launching across hosts."""
+        import tempfile
+        import MP_Audio_Player_Liquid_Glass_macOS as lg_macos
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_p = Path(tmp)
+            tl_file = tmp_p / "Mix_Demo.txt"
+            tl_file.write_text("01. Solar Fields - Sol\n", encoding="utf-8")
+            audio_file = tmp_p / "Mix_Demo.flac"
+            audio_file.write_bytes(b"FLAC_AUDIO")
+
+            for mod in (lg_vulkan, lg_opengl, lg_macos):
+                cmd = mod.tracklist_argv(tl_file, audio_path=audio_file, theme="cosmic_supernova")
+                self.assertIn("bash", cmd[0])
+                self.assertIn("view_tracklist_console.sh", cmd[1])
+                self.assertIn("--theme", cmd)
+                self.assertIn("cosmic_supernova", cmd)
+                self.assertIn(str(tl_file), cmd)
+                self.assertIn(str(audio_file), cmd)
+
+                host_cls = getattr(mod, "GlassHost", None) or getattr(mod, "MetalGlassHost", None)
+                host = host_cls(cmd, mode="TRACKLIST", cli_theme="cosmic_supernova")
+                self.assertEqual(host.mode, "TRACKLIST")
+                self.assertEqual(host._target_cols, 100)
+                self.assertEqual(host._target_rows, 35)
+
+            # Test main() parsing of --tracklist
+            for mod in (lg_vulkan, lg_opengl):
+                with patch.object(mod.GlassHost, "run", return_value=True) as mock_run:
+                    code = mod.main([
+                        "--tracklist", str(tl_file),
+                        "--audio", str(audio_file),
+                        "--theme", "orbital_void_reflux",
+                    ])
+                    self.assertEqual(code, 0)
+                    mock_run.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -286,6 +286,50 @@ class TestTracklistViewerActions(unittest.TestCase):
         self.assertIn("Theme switched to: Dreamworlds Ultra (dreamworlds_ultra)", res.stdout)
         self.assertEqual(theme_file.read_text(encoding="utf-8").strip(), "dreamworlds_ultra")
 
+    def test_open_tracklist_window_renders_with_liquid_glass_when_in_liquid_player(self):
+        tl = self.base / "Mix_Liquid.txt"
+        tl.write_text("01. Carbon Based Lifeforms - MOS 6581\n", encoding="utf-8")
+        audio = self.base / "Mix_Liquid.flac"
+        audio.write_bytes(b"FLAC_DATA")
+
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}):
+            with patch("MP_Audio_Player.launch_liquid_glass_tracklist", return_value=True) as mock_launch:
+                ok = mp_player.open_tracklist_window(tl, audio, theme="dreamworlds_ultra")
+                self.assertTrue(ok)
+                mock_launch.assert_called_once()
+                call_args, call_kwargs = mock_launch.call_args
+                self.assertEqual(call_args[0], tl.resolve())
+                self.assertEqual(call_kwargs.get("audio_path"), str(audio.resolve()))
+                self.assertEqual(call_kwargs.get("theme"), "dreamworlds_ultra")
+
+    def test_launch_liquid_glass_tracklist_builds_correct_cmd(self):
+        from unittest.mock import MagicMock
+        tl = self.base / "Mix_Cmd.txt"
+        tl.write_text("01. Solar Fields - Sol\n", encoding="utf-8")
+        audio = self.base / "Mix_Cmd.flac"
+        audio.write_bytes(b"FLAC_DATA")
+
+        with patch("MP_Audio_Player.subprocess.Popen") as mock_popen:
+            mock_proc = MagicMock()
+            mock_proc.pid = 4321
+            mock_popen.return_value = mock_proc
+
+            ok = mp_player.launch_liquid_glass_tracklist(
+                tl,
+                audio_path=audio,
+                theme="cosmic_supernova",
+                base_dir=REPO_ROOT,
+            )
+            self.assertTrue(ok)
+            mock_popen.assert_called_once()
+            called_cmd = mock_popen.call_args[0][0]
+            self.assertIn("--tracklist", called_cmd)
+            self.assertIn(str(tl.resolve()), called_cmd)
+            self.assertIn("--audio", called_cmd)
+            self.assertIn(str(audio.resolve()), called_cmd)
+            self.assertIn("--theme", called_cmd)
+            self.assertIn("cosmic_supernova", called_cmd)
+
 
 if __name__ == "__main__":
     unittest.main()

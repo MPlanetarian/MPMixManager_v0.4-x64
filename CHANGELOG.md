@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **Liquid Glass Tracklist Viewer** (`MP_Audio_Player.py`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`, `Mix_Archive_Manager.sh`, `tests/test_tracklist_viewer_actions.py`, `tests/test_liquid_glass_player_features.py`):
+  - **Seamless Liquid Glass Rendering for Tracklist Viewer**: When pressing `T` inside the MP Liquid Player (`MP_Audio_Player_Liquid_Glass*` or with `MP_LIQUID_GLASS=1`), the Tracklist Viewer opens rendered directly inside a dedicated Liquid Glass container window with dark glass panel well shading instead of spawning an external plain terminal.
+  - **Dynamic Theme and Audio Integration**: Propagates `--theme` and `--audio` paths to the Liquid Glass tracklist session, matching the active player theme and enabling instant Spek generation (`[G]`) and audio extraction (`[D]`).
+  - **Cross-Backend Support**: Fully supported across OpenGL (`MP_Audio_Player_Liquid_Glass_OpenGL.py`), NVIDIA Vulkan (`MP_Audio_Player_Liquid_Glass.py`), and Apple Silicon Metal (`MP_Audio_Player_Liquid_Glass_macOS.py`).
 - **MP_Liquid_Visualizer — Preset 3: "Dreamworlds Ultra (Defasten Biomech)"** (`MP_Liquid_Visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `shaders/mp_liquid_visualizer.frag`, `shaders/mp_liquid_visualizer.frag.spv`, `assets/dreamworlds_ultra_defasten_cover.png`, `COVERS/Dreamworlds_Ultra_Defasten_Preset.png`, `Mix_Archive_Manager.sh`, `tests/test_mp_liquid_visualizer.py`):
   - **Start_Menu_Icon Single Cover Asset Integration**: Converted `/home/mplanetarian/Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png` into high-resolution 1200x1200 RGB PNG assets `COVERS/Dreamworlds_Ultra_Defasten_Preset.png` and `assets/dreamworlds_ultra_defasten_cover.png`, preserving the strict one-cover-per-preset architecture.
   - **Defasten "Xinri D - Yaporigami" Procedural 3D Visualizer Architecture**: Directly inspired by Defasten's seminal visual work on *XINRI D - YAPORIGAMI*:
