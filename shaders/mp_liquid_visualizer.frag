@@ -94,6 +94,24 @@ float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
     float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
     return length(pa - ba * h) - r;
 }
+// Hexagonal Prism SDF (Defasten biomech plates & cyber armor)
+float sdHexPrism(vec3 p, vec2 h) {
+    const vec3 k = vec3(-0.8660254, 0.5, 0.57735);
+    p = abs(p);
+    p.xy -= 2.0 * min(dot(k.xy, p.xy), 0.0) * k.xy;
+    vec2 d = vec2(
+        length(p.xy - vec2(clamp(p.x, -k.z * h.x, k.z * h.x), h.x)) * sign(p.y - h.x),
+        p.z - h.y
+    );
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+}
+
+// Cylinder SDF (Defasten structural spine & articulating robotic gimbals)
+float sdCylinder(vec3 p, vec2 h) {
+    vec2 d = abs(vec2(length(p.xz), p.y)) - h;
+    return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+}
+
 
 // Cosmic Dreamworlds (Liquid) Signature Palette
 // Extracted directly from MPlanetarian - Cosmic Dreamworlds [Deluxe Edition] cover art
@@ -161,8 +179,42 @@ vec3 orbitalVoidPalette(float t, vec2 uvHint) {
     return mix(procCol, coverSample, 0.46);
 }
 
+// Defasten Cyber Kinetic / Xinri D Signature Palette
+// Inspired by Defasten - XINRI D - YAPORIGAMI & Start_Menu_Icon.png
+vec3 defastenPalette(float t, vec2 uvHint) {
+    vec3 colSakuraRibbon = vec3(1.00, 0.48, 0.68); // Luminous Kinetic Sakura Pink (#ff7aa8)
+    vec3 colCyanCore     = vec3(0.00, 0.95, 1.00); // Supercharged Neon Cyan (#00f2ff)
+    vec3 colChromeSteel  = vec3(0.72, 0.78, 0.85); // High-specular Titanium / Chrome Slate (#b8c7d9)
+    vec3 colVoidBlack    = vec3(0.015, 0.018, 0.030);// Deep Obsidian Biomech Void (#040508)
+    vec3 colLaserWhite   = vec3(0.98, 0.99, 1.00); // Pure White-Hot Laser Core (#fbfeff)
+    vec3 colElectricViolet=vec3(0.68, 0.22, 0.95); // High-voltage Violet Accent (#ad37f2)
+
+    float s = fract(t);
+    vec3 procCol;
+    if (s < 0.20) {
+        procCol = mix(colVoidBlack, colChromeSteel, s * 5.0);
+    } else if (s < 0.40) {
+        procCol = mix(colChromeSteel, colCyanCore, (s - 0.20) * 5.0);
+    } else if (s < 0.60) {
+        procCol = mix(colCyanCore, colLaserWhite, (s - 0.40) * 5.0);
+    } else if (s < 0.80) {
+        procCol = mix(colLaserWhite, colSakuraRibbon, (s - 0.60) * 5.0);
+    } else {
+        procCol = mix(colSakuraRibbon, colElectricViolet, (s - 0.80) * 5.0);
+    }
+
+    vec2 texUv = fract(uvHint * 0.35 + vec2(0.5));
+    vec3 coverSample = texture(uCoverTex, texUv).rgb;
+    float luma = dot(coverSample, vec3(0.299, 0.587, 0.114));
+    coverSample = clamp(mix(vec3(luma), coverSample, 1.48), 0.0, 1.0);
+
+    return mix(procCol, coverSample, 0.42);
+}
+
 vec3 getPresetPalette(float t, vec2 uvHint) {
-    if (u.preset.x > 0.5) {
+    if (u.preset.x > 1.5) {
+        return defastenPalette(t, uvHint);
+    } else if (u.preset.x > 0.5) {
         return orbitalVoidPalette(t, uvHint);
     }
     return cosmicPalette(t, uvHint);
@@ -190,6 +242,94 @@ vec2 mapScene(vec3 p) {
     float bassPhase = u.audio2.y;
     float midPhase = u.audio2.z;
     float highPhase = u.audio2.w;
+
+    if (u.preset.x > 1.5) {
+        // --- PRESET 2: DEFASTEN XINRI D (KINETIC BIOMECH CYBER-ORIGAMI) ---
+        // Inspired by Defasten's XINRI D and Start_Menu_Icon.png:
+        // 1. Central Biomechanical Aerodynamic Pod / Torpedo Engine (Frosted Pearlescent Liquid Glass)
+        // 2. Twin High-Intensity Emissive Cyan Reactor Rings & Axial Drive Gimbals (Material 2)
+        // 3. Swirling Helical Origami Sakura Ribbons & Tendrils wrapping the spine (Material 3)
+        // 4. Floating Chrome Titanium Hexagon Armor Plates & Defasten Tech Shards (Material 4)
+
+        vec3 centerSpine = vec3(
+            0.15 * sin(t * 0.28 + bassPhase * 0.15),
+            0.10 * cos(t * 0.22 + midPhase * 0.12),
+            0.0
+        );
+
+        // Biomechanical orientation: tilted in 3D space like Defasten's composition
+        vec3 pSpine = p - centerSpine;
+        pSpine.xy *= rot2(-0.28 + 0.08 * sin(t * 0.18));
+        pSpine.xz *= rot2(t * 0.14 + bassPhase * 0.08);
+        pSpine.yz *= rot2(0.24 + 0.06 * cos(t * 0.20));
+
+        // 1. Aerodynamic Biomechanical Core & Fuselage (Material 1: Frosted Pearlescent Glass)
+        vec3 pPod = pSpine;
+        float podRipple = 0.028 * (0.35 + bass * 1.2) * sin(pPod.z * 7.0 - bassPhase * 2.0) * cos(pPod.x * 5.0 + t);
+        // Elongated central aerodynamic capsule
+        float dCoreBody = sdCapsule(pPod, vec3(0.0, 0.0, -1.9), vec3(0.0, 0.0, 1.9), 0.38 + 0.06 * subBass) + podRipple;
+        // Bulbous mid-fuselage engine housing
+        float dEngineBulb = sdSphere(pPod - vec3(0.0, 0.05, 0.25 * sin(t * 0.4)), 0.58 + 0.10 * bass + 0.05 * beat);
+        // Smin fusion to create organic aerodynamic contour
+        float dPodSpine = smin(dCoreBody, dEngineBulb, 0.32 + 0.12 * mid);
+
+        // 2. High-Intensity Emissive Cyan Reactor Rings & Drive Gimbals (Material 2: Glowing Neon)
+        vec3 pRing = pSpine;
+        pRing.yz *= rot2(1.5707963); // Perpendicular to spine axis z
+        float dRingA = sdTorus(pRing - vec3(0.0, 0.85, 0.0), vec2(0.88 + 0.12 * beat, 0.042 + 0.02 * beat));
+        float dRingB = sdTorus(pRing - vec3(0.0, -0.65, 0.0), vec2(0.96 + 0.14 * mid, 0.038 + 0.018 * subBass));
+        float dRingC = sdTorus(pRing - vec3(0.0, -1.65, 0.0), vec2(0.65 + 0.16 * bass, 0.048 + 0.025 * beat));
+        // Large outer framing halo ring
+        vec3 pHalo = p - vec3(-0.2, 0.1, -0.2);
+        pHalo.xy *= rot2(0.45 + t * 0.05);
+        pHalo.yz *= rot2(1.15 + 0.08 * sin(t * 0.15));
+        float dHaloDefasten = sdTorus(pHalo, vec2(3.10 + 0.22 * subBass, 0.035 + 0.02 * beat));
+        float dRings = min(min(dRingA, dRingB), min(dRingC, dHaloDefasten));
+
+        // 3. Swirling Helical Origami Sakura Ribbons (Material 3: Pink Tendrils / Streamers)
+        // Defasten signature: 3 graceful helical streamers twisting along the main axis
+        float dRibbons = 1e5;
+        for (int k = 0; k < 3; k++) {
+            float fk = float(k);
+            float ribOffset = fk * (TAU / 3.0);
+            vec3 pR = pSpine;
+            float zRel = pR.z;
+            // Helix radius expands gracefully towards the ends
+            float rTarget = 1.35 + 0.35 * sin(zRel * 0.85 + t * 0.6 + fk) + 0.15 * u.bands1[k % 4];
+            float angHelix = zRel * 1.35 - bassPhase * 1.4 + ribOffset;
+            float currentAng = atan(pR.y, pR.x);
+            float deltaAng = mod(currentAng - angHelix + PI, TAU) - PI;
+            float distToHelix = length(vec2(length(pR.xy) - rTarget, deltaAng * rTarget * 0.45));
+            float dStreamer = distToHelix - (0.026 + 0.016 * mid);
+            dStreamer = max(dStreamer, abs(zRel) - 2.6); // Bound length along fuselage
+            dRibbons = min(dRibbons, dStreamer);
+        }
+
+        // 4. Floating Chrome Titanium Hexagon Armor Plates & Defasten Origami Shards (Material 4)
+        // Orbiting hexagonal tiles and tech shards that articulate with transients
+        float dHexShards = 1e5;
+        for (int m = 0; m < 8; m++) {
+            float fm = float(m);
+            float mAng = t * (0.35 + fm * 0.05) + fm * (TAU / 8.0) + midPhase * 0.18;
+            float mDist = 1.95 + 0.45 * sin(fm * 1.8 + t * 0.4) + 0.22 * u.bands2[m % 4];
+            vec3 hexCenter = centerSpine + vec3(
+                cos(mAng) * mDist,
+                0.80 * sin(t * 0.45 + fm * 1.3),
+                sin(mAng) * mDist
+            );
+            vec3 ph = p - hexCenter;
+            ph.xy *= rot2(mAng * 1.1 + highPhase * 0.22);
+            ph.yz *= rot2(fm * 0.9 + t * 0.55);
+            float dHex = sdHexPrism(ph, vec2(0.25 + 0.12 * highMid, 0.018 + 0.008 * beat));
+            dHexShards = min(dHexShards, dHex);
+        }
+
+        vec2 res = vec2(dPodSpine, 1.0);
+        if (dRings < res.x)     res = vec2(dRings, 2.0);
+        if (dRibbons < res.x)   res = vec2(dRibbons, 3.0);
+        if (dHexShards < res.x) res = vec2(dHexShards, 4.0);
+        return res;
+    }
 
     if (u.preset.x > 0.5) {
         // --- PRESET 1: ORBITAL VOID REFLUX ---
@@ -444,6 +584,64 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
     float bassPhase = u.audio2.y;
     float highPhase = u.audio2.w;
 
+    if (u.preset.x > 1.5) {
+        // --- PRESET 2: DEFASTEN XINRI D BACKGROUND ---
+        // Clean high-tech cyber atmosphere inspired by Defasten's minimalist gradient sky
+        // combined with refracted Start_Menu_Icon.png artwork, laser shafts, and floating debris
+        vec2 centered = screenUv - 0.5;
+        float r = length(centered);
+
+        // Kinetic refraction distortion of Start_Menu_Icon.png
+        vec2 warpUv = centered * (0.92 + 0.15 * sin(t * 0.35 - r * 4.0)) + 0.5;
+        warpUv += 0.025 * vec2(
+            sin(screenUv.y * 6.0 + bassPhase * 0.4),
+            cos(screenUv.x * 6.0 - highPhase * 0.3)
+        );
+        vec3 coverTex = texture(uCoverTex, mirrorUv(warpUv)).rgb;
+
+        // Clean high-contrast studio gradient (Slate titanium base fading into deep space)
+        float gradY = screenUv.y;
+        vec3 skyTop = vec3(0.045, 0.055, 0.080);   // Dark tech cyan slate
+        vec3 skyBottom = vec3(0.012, 0.015, 0.024);// Deep obsidian void
+        vec3 bg = mix(skyBottom, skyTop, gradY);
+
+        // Overlay vibrant artwork texture softly so biomech geometry is razor-sharp
+        float radMask = smoothstep(0.95, 0.18, r);
+        bg = mix(bg, pow(coverTex, vec3(1.85)) * (0.36 + 0.25 * bass + 0.20 * beat), 0.42 + 0.48 * radMask);
+
+        // Intense White-Hot & Cyan Vertical/Diagonal Laser Shafts
+        vec2 laserUv = (screenUv - 0.5) * rot2(-0.35);
+        float laserMask = exp(-pow(laserUv.x * (3.4 - 0.5 * bass), 2.0));
+        float laserBeams = pow(0.5 + 0.5 * sin(laserUv.x * 46.0 + sin(laserUv.y * 9.0 + t * 1.2) * 2.8), 4.0);
+        vec3 laserCol = mix(
+            vec3(0.00, 0.95, 1.00), // Electric Cyan
+            vec3(1.00, 0.48, 0.68), // Sakura Pink
+            0.5 + 0.5 * sin(laserUv.y * 4.5 - t * 0.8)
+        );
+        laserCol = mix(laserCol, vec3(0.98, 0.99, 1.00), smoothstep(0.12, 0.35, abs(laserUv.x)));
+        bg += laserCol * laserMask * (0.22 + 0.32 * laserBeams) * (0.65 + 0.55 * mid + 0.40 * beat);
+
+        // Biomech Nano-dust & Floating Origami Confetti
+        for (int layer = 0; layer < 3; layer++) {
+            float fl = float(layer);
+            float scale = 16.0 + fl * 12.0;
+            vec2 pUv = (screenUv - 0.5) * scale;
+            pUv += vec2(sin(t * 0.14 * (fl + 1.0)), cos(t * 0.12 * (fl + 1.0))) * 1.9;
+            vec2 cell = floor(pUv);
+            vec2 f = fract(pUv) - 0.5;
+            float h = hash21(cell + fl * 97.4);
+            if (h > 0.52) {
+                vec2 offset = (vec2(hash11(h * 29.1), hash11(h * 61.3)) - 0.5) * 0.55;
+                float d = length(f - offset);
+                float dotRad = (0.05 + 0.16 * hash11(h * 77.2)) * (0.85 + 0.50 * treble + 0.35 * beat);
+                float splat = smoothstep(dotRad, dotRad * 0.10, d);
+                vec3 splatCol = defastenPalette(h + fl * 0.22 + t * 0.04, mirrorUv(screenUv));
+                bg += splatCol * splat * (0.32 + 0.35 * fl / 3.0);
+            }
+        }
+        return bg;
+    }
+
     if (u.preset.x > 0.5) {
         // --- PRESET 1: ORBITAL VOID REFLUX BACKGROUND ---
         // 1. Relativistic Gravitational Lensing of Cover_WMI_V2.png around void center
@@ -565,8 +763,9 @@ void main() {
     float highPhase = u.audio2.w;
 
     // --- Dynamic Orbital 3D Camera ---
-    // Smoothly glides around the twin planetary liquid system and zooms on bass drops
-    float camDist = 4.35 - 0.45 * bass - 0.22 * beat + 0.35 * sin(t * 0.19);
+    // Smoothly glides around the scene and zooms on bass drops
+    float baseCamDist = (u.preset.x > 1.5) ? 5.10 : 4.35;
+    float camDist = baseCamDist - 0.45 * bass - 0.22 * beat + 0.35 * sin(t * 0.19);
     float camYaw = t * 0.16 + 0.25 * sin(t * 0.11 + bassPhase * 0.08);
     float camPitch = 0.18 * sin(t * 0.14 + midPhase * 0.06);
 
@@ -666,9 +865,11 @@ void main() {
             float coreDepth = pow(max(dot(n, v), 0.0), 1.6);
             float innerCaust = noise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
             vec3 innerSwatch = getPresetPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
-            vec3 deepGlassCore = (u.preset.x > 0.5)
-                ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
-                : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth);
+            vec3 deepGlassCore = (u.preset.x > 1.5)
+                ? mix(refrCol * 0.92, vec3(0.015, 0.022, 0.038), 0.48 * coreDepth)
+                : (u.preset.x > 0.5)
+                    ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
+                    : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth);
             refrCol = mix(deepGlassCore, innerSwatch * (0.75 + 0.5 * diff1), 0.42 + 0.22 * bass);
 
             // Specular highlights & iridescent glass rim
@@ -676,10 +877,12 @@ void main() {
             float spec1 = pow(max(dot(n, halfVec1), 0.0), 72.0);
             float spec2 = pow(max(dot(reflect(-lightDir2, n), v), 0.0), 36.0);
 
-            vec3 rimColor = (u.preset.x > 0.5)
-                ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
-                : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y);
-            vec3 rimLight2 = (u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00);
+            vec3 rimColor = (u.preset.x > 1.5)
+                ? mix(vec3(0.00, 0.95, 1.00), vec3(1.00, 0.48, 0.68), 0.5 + 0.5 * n.y)
+                : (u.preset.x > 0.5)
+                    ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
+                    : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y);
+            vec3 rimLight2 = (u.preset.x > 1.5) ? vec3(0.98, 0.99, 1.00) : ((u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00));
 
             col = refrCol * (0.65 + 0.45 * diff1) * (0.55 + 0.45 * ao)
                 + rimColor * fresnel * (1.35 + 0.65 * rms)
@@ -690,7 +893,14 @@ void main() {
             // --- Material 2: Incandescent Planetary / Accretion Rings ---
             float ringWave = sin(length(p) * 18.0 - bassPhase * 2.5);
             vec3 ringBase;
-            if (u.preset.x > 0.5) {
+            if (u.preset.x > 1.5) {
+                ringBase = mix(
+                    vec3(0.00, 0.95, 1.00), // Cyan Reactor Ring
+                    vec3(0.98, 0.99, 1.00), // White-Hot Energy Beam
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(1.00, 0.48, 0.68), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 0.5) {
                 ringBase = mix(
                     vec3(0.00, 0.94, 1.00), // Electric Reflux Cyan
                     vec3(1.00, 0.84, 0.12), // Accretion Flare Gold
@@ -715,7 +925,7 @@ void main() {
             float pulse = pow(0.5 + 0.5 * sin(p.y * 8.0 + bassPhase * 2.2), 4.0);
             vec3 strandCol = getPresetPalette(p.y * 0.25 + p.x * 0.15 + t * 0.05, mirrorUv(screenUv));
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 40.0);
-            vec3 conduitFresnel = (u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00);
+            vec3 conduitFresnel = (u.preset.x > 1.5) ? vec3(1.00, 0.48, 0.68) : ((u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00));
             col = strandCol * (0.38 + 0.68 * diff1 + 0.25 * diff2) * ao
                 + strandCol * pulse * (0.85 + 0.95 * bass)
                 + conduitFresnel * fresnel * 0.95

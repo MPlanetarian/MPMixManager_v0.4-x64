@@ -11,6 +11,7 @@ import os
 import platform
 import pty
 import select
+import shutil
 import signal
 import sys
 import termios
@@ -55,6 +56,14 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
             box(2, 0, max(20, cols - 4), 3),
             box(2, 3, max(20, cols - 4), max(1, rows - 3)),
         )
+    elif m == "TRACKLIST":
+        iw = max(20, cols - 4)
+        if rows <= 7:
+            return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0))
+        return (
+            box(2, 0, iw, 7),
+            box(2, 7, iw, max(1, rows - 7)),
+        )
     else:
         iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
@@ -83,6 +92,21 @@ def embed_check_argv():
     return [sys.executable, "-c", code]
 
 
+def tracklist_argv(tracklist_path, audio_path=None, theme=None):
+    base = ROOT
+    v_sh = base / "scripts" / "view_tracklist_console.sh"
+    if not v_sh.is_file():
+        v_sh = base / "view_tracklist_console.sh"
+    bash_bin = shutil.which("bash") or "bash"
+    cmd = [bash_bin, str(v_sh)]
+    if theme:
+        cmd.extend(["--theme", str(theme)])
+    cmd.append(str(tracklist_path))
+    if audio_path:
+        cmd.append(str(audio_path))
+    return cmd
+
+
 def _child_env():
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
@@ -96,10 +120,11 @@ def _child_env():
 class MetalGlassHost:
     """Apple Silicon Metal liquid-glass host for MP Audio Player."""
 
-    def __init__(self, argv, embed_check=False, mode="NORMAL"):
+    def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):
         self.argv = list(argv)
         self.embed_check = embed_check
         self.mode = mode.upper()
+        self.cli_theme = cli_theme
         self.renderer = None
         self.child_pid = 0
         self.child_done = False
@@ -108,8 +133,8 @@ class MetalGlassHost:
         self._last_top_click = 0.0
         self._last_top_click_x = 0
         self._last_top_click_y = 0
-        self._target_cols = 74 if self.mode in ("MINI", "MICRO") else COLS
-        self._target_rows = 14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS)
+        self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
+        self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
 
     def _on_bezel(self, x, y, width, height):
         margin = self.renderer.bezel_px
@@ -202,10 +227,15 @@ class MetalGlassHost:
         init_w = self._target_cols * char_w + 2 * margin
         init_h = self._target_rows * char_h + 2 * margin
 
+        title = (
+            "Mix Tracklist Viewer (Liquid Glass - Metal / Apple Silicon)"
+            if self.mode == "TRACKLIST"
+            else "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
+        )
         self.renderer = LiquidGlassRendererMetal(
             width=init_w,
             height=init_h,
-            title="MP Audio Player (Liquid Glass - Metal / Apple Silicon)",
+            title=title,
         )
         self.renderer.open()
         self._sync_panels()
@@ -328,13 +358,58 @@ def main(argv):
         return 0
 
     embed = "--embed-check" in argv
-    mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
-    extra = [a for a in argv if a not in ("--self-test", "--embed-check", "--mini", "--micro")]
-    command = embed_check_argv() if embed else player_argv(mode=mode, extra_args=extra)
-    if not Path(command[1]).is_file() and not embed:
-        raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
+    tracklist_path = None
+    audio_path = None
+    theme_arg = None
+    cleaned_argv = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--tracklist" and i + 1 < len(argv):
+            tracklist_path = argv[i + 1]
+            i += 2
+            continue
+        elif arg.startswith("--tracklist="):
+            tracklist_path = arg.split("=", 1)[1]
+            i += 1
+            continue
+        elif arg == "--audio" and i + 1 < len(argv):
+            audio_path = argv[i + 1]
+            i += 2
+            continue
+        elif arg.startswith("--audio="):
+            audio_path = arg.split("=", 1)[1]
+            i += 1
+            continue
+        elif arg in ("--theme", "-t") and i + 1 < len(argv):
+            theme_arg = argv[i + 1]
+            i += 2
+            continue
+        elif arg.startswith("--theme="):
+            theme_arg = arg.split("=", 1)[1]
+            i += 1
+            continue
+        cleaned_argv.append(arg)
+        i += 1
 
-    host = MetalGlassHost(command, embed_check=embed, mode=mode)
+    if tracklist_path and not embed:
+        mode = "TRACKLIST"
+        command = tracklist_argv(tracklist_path, audio_path=audio_path, theme=theme_arg)
+        if not Path(command[1]).is_file():
+            raise RuntimeError(f"Tracklist viewer script was not found at {command[1]}")
+    elif embed:
+        mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
+        command = embed_check_argv()
+    else:
+        mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
+        extra = [a for a in cleaned_argv if a not in ("--self-test", "--embed-check", "--mini", "--micro")]
+        if theme_arg and not any(a == "--theme" or a.startswith("--theme=") for a in extra):
+            extra.extend(["--theme", theme_arg])
+        command = player_argv(mode=mode, extra_args=extra)
+        if not Path(command[1]).is_file():
+            raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
+
+    host = MetalGlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg)
     ok = host.run()
     if embed and ok:
         print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)

@@ -30,7 +30,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
-        self.assertGreaterEqual(len(vis.VISUALIZER_PRESETS), 2)
+        self.assertGreaterEqual(len(vis.VISUALIZER_PRESETS), 3)
         preset = vis.get_active_preset("Cosmic Dreamworlds (Liquid)")
         self.assertEqual(preset["name"], "Cosmic Dreamworlds (Liquid)")
         self.assertEqual(preset["key"], "cosmic_dreamworlds_liquid")
@@ -68,6 +68,30 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             len(existing_covers),
             1,
             "Cover art file for Orbital Void Reflux must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
+    def test_preset_dreamworlds_ultra_defasten_single_cover(self):
+        """Third preset must be 'Dreamworlds Ultra (Defasten Biomech)' inspired by Defasten's XINRI D and Start_Menu_Icon.png."""
+        preset = vis.get_active_preset("Dreamworlds Ultra (Defasten Biomech)")
+        self.assertEqual(preset["name"], "Dreamworlds Ultra (Defasten Biomech)")
+        self.assertEqual(preset["key"], "dreamworlds_ultra_defasten")
+        self.assertEqual(preset["id"], 2)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("dreamworlds_ultra_defasten")["id"], 2)
+        self.assertEqual(vis.get_active_preset("defasten")["id"], 2)
+        self.assertEqual(vis.get_active_preset("biomech")["id"], 2)
+        self.assertEqual(vis.get_active_preset("3")["id"], 2)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Dreamworlds Ultra (Defasten Biomech) must exist",
         )
 
         w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
@@ -156,6 +180,40 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertIn("GLFW_KEY_ESCAPE = 256", src)
         self.assertIn("GLFW_KEY_Q = 81", src)
         self.assertIn("key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q)", src)
+
+    def test_z_key_toggles_fullscreen_and_normal_size(self):
+        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to normal 1400x1400 size."""
+        import time
+
+        renderer = vis.LiquidVisualizerVulkanRenderer()
+        bridge = vis.AudioTelemetryBridge()
+        try:
+            renderer.open()
+            self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_size(), (1400, 1400))
+
+            # Press Z -> enters fullscreen
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertTrue(renderer.is_fullscreen)
+            for _ in range(5):
+                bridge.update(0.05, force_playing=True, synthetic_audio=True)
+                renderer.draw(bridge, capture=False)
+                time.sleep(0.01)
+            fs_w, fs_h = renderer.window_size()
+            self.assertGreater(fs_w, 1400)
+            self.assertEqual(renderer._extent, renderer.framebuffer_size())
+
+            # Press Z again -> returns to normal 1400x1400 size
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertFalse(renderer.is_fullscreen)
+            for _ in range(5):
+                bridge.update(0.05, force_playing=True, synthetic_audio=True)
+                renderer.draw(bridge, capture=False)
+                time.sleep(0.01)
+            self.assertEqual(renderer.window_size(), (1400, 1400))
+            self.assertEqual(renderer._extent, (1400, 1400))
+        finally:
+            renderer.close()
 
     def test_shaders_compiled_and_valid(self):
         """Both Vulkan SPIR-V shaders must exist and have valid SPIR-V magic numbers."""

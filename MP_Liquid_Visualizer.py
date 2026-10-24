@@ -12,7 +12,7 @@ Core Behavior:
 - When music is paused or stopped, 3D generation freezes in-place and waits for the user
   to press Play on the audio player.
 - The user cannot change how the visualizer looks; they can only select different presets.
-- Fixed 1400x1400 borderless window, no scrollbar, zero text overlay ever displayed.
+- Fixed 1400x1400 borderless window by default (press 'z' / 'Z' to toggle fullscreen and back to normal size), no scrollbar, zero text overlay ever displayed.
 - Closes immediately when the user presses Escape or 'q'.
 """
 

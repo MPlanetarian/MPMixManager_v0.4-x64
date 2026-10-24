@@ -8,7 +8,7 @@ Exclusively inspired by MPlanetarian - Cosmic Dreamworlds [Deluxe Edition] cover
 and procedural 3D architectural / liquid motion principles.
 
 Window specifications:
-- Fixed 1400x1400 dimensions (non-resizable)
+- Fixed 1400x1400 dimensions by default (press 'z' / 'Z' to toggle fullscreen and back to normal size)
 - Borderless, no scrollbars
 - Pure visualizer: zero text overlay ever displayed
 - Continually generates 3D that connects and moves to currently playing music
@@ -61,6 +61,7 @@ WINDOW_HEIGHT = 1400
 # Visualizer Presets:
 #   Preset 0: Cosmic Dreamworlds (Liquid)
 #   Preset 1: Orbital Void Reflux
+#   Preset 2: Dreamworlds Ultra (Defasten Biomech)
 VISUALIZER_PRESETS: List[Dict[str, Any]] = [
     {
         "id": 0,
@@ -83,6 +84,18 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
             ASSETS_DIR / "orbital_void_reflux_cover.png",
             COVERS_DIR / "Orbital_Void_Reflux_Preset.png",
             Path("/home/mplanetarian/Desktop/Cover_WMI_V2.png"),
+        ],
+    },
+    {
+        "id": 2,
+        "key": "dreamworlds_ultra_defasten",
+        "name": "Dreamworlds Ultra (Defasten Biomech)",
+        "album": "MPlanetarian - Dreamworlds Ultra (Defasten Edition)",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "dreamworlds_ultra_defasten_cover.png",
+            COVERS_DIR / "Dreamworlds_Ultra_Defasten_Preset.png",
+            Path("/home/mplanetarian/Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png"),
         ],
     },
 ]
@@ -485,15 +498,28 @@ GLFW_PLATFORM = 0x00050003
 GLFW_PLATFORM_X11 = 0x00060004
 GLFW_TRUE = 1
 GLFW_FALSE = 0
+GLFW_DONT_CARE = -1
 GLFW_PRESS = 1
 GLFW_KEY_ESCAPE = 256
 GLFW_KEY_Q = 81
+GLFW_KEY_Z = 90
 GLFW_KEY_SPACE = 32
 GLFW_KEY_1 = 49
 GLFW_KEY_2 = 50
 GLFW_KEY_3 = 51
 GLFW_KEY_4 = 52
 GLFW_KEY_5 = 53
+
+
+class GLFWvidmode(ctypes.Structure):
+    _fields_ = [
+        ("width", c_int),
+        ("height", c_int),
+        ("redBits", c_int),
+        ("greenBits", c_int),
+        ("blueBits", c_int),
+        ("refreshRate", c_int),
+    ]
 
 
 class VkApplicationInfo(ctypes.Structure):
@@ -1039,6 +1065,9 @@ class LiquidVisualizerVulkanRenderer:
         self._drag_origin = (0, 0)
         self._drag_press_screen = (0, 0)
         self._cur_pos = (160, 80)
+        self._saved_window_pos = (160, 80)
+        self.is_fullscreen = False
+        self._resize = False
 
         self._frame = 0
         self._swapchain = 0
@@ -1163,6 +1192,14 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwGetWindowSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwGetFramebufferSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwGetPrimaryMonitor.restype = c_void_p
+        g.glfwGetPrimaryMonitor.argtypes = []
+        g.glfwGetMonitors.restype = POINTER(c_void_p)
+        g.glfwGetMonitors.argtypes = [POINTER(c_int)]
+        g.glfwGetMonitorPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwGetVideoMode.argtypes = [c_void_p]
+        g.glfwGetVideoMode.restype = POINTER(GLFWvidmode)
+        g.glfwSetWindowMonitor.argtypes = [c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_int]
         g.glfwGetRequiredInstanceExtensions.argtypes = [POINTER(c_uint32)]
         g.glfwGetRequiredInstanceExtensions.restype = POINTER(c_char_p)
         g.glfwCreateWindowSurface.argtypes = [c_void_p, c_void_p, c_void_p, POINTER(c_uint64)]
@@ -1173,6 +1210,8 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwSetMouseButtonCallback.restype = c_void_p
         g.glfwSetCursorPosCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetCursorPosCallback.restype = c_void_p
+        g.glfwSetFramebufferSizeCallback.argtypes = [c_void_p, c_void_p]
+        g.glfwSetFramebufferSizeCallback.restype = c_void_p
         g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetWindowPosCallback.restype = c_void_p
         if not is_windows() and hasattr(g, "glfwGetX11Display"):
@@ -1207,16 +1246,19 @@ class LiquidVisualizerVulkanRenderer:
         KEY_CB = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
         MOUSE_CB = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)
         CURSOR_CB = CFUNCTYPE(None, c_void_p, c_double, c_double)
+        FB_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
         POS_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
 
         self._on_key_cb = KEY_CB(self._on_key)
         self._on_mouse_cb = MOUSE_CB(self._on_mouse)
         self._on_cursor_cb = CURSOR_CB(self._on_cursor)
+        self._on_fb_cb = FB_CB(self._on_fb)
         self._on_pos_cb = POS_CB(self._on_pos)
 
         self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_cb, c_void_p))
         self._glfw.glfwSetMouseButtonCallback(self._window, ctypes.cast(self._on_mouse_cb, c_void_p))
         self._glfw.glfwSetCursorPosCallback(self._window, ctypes.cast(self._on_cursor_cb, c_void_p))
+        self._glfw.glfwSetFramebufferSizeCallback(self._window, ctypes.cast(self._on_fb_cb, c_void_p))
         self._glfw.glfwSetWindowPosCallback(self._window, ctypes.cast(self._on_pos_cb, c_void_p))
 
     def _on_key(self, _window, key, _scancode, action, _mods):
@@ -1225,6 +1267,9 @@ class LiquidVisualizerVulkanRenderer:
         # Pressing Escape or 'q'/'Q' immediately closes the visualizer
         if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q):
             self.request_close()
+        elif key == GLFW_KEY_Z:
+            # Pressing 'z'/'Z' toggles between fullscreen and normal 1400x1400 size
+            self.toggle_fullscreen()
         elif key == 75 and (_mods & 1):  # GLFW_KEY_K = 75, GLFW_MOD_SHIFT = 1
             import subprocess
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
@@ -1233,10 +1278,98 @@ class LiquidVisualizerVulkanRenderer:
             if 0 <= idx < len(VISUALIZER_PRESETS):
                 self.switch_preset(VISUALIZER_PRESETS[idx])
 
+    def _current_monitor(self):
+        if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
+            return None
+        g = self._glfw
+        mon = g.glfwGetPrimaryMonitor()
+        try:
+            wx, wy = self.window_pos()
+            ww, wh = self.window_size()
+            cx = wx + ww // 2
+            cy = wy + wh // 2
+            count = c_int()
+            mons = g.glfwGetMonitors(byref(count))
+            if mons and count.value > 0:
+                for i in range(count.value):
+                    m = mons[i]
+                    mx, my = c_int(), c_int()
+                    g.glfwGetMonitorPos(m, byref(mx), byref(my))
+                    mode_ptr = g.glfwGetVideoMode(m)
+                    if mode_ptr:
+                        mode = mode_ptr.contents
+                        if (
+                            mx.value <= cx < mx.value + mode.width
+                            and my.value <= cy < my.value + mode.height
+                        ):
+                            return m
+        except Exception:
+            pass
+        return mon
+
+    def toggle_fullscreen(self) -> bool:
+        """Toggle between fullscreen mode and normal 1400x1400 window size."""
+        if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
+            self.is_fullscreen = not self.is_fullscreen
+            self.width, self.height = (
+                (1920, 1080) if self.is_fullscreen else (WINDOW_WIDTH, WINDOW_HEIGHT)
+            )
+            return self.is_fullscreen
+
+        g = self._glfw
+        self._drag_active = False
+        if not self.is_fullscreen:
+            self._saved_window_pos = self.window_pos()
+            mon = self._current_monitor()
+            full_w, full_h, refresh = 1920, 1080, 60
+            if mon:
+                mode_ptr = g.glfwGetVideoMode(mon)
+                if mode_ptr:
+                    mode = mode_ptr.contents
+                    if mode.width > 0 and mode.height > 0:
+                        full_w = int(mode.width)
+                        full_h = int(mode.height)
+                    if mode.refreshRate > 0:
+                        refresh = int(mode.refreshRate)
+            self.is_fullscreen = True
+            self.width = full_w
+            self.height = full_h
+            try:
+                g.glfwSetWindowSizeLimits(
+                    self._window, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE
+                )
+            except Exception:
+                pass
+            if mon:
+                g.glfwSetWindowMonitor(self._window, mon, 0, 0, full_w, full_h, refresh)
+            else:
+                g.glfwSetWindowPos(self._window, 0, 0)
+                g.glfwSetWindowSize(self._window, full_w, full_h)
+            self._resize = True
+        else:
+            rx, ry = getattr(self, "_saved_window_pos", (160, 80))
+            self.is_fullscreen = False
+            self.width = WINDOW_WIDTH
+            self.height = WINDOW_HEIGHT
+            g.glfwSetWindowMonitor(
+                self._window, None, int(rx), int(ry), WINDOW_WIDTH, WINDOW_HEIGHT, 0
+            )
+            try:
+                g.glfwSetWindowSizeLimits(
+                    self._window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
+                )
+            except Exception:
+                pass
+            g.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
+            g.glfwSetWindowPos(self._window, int(rx), int(ry))
+            self._cur_pos = (int(rx), int(ry))
+            self._resize = True
+        return self.is_fullscreen
+
     def _on_mouse(self, _window, button, action, _mods):
         if button == 0:
             self.mouse_down = action == GLFW_PRESS
-            if self.mouse_down:
+            if self.mouse_down and not self.is_fullscreen:
                 self._drag_active = True
                 self._drag_origin = self.window_pos()
                 rx, ry = self.root_pointer()
@@ -1249,12 +1382,15 @@ class LiquidVisualizerVulkanRenderer:
 
     def _on_cursor(self, _window, x, y):
         self.cursor = (float(x), float(y))
-        if self._drag_active and self.mouse_down:
+        if self._drag_active and self.mouse_down and not self.is_fullscreen:
             rx, ry = self.root_pointer()
             if rx or ry:
                 nx = int(self._drag_origin[0] + (rx - self._drag_press_screen[0]))
                 ny = int(self._drag_origin[1] + (ry - self._drag_press_screen[1]))
                 self.set_window_pos(nx, ny)
+
+    def _on_fb(self, _window, _w, _h):
+        self._resize = True
 
     def _on_pos(self, _window, x, y):
         self._cur_pos = (int(x), int(y))
@@ -1312,10 +1448,17 @@ class LiquidVisualizerVulkanRenderer:
         self._glfw.glfwPollEvents()
         if self._glfw.glfwWindowShouldClose(self._window):
             self.should_close = True
-        # Ensure window dimensions remain strictly 1400x1400
-        w, h = self.window_size()
-        if (w, h) != (WINDOW_WIDTH, WINDOW_HEIGHT):
-            self._glfw.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
+        if not self.is_fullscreen:
+            # Ensure window dimensions remain strictly 1400x1400 in normal mode
+            w, h = self.window_size()
+            if (w, h) != (WINDOW_WIDTH, WINDOW_HEIGHT):
+                self._glfw.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
+                self._resize = True
+            self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
+        else:
+            w, h = self.window_size()
+            if w > 0 and h > 0:
+                self.width, self.height = w, h
         return not self.should_close
 
     def _bind_loader(self):
@@ -1566,9 +1709,16 @@ class LiquidVisualizerVulkanRenderer:
         caps, fmt, present = self._surface_choices()
         self.format = int(fmt.format)
         self._colorspace = int(fmt.colorSpace)
-        extent = (WINDOW_WIDTH, WINDOW_HEIGHT)
+        fw, fh = self.framebuffer_size()
         if caps.currentExtent.width != 0xFFFFFFFF and caps.currentExtent.width > 0:
             extent = (int(caps.currentExtent.width), int(caps.currentExtent.height))
+        else:
+            extent = (
+                min(max(fw, caps.minImageExtent.width), caps.maxImageExtent.width),
+                min(max(fh, caps.minImageExtent.height), caps.maxImageExtent.height),
+            )
+        if extent[0] == 0 or extent[1] == 0:
+            extent = (fw, fh)
 
         image_count = max(caps.minImageCount, 3)
         if caps.maxImageCount:
@@ -1684,6 +1834,22 @@ class LiquidVisualizerVulkanRenderer:
             self._fb_keeps.append((views, info))
             _check(self._vk.CreateFramebuffer(self._device, _addr(info), None, byref(fb)), "framebuffer")
             self._framebuffers.append(fb.value)
+
+    def _destroy_swapchain_views(self):
+        for fb in self._framebuffers:
+            self._vk.DestroyFramebuffer(self._device, fb, None)
+        for view in self._views:
+            self._vk.DestroyImageView(self._device, view, None)
+        self._framebuffers = []
+        self._views = []
+
+    def _recreate_swapchain(self):
+        self._vk.DeviceWaitIdle(self._device)
+        self._destroy_swapchain_views()
+        old = self._swapchain
+        self._create_swapchain(old)
+        self._resize = False
+        self._destroy_readback()
 
     def _memory_type(self, bits: int, flags: int) -> int:
         props = VkPhysicalDeviceMemoryProperties()
@@ -2133,6 +2299,11 @@ class LiquidVisualizerVulkanRenderer:
     def draw(self, bridge: AudioTelemetryBridge, capture: bool = False):
         if not self.poll():
             return None
+        fw, fh = self.framebuffer_size()
+        if fw < 2 or fh < 2:
+            return None
+        if getattr(self, "_resize", False) or (fw, fh) != self._extent:
+            self._recreate_swapchain()
         self._write_ubo(bridge)
         return self._render(capture)
 
@@ -2146,9 +2317,13 @@ class LiquidVisualizerVulkanRenderer:
             self._device, self._swapchain, 2_000_000_000,
             self._image_available[frame], 0, byref(index),
         )
-        if acquired in (OUT_OF_DATE, SUBOPTIMAL):
+        if acquired == OUT_OF_DATE:
+            self._recreate_swapchain()
             return None
-        _check(acquired, "acquire")
+        if acquired not in (SUCCESS, SUBOPTIMAL):
+            _check(acquired, "acquire")
+        if acquired == SUBOPTIMAL:
+            self._resize = True
         _check(vk.ResetFences(self._device, 1, byref(c_uint64(fence))), "reset fence")
         cmd = self._cmd[frame]
         _check(vk.ResetCommandBuffer(cmd, 0), "reset command")
@@ -2221,7 +2396,9 @@ class LiquidVisualizerVulkanRenderer:
         present.pSwapchains = ctypes.cast(byref(swap), c_void_p)
         present.pImageIndices = ctypes.cast(byref(index), c_void_p)
         presented = vk.QueuePresentKHR(self._queue, _addr(present))
-        if presented not in (SUCCESS, OUT_OF_DATE, SUBOPTIMAL):
+        if presented in (OUT_OF_DATE, SUBOPTIMAL):
+            self._resize = True
+        elif presented != SUCCESS:
             _check(presented, "present")
 
         self._frame = (frame + 1) % 2

@@ -261,6 +261,117 @@ def find_tracklist_for_mix(mix_file: Union[str, Path, None]) -> Optional[str]:
         except Exception: pass
     return None
 
+def launch_liquid_glass_tracklist(
+    tracklist_path: Union[str, Path],
+    audio_path: Optional[Union[str, Path]] = None,
+    theme: Optional[str] = None,
+    base_dir: Optional[Path] = None,
+) -> bool:
+    if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
+        return False
+    if not tracklist_path or not (tl := Path(tracklist_path).expanduser().resolve()).is_file():
+        return False
+    base = base_dir or get_base_dir()
+
+    if sys.platform == "darwin":
+        import platform as _plat
+        if _plat.machine().lower() not in ("arm64", "aarch64"):
+            return False
+        candidates = [
+            base / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_macOS.py",
+        ]
+    else:
+        backend = os.environ.get("MP_LIQUID_GLASS_BACKEND", "").strip().lower() or os.environ.get("LIQUID_GLASS_BACKEND", "").strip().lower()
+        if not backend:
+            for cfg in (base / "config.env", CONFIG_DIR / "config.env", Path(__file__).resolve().parent / "config.env"):
+                if cfg.is_file():
+                    if val := parse_env_file(cfg).get("LIQUID_GLASS_BACKEND"):
+                        backend = val.strip().lower()
+                        break
+        if not backend:
+            backend = "opengl"
+
+        if backend == "vulkan":
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+            ]
+        else:
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+            ]
+
+    script_path = None
+    for cand in candidates:
+        if cand.is_file():
+            script_path = cand
+            break
+
+    if not script_path:
+        return False
+
+    cmd = [sys.executable, str(script_path), "--tracklist", str(tl)]
+    if audio_path and os.path.exists(str(audio_path)):
+        cmd.extend(["--audio", str(Path(audio_path).expanduser().resolve())])
+    if theme:
+        cmd.extend(["--theme", str(theme)])
+
+    log_dir = Path.home() / ".config" / "mix-manager"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_file = log_dir / "liquid_glass_tracklist.log"
+
+    extra_kwargs = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        extra_kwargs["start_new_session"] = True
+
+    try:
+        with open(log_file, "a") as log_fd:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=log_fd,
+                stderr=log_fd,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+    except Exception:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+        except Exception as exc:
+            try:
+                mp_log_error("MP_Audio_Player", f"Failed launching Liquid Glass tracklist viewer: {exc}", exc)
+            except Exception:
+                pass
+            return False
+
+
 def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
     base = get_base_dir()
@@ -280,6 +391,10 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: 
     if active_theme:
         os.environ["MP_TRACKLIST_THEME"] = active_theme
         os.environ["CURRENT_THEME"] = active_theme
+
+    if os.environ.get("MP_LIQUID_GLASS") == "1" or os.environ.get("TRACKLIST_VIEWER") in ("liquid_glass", "glass"):
+        if launch_liquid_glass_tracklist(tl, audio_path=a_str, theme=active_theme, base_dir=base):
+            return True
     sh_args = [v_str] + (["--theme", active_theme] if active_theme else []) + [t_str] + ([a_str] if a_str else [])
     if (cust := os.environ.get("TRACKLIST_VIEWER")) and cust not in ("console", "auto") and shutil.which(cust) and _run_bg([cust, t_str]): return True
     if sys.platform.startswith(("linux", "freebsd")):

@@ -961,10 +961,12 @@ launch_mp_liquid_visualizer() {
         saved_key="$(cat "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true)"
         [ "$saved_key" = "cosmic_dreamworlds_liquid" ] && preset_label="Cosmic Dreamworlds (Liquid)"
         [ "$saved_key" = "orbital_void_reflux" ] && preset_label="Orbital Void Reflux"
+        [ "$saved_key" = "dreamworlds_ultra_defasten" ] && preset_label="Dreamworlds Ultra (Defasten Biomech)"
     fi
     if [ -n "$preset_arg" ]; then
         case "$preset_arg" in
             orbital_void_reflux|*orbital*|*void*|*reflux*) preset_label="Orbital Void Reflux" ;;
+            dreamworlds_ultra_defasten|*defasten*|*ultra*|*biomech*) preset_label="Dreamworlds Ultra (Defasten Biomech)" ;;
             *) preset_label="Cosmic Dreamworlds (Liquid)" ;;
         esac
     fi
@@ -986,8 +988,11 @@ manage_mp_liquid_visualizer_presets() {
         [ -f "$HOME/.config/mix-manager/visualizer_preset" ] && active_key="$(cat "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || echo "cosmic_dreamworlds_liquid")"
         local p1_mark="  "
         local p2_mark="  "
+        local p3_mark="  "
         if [ "$active_key" = "orbital_void_reflux" ]; then
             p2_mark="★ "
+        elif [ "$active_key" = "dreamworlds_ultra_defasten" ]; then
+            p3_mark="★ "
         else
             p1_mark="★ "
         fi
@@ -999,12 +1004,13 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "  ${BOLD}${CYAN}Window:${NC}            1400x1400 Fixed Borderless (Zero Text Overlay • Esc/q to Close)"
         echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
         echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
-        echo -e "${BOLD}Available Visualizer Presets (2 of 5 Planned):${NC}"
-        echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC} ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
-        echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}         ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
-        echo -e "  ${BOLD}${CYAN}3)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
+        echo -e "${BOLD}Available Visualizer Presets (3 of 5 Planned):${NC}"
+        echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC}        ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
+        echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}                ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
+        echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (Defasten Biomech)${NC} ${DIM}[Defasten Xinri D & Start_Menu_Icon.png]${NC}"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
-        read -r -p "Select option [0-3]: " vp_choice
+        read -r -p "Select option [0-4]: " vp_choice
         case "$vp_choice" in
             1)
                 [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"
@@ -1016,7 +1022,12 @@ manage_mp_liquid_visualizer_presets() {
                 echo -e "\n${GREEN}✔ Active Preset set to: Orbital Void Reflux${NC}"
                 sleep 1
                 ;;
-            3|l|L|z|Z)
+            3)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds Ultra (Defasten Biomech)"
+                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (Defasten Biomech)${NC}"
+                sleep 1
+                ;;
+            4|l|L|z|Z)
                 launch_mp_liquid_visualizer
                 sleep 1
                 return 0
