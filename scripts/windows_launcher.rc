@@ -13,12 +13,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Dreamworlds Productions"
             VALUE "FileDescription",  "MP Mix Archive Manager 64-bit Windows Launcher"
-            VALUE "FileVersion",      "0.3.6.0"
+            VALUE "FileVersion",      "0.4.0"
             VALUE "InternalName",     "MP_Mix_Manager"
             VALUE "LegalCopyright",   "Copyright (C) Dreamworlds Productions. All rights reserved."
             VALUE "OriginalFilename", "MP_Mix_Manager.exe"
             VALUE "ProductName",      "MP Mix Archive Manager"
-            VALUE "ProductVersion",   "0.3.6.0"
+            VALUE "ProductVersion",   "0.4.0"
         END
     END
     BLOCK "VarFileInfo"
