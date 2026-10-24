@@ -10,6 +10,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **10-Band Graphic Equalizer & Electronic Music Presets (`MP_Audio_Player.py`)**:
+  - **Genre-Specific Presets**: Curated electronic music equalizer curves designed around standard 10-band ISO center frequencies (31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz):
+    - **Flat (Default)**: Neutral bit-perfect passthrough (0.0 dB across all bands).
+    - **Ambient**: Lush low-end warmth (+3.0 dB at 31Hz, +2.5 dB at 62Hz), decluttered midrange (-1.0 to -1.5 dB) for expansive reverb clarity, and airy high-frequency shimmer (+2.0 to +2.5 dB).
+    - **Trance**: Uplifting euphoric smiley curve with driving sub-bass (+4.0 dB), punchy 62Hz kick fundamental (+5.0 dB), boxiness cut at 250Hz (-1.5 dB), forward synth pluck bite at 2–4kHz (+2.5 to +3.5 dB), and shimmering supersaw highs (+4.0 dB at 8kHz).
+    - **Techno**: Underground club impact with tight sub-bass (+5.0 dB), heavy boxiness cut at 250–500Hz (-2.5 to -2.0 dB) for rolling bassline clarity, and snappy clap/open-hat presence (+2.5 to +3.0 dB).
+    - **House**: Warm 4/4 groove with chest-hitting punch at 62–125Hz (+4.0 / +3.0 dB), neutral mids for vocal and chord clarity, and crisp hi-hat sizzle at 8kHz (+3.0 dB).
+    - **Progressive**: Balanced progressive house/trance curve with deep foundation (+3.0 to +4.0 dB), controlled lower-mids (-1.0 dB), melody pluck definition at 2–4kHz (+2.0 to +2.5 dB), and extended 16kHz air (+3.0 dB).
+    - **Vapourwave**: Authentic 1980s lo-fi cassette / VHS tape aesthetic with controlled sub-rumble (-2.0 dB), boosted warm low-mids (+2.5 to +3.5 dB at 125–250Hz) for lush nostalgic synth body, and signature steep high-frequency cassette roll-off (-4.0 dB at 8kHz, -6.0 dB at 16kHz).
+  - **Real-Time DSP Audio Equalizer Engine (`EqualizerFilter`)**:
+    - Zero-phase frequency-domain FIR filtering with smooth interpolation across logarithmic frequency bands.
+    - Zero-overhead bit-perfect passthrough when Flat preset is active.
+    - Fully continuous overlap-save buffer streaming with no phase distortion, pops, or filter instability.
+  - **Interactive Equalizer HUD & Custom Preset Creator (`E` Key)**:
+    - Press **`E`** in MP Audio Player to toggle the modal 10-Band Graphic Equalizer HUD.
+    - **Slider Decibel Scale**: Visual decibel grid (-12.0 dB to +12.0 dB) dynamically sizing to terminal height with center 0 dB baseline and selected column highlighting.
+    - **Band Selection & Adjustment**: `Left` / `Right` (or `h` / `l`) selects bands 1–10; `Up` / `Down` (or `k` / `j`, `+` / `-`) adjusts band slider by ±0.5 dB.
+    - **Preset Switching**: `P` / `Tab` cycles presets; keys `1`–`7` jump directly to presets (1: Flat, 2: Ambient, 3: Trance, 4: Techno, 5: House, 6: Progressive, 7: Vapourwave).
+    - **Custom User Presets**: Adjusting any slider marks preset as Custom; press **`S`** to name and save custom presets to `~/.config/mix-manager/custom_eq_presets.json`. Saved presets automatically appear in the preset list and can be deleted with **`D`**.
+    - **Reset**: Press **`R`** or **`0`** to instantly reset all sliders to Flat (0.0 dB).
+  - **CLI & IPC Command Integration**:
+    - CLI arguments: `--list-eq-presets`, `--eq-preset <name>`, `--eq-bands <g0,g1,...g9>`, `--reset-eq`.
+    - IPC commands: `get_eq`, `set_eq_preset`, `set_eq_band`, `set_eq_bands`, `save_eq_preset`, `delete_eq_preset`, `reset_eq`.
+  - **Unit Test Suite (`tests/test_equalizer_presets.py`)**:
+    - 11 automated unit tests verifying preset curves, EqualizerManager loading/aliases, slider adjustments/clamping, custom preset persistence, EqualizerFilter DSP audio processing, and interactive UI HUD key events.
 - **Traktor Kontrol S4 Hardware MIDI Controller Support (`hw:0,0` / `/dev/snd/midiC0D0`)**:
   - Exclusively supports Native Instruments Traktor Kontrol S4 via ALSA rawmidi hardware port `hw:0,0` and `amidi`.
   - **Dual-Deck Real-Time Pitch Controls**: Physical pitch faders on either side of the unit (Deck A and Deck B) smoothly control MP Audio Player playback pitch between **-20% and +20%**, featuring automatic deadband snapping at center detent (`0.0%`).

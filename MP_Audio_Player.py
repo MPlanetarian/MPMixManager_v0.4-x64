@@ -1622,6 +1622,27 @@ class PlayerIPCServer:
                 if e.bt_router: e.auto_bluetooth = e.bt_router.auto_switch = not getattr(e, "auto_bluetooth", True); res["auto_switch"] = e.auto_bluetooth
                 else: res["status"] = "error"
             elif cmd == "set_mode": e.mode = res["mode"] = str(req.get("mode", "MIX_ARCHIVE")).upper()
+            elif cmd == "get_eq":
+                res.update(preset=e.eq_manager.active_preset, bands=e.eq_manager.get_current_bands(), presets=e.eq_manager.get_all_preset_names(), is_flat=e.eq_manager.is_flat())
+            elif cmd == "set_eq_preset":
+                ok = e.set_eq_preset(req.get("preset", "Flat"))
+                res.update(success=ok, preset=e.eq_manager.active_preset, bands=e.eq_manager.get_current_bands())
+            elif cmd == "set_eq_band":
+                idx, gain = int(req.get("band", 0)), float(req.get("gain", 0.0))
+                ok = e.set_eq_band(idx, gain, step=bool(req.get("step", False)))
+                res.update(success=ok, preset=e.eq_manager.active_preset, bands=e.eq_manager.get_current_bands())
+            elif cmd == "set_eq_bands":
+                ok = e.set_eq_bands(req.get("bands", []))
+                res.update(success=ok, preset=e.eq_manager.active_preset, bands=e.eq_manager.get_current_bands())
+            elif cmd == "save_eq_preset":
+                ok = e.save_eq_preset(req.get("name", "Custom"), req.get("bands"))
+                res.update(success=ok, preset=e.eq_manager.active_preset, presets=e.eq_manager.get_all_preset_names())
+            elif cmd == "delete_eq_preset":
+                ok = e.delete_eq_preset(req.get("name", ""))
+                res.update(success=ok, presets=e.eq_manager.get_all_preset_names())
+            elif cmd == "reset_eq":
+                e.set_eq_preset("Flat")
+                res.update(success=True, preset="Flat", bands=e.eq_manager.get_current_bands())
             elif cmd == "load_playlist":
                 pl, mode, pl_p, fn = req.get("playlist", []), str(req.get("mode", "MUSIC")).upper(), req.get("playlist_path"), req.get("folder_name")
                 if not pl:
@@ -2342,6 +2363,11 @@ class TerminalPlayerUI:
         self.engine, self.scanner, self.is_remote = engine, scanner, is_remote
         self.mode, self.folder_name, self.ui_size_mode = str(mode or "MIX_ARCHIVE").upper(), str(folder_name or "ALL").upper(), str(ui_size_mode or "NORMAL").upper()
         self.visualizer = EqualizerVisualizer(default_style=default_style, default_theme=default_theme)
+        self.eq_manager = getattr(engine, "eq_manager", None) or EqualizerManager()
+        self.equalizer_hud_active = False
+        self.eq_selected_band = 0
+        self.eq_naming_mode = False
+        self.eq_custom_name_input = ""
         self.running, self.inspector_hud_active = True, False
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
@@ -2411,6 +2437,10 @@ class TerminalPlayerUI:
             elif not self.cached_status.get("title") or self.cached_status.get("title") == "Loading...":
                 if (res := send_ipc_command("status")) and isinstance(res.get("data"), dict): self.cached_status = res["data"]
             if self.cached_status.get("mode"): self.mode = str(self.cached_status.get("mode")).upper()
+            if not self.equalizer_hud_active:
+                if self.cached_status.get("eq_preset"): self.eq_manager.active_preset = str(self.cached_status["eq_preset"])
+                if isinstance(self.cached_status.get("eq_bands"), list) and len(self.cached_status["eq_bands"]) == 10:
+                    self.eq_manager.current_bands = [float(x) for x in self.cached_status["eq_bands"]]
             return self.cached_status
         st = self.engine.get_status_dict() if self.engine else self.cached_status
         if st.get("mode"): self.mode = str(st.get("mode")).upper()
@@ -2479,6 +2509,117 @@ class TerminalPlayerUI:
             f"  {BOLD}{COLOR_HOT_PURPLE}│{NC} {BOLD}{CYAN}{'Network Path' if is_net else 'File Path   '}{NC} : {ds}",
             f"  {BOLD}{COLOR_HOT_PURPLE}╰── [G] Generate Spek • Press [I], [Esc], or [Enter] to Close ─────────────╯{NC}"
         ]
+
+    def _render_equalizer_hud(self, st: Optional[Dict[str, Any]] = None, iw: Optional[int] = None, h: int = 24) -> List[str]:
+        if st is None: st = self._get_status()
+        if iw is None:
+            w, _ = _win_visible_size((80, 24))
+            iw = 115 if w >= 122 else max(20, w - 6)
+
+        cur_p = self.eq_manager.active_preset
+        gains = self.eq_manager.current_bands
+        sel_idx = self.eq_selected_band
+        presets = self.eq_manager.get_all_preset_names()
+
+        pal = self.visualizer.get_theme_palette()
+        hl_col = pal.get("highlight", COLOR_HOT_PURPLE)
+        act_col = pal.get("active", COLOR_NEON_PINK)
+        b_col = f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
+
+        lines = []
+        lines.append(_boxed_rule("╭", "── ✦ 10-BAND STEREO GRAPHIC EQUALIZER & PRESETS ──", "╮", iw, b_col))
+
+        p_badge = f"{BOLD}{COLOR_TRAFFIC_GREEN}[{cur_p}]{NC}" if cur_p != "Flat" else f"{BOLD}{COLOR_ELECTRIC_CYAN}[Flat (Default)]{NC}"
+        sel_freq = EQ_BAND_LABELS[sel_idx]
+        sel_gain = gains[sel_idx]
+        status_info = f" {b_col}│{NC} Active: {p_badge}  •  Selected Band: {BOLD}{COLOR_NEON_PINK}{sel_idx+1}/10 ({sel_freq}: {sel_gain:+4.1f} dB){NC}  •  Scale: -12.0 to +12.0 dB"
+        pad = max(0, iw - _display_width(status_info) + len(f" {b_col}│{NC}"))
+        lines.append(f"{status_info}{' ' * pad}{b_col}│{NC}")
+
+        pill_parts = []
+        for i, pname in enumerate(presets[:9]):
+            pnum = f"{i+1}:" if i < 7 else ""
+            if pname == cur_p:
+                pill_parts.append(f"\033[7m{BOLD}{COLOR_NEON_PINK} {pnum}{pname} \033[0m")
+            else:
+                pill_parts.append(f"{COLOR_ELECTRIC_CYAN}[{pnum}{pname}]{NC}")
+        preset_row = f" {b_col}│{NC} Presets: " + " ".join(pill_parts)
+        pad = max(0, iw - _display_width(preset_row) + len(f" {b_col}│{NC}"))
+        lines.append(f"{preset_row}{' ' * pad}{b_col}│{NC}")
+        lines.append(_boxed_rule("├", "─" * 16, "┤", iw, b_col))
+
+        if h >= 32:
+            scale_dbs = [12, 10, 8, 6, 4, 2, 0, -2, -4, -6, -8, -10, -12]
+        elif h >= 26:
+            scale_dbs = [12, 9, 6, 3, 0, -3, -6, -9, -12]
+        else:
+            scale_dbs = [12, 8, 4, 0, -4, -8, -12]
+
+        def gain_to_row(g):
+            clamped = max(-12.0, min(12.0, float(g)))
+            frac = (12.0 - clamped) / 24.0
+            return int(round(frac * (len(scale_dbs) - 1)))
+
+        thumb_rows = [gain_to_row(g) for g in gains]
+
+        for r_idx, db in enumerate(scale_dbs):
+            is_zero = (db == 0)
+            prefix = f" {b_col}│{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}0 dB ├──{NC}" if is_zero else f" {b_col}│{NC} {DIM}{CYAN}{db:+3d} dB │{NC}"
+
+            cells = []
+            for c_idx, tr in enumerate(thumb_rows):
+                is_sel = (c_idx == sel_idx)
+                if tr == r_idx:
+                    g_val = gains[c_idx]
+                    t_col = COLOR_TRAFFIC_GREEN if g_val > 0 else (COLOR_TRAFFIC_AMBER if g_val < 0 else COLOR_ELECTRIC_CYAN)
+                    if is_zero:
+                        cell = f"─\033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m──" if is_sel else f"──{BOLD}{t_col}█{NC}───"
+                    else:
+                        cell = f" \033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m  " if is_sel else f"  {BOLD}{t_col}█{NC}   "
+                else:
+                    if is_zero:
+                        cell = f"──{COLOR_ELECTRIC_CYAN}┼{NC}───"
+                    else:
+                        cell = f"  {COLOR_NEON_PINK}┆{NC}   " if is_sel else f"  {DIM}│{NC}   "
+                cells.append(cell)
+
+            sep = f"{COLOR_ELECTRIC_CYAN}┤{NC}" if is_zero else f"{DIM}│{NC}"
+            row_content = prefix + "".join(cells) + sep
+            pad = max(0, iw - _display_width(row_content) + len(f" {b_col}│{NC}"))
+            lines.append(f"{row_content}{' ' * pad}{b_col}│{NC}")
+
+        freq_cells = []
+        for i, fl in enumerate(EQ_BAND_LABELS):
+            fl_padded = f"{fl:^6s}"
+            freq_cells.append(f"\033[7m{BOLD}{COLOR_NEON_PINK}{fl_padded}\033[0m" if i == sel_idx else f"{BOLD}{COLOR_LILAC}{fl_padded}{NC}")
+        f_row = f" {b_col}│{NC}        │" + "".join(freq_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(f_row) + len(f" {b_col}│{NC}"))
+        lines.append(f"{f_row}{' ' * pad}{b_col}│{NC}")
+
+        gain_cells = []
+        for i, g in enumerate(gains):
+            g_str = f"{g:+5.1f} "
+            if i == sel_idx:
+                gain_cells.append(f"\033[7m{BOLD}{COLOR_ELECTRIC_CYAN}{g_str}\033[0m")
+            elif abs(g) > 0.05:
+                gain_cells.append(f"{COLOR_TRAFFIC_GREEN if g > 0 else COLOR_TRAFFIC_AMBER}{g_str}{NC}")
+            else:
+                gain_cells.append(f"{DIM}{g_str}{NC}")
+        g_row = f" {b_col}│{NC}  Gain: │" + "".join(gain_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(g_row) + len(f" {b_col}│{NC}"))
+        lines.append(f"{g_row}{' ' * pad}{b_col}│{NC}")
+
+        cursor_cells = [f"{BOLD}{COLOR_NEON_PINK}  ▲   {NC}" if i == sel_idx else "      " for i in range(10)]
+        c_row = f" {b_col}│{NC}        │" + "".join(cursor_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(c_row) + len(f" {b_col}│{NC}"))
+        lines.append(f"{c_row}{' ' * pad}{b_col}│{NC}")
+
+        if self.eq_naming_mode:
+            save_prompt = f" {b_col}│{NC} {BOLD}{COLOR_TRAFFIC_AMBER}💾 Name Custom Preset: [{self.eq_custom_name_input}█]  (Enter: Save, Esc: Cancel){NC}"
+            pad = max(0, iw - _display_width(save_prompt) + len(f" {b_col}│{NC}"))
+            lines.append(f"{save_prompt}{' ' * pad}{b_col}│{NC}")
+        lines.append(_boxed_rule("╰", "── [←/→] Band • [↑/↓] Slider (±0.5dB) • [P/Tab] Preset • [1-7] Preset • [S] Save • [R] Flat • [E/Esc] Close ", "╯", iw, b_col))
+        return lines
 
     def _get_target_path(self) -> Tuple[Optional[str], Optional[str]]:
         mixes = self._get_active_tracks()
@@ -2623,6 +2764,90 @@ class TerminalPlayerUI:
 
     def _process_key(self, data: bytes):
         if not data: return
+        if self.equalizer_hud_active:
+            if self.eq_naming_mode:
+                if data in (b"\r", b"\n"):
+                    self.eq_naming_mode = False
+                    p_name = self.eq_custom_name_input.strip() or "Custom 1"
+                    cb = list(self.eq_manager.current_bands)
+                    if self.is_remote: self._send_cmd("save_eq_preset", name=p_name, bands=cb)
+                    elif self.engine: self.engine.save_eq_preset(p_name, cb)
+                    self.eq_manager.save_custom_preset(p_name, cb)
+                    self._notify(f"Equalizer preset saved: {p_name}", 3.0)
+                    return
+                elif data == b"\x1b":
+                    self.eq_naming_mode = False
+                    self._notify("Preset save cancelled", 2.0)
+                    return
+                elif data in (b"\x7f", b"\x08"):
+                    self.eq_custom_name_input = self.eq_custom_name_input[:-1]
+                    return
+                else:
+                    try:
+                        c = data.decode("utf-8", "ignore")
+                        if c.isprintable(): self.eq_custom_name_input += c
+                    except Exception: pass
+                    return
+
+            if data in (b"\x1b[D", b"\x1bOD", b"h", b"H"):
+                self.eq_selected_band = max(0, self.eq_selected_band - 1)
+                return
+            elif data in (b"\x1b[C", b"\x1bOC", b"l", b"L"):
+                self.eq_selected_band = min(9, self.eq_selected_band + 1)
+                return
+            elif data in (b"\x1b[A", b"\x1bOA", b"k", b"K", b"+", b"="):
+                new_gain = round(min(12.0, self.eq_manager.current_bands[self.eq_selected_band] + 0.5), 1)
+                self.eq_manager.set_band(self.eq_selected_band, new_gain)
+                if self.is_remote: self._send_cmd("set_eq_band", band=self.eq_selected_band, gain=new_gain)
+                elif self.engine: self.engine.set_eq_band(self.eq_selected_band, new_gain)
+                return
+            elif data in (b"\x1b[B", b"\x1bOB", b"j", b"J", b"-", b"_"):
+                new_gain = round(max(-12.0, self.eq_manager.current_bands[self.eq_selected_band] - 0.5), 1)
+                self.eq_manager.set_band(self.eq_selected_band, new_gain)
+                if self.is_remote: self._send_cmd("set_eq_band", band=self.eq_selected_band, gain=new_gain)
+                elif self.engine: self.engine.set_eq_band(self.eq_selected_band, new_gain)
+                return
+            elif data in (b"p", b"P", b"\t"):
+                np_name = self.eq_manager.cycle_preset(1)
+                if self.is_remote: self._send_cmd("set_eq_preset", preset=np_name)
+                elif self.engine: self.engine.set_eq_preset(np_name)
+                self._notify(f"Equalizer Preset: {np_name}", 2.0)
+                return
+            elif data in (b"1", b"2", b"3", b"4", b"5", b"6", b"7"):
+                p_list = ["Flat", "Ambient", "Trance", "Techno", "House", "Progressive", "Vapourwave"]
+                idx = int(data.decode("ascii")) - 1
+                if 0 <= idx < len(p_list):
+                    t_name = p_list[idx]
+                    self.eq_manager.apply_preset(t_name)
+                    if self.is_remote: self._send_cmd("set_eq_preset", preset=t_name)
+                    elif self.engine: self.engine.set_eq_preset(t_name)
+                    self._notify(f"Equalizer Preset: {t_name}", 2.0)
+                return
+            elif data in (b"s", b"S"):
+                self.eq_naming_mode = True
+                self.eq_custom_name_input = ""
+                return
+            elif data in (b"r", b"R", b"0"):
+                self.eq_manager.apply_preset("Flat")
+                if self.is_remote: self._send_cmd("set_eq_preset", preset="Flat")
+                elif self.engine: self.engine.set_eq_preset("Flat")
+                self._notify("Equalizer Reset to Flat (0 dB)", 2.0)
+                return
+            elif data in (b"d", b"D"):
+                cur = self.eq_manager.active_preset
+                if cur in self.eq_manager.custom_presets:
+                    self.eq_manager.delete_custom_preset(cur)
+                    if self.is_remote: self._send_cmd("delete_eq_preset", name=cur)
+                    elif self.engine: self.engine.delete_eq_preset(cur)
+                    self._notify(f"Deleted custom preset: {cur}", 2.5)
+                return
+            elif data in (b" ",):
+                self._send_cmd("toggle")
+                return
+            elif data in (b"\x1b", b"E", b"\r", b"\n", b"q", b"Q", b"b", b"B"):
+                self.equalizer_hud_active = False
+                return
+
         if self.export_mode:
             if data in (b"\r", b"\n"):
                 self.export_mode = False
@@ -2650,6 +2875,10 @@ class TerminalPlayerUI:
             if data in (b"g", b"G"): return self._generate_selected_spek()
             if data in (b"\x1b", b"i", b"I", b"\r", b"\n", b"q", b"Q", b" "): self.inspector_hud_active = False; return
         if data in (b"i", b"I"): self.inspector_hud_active = not self.inspector_hud_active; return
+        if data in (b"E",) and self.ui_size_mode not in ("MINI", "MICRO"):
+            self.equalizer_hud_active = not self.equalizer_hud_active
+            if self.equalizer_hud_active: self.inspector_hud_active = False
+            return
         if data in (b"\x1b[A", b"\x1bOA", b"k", b"K"): self._navigate_list(-1)
         elif data in (b"\x1b[B", b"\x1bOB", b"j", b"J"): self._navigate_list(1)
         elif data == b"\x1b[5~": self._navigate_list(-5)
@@ -2729,7 +2958,7 @@ class TerminalPlayerUI:
                 self._notify(f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if bi.get("bluetooth_connected") else "No Bluetooth audio device connected.", 3.5)
         elif data in (b"o", b"O"): self._open_audio_file()
         elif data in (b"t", b"T"): self._view_selected_tracklist()
-        elif (data in (b"w", b"W") if self.ui_size_mode in ("MINI", "MICRO") else data in (b"E", b"w", b"W")): self._export_playlist()
+        elif data in (b"w", b"W"): self._export_playlist()
         elif data == b"/": self.search_mode, self.search_query = True, ""
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
         elif data in (b"g", b"G"): self._generate_selected_spek()
@@ -2791,6 +3020,7 @@ class TerminalPlayerUI:
         elif time.time() < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
 
         if self.inspector_hud_active: lines.extend(self._render_inspector_hud(st, iw))
+        elif self.equalizer_hud_active: lines.extend(self._render_equalizer_hud(st, iw, h))
         else:
             pal = self.visualizer.get_theme_palette()
             hl_col, act_col, b_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK), f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
@@ -2834,36 +3064,38 @@ class TerminalPlayerUI:
                     elif act: lines.append(f"  {b_col}│{NC}{BOLD}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{BOLD}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{ip}{b_col}│{NC}")
-            lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
+            lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  w: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
 
         shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
         rep, vol = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}", (f"{st.get('volume', 85)}%" if not st.get("muted") else f"{COLOR_TRAFFIC_RED}MUTED{NC}")
         pval = int(st.get("pitch_percent", 0))
         pcol = COLOR_TRAFFIC_GREEN if pval == 0 else (COLOR_TRAFFIC_AMBER if pval > 0 else COLOR_INDIGO_BLUE)
         pbadge, eq_n, th_n = f"{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}", self.visualizer.get_style_display_name(), self.visualizer.theme.replace("_", " ").title()
+        eq_p = self.eq_manager.active_preset
+        eq_p_col = COLOR_TRAFFIC_GREEN if eq_p != "Flat" else COLOR_ELECTRIC_CYAN
         lines.append(_fit_text_line([
-            f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  🎚 Pitch: {BOLD}{pbadge}  │  🎛 EQ: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_n}{NC}",
-            f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  EQ: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
-            f"  Vol {vol}  Pitch {pbadge}  EQ {eq_n}  Shuf {shuf}  Rep {rep}"
+            f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  🎚 Pitch: {BOLD}{pbadge}  │  🎛 EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  📊 Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_n}{NC}",
+            f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
+            f"  Vol {vol}  Pitch {pbadge}  EQ {eq_p}  Vis {eq_n}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         if self.mode == "MUSIC":
             lines.extend([
                 _fit_text_line([
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Track Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit{NC}",
-                    f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Inspector  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit",
-                    "  Space Play  [R] Rec  [M] Mini  [Q] Queue  [G] Spek  [I] Inspector  [/] Search  n/p Skip  [u] Mute  b/Esc Exit"
+                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Track Inspector  [E] Equalizer HUD  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit{NC}",
+                    f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [I] Inspector  [E] Equalizer  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit",
+                    "  Space Play  [R] Rec  [M] Mini  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit"
                 ], max(20, w - 1)),
                 _fit_text_line([
-                    f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [l] Repeat  [e] EQ Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
-                    f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  a BT  O Open  F Files{NC}",
-                    f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  e EQ  c Theme  b/Esc Exit{NC}"
+                    f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [l] Repeat  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
+                    f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  E Equalizer  e Vis  c Theme  a BT  O Open  F Files{NC}",
+                    f"  {DIM}0 Reset  u Mute  s Shuf  l Rep  E Equalizer  e Vis  c Theme  b/Esc Exit{NC}"
                 ], max(20, w - 1))
             ])
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [l] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [E] Export  [F] Files  [e] EQ  [b/Esc] Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  T List  E Export  F Files  e EQ  b/Esc Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  b/Esc Exit{NC}"
+                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [l] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
+                f"  {DIM}Space Play  R Rec  M Mini  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  l Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
             ], max(20, w - 1)))
         _present_frame(lines, w, h)
 
@@ -3014,7 +3246,11 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
-        (("--record", "--toggle-record", "-r"), dict(action="store_true"))
+        (("--record", "--toggle-record", "-r"), dict(action="store_true")),
+        (("--eq-preset",), dict(type=str, help="Set active equalizer preset (Flat, Ambient, Trance, Techno, House, Progressive, Vapourwave, or custom)")),
+        (("--list-eq-presets",), dict(action="store_true", help="List all available equalizer presets and their dB curves")),
+        (("--eq-bands",), dict(type=str, help="Set 10-band equalizer gains in dB (e.g. '3.0,2.5,1.5,0,-1,-1.5,-0.5,1,2,2.5')")),
+        (("--reset-eq",), dict(action="store_true", help="Reset equalizer to Flat preset (0 dB on all bands)"))
     ]: p.add_argument(*flags, **kw)
 
     args, _ = p.parse_known_args()
@@ -3134,11 +3370,30 @@ def main():
         else: print("Player daemon not running.")
         sys.exit(0)
 
+    if args.resume:
+        res_data = None
+        if RESUME_STATE_FILE.is_file():
+            try: res_data = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+            except Exception: pass
+        if res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
+            target_file = res_data["path"]
+            target_pos = float(res_data.get("position_sec", 0.0) or 0.0)
+            if daemon_running and send_ipc_command("play", file=target_file, position=target_pos):
+                print(f"✔ Resumed playback: {os.path.basename(target_file)} at {format_seconds(target_pos)}")
+                sys.exit(0)
+            _spawn_player_daemon(target_file, auto_bluetooth=auto_bt, mode=res_data.get("mode", current_mode), seek_to=target_pos)
+            print(f"✔ Started player daemon and resumed: {os.path.basename(target_file)} at {format_seconds(target_pos)}")
+            sys.exit(0)
+        else:
+            print("✖ No previous mix available to resume.", file=sys.stderr)
+            sys.exit(1)
+
     if args.play is not None:
         ftp = os.path.abspath(args.play or (args.file or "")) if (args.play or args.file) else ""
-        if not (daemon_running and send_ipc_command("play", file=ftp or None)):
+        pos = float(args.seek_to) if args.seek_to is not None else 0.0
+        if not (daemon_running and send_ipc_command("play", file=ftp or None, position=pos)):
             if not ftp and (l := MixArchiveScanner(base_dir).get_latest_mix()): ftp = l["path"]
-            if ftp: _spawn_player_daemon(ftp, auto_bluetooth=auto_bt, mode=current_mode)
+            if ftp: _spawn_player_daemon(ftp, auto_bluetooth=auto_bt, mode=current_mode, seek_to=pos)
         sys.exit(0)
 
     if args.clear_queue:
@@ -3175,24 +3430,99 @@ def main():
         if daemon_running: send_ipc_command("seek", seconds=args.seek)
         sys.exit(0)
 
+    if args.seek_to is not None and args.play is None and not args.daemon:
+        if daemon_running: send_ipc_command("seek_to", position=args.seek_to)
+        sys.exit(0)
+
     if args.status or args.status_line:
         data = (send_ipc_command("status") or {}).get("data") if daemon_running else None
         if args.status: print(json.dumps(data or {"running": False, "state": "stopped"}, indent=2))
         elif data:
             pval = data.get("pitch_percent", 0)
             p_str = f"Pitch: {pval:+d}%" if pval != 0 else "Pitch: 0%"
-            print(f"{'▶' if data['state'] == 'playing' else '⏸'} {data['title']} [{data['position_fmt']}/{data['duration_fmt']}] ({data['mini_eq']}) {p_str} Vol: {data['volume']}%")
+            eq_s = f"EQ: {data.get('eq_preset', 'Flat')}"
+            print(f"{'▶' if data['state'] == 'playing' else '⏸'} {data['title']} [{data['position_fmt']}/{data['duration_fmt']}] ({data['mini_eq']}) {p_str} {eq_s} Vol: {data['volume']}%")
         else: print("○ MP Audio Player: Stopped")
         sys.exit(0)
+
+    if args.list_eq_presets:
+        mgr = EqualizerManager()
+        presets = mgr.get_all_presets()
+        print("MP Audio Player 10-Band Equalizer Presets:")
+        print("  Frequencies:  " + "  ".join(f"{f:>6s}" for f in EQ_BAND_LABELS))
+        for name in mgr.get_all_preset_names():
+            gains = presets.get(name, [])
+            g_str = "  ".join(f"{g:+6.1f}" for g in gains)
+            d_mark = " (Default)" if name == "Flat" else ""
+            print(f"  • {name:<14s}{d_mark}: {g_str} dB")
+        sys.exit(0)
+
+    if args.eq_preset:
+        target_preset = args.eq_preset
+        if daemon_running:
+            res = send_ipc_command("set_eq_preset", preset=target_preset) or {}
+            if res.get("success"):
+                print(f"✔ Equalizer preset set to: {res.get('preset')}")
+                sys.exit(0)
+            else:
+                print(f"✖ Failed to set equalizer preset: {target_preset}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            mgr = EqualizerManager()
+            if mgr.apply_preset(target_preset):
+                print(f"✔ Equalizer preset saved as default: {mgr.active_preset}")
+                sys.exit(0)
+            else:
+                print(f"✖ Unknown equalizer preset: {target_preset}", file=sys.stderr)
+                sys.exit(1)
+
+    if args.reset_eq:
+        if daemon_running:
+            send_ipc_command("reset_eq")
+            print("✔ Equalizer reset to Flat (0 dB)")
+            sys.exit(0)
+        else:
+            mgr = EqualizerManager()
+            mgr.apply_preset("Flat")
+            print("✔ Equalizer reset to Flat (0 dB)")
+            sys.exit(0)
+
+    if args.eq_bands:
+        try:
+            parts = [float(x.strip()) for x in args.eq_bands.split(",")]
+            if len(parts) != 10:
+                print("✖ Exactly 10 band gains (dB) required separated by commas.", file=sys.stderr)
+                sys.exit(1)
+            if daemon_running:
+                res = send_ipc_command("set_eq_bands", bands=parts) or {}
+                print(f"✔ Equalizer bands updated (Preset: {res.get('preset', 'Custom')})")
+                sys.exit(0)
+            else:
+                mgr = EqualizerManager()
+                mgr.set_bands(parts)
+                print("✔ Equalizer custom bands saved.")
+                sys.exit(0)
+        except Exception as exc:
+            print(f"✖ Invalid band values: {exc}", file=sys.stderr)
+            sys.exit(1)
 
     if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
         scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
         mixes, tf = scanner.get_mixes(), (os.path.abspath(args.file) if args.file else None)
         if daemon_running and not send_ipc_command("status"): daemon_running = False
         if not daemon_running:
+            resume_f, resume_pos = None, 0.0
+            if not tf and RESUME_STATE_FILE.is_file():
+                try:
+                    res_data = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+                    if res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
+                        resume_f = res_data["path"]
+                        resume_pos = float(res_data.get("position_sec", 0.0) or 0.0)
+                except Exception: pass
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
-            init_f = tf or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
-            _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist)
+            init_f = tf or resume_f or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
+            init_pos = resume_pos if (not tf and resume_f) else 0.0
+            _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos)
             for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running(): break
@@ -3228,9 +3558,10 @@ def main():
                 mixes.insert(0, {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()})
                 init_idx = 0
 
+    init_pos = float(args.seek_to) if args.seek_to is not None else 0.0
     engine = AudioEngine(mixes, auto_bluetooth=auto_bt, mode=current_mode)
     PlayerIPCServer(engine).start()
-    if mixes: engine.load_track(init_idx, True)
+    if mixes: engine.load_track(init_idx, True, start_position=init_pos)
 
     try:
         while True:
@@ -3239,6 +3570,20 @@ def main():
             time.sleep(0.5)
     except (KeyboardInterrupt, SystemExit): pass
     finally:
+        try:
+            if engine.current_track and engine.current_track.get("path"):
+                res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
+                res_tmp.write_text(json.dumps({
+                    "path": str(engine.current_track.get("path")),
+                    "position_sec": round(float(engine.position_sec), 2),
+                    "duration_sec": round(float(engine.duration_sec), 2),
+                    "title": str(engine.current_track.get("name", "")),
+                    "mode": str(engine.mode),
+                    "player": "mp_audio_player",
+                    "timestamp": time.time()
+                }), encoding="utf-8")
+                res_tmp.replace(RESUME_STATE_FILE)
+        except Exception: pass
         engine.stop_playback()
         for p in (PID_FILE, SOCKET_PATH, PORT_FILE): p.unlink(missing_ok=True)
         try: STATE_FILE.write_text(json.dumps({"running": False, "state": "stopped"}), encoding="utf-8")

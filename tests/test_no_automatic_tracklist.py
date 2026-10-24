@@ -63,6 +63,8 @@ class TestNoAutomaticTracklist(unittest.TestCase):
         tmp_mix=$(mktemp /tmp/test_startup_mix_XXXXXX.flac)
         echo "audio" > "$tmp_mix"
         trap 'rm -f "$tmp_mix"' EXIT
+        mkdir -p "$HOME/.config/mix-manager"
+        echo "{\"path\": \"$tmp_mix\", \"position_sec\": 10, \"duration_sec\": 3600}" > "$HOME/.config/mix-manager/playback_resume.json"
         play_audio_file() { PLAY_CALLED=1; }
         select_startup_mix() { echo "$tmp_mix"; }
         is_remote_or_cloud_path() { return 1; }
