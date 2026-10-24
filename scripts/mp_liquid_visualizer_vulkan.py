@@ -57,6 +57,12 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 WINDOW_WIDTH = 1400
 WINDOW_HEIGHT = 1400
 
+# 4K & Fullscreen Rendering Resolution (4K will not be supported until a later date)
+RENDER_1080P_WIDTH = 1920
+RENDER_1080P_HEIGHT = 1080
+FOUR_K_MIN_WIDTH = 3840
+FOUR_K_MIN_HEIGHT = 2160
+
 # Preset Registry (Each preset uses strictly ONE Bandcamp cover)
 # Visualizer Presets:
 #   Preset 0: Cosmic Dreamworlds (Liquid)
@@ -135,6 +141,50 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
             COVERS_DIR / "Stream_of_Frequency_Preset.png",
             Path("/home/mplanetarian/Documents/Stream_of_Frequency.jpg"),
         ],
+        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv"),
+        "defasten_video": "20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv",
+    },
+    {
+        "id": 6,
+        "key": "beyond_dimensions",
+        "name": "Beyond Dimensions",
+        "album": "MPlanetarian - Beyond Dimensions",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "beyond_dimensions_cover.png",
+            COVERS_DIR / "Beyond_Dimensions_Preset.png",
+            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/Cotangent Dimensions (In Progress) [album].png"),
+        ],
+        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv"),
+        "defasten_video": "20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv",
+    },
+    {
+        "id": 7,
+        "key": "particle_accelerator",
+        "name": "Particle Accelerator",
+        "album": "MPlanetarian - Particle Accelerator",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "particle_accelerator_cover.png",
+            COVERS_DIR / "Particle_Accelerator_Preset.png",
+            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/Vortex Sync (Mateh's Version) [track].png"),
+        ],
+        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20191112 - TOROID (feat. Yaporigami) [_2vtEhBzPsE].mkv"),
+        "defasten_video": "20191112 - TOROID (feat. Yaporigami) [_2vtEhBzPsE].mkv",
+    },
+    {
+        "id": 8,
+        "key": "cosmic_universe",
+        "name": "Cosmic Universe",
+        "album": "MPlanetarian - Cosmic Universe",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "cosmic_universe_cover.png",
+            COVERS_DIR / "Cosmic_Universe_Preset.png",
+            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/The Cosmological Horizon (2026 Remaster) [track].png"),
+        ],
+        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20120811 - Constellation (2012) [ISIu20AePHw].mkv"),
+        "defasten_video": "20120811 - Constellation (2012) [ISIu20AePHw].mkv",
     },
 ]
 
@@ -363,6 +413,12 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
             candidates.extend(["sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper"])
         elif p["key"] == "stream_of_frequency":
             candidates.extend(["stream of frequency", "stream_of_frequency", "stream", "frequency", "sof", "stream of frequency preset"])
+        elif p["key"] == "beyond_dimensions":
+            candidates.extend(["beyond dimensions", "beyond_dimensions", "beyond", "dimensions", "cotangent", "cotangent dimensions", "beyond basel", "beyond_basel"])
+        elif p["key"] == "particle_accelerator":
+            candidates.extend(["particle accelerator", "particle_accelerator", "particle", "accelerator", "toroid", "vortex sync", "vortex_sync", "collider"])
+        elif p["key"] == "cosmic_universe":
+            candidates.extend(["cosmic universe", "cosmic_universe", "cosmic", "universe", "constellation", "the cosmological horizon", "cosmological horizon", "horizon"])
         if target in candidates:
             return p
     # Partial matching if target provided
@@ -725,6 +781,10 @@ GLFW_KEY_2 = 50
 GLFW_KEY_3 = 51
 GLFW_KEY_4 = 52
 GLFW_KEY_5 = 53
+GLFW_KEY_6 = 54
+GLFW_KEY_7 = 55
+GLFW_KEY_8 = 56
+GLFW_KEY_9 = 57
 
 
 class GLFWvidmode(ctypes.Structure):
@@ -1267,9 +1327,18 @@ class LiquidVisualizerVulkanRenderer:
     width = WINDOW_WIDTH
     height = WINDOW_HEIGHT
 
-    def __init__(self, preset_name: Optional[str] = None):
+    def __init__(
+        self,
+        preset_name: Optional[str] = None,
+        fullscreen: bool = False,
+        target_4k: bool = False,
+    ):
         self.preset = get_active_preset(preset_name)
         self.title = "MP Liquid Visualizer"
+        self.target_4k = target_4k
+        self.fullscreen_on_start = fullscreen or target_4k
+        self._user_toggled_windowed = False
+        self._last_monitor = None
         self.device_name = ""
         self.vendor_id = 0
         self.device_type = -1
@@ -1367,6 +1436,11 @@ class LiquidVisualizerVulkanRenderer:
         self._create_pipeline()
         self._create_descriptors()
         self._alive = True
+
+        # When requested fullscreen, go full screen at 1920x1080
+        if getattr(self, "fullscreen_on_start", False):
+            self.toggle_fullscreen()
+
         return self
 
     def _silence_overlays(self):
@@ -1423,6 +1497,9 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwGetMonitorPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwGetVideoMode.argtypes = [c_void_p]
         g.glfwGetVideoMode.restype = POINTER(GLFWvidmode)
+        if hasattr(g, "glfwGetMonitorName"):
+            g.glfwGetMonitorName.argtypes = [c_void_p]
+            g.glfwGetMonitorName.restype = c_char_p
         g.glfwSetWindowMonitor.argtypes = [c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_int]
         g.glfwGetRequiredInstanceExtensions.argtypes = [POINTER(c_uint32)]
         g.glfwGetRequiredInstanceExtensions.restype = POINTER(c_char_p)
@@ -1539,8 +1616,15 @@ class LiquidVisualizerVulkanRenderer:
             g.glfwSetWindowSizeLimits(window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
         except Exception:
             pass
-        g.glfwSetWindowPos(window, 160, 80)
-        self._cur_pos = (160, 80)
+        init_x, init_y = 160, 80
+        if getattr(self, "target_4k", False):
+            mon_4k = self._find_4k_monitor()
+            if mon_4k:
+                mx, my = c_int(), c_int()
+                g.glfwGetMonitorPos(mon_4k, byref(mx), byref(my))
+                init_x, init_y = mx.value, my.value
+        g.glfwSetWindowPos(window, init_x, init_y)
+        self._cur_pos = (init_x, init_y)
         return window
 
     def _bind_input(self):
@@ -1592,10 +1676,52 @@ class LiquidVisualizerVulkanRenderer:
             else:
                 import subprocess
                 subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
-        elif key in (GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5):
+        elif GLFW_KEY_1 <= key <= GLFW_KEY_9:
             idx = key - GLFW_KEY_1
             if 0 <= idx < len(VISUALIZER_PRESETS):
                 self.switch_preset(VISUALIZER_PRESETS[idx])
+
+    def is_4k_display(self, mon=None) -> bool:
+        """Return True if the specified monitor (or current monitor) is a 4K display (>= 3840x2160)."""
+        if not getattr(self, "_glfw", None):
+            return False
+        g = self._glfw
+        if mon is None:
+            mon = self._current_monitor()
+        if not mon:
+            return False
+        try:
+            mode_ptr = g.glfwGetVideoMode(mon)
+            if mode_ptr:
+                mode = mode_ptr.contents
+                if mode.width >= FOUR_K_MIN_WIDTH or mode.height >= FOUR_K_MIN_HEIGHT:
+                    return True
+            if hasattr(g, "glfwGetMonitorName"):
+                name_b = g.glfwGetMonitorName(mon)
+                if name_b:
+                    n = name_b.decode("utf-8", errors="ignore").lower()
+                    if "4k" in n or "uhd" in n or "hisense" in n:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _find_4k_monitor(self):
+        """Find and return any connected 4K monitor handle, or None."""
+        if not getattr(self, "_glfw", None):
+            return None
+        g = self._glfw
+        try:
+            count = c_int()
+            mons = g.glfwGetMonitors(byref(count))
+            if mons and count.value > 0:
+                for i in range(count.value):
+                    m = mons[i]
+                    if self.is_4k_display(m):
+                        return m
+        except Exception:
+            pass
+        return None
 
     def _current_monitor(self):
         if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
@@ -1632,11 +1758,13 @@ class LiquidVisualizerVulkanRenderer:
         return mon
 
     def toggle_fullscreen(self) -> bool:
-        """Toggle between fullscreen mode and normal 1400x1400 window size."""
+        """Toggle between fullscreen mode (rendered at 1920x1080 on 4K) and normal 1400x1400 window size."""
         if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
             self.is_fullscreen = not self.is_fullscreen
             self.width, self.height = (
-                (1920, 1080) if self.is_fullscreen else (WINDOW_WIDTH, WINDOW_HEIGHT)
+                (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT)
+                if self.is_fullscreen
+                else (WINDOW_WIDTH, WINDOW_HEIGHT)
             )
             return self.is_fullscreen
 
@@ -1645,17 +1773,23 @@ class LiquidVisualizerVulkanRenderer:
         if not self.is_fullscreen:
             self._saved_window_pos = self.window_pos()
             mon = self._current_monitor()
-            full_w, full_h, refresh = 1920, 1080, 60
+            full_w, full_h, refresh = RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT, 60
             if mon:
                 mode_ptr = g.glfwGetVideoMode(mon)
                 if mode_ptr:
                     mode = mode_ptr.contents
-                    if mode.width > 0 and mode.height > 0:
-                        full_w = int(mode.width)
-                        full_h = int(mode.height)
+                    # 4K displays: strictly render at 1920 by 1080 (no 4K until later date)
+                    if self.is_4k_display(mon) or mode.width >= FOUR_K_MIN_WIDTH or mode.height >= FOUR_K_MIN_HEIGHT:
+                        full_w = RENDER_1080P_WIDTH
+                        full_h = RENDER_1080P_HEIGHT
+                    else:
+                        if mode.width > 0 and mode.height > 0:
+                            full_w = int(mode.width)
+                            full_h = int(mode.height)
                     if mode.refreshRate > 0:
                         refresh = int(mode.refreshRate)
             self.is_fullscreen = True
+            self._user_toggled_windowed = False
             self.width = full_w
             self.height = full_h
             try:
@@ -1679,6 +1813,7 @@ class LiquidVisualizerVulkanRenderer:
         else:
             rx, ry = getattr(self, "_saved_window_pos", (160, 80))
             self.is_fullscreen = False
+            self._user_toggled_windowed = True
             self.width = WINDOW_WIDTH
             self.height = WINDOW_HEIGHT
             if hasattr(g, "glfwSetWindowAttrib"):
@@ -1699,6 +1834,10 @@ class LiquidVisualizerVulkanRenderer:
             g.glfwSetWindowPos(self._window, int(rx), int(ry))
             self._cur_pos = (int(rx), int(ry))
             self._resize = True
+            try:
+                g.glfwPollEvents()
+            except Exception:
+                pass
         return self.is_fullscreen
 
     def _on_mouse(self, _window, button, action, _mods):
@@ -1729,6 +1868,11 @@ class LiquidVisualizerVulkanRenderer:
 
     def _on_pos(self, _window, x, y):
         self._cur_pos = (int(x), int(y))
+        cur_mon = self._current_monitor()
+        if cur_mon != getattr(self, "_last_monitor", None):
+            self._last_monitor = cur_mon
+            if self.is_4k_display(cur_mon):
+                self._user_toggled_windowed = False
 
     def root_pointer(self) -> Tuple[int, int]:
         if is_windows():
@@ -1771,11 +1915,19 @@ class LiquidVisualizerVulkanRenderer:
     def window_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
         self._glfw.glfwGetWindowSize(self._window, byref(w), byref(h))
+        if not self.is_fullscreen:
+            return WINDOW_WIDTH, WINDOW_HEIGHT
+        if self.is_4k_display() or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
+            return RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
         return int(w.value), int(h.value)
 
     def framebuffer_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
         self._glfw.glfwGetFramebufferSize(self._window, byref(w), byref(h))
+        if not self.is_fullscreen:
+            return max(1, int(w.value)), max(1, int(h.value))
+        if self.is_4k_display() or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
+            return RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
         return max(1, int(w.value)), max(1, int(h.value))
 
     def window_pos(self) -> Tuple[int, int]:
@@ -1802,12 +1954,18 @@ class LiquidVisualizerVulkanRenderer:
         if self._glfw.glfwWindowShouldClose(self._window):
             self.should_close = True
         if not self.is_fullscreen:
-            # Ensure window dimensions remain strictly 1400x1400 in normal mode
-            w, h = self.window_size()
-            if (w, h) != (WINDOW_WIDTH, WINDOW_HEIGHT):
-                self._glfw.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
-                self._resize = True
-            self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
+            # If moved to a 4K display and not explicitly toggled to windowed by user,
+            # automatically enter fullscreen rendered at 1920x1080
+            cur_mon = self._current_monitor()
+            if self.is_4k_display(cur_mon) and not getattr(self, "_user_toggled_windowed", False):
+                self.toggle_fullscreen()
+            else:
+                # Ensure window dimensions remain strictly 1400x1400 in normal mode
+                w, h = self.window_size()
+                if (w, h) != (WINDOW_WIDTH, WINDOW_HEIGHT):
+                    self._glfw.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
+                    self._resize = True
+                self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
         else:
             if hasattr(self._glfw, "glfwGetWindowAttrib") and hasattr(self._glfw, "glfwRestoreWindow"):
                 try:
@@ -1817,7 +1975,10 @@ class LiquidVisualizerVulkanRenderer:
                     pass
             w, h = self.window_size()
             if w > 0 and h > 0:
-                self.width, self.height = w, h
+                if self.is_4k_display() or w >= FOUR_K_MIN_WIDTH or h >= FOUR_K_MIN_HEIGHT:
+                    self.width, self.height = RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
+                else:
+                    self.width, self.height = w, h
         return not self.should_close
 
     def _bind_loader(self):
@@ -2114,9 +2275,11 @@ class LiquidVisualizerVulkanRenderer:
         if caps.currentExtent.width != 0xFFFFFFFF and caps.currentExtent.width > 0:
             extent = (int(caps.currentExtent.width), int(caps.currentExtent.height))
         else:
+            eff_fw = min(fw, RENDER_1080P_WIDTH) if (self.is_fullscreen and self.is_4k_display()) else fw
+            eff_fh = min(fh, RENDER_1080P_HEIGHT) if (self.is_fullscreen and self.is_4k_display()) else fh
             extent = (
-                min(max(fw, caps.minImageExtent.width), caps.maxImageExtent.width),
-                min(max(fh, caps.minImageExtent.height), caps.maxImageExtent.height),
+                min(max(eff_fw, caps.minImageExtent.width), caps.maxImageExtent.width),
+                min(max(eff_fh, caps.minImageExtent.height), caps.maxImageExtent.height),
             )
         if extent[0] == 0 or extent[1] == 0:
             extent = (fw, fh)
@@ -2666,10 +2829,16 @@ class LiquidVisualizerVulkanRenderer:
 
     def _write_ubo(self, bridge: AudioTelemetryBridge):
         fw, fh = self._extent
+        if self.is_4k_display() or fw >= FOUR_K_MIN_WIDTH or fh >= FOUR_K_MIN_HEIGHT:
+            render_w = float(min(fw, RENDER_1080P_WIDTH))
+            render_h = float(min(fh, RENDER_1080P_HEIGHT))
+        else:
+            render_w = float(fw)
+            render_h = float(fh)
         ubo = VisualizerUBO()
         ubo.res[:] = (
-            float(fw),
-            float(fh),
+            render_w,
+            render_h,
             float(bridge.accum_time),
             1.0 if bridge.is_playing else 0.0,
         )
@@ -3003,8 +3172,17 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
         renderer.close()
 
 
-def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[float] = None) -> int:
-    renderer = LiquidVisualizerVulkanRenderer(preset_name)
+def run_visualizer(
+    preset_name: Optional[str] = None,
+    max_seconds: Optional[float] = None,
+    fullscreen: bool = False,
+    target_4k: bool = False,
+) -> int:
+    renderer = LiquidVisualizerVulkanRenderer(
+        preset_name,
+        fullscreen=fullscreen,
+        target_4k=target_4k,
+    )
     bridge = AudioTelemetryBridge()
     renderer.open()
     last_t = time.monotonic()
@@ -3037,6 +3215,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     parser.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
     parser.add_argument("--list-presets", action="store_true", help="List available visualizer presets and exit")
+    parser.add_argument("--fullscreen", "-fs", action="store_true", help="Launch visualizer in fullscreen mode (rendered at 1920x1080 on 4K)")
+    parser.add_argument("--4k", "--screen-4k", dest="target_4k", action="store_true", help="Launch visualizer on 4K display in fullscreen (rendered at 1920x1080)")
+    parser.add_argument("--screen", type=str, default=None, help="Target screen or monitor (e.g. '4k', 'hdmi', 'primary')")
     parser.add_argument("--self-test", action="store_true", help="Run Vulkan 1400x1400 render & pause/play verification")
     parser.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
     parser.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
@@ -3064,7 +3245,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         run_self_test(args.png)
         return 0
 
-    return run_visualizer(preset_name=args.preset, max_seconds=args.max_seconds)
+    target_4k = bool(args.target_4k)
+    if args.screen and any(k in args.screen.lower() for k in ("4k", "hdmi", "uhd", "hisense")):
+        target_4k = True
+
+    return run_visualizer(
+        preset_name=args.preset,
+        max_seconds=args.max_seconds,
+        fullscreen=bool(args.fullscreen),
+        target_4k=target_4k,
+    )
 
 
 if __name__ == "__main__":

@@ -979,11 +979,17 @@ launch_mp_liquid_visualizer() {
         [ "$saved_key" = "infinite_complexity" ] && preset_label="Infinite Complexity"
         [ "$saved_key" = "sensorium_interface" ] && preset_label="Sensorium Interface"
         [ "$saved_key" = "stream_of_frequency" ] && preset_label="Stream of Frequency"
+        [ "$saved_key" = "beyond_dimensions" ] && preset_label="Beyond Dimensions"
+        [ "$saved_key" = "particle_accelerator" ] && preset_label="Particle Accelerator"
+        [ "$saved_key" = "cosmic_universe" ] && preset_label="Cosmic Universe"
         [ "$saved_key" = "random" ] && preset_label="Random Mode"
     fi
     if [ -n "$preset_arg" ]; then
         case "$preset_arg" in
             random|rand|rnd|any|shuffle) preset_label="Random" ;;
+            beyond_dimensions|*beyond*|*dimensions*|*cotangent*) preset_label="Beyond Dimensions" ;;
+            particle_accelerator|*particle*|*accelerator*|*toroid*) preset_label="Particle Accelerator" ;;
+            cosmic_universe|*cosmic*|*universe*|*constellation*|*horizon*) preset_label="Cosmic Universe" ;;
             stream_of_frequency|*stream*|*frequency*) preset_label="Stream of Frequency" ;;
             orbital_void_reflux|*orbital*|*void*|*reflux*) preset_label="Orbital Void Reflux" ;;
             dreamworlds_ultra_defasten|*defasten*|*ultra*|*biomech*) preset_label="Dreamworlds Ultra (Defasten Biomech)" ;;
@@ -1014,6 +1020,9 @@ manage_mp_liquid_visualizer_presets() {
         local p4_mark="  "
         local p5_mark="  "
         local p6_mark="  "
+        local p7_mark="  "
+        local p8_mark="  "
+        local p9_mark="  "
         local pr_mark="  "
         if [ "$active_key" = "orbital_void_reflux" ]; then
             p2_mark="★ "
@@ -1025,6 +1034,12 @@ manage_mp_liquid_visualizer_presets() {
             p5_mark="★ "
         elif [ "$active_key" = "stream_of_frequency" ]; then
             p6_mark="★ "
+        elif [ "$active_key" = "beyond_dimensions" ]; then
+            p7_mark="★ "
+        elif [ "$active_key" = "particle_accelerator" ]; then
+            p8_mark="★ "
+        elif [ "$active_key" = "cosmic_universe" ]; then
+            p9_mark="★ "
         elif [ "$active_key" = "random" ]; then
             pr_mark="★ "
         else
@@ -1038,17 +1053,20 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "  ${BOLD}${CYAN}Window:${NC}            1400x1400 Fixed Borderless (Zero Text Overlay • Esc/q to Close)"
         echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
         echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
-        echo -e "${BOLD}Available Visualizer Presets (6 Official Presets):${NC}"
+        echo -e "${BOLD}Available Visualizer Presets (9 Official Presets):${NC}"
         echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC}        ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
         echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}                ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
         echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (Defasten Biomech)${NC} ${DIM}[Defasten Xinri D & Start_Menu_Icon.png]${NC}"
         echo -e "  ${BOLD}${CYAN}4)${NC} ${BOLD}${GREEN}${p4_mark}Infinite Complexity${NC}                 ${DIM}[Defasten Mirrored Madness & Cover_v4.png]${NC}"
         echo -e "  ${BOLD}${CYAN}5)${NC} ${BOLD}${GREEN}${p5_mark}Sensorium Interface${NC}                 ${DIM}[Defasten Earth Flipper & Sensorium_Interface.jpeg]${NC}"
         echo -e "  ${BOLD}${CYAN}6)${NC} ${BOLD}${GREEN}${p6_mark}Stream of Frequency${NC}                 ${DIM}[MPlanetarian - Stream of Frequency (Official Cover)]${NC}"
-        echo -e "  ${BOLD}${CYAN}7)${NC} ${BOLD}${GREEN}${pr_mark}Random Preset Mode${NC}                  ${DIM}[Randomly Selects a Visualizer Preset on Each Run]${NC}"
-        echo -e "  ${BOLD}${CYAN}8)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
+        echo -e "  ${BOLD}${CYAN}7)${NC} ${BOLD}${GREEN}${p7_mark}Beyond Dimensions${NC}                   ${DIM}[Defasten Beyond Basel 2023 & Cotangent Dimensions]${NC}"
+        echo -e "  ${BOLD}${CYAN}8)${NC} ${BOLD}${GREEN}${p8_mark}Particle Accelerator${NC}                ${DIM}[Defasten TOROID & Vortex Sync (Mateh's Version)]${NC}"
+        echo -e "  ${BOLD}${CYAN}9)${NC} ${BOLD}${GREEN}${p9_mark}Cosmic Universe${NC}                     ${DIM}[Defasten Constellation & The Cosmological Horizon]${NC}"
+        echo -e "  ${BOLD}${CYAN}r)${NC} ${BOLD}${GREEN}${pr_mark}Random Preset Mode${NC}                  ${DIM}[Randomly Selects a Visualizer Preset on Each Run]${NC}"
+        echo -e "  ${BOLD}${CYAN}l)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
-        read -r -p "Select option [0-8]: " vp_choice
+        read -r -p "Select option [0-9, r, l]: " vp_choice
         case "$vp_choice" in
             1)
                 [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"
@@ -1081,12 +1099,27 @@ manage_mp_liquid_visualizer_presets() {
                 sleep 1
                 ;;
             7)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Beyond Dimensions"
+                echo -e "\n${GREEN}✔ Active Preset set to: Beyond Dimensions${NC}"
+                sleep 1
+                ;;
+            8)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Particle Accelerator"
+                echo -e "\n${GREEN}✔ Active Preset set to: Particle Accelerator${NC}"
+                sleep 1
+                ;;
+            9)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Universe"
+                echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Universe${NC}"
+                sleep 1
+                ;;
+            r|R|rand|random)
                 mkdir -p "$HOME/.config/mix-manager" 2>/dev/null
                 echo "random" > "$HOME/.config/mix-manager/visualizer_preset"
                 echo -e "\n${GREEN}✔ Active Preset set to: Random Mode${NC}"
                 sleep 1
                 ;;
-            8|l|L|z|Z)
+            l|L|z|Z)
                 launch_mp_liquid_visualizer
                 sleep 1
                 return 0

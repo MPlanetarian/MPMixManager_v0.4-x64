@@ -28,6 +28,10 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from scripts.mp_liquid_visualizer_vulkan import (  # noqa: E402
+    FOUR_K_MIN_HEIGHT,
+    FOUR_K_MIN_WIDTH,
+    RENDER_1080P_HEIGHT,
+    RENDER_1080P_WIDTH,
     VISUALIZER_PRESETS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
@@ -52,6 +56,10 @@ __all__ = [
     "VISUALIZER_PRESETS",
     "WINDOW_WIDTH",
     "WINDOW_HEIGHT",
+    "RENDER_1080P_WIDTH",
+    "RENDER_1080P_HEIGHT",
+    "FOUR_K_MIN_WIDTH",
+    "FOUR_K_MIN_HEIGHT",
     "AudioTelemetryBridge",
     "LiquidVisualizerVulkanRenderer",
     "VisualizerUBO",

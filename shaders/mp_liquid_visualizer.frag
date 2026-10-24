@@ -118,6 +118,24 @@ float sdOctahedron(vec3 p, float s) {
     return (p.x + p.y + p.z - s) * 0.57735027;
 }
 
+// Dodecahedron SDF (Resonant Fluid Dynamics morphing tech core)
+float sdDodecahedron(vec3 p, float r) {
+    const vec3 n1 = normalize(vec3(0.0, 1.0, 1.61803398875));
+    const vec3 n2 = normalize(vec3(0.0, 1.0, -1.61803398875));
+    const vec3 n3 = normalize(vec3(1.0, 1.61803398875, 0.0));
+    const vec3 n4 = normalize(vec3(-1.0, 1.61803398875, 0.0));
+    const vec3 n5 = normalize(vec3(1.61803398875, 0.0, 1.0));
+    const vec3 n6 = normalize(vec3(-1.61803398875, 0.0, 1.0));
+    p = abs(p);
+    float d = dot(p, n1);
+    d = max(d, dot(p, n2));
+    d = max(d, dot(p, n3));
+    d = max(d, dot(p, n4));
+    d = max(d, dot(p, n5));
+    d = max(d, dot(p, n6));
+    return d - r;
+}
+
 
 // Cosmic Dreamworlds (Liquid) Signature Palette
 // Extracted directly from MPlanetarian - Cosmic Dreamworlds [Deluxe Edition] cover art
@@ -296,8 +314,48 @@ vec3 sensoriumPalette(float t, vec2 uvHint) {
     return mix(procCol, coverSample, 0.45);
 }
 
+// Resonant Fluid Dynamics Signature Palette
+// Inspired by Resonant Fluid Dynamics.png and Defasten - Earth Flipper
+vec3 resonantFluidDynamicsPalette(float t, vec2 uvHint) {
+    vec3 colAbyssalVoid     = vec3(0.031, 0.027, 0.067); // Deep Resonant Abyssal Indigo (#080711)
+    vec3 colResonantIndigo  = vec3(0.086, 0.055, 0.620); // Deep Resonant Indigo / Ultramarine (#160e9e)
+    vec3 colNeonOrchid      = vec3(0.894, 0.039, 0.655); // High-Voltage Neon Orchid Magenta (#e40aa7)
+    vec3 colVioletPlum      = vec3(0.455, 0.043, 0.431); // Deep Violet Plum / Resonant Velvet (#740b6e)
+    vec3 colRoseQuartz      = vec3(0.965, 0.592, 0.722); // Rose Quartz Luminous Pink (#f697b8)
+    vec3 colElectricMint    = vec3(0.290, 0.867, 0.647); // Electric Mint Aqua / Bioluminescent Turquoise (#4adda5)
+    vec3 colDeepViridian    = vec3(0.133, 0.537, 0.447); // Deep Viridian Wave (#228972)
+    vec3 colStarlightPearl  = vec3(0.902, 0.945, 0.820); // Radiant Starlight Pearl / Pale Cream (#e6f1d1)
+
+    float s = fract(t);
+    vec3 procCol;
+    if (s < 0.142) {
+        procCol = mix(colAbyssalVoid, colResonantIndigo, s * 7.042);
+    } else if (s < 0.285) {
+        procCol = mix(colResonantIndigo, colNeonOrchid, (s - 0.142) * 7.0);
+    } else if (s < 0.428) {
+        procCol = mix(colNeonOrchid, colVioletPlum, (s - 0.285) * 7.0);
+    } else if (s < 0.571) {
+        procCol = mix(colVioletPlum, colRoseQuartz, (s - 0.428) * 7.0);
+    } else if (s < 0.714) {
+        procCol = mix(colRoseQuartz, colElectricMint, (s - 0.571) * 7.0);
+    } else if (s < 0.857) {
+        procCol = mix(colElectricMint, colDeepViridian, (s - 0.714) * 7.0);
+    } else {
+        procCol = mix(colDeepViridian, colStarlightPearl, (s - 0.857) * 7.0);
+    }
+
+    vec2 texUv = fract(uvHint * 0.35 + vec2(0.5));
+    vec3 coverSample = texture(uCoverTex, texUv).rgb;
+    float luma = dot(coverSample, vec3(0.299, 0.587, 0.114));
+    coverSample = clamp(mix(vec3(luma), coverSample, 1.55), 0.0, 1.0);
+
+    return mix(procCol, coverSample, 0.46);
+}
+
 vec3 getPresetPalette(float t, vec2 uvHint) {
-    if (u.preset.x > 3.5) {
+    if (u.preset.x > 5.5) {
+        return resonantFluidDynamicsPalette(t, uvHint);
+    } else if (u.preset.x > 3.5) {
         return sensoriumPalette(t, uvHint);
     } else if (u.preset.x > 2.5) {
         return infiniteComplexityPalette(t, uvHint);
@@ -332,7 +390,196 @@ vec2 mapScene(vec3 p) {
     float midPhase = u.audio2.z;
     float highPhase = u.audio2.w;
 
-    if (u.preset.x > 3.5) {
+    if (u.preset.x > 5.5) {
+        // =========================================================================
+        // PRESET 6 / 7: RESONANT FLUID DYNAMICS (DEFASTEN EARTH FLIPPER & DYNAMIC CORE)
+        // Inspired by Defasten's "Yaporigami - Earth Flipper (2022)" & Resonant Fluid Dynamics:
+        // "A primordial liquidstream of celestial origin spins itself back into existence 🌀🌌💦"
+        // Elevated to supreme procedural complexity & dynamic fluidity:
+        // 1. Central Transforming Liquid Orb / Polyhedral Tech Resonator (Material 1: Liquid Glass)
+        //    Continuously morphs slowly over time between standing-wave fluid ripple sphere,
+        //    faceted origami dodecahedron tech core, gyroscopic hyper-torus, and crystalline
+        //    star-burst resonator seed. Sub-bass expands volume; audio bands modulate standing waves.
+        // 2. Tri-Axis Interlocking Gyroscopic Fluid Toroids (Material 1 & 2)
+        //    3 concentric, counter-precessing hydraulic liquid toroids undulating with standing waves.
+        // 3. Braided Hex-Helical Primordial Liquidstreams (Material 3: Electric Mint & Neon Orchid)
+        //    6 interwoven celestial fluid conduits winding along the spine, flexing with audio frequencies.
+        // 4. Articulating Biomech Flipper Wings & Origami Sensorium Shards (Material 4: Obsidian Tech)
+        //    8 articulated hexagonal/trapezoidal armor plates flapping in rhythmic sync with music transients.
+        // 5. Relativistic Accretion Resonance Rings & Standing Waves (Material 2: Luminous Halos)
+        //    Fine radial ripples glowing in electric mint, neon orchid, and radiant starlight cream.
+        // 6. Floating Satellite Octahedron Crystal Nodes (Material 4: Harmonic Shards)
+        // =========================================================================
+
+        float dynTime = (u.preset.w > 0.001) ? u.preset.w : t;
+
+        // Celestial spatial drift with non-linear harmonic pendulum motion
+        vec3 centerFluid = vec3(
+            0.15 * sin(dynTime * 0.055 + bassPhase * 0.07),
+            0.11 * cos(dynTime * 0.045 + midPhase * 0.055),
+            0.08 * sin(dynTime * 0.035)
+        );
+        vec3 pCore = p - centerFluid;
+
+        // Monumental slow gyroscopic orientation
+        pCore.yz *= rot2(0.38 + 0.05 * cos(dynTime * 0.035));
+        pCore.xz *= rot2(dynTime * 0.048 + bassPhase * 0.028);
+        pCore.xy *= rot2(0.12 * sin(dynTime * 0.04));
+
+        // -------------------------------------------------------------------------
+        // 1. Central Transforming Liquid Core (Material 1: Translucent Liquid Glass)
+        // Morph cycle continuously transforms the central orb topology over time
+        // -------------------------------------------------------------------------
+        float morphT = fract(dynTime * 0.042);
+        float rBase = 0.58 + 0.16 * subBass + 0.08 * beat;
+
+        // Stage A: Viscous fluid ripple sphere with standing wave interference
+        float rippleStanding = 0.048 * (0.35 + bass * 1.25) *
+            sin(pCore.x * 6.5 + dynTime * 0.65 + bassPhase * 0.4) *
+            cos(pCore.y * 6.5 - dynTime * 0.55 + midPhase * 0.3) *
+            sin(pCore.z * 5.0 + dynTime * 0.45);
+        float dFluidSphere = sdSphere(pCore, rBase) + rippleStanding;
+
+        // Stage B: Faceted Origami Tech Dodecahedron with bevelled apertures
+        vec3 pDodec = pCore;
+        pDodec.xz *= rot2(dynTime * 0.12 + midPhase * 0.08);
+        pDodec.yz *= rot2(dynTime * 0.09);
+        float dDodec = sdDodecahedron(pDodec, rBase * 0.96) - 0.025;
+
+        // Stage C: Gyroscopic non-Euclidean fluid hyper-torus
+        vec3 pTorus = pCore;
+        pTorus.xy *= rot2(dynTime * 0.15 + highPhase * 0.05);
+        float dTorusCore = sdTorus(pTorus, vec2(rBase * 0.82, 0.22 + 0.06 * bass)) +
+            0.025 * sin(pTorus.x * 8.0 + dynTime) * (1.0 + lowMid);
+
+        // Stage D: Crystalline Octahedral Core Seed
+        vec3 pOct = pCore;
+        pOct.xz *= rot2(-dynTime * 0.10 + bassPhase * 0.06);
+        float dOctaCore = sdOctahedron(pOct, rBase * 1.22);
+
+        // Continuous cyclic smooth morphing between topologies
+        float dMorphOrb;
+        if (morphT < 0.25) {
+            float f = morphT / 0.25;
+            dMorphOrb = smin(dFluidSphere, dDodec, 0.22 * (1.0 - f) + 0.12 * f);
+            dMorphOrb = mix(dFluidSphere, dDodec, smoothstep(0.0, 1.0, f));
+        } else if (morphT < 0.50) {
+            float f = (morphT - 0.25) / 0.25;
+            dMorphOrb = smin(dDodec, dTorusCore, 0.18);
+            dMorphOrb = mix(dDodec, dTorusCore, smoothstep(0.0, 1.0, f));
+        } else if (morphT < 0.75) {
+            float f = (morphT - 0.50) / 0.25;
+            dMorphOrb = smin(dTorusCore, dOctaCore, 0.20);
+            dMorphOrb = mix(dTorusCore, dOctaCore, smoothstep(0.0, 1.0, f));
+        } else {
+            float f = (morphT - 0.75) / 0.25;
+            dMorphOrb = smin(dOctaCore, dFluidSphere, 0.22);
+            dMorphOrb = mix(dOctaCore, dFluidSphere, smoothstep(0.0, 1.0, f));
+        }
+
+        // Inner glowing celestial pearl seed
+        float dInnerSeed = sdSphere(pCore, 0.28 + 0.07 * beat);
+        float dCentralCore = min(dMorphOrb, dInnerSeed);
+
+        // -------------------------------------------------------------------------
+        // 2. Tri-Axis Interlocking Gyroscopic Fluid Toroids (Material 1: Liquid Glass)
+        // -------------------------------------------------------------------------
+        vec3 pGyro1 = pCore;
+        pGyro1.xz *= rot2(dynTime * 0.12 + bassPhase * 0.06);
+        float rip1 = 0.032 * (0.35 + bass * 1.1) * sin(pGyro1.x * 5.5 + dynTime * 0.5) * cos(pGyro1.y * 5.5);
+        float dGyro1 = sdTorus(pGyro1, vec2(1.22 + 0.16 * bass, 0.15 + 0.05 * subBass)) + rip1;
+
+        vec3 pGyro2 = pCore;
+        pGyro2.yz *= rot2(1.047 + dynTime * 0.09 - midPhase * 0.04);
+        pGyro2.xy *= rot2(dynTime * 0.07);
+        float rip2 = 0.028 * (0.35 + mid * 1.0) * sin(pGyro2.z * 5.5 - dynTime * 0.45);
+        float dGyro2 = sdTorus(pGyro2, vec2(1.48 + 0.18 * lowMid, 0.13 + 0.04 * bass)) + rip2;
+
+        vec3 pGyro3 = pCore;
+        pGyro3.xy *= rot2(-1.047 + dynTime * 0.10 + highPhase * 0.05);
+        pGyro3.xz *= rot2(-dynTime * 0.08);
+        float rip3 = 0.025 * (0.30 + treble * 0.9) * cos(pGyro3.y * 6.0 + dynTime * 0.6);
+        float dGyro3 = sdTorus(pGyro3, vec2(1.74 + 0.15 * mid, 0.11 + 0.03 * lowMid)) + rip3;
+
+        float dLiquidGlass = smin(dCentralCore, dGyro1, 0.15);
+        dLiquidGlass = smin(dLiquidGlass, dGyro2, 0.14);
+        dLiquidGlass = smin(dLiquidGlass, dGyro3, 0.14);
+
+        // -------------------------------------------------------------------------
+        // 3. Relativistic Accretion Rings & Resonance Halos (Material 2: Luminous Halos)
+        // -------------------------------------------------------------------------
+        vec3 pHalo1 = pCore;
+        pHalo1.yz *= rot2(0.24 + 0.04 * sin(dynTime * 0.05));
+        float ringRipple1 = 0.015 * sin(length(pHalo1.xz) * 24.0 - dynTime * 1.8 + bassPhase * 1.4);
+        float dHalo1 = sdTorus(pHalo1, vec2(2.10 + 0.22 * subBass + 0.08 * beat, 0.042 + 0.020 * beat)) + ringRipple1;
+
+        vec3 pHalo2 = pCore;
+        pHalo2.xz *= rot2(1.5707 + dynTime * 0.06);
+        pHalo2.xy *= rot2(0.35);
+        float ringRipple2 = 0.012 * cos(length(pHalo2.xz) * 20.0 - dynTime * 1.5);
+        float dHalo2 = sdTorus(pHalo2, vec2(2.55 + 0.25 * bass, 0.035 + 0.018 * rms)) + ringRipple2;
+
+        float dHalos = min(dHalo1, dHalo2);
+
+        // -------------------------------------------------------------------------
+        // 4. Braided Hex-Helical Primordial Liquidstreams (Material 3: Electric Mint & Neon Orchid)
+        // 6 interwoven fluid streams twisting along the longitudinal spine
+        // -------------------------------------------------------------------------
+        float dLiquidStreams = 1e5;
+        for (int i = 0; i < 6; i++) {
+            float strandAngle = float(i) * (TAU / 6.0);
+            float yRel = pCore.y;
+            float twistRate = 1.35;
+            float radHelix = 0.88 + 0.14 * sin(yRel * 2.2 + dynTime * 0.8 + float(i) * 1.047) + 0.12 * bass;
+            float theta = yRel * twistRate + dynTime * 0.70 + float(i) * (TAU / 6.0) + bassPhase * 0.25;
+            vec2 expectedXz = vec2(cos(theta), sin(theta)) * radHelix;
+            float distToHelix = length(pCore.xz - expectedXz);
+            float strandThick = 0.040 + 0.018 * sin(yRel * 3.5 + dynTime + float(i)) + 0.012 * mid;
+            float dStrand = distToHelix - strandThick;
+            dStrand = max(dStrand, abs(yRel) - 2.85); // Bound longitudinal length
+            dLiquidStreams = min(dLiquidStreams, dStrand);
+        }
+
+        // -------------------------------------------------------------------------
+        // 5. Articulating Biomech Flipper Wings & Origami Sensorium Shards (Material 4: Obsidian Tech)
+        // 8 articulated hexagonal armor plates flapping in rhythmic sync with music
+        // -------------------------------------------------------------------------
+        float dFlippers = 1e5;
+        float flapAngle = 0.32 * sin(dynTime * 0.85 + bassPhase * 0.75) * (1.0 + 0.95 * beat);
+        for (int w = 0; w < 8; w++) {
+            float wAngle = float(w) * (TAU / 8.0);
+            vec3 pWing = pCore;
+            pWing.xz *= rot2(wAngle + dynTime * 0.03);
+            pWing.x -= (1.85 + 0.22 * bass + 0.12 * beat);
+            pWing.yz *= rot2(flapAngle * ((w % 2 == 0) ? 1.0 : -1.0));
+            pWing.xy *= rot2(0.18 * sin(dynTime * 0.6 + float(w)));
+            float dPlate = sdHexPrism(pWing, vec2(0.36 + 0.05 * beat, 0.035));
+            dFlippers = min(dFlippers, dPlate);
+        }
+
+        // -------------------------------------------------------------------------
+        // 6. Floating Satellite Octahedron Crystal Nodes (Material 4: Harmonic Shards)
+        // -------------------------------------------------------------------------
+        float dSatellites = 1e5;
+        for (int s = 0; s < 4; s++) {
+            float sAngle = float(s) * (TAU / 4.0) + dynTime * 0.18;
+            float sRad = 2.95 + 0.35 * sin(dynTime * 0.3 + float(s));
+            vec3 pSat = pCore - vec3(cos(sAngle) * sRad, 0.6 * sin(sAngle * 2.0 + dynTime * 0.4), sin(sAngle) * sRad);
+            pSat.xz *= rot2(dynTime * 0.8 + float(s));
+            pSat.xy *= rot2(dynTime * 0.6);
+            float dNode = sdOctahedron(pSat, 0.16 + 0.04 * treble);
+            dSatellites = min(dSatellites, dNode);
+        }
+        float dTechArmor = min(dFlippers, dSatellites);
+
+        // Consolidate scene distances and materials
+        vec2 res = vec2(dLiquidGlass, 1.0);
+        if (dHalos < res.x)          res = vec2(dHalos, 2.0);
+        if (dLiquidStreams < res.x)  res = vec2(dLiquidStreams, 3.0);
+        if (dTechArmor < res.x)      res = vec2(dTechArmor, 4.0);
+
+        return res;
+    } else if (u.preset.x > 3.5) {
         // --- PRESET 4: SENSORIUM INTERFACE (DEFASTEN EARTH FLIPPER CELESTIAL GYROSCOPE) ---
         // Inspired by Defasten's "Yaporigami - Earth Flipper (2022)" and Sensorium_Interface.jpeg:
         // "A primordial liquidstream of celestial origin spins itself back into existence 🌀🌌💦"
@@ -873,11 +1120,74 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
     float bass = u.audio0.y;
     float mid = u.audio0.w;
     float treble = u.audio1.y;
+    float rms = u.audio1.w;
     float beat = u.audio2.x;
     float bassPhase = u.audio2.y;
     float highPhase = u.audio2.w;
 
-    if (u.preset.x > 3.5) {
+    if (u.preset.x > 5.5) {
+        // --- PRESET 6 / 7: RESONANT FLUID DYNAMICS (DYNAMIC CONTINUOUS COLOR-CHANGING BACKGROUND) ---
+        // 3D ray-projected celestial fluid manifold with infinite complexity design (dreamworlds),
+        // continuously evolving background color palette, Defasten mirrored perspective grid,
+        // chromatic dispersion 3D ray-sampling of Resonant Fluid Dynamics.png,
+        // and volumetric quantum starlight dust drifting in 3D space.
+        float dynTime = (u.preset.w > 0.001) ? u.preset.w : t;
+
+        vec2 p3d = rd.xy / (abs(rd.z) + 0.08);
+
+        // Fluid standing wave displacement in 3D space
+        vec2 waveUv = p3d * 0.38;
+        waveUv += vec2(
+            sin(p3d.y * 3.2 + dynTime * 0.38 + bassPhase * 0.30),
+            cos(p3d.x * 3.2 - dynTime * 0.32 + highPhase * 0.25)
+        ) * (0.042 + 0.030 * bass);
+
+        vec2 finalCoverUv = mix(mirrorUv(screenUv * 0.90 + 0.05), mirrorUv(waveUv + 0.5), 0.56);
+
+        // Chromatic dispersion 3D ray-sampling of Resonant Fluid Dynamics.png
+        float disp = 0.016 * (1.0 + 0.75 * beat);
+        vec3 coverTex;
+        coverTex.r = texture(uCoverTex, mirrorUv(finalCoverUv + rd.xy * disp)).r;
+        coverTex.g = texture(uCoverTex, mirrorUv(finalCoverUv)).g;
+        coverTex.b = texture(uCoverTex, mirrorUv(finalCoverUv - rd.xy * disp)).b;
+
+        // Dynamic continuous color evolution of the background (changes colour continuously)
+        float bgCycle = dynTime * 0.038;
+        vec3 colA = mix(vec3(0.024, 0.018, 0.055), vec3(0.086, 0.055, 0.620), 0.5 + 0.5 * sin(bgCycle * 1.0)); // Deep Indigo shift
+        vec3 colB = mix(vec3(0.894, 0.039, 0.655) * 0.32, vec3(0.290, 0.867, 0.647) * 0.28, 0.5 + 0.5 * sin(bgCycle * 1.4 + 1.2)); // Neon Magenta <-> Mint Aqua
+        vec3 colC = mix(vec3(0.455, 0.043, 0.431) * 0.35, vec3(0.133, 0.537, 0.447) * 0.30, 0.5 + 0.5 * cos(bgCycle * 0.9 + 2.5)); // Violet Plum <-> Viridian
+
+        vec3 colDeepSpace = mix(colA, colB, clamp(length(rd.xy) * 0.85, 0.0, 1.0));
+        colDeepSpace = mix(colDeepSpace, colC, clamp(rd.y * 0.5 + 0.5, 0.0, 1.0));
+
+        // Mirrored Defasten perspective grid planes
+        float gridY = abs(rd.y);
+        float gridLines = 0.0;
+        if (gridY > 0.06) {
+            vec2 gridCoord = rd.xz / (gridY + 0.001);
+            gridCoord.y += dynTime * 0.25 + bassPhase * 0.15;
+            vec2 gFract = abs(fract(gridCoord * 0.85) - 0.5);
+            float gDist = min(gFract.x, gFract.y);
+            gridLines = smoothstep(0.04, 0.0, gDist) * exp(-abs(gridCoord.y) * 0.18) * (0.35 + 0.45 * bass);
+        }
+
+        // Drifting quantum starlight dust
+        vec3 starP = rd * 16.0;
+        starP.xy += vec2(dynTime * 0.20, -dynTime * 0.15);
+        float stars = pow(noise3(starP), 14.0) * (18.0 + 16.0 * treble);
+
+        // Volumetric fluid fog & luminous aurora ripples
+        float fluidAurora = 0.18 * sin(rd.x * 5.0 + rd.y * 4.0 + dynTime * 0.6 + bassPhase * 0.4);
+        fluidAurora += 0.12 * cos(rd.x * 9.0 - rd.y * 7.0 - dynTime * 0.45);
+        fluidAurora = clamp(fluidAurora, 0.0, 1.0) * (0.65 + 0.55 * mid);
+
+        vec3 bgFinal = colDeepSpace + coverTex * (0.42 + 0.25 * rms)
+            + vec3(0.290, 0.867, 0.647) * gridLines
+            + vec3(0.965, 0.592, 0.722) * fluidAurora
+            + vec3(0.902, 0.945, 0.820) * stars;
+
+        return bgFinal;
+    } else if (u.preset.x > 3.5) {
         // --- PRESET 4: SENSORIUM INTERFACE (DEFASTEN EARTH FLIPPER CELESTIAL BACKGROUND) ---
         // 3D ray-projected celestial void with primordial liquidstream parallax,
         // Sensorium_Interface.jpeg chromatic dispersion, auroral jade & mauve ripples,
@@ -1173,7 +1483,7 @@ void main() {
 
     // --- Dynamic Orbital 3D Camera ---
     // Smoothly glides around the scene and zooms on bass drops
-    float baseCamDist = (u.preset.x > 3.5) ? 5.20 : ((u.preset.x > 2.5) ? 5.25 : ((u.preset.x > 1.5) ? 5.10 : 4.35));
+    float baseCamDist = (u.preset.x > 7.5) ? 5.30 : ((u.preset.x > 6.5) ? 5.10 : ((u.preset.x > 5.5) ? 5.15 : ((u.preset.x > 3.5) ? 5.20 : ((u.preset.x > 2.5) ? 5.25 : ((u.preset.x > 1.5) ? 5.10 : 4.35)))));
     float camDist = baseCamDist - 0.45 * bass - 0.22 * beat + 0.35 * sin(t * 0.19);
     float camYaw = t * 0.16 + 0.25 * sin(t * 0.11 + bassPhase * 0.08);
     float camPitch = 0.18 * sin(t * 0.14 + midPhase * 0.06);
@@ -1274,15 +1584,21 @@ void main() {
             float coreDepth = pow(max(dot(n, v), 0.0), 1.6);
             float innerCaust = noise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
             vec3 innerSwatch = getPresetPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
-            vec3 deepGlassCore = (u.preset.x > 3.5)
-                ? mix(refrCol * 0.94, vec3(0.012, 0.010, 0.024), 0.46 * coreDepth)
-                : ((u.preset.x > 2.5)
-                    ? mix(refrCol * 0.94, vec3(0.008, 0.015, 0.012), 0.46 * coreDepth)
-                    : ((u.preset.x > 1.5)
-                        ? mix(refrCol * 0.92, vec3(0.015, 0.022, 0.038), 0.48 * coreDepth)
-                        : ((u.preset.x > 0.5)
-                            ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
-                            : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth))));
+            vec3 deepGlassCore = (u.preset.x > 7.5)
+                ? mix(refrCol * 0.94, vec3(0.005, 0.008, 0.022), 0.46 * coreDepth)
+                : ((u.preset.x > 6.5)
+                    ? mix(refrCol * 0.94, vec3(0.012, 0.005, 0.025), 0.46 * coreDepth)
+                    : ((u.preset.x > 5.5)
+                        ? mix(refrCol * 0.94, vec3(0.015, 0.008, 0.035), 0.46 * coreDepth)
+                        : ((u.preset.x > 3.5)
+                            ? mix(refrCol * 0.94, vec3(0.012, 0.010, 0.024), 0.46 * coreDepth)
+                            : ((u.preset.x > 2.5)
+                                ? mix(refrCol * 0.94, vec3(0.008, 0.015, 0.012), 0.46 * coreDepth)
+                                : ((u.preset.x > 1.5)
+                                    ? mix(refrCol * 0.92, vec3(0.015, 0.022, 0.038), 0.48 * coreDepth)
+                                    : ((u.preset.x > 0.5)
+                                        ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
+                                        : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth)))))));
             refrCol = mix(deepGlassCore, innerSwatch * (0.75 + 0.5 * diff1), 0.42 + 0.22 * bass);
 
             // Specular highlights & iridescent glass rim
@@ -1290,20 +1606,32 @@ void main() {
             float spec1 = pow(max(dot(n, halfVec1), 0.0), 72.0);
             float spec2 = pow(max(dot(reflect(-lightDir2, n), v), 0.0), 36.0);
 
-            vec3 rimColor = (u.preset.x > 3.5)
-                ? mix(vec3(0.000, 0.961, 1.000), vec3(0.941, 0.659, 0.847), 0.5 + 0.5 * n.y)
-                : ((u.preset.x > 2.5)
-                    ? mix(vec3(0.165, 0.886, 0.467), vec3(0.973, 0.910, 0.988), 0.5 + 0.5 * n.y)
-                    : ((u.preset.x > 1.5)
-                        ? mix(vec3(0.00, 0.95, 1.00), vec3(1.00, 0.48, 0.68), 0.5 + 0.5 * n.y)
-                        : ((u.preset.x > 0.5)
-                            ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
-                            : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y))));
-            vec3 rimLight2 = (u.preset.x > 3.5)
-                ? vec3(0.463, 0.576, 0.443)
-                : ((u.preset.x > 2.5)
-                    ? vec3(0.906, 0.898, 0.765)
-                    : ((u.preset.x > 1.5) ? vec3(0.98, 0.99, 1.00) : ((u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00))));
+            vec3 rimColor = (u.preset.x > 7.5)
+                ? mix(vec3(0.220, 0.741, 0.973), vec3(0.984, 0.749, 0.141), 0.5 + 0.5 * n.y)
+                : ((u.preset.x > 6.5)
+                    ? mix(vec3(0.000, 0.824, 1.000), vec3(1.000, 0.000, 0.502), 0.5 + 0.5 * n.y)
+                    : ((u.preset.x > 5.5)
+                        ? mix(vec3(0.000, 0.961, 0.831), vec3(0.969, 0.145, 0.522), 0.5 + 0.5 * n.y)
+                        : ((u.preset.x > 3.5)
+                            ? mix(vec3(0.000, 0.961, 1.000), vec3(0.941, 0.659, 0.847), 0.5 + 0.5 * n.y)
+                            : ((u.preset.x > 2.5)
+                                ? mix(vec3(0.165, 0.886, 0.467), vec3(0.973, 0.910, 0.988), 0.5 + 0.5 * n.y)
+                                : ((u.preset.x > 1.5)
+                                    ? mix(vec3(0.00, 0.95, 1.00), vec3(1.00, 0.48, 0.68), 0.5 + 0.5 * n.y)
+                                    : ((u.preset.x > 0.5)
+                                        ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
+                                        : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y)))))));
+            vec3 rimLight2 = (u.preset.x > 7.5)
+                ? vec3(0.984, 0.443, 0.522)
+                : ((u.preset.x > 6.5)
+                    ? vec3(0.000, 1.000, 0.749)
+                    : ((u.preset.x > 5.5)
+                        ? vec3(0.420, 0.067, 1.000)
+                        : ((u.preset.x > 3.5)
+                            ? vec3(0.463, 0.576, 0.443)
+                            : ((u.preset.x > 2.5)
+                                ? vec3(0.906, 0.898, 0.765)
+                                : ((u.preset.x > 1.5) ? vec3(0.98, 0.99, 1.00) : ((u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00)))))));
 
             col = refrCol * (0.65 + 0.45 * diff1) * (0.55 + 0.45 * ao)
                 + rimColor * fresnel * (1.35 + 0.65 * rms)
@@ -1314,7 +1642,28 @@ void main() {
             // --- Material 2: Incandescent Planetary / Accretion Rings ---
             float ringWave = sin(length(p) * 18.0 - bassPhase * 2.5);
             vec3 ringBase;
-            if (u.preset.x > 3.5) {
+            if (u.preset.x > 7.5) {
+                ringBase = mix(
+                    vec3(0.220, 0.741, 0.973), // Celestial Starlight Cyan
+                    vec3(0.984, 0.749, 0.141), // Supernova Solar Gold
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(0.984, 0.443, 0.522), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 6.5) {
+                ringBase = mix(
+                    vec3(0.000, 0.824, 1.000), // Synchrotron Blue
+                    vec3(0.000, 1.000, 0.749), // Cherenkov Aqua
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(1.000, 0.000, 0.502), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 5.5) {
+                ringBase = mix(
+                    vec3(0.000, 0.961, 0.831), // Electric Cotangent Cyan
+                    vec3(0.969, 0.145, 0.522), // Non-Euclidean Prism Magenta
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(0.996, 0.894, 0.251), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 3.5) {
                 ringBase = mix(
                     vec3(0.000, 0.961, 1.000), // Bioluminescent Cyber Cyan
                     vec3(0.941, 0.659, 0.847), // Sensorium Rose Quartz
@@ -1360,11 +1709,17 @@ void main() {
             float pulse = pow(0.5 + 0.5 * sin(p.y * 8.0 + bassPhase * 2.2), 4.0);
             vec3 strandCol = getPresetPalette(p.y * 0.25 + p.x * 0.15 + t * 0.05, mirrorUv(screenUv));
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 40.0);
-            vec3 conduitFresnel = (u.preset.x > 3.5)
-                ? vec3(0.463, 0.576, 0.443) // Earth Flipper Celestial Jade
-                : ((u.preset.x > 2.5)
-                    ? vec3(0.894, 0.694, 0.757) // Rose Quartz
-                    : ((u.preset.x > 1.5) ? vec3(1.00, 0.48, 0.68) : ((u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00))));
+            vec3 conduitFresnel = (u.preset.x > 7.5)
+                ? vec3(0.220, 0.741, 0.973) // Starlight Cyan
+                : ((u.preset.x > 6.5)
+                    ? vec3(0.000, 1.000, 0.749) // Cherenkov Aqua
+                    : ((u.preset.x > 5.5)
+                        ? vec3(0.000, 0.961, 0.831) // Cotangent Cyan
+                        : ((u.preset.x > 3.5)
+                            ? vec3(0.463, 0.576, 0.443) // Earth Flipper Celestial Jade
+                            : ((u.preset.x > 2.5)
+                                ? vec3(0.894, 0.694, 0.757) // Rose Quartz
+                                : ((u.preset.x > 1.5) ? vec3(1.00, 0.48, 0.68) : ((u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00)))))));
             col = strandCol * (0.38 + 0.68 * diff1 + 0.25 * diff2) * ao
                 + strandCol * pulse * (0.85 + 0.95 * bass)
                 + conduitFresnel * fresnel * 0.95

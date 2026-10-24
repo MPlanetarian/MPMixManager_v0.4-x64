@@ -148,6 +148,84 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual((w, h), (256, 256))
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
+    def test_preset_beyond_dimensions_single_cover(self):
+        """Seventh preset (7) must be 'Beyond Dimensions' inspired by Defasten Beyond Basel and Cotangent Dimensions."""
+        preset = vis.get_active_preset("Beyond Dimensions")
+        self.assertEqual(preset["name"], "Beyond Dimensions")
+        self.assertEqual(preset["key"], "beyond_dimensions")
+        self.assertEqual(preset["id"], 6)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("beyond_dimensions")["id"], 6)
+        self.assertEqual(vis.get_active_preset("beyond dimensions")["id"], 6)
+        self.assertEqual(vis.get_active_preset("beyond")["id"], 6)
+        self.assertEqual(vis.get_active_preset("dimensions")["id"], 6)
+        self.assertEqual(vis.get_active_preset("cotangent")["id"], 6)
+        self.assertEqual(vis.get_active_preset("7")["id"], 6)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Beyond Dimensions must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
+    def test_preset_particle_accelerator_single_cover(self):
+        """Eighth preset (8) must be 'Particle Accelerator' inspired by Defasten TOROID and Vortex Sync."""
+        preset = vis.get_active_preset("Particle Accelerator")
+        self.assertEqual(preset["name"], "Particle Accelerator")
+        self.assertEqual(preset["key"], "particle_accelerator")
+        self.assertEqual(preset["id"], 7)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("particle_accelerator")["id"], 7)
+        self.assertEqual(vis.get_active_preset("particle accelerator")["id"], 7)
+        self.assertEqual(vis.get_active_preset("particle")["id"], 7)
+        self.assertEqual(vis.get_active_preset("accelerator")["id"], 7)
+        self.assertEqual(vis.get_active_preset("toroid")["id"], 7)
+        self.assertEqual(vis.get_active_preset("8")["id"], 7)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Particle Accelerator must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
+    def test_preset_cosmic_universe_single_cover(self):
+        """Ninth preset (9) must be 'Cosmic Universe' inspired by Defasten Constellation and The Cosmological Horizon."""
+        preset = vis.get_active_preset("Cosmic Universe")
+        self.assertEqual(preset["name"], "Cosmic Universe")
+        self.assertEqual(preset["key"], "cosmic_universe")
+        self.assertEqual(preset["id"], 8)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("cosmic_universe")["id"], 8)
+        self.assertEqual(vis.get_active_preset("cosmic universe")["id"], 8)
+        self.assertEqual(vis.get_active_preset("cosmic")["id"], 8)
+        self.assertEqual(vis.get_active_preset("universe")["id"], 8)
+        self.assertEqual(vis.get_active_preset("constellation")["id"], 8)
+        self.assertEqual(vis.get_active_preset("9")["id"], 8)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Cosmic Universe must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
     def test_audio_telemetry_advances_only_when_playing(self):
         """3D generation must advance when music is playing and freeze in-place when paused or stopped."""
         with tempfile.TemporaryDirectory() as td:
@@ -329,6 +407,10 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             # Press Z again -> returns to normal 1400x1400 windowed mode
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
+            import time
+            for _ in range(5):
+                renderer.poll()
+                time.sleep(0.01)
             self.assertEqual(renderer.window_size(), (1400, 1400))
             if hasattr(g, "glfwGetWindowAttrib"):
                 floating = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_FLOATING)
