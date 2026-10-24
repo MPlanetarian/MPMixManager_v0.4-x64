@@ -28,16 +28,8 @@ COLS = 120
 ROWS = 40
 
 
-def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y):
-    """Pixel boxes for the title card and the playlist panel in ``_draw_frame``.
-
-    The equalizer and inspector replace the playlist, so they share its glass.
-    """
-    iw = 115 if cols >= 122 else max(20, cols - 6)
-    viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-    before = 4 + 1 + 1 + 3 + viz_rows + 1
-    body_rows = max(1, rows - (before + 1) - 4)
-
+def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NORMAL"):
+    """Pixel boxes for the player panels in ``_draw_frame`` across Normal, Mini, and Micro modes."""
     def box(col, row, box_cols, box_rows):
         return (
             origin_x + col * char_w,
@@ -46,10 +38,25 @@ def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y):
             box_rows * char_h,
         )
 
-    return (
-        box(2, 0, iw + 2, 4),
-        box(2, before, iw + 2, body_rows + 2),
-    )
+    if mode == "MICRO":
+        return (
+            box(2, 0, min(cols - 4, 70), rows),
+            (0.0, 0.0, 0.0, 0.0),
+        )
+    elif mode == "MINI":
+        return (
+            box(2, 0, min(cols - 4, 74), 3),
+            box(2, 3, min(cols - 4, 74), max(1, rows - 3)),
+        )
+    else:
+        iw = 115 if cols >= 122 else max(20, cols - 6)
+        viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
+        before = 4 + 1 + 1 + 3 + viz_rows + 1
+        body_rows = max(1, rows - (before + 1) - 4)
+        return (
+            box(2, 0, iw + 2, 4),
+            box(2, before, iw + 2, body_rows + 2),
+        )
 
 
 def _import_gtk():
@@ -67,8 +74,13 @@ def _import_gtk():
     return GLib, Gtk, Vte
 
 
-def player_argv():
-    return [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
+def player_argv(mode="NORMAL"):
+    cmd = [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
+    if mode == "MINI":
+        cmd.append("--mini")
+    elif mode == "MICRO":
+        cmd.append("--micro")
+    return cmd
 
 
 def embed_check_argv():
@@ -80,15 +92,17 @@ def _child_env():
     env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
+    env["MP_LIQUID_GLASS"] = "1"
     return [f"{key}={value}" for key, value in env.items()]
 
 
 class GlassHost:
     """Vulkan glass chrome with a solid terminal window in the centre well."""
 
-    def __init__(self, argv, embed_check=False):
+    def __init__(self, argv, embed_check=False, mode="NORMAL"):
         self.argv = list(argv)
         self.embed_check = embed_check
+        self.mode = mode.upper()
         self.renderer = None
         self.gtk_window = None
         self.terminal = None
@@ -96,10 +110,21 @@ class GlassHost:
         self.child_pid = 0
         self.spawn_error = None
         self.child_done = False
+        self.is_maximized = False
+        self._saved_rect = None
+        self._last_top_click = 0.0
+        self._last_top_click_x = 0
+        self._last_top_click_y = 0
+        self._target_cols = 74 if self.mode in ("MINI", "MICRO") else COLS
+        self._target_rows = 14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS)
 
     def _on_bezel(self, x, y, width, height):
         margin = self.renderer.bezel_px
         return x < margin or y < margin or x >= width - margin or y >= height - margin
+
+    def _on_top_bezel(self, x, y, width, height):
+        margin = self.renderer.bezel_px
+        return y < margin + 40 and not self._on_close(x, y, width, height)
 
     def _on_close(self, x, y, width, height):
         margin = self.renderer.bezel_px
@@ -123,7 +148,10 @@ class GlassHost:
         x, y, inner_w, inner_h = self._well_rect()
         if self.gtk_window is not None:
             self.gtk_window.move(int(x), int(y))
-            self.gtk_window.resize(int(inner_w), int(inner_h))
+            cur_size = getattr(self, "_last_term_size", None)
+            if cur_size != (int(inner_w), int(inner_h)):
+                self.gtk_window.resize(int(inner_w), int(inner_h))
+                self._last_term_size = (int(inner_w), int(inner_h))
         self.renderer.place_terminal(self.child_xid, x, y, inner_w, inner_h)
         self._sync_panels()
 
@@ -136,7 +164,88 @@ class GlassHost:
         if char_w < 4 or char_h < 8:
             char_w, char_h = 9, 18
         margin = self.renderer.bezel_px
-        self.renderer.set_panels(player_panel_rects(COLS, ROWS, char_w, char_h, margin, margin))
+        cols = getattr(self, "_target_cols", COLS)
+        rows = getattr(self, "_target_rows", ROWS)
+        self.renderer.set_panels(player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode))
+
+    def toggle_maximize(self):
+        if self.terminal is None or self.renderer is None:
+            return
+        char_w = int(self.terminal.get_char_width() or 0)
+        char_h = int(self.terminal.get_char_height() or 0)
+        if char_w < 4 or char_h < 8:
+            char_w, char_h = 9, 18
+        margin = self.renderer.bezel_px
+
+        if not self.is_maximized:
+            # Save current window position and size
+            self._saved_rect = (self.renderer.window_pos(), self.renderer.window_size())
+            wx, wy, ww, wh = self.renderer.get_workarea()
+            max_cols = max(40, int((ww - 2 * margin) // char_w))
+            max_rows = max(10, int((wh - 2 * margin) // char_h))
+            self._target_cols = max_cols
+            self._target_rows = max_rows
+            self.renderer.set_window_pos(wx, wy)
+            self.renderer.set_window_size(ww, wh)
+            self.terminal.set_size(max_cols, max_rows)
+            self._place_terminal()
+            self.is_maximized = True
+        else:
+            # Restore to fixed default / previous size
+            pos, size = getattr(self, "_saved_rect", ((72, 64), (1280, 820)))
+            if self.mode == "MINI":
+                cols, rows = 74, 14
+            elif self.mode == "MICRO":
+                cols, rows = 74, 7
+            else:
+                cols, rows = COLS, ROWS
+            self._target_cols = cols
+            self._target_rows = rows
+            win_w = cols * char_w + 2 * margin
+            win_h = rows * char_h + 2 * margin
+            self.renderer.set_window_pos(pos[0], pos[1])
+            self.renderer.set_window_size(win_w, win_h)
+            self.terminal.set_size(cols, rows)
+            self._place_terminal()
+            self.is_maximized = False
+
+    def set_mode(self, mode: str):
+        self.mode = mode.upper()
+        if self.terminal is None or self.renderer is None:
+            return
+        if self.is_maximized:
+            self.is_maximized = False
+        if self.mode == "MINI":
+            cols, rows = 74, 14
+        elif self.mode == "MICRO":
+            cols, rows = 74, 7
+        else:
+            cols, rows = COLS, ROWS
+        self._target_cols = cols
+        self._target_rows = rows
+        char_w = int(self.terminal.get_char_width() or 0)
+        char_h = int(self.terminal.get_char_height() or 0)
+        if char_w < 4 or char_h < 8:
+            char_w, char_h = 9, 18
+        margin = self.renderer.bezel_px
+        win_w = cols * char_w + 2 * margin
+        win_h = rows * char_h + 2 * margin
+        self.renderer.set_window_size(win_w, win_h)
+        self.terminal.set_size(cols, rows)
+        self._place_terminal()
+
+    def _on_key_press(self, _term, event):
+        from gi.repository import Gdk
+        keyval = getattr(event, "keyval", 0)
+        if keyval in (Gdk.KEY_m, Gdk.KEY_M):
+            if self.mode == "NORMAL":
+                self.set_mode("MINI")
+            elif self.mode == "MINI":
+                self.set_mode("MICRO")
+            else:
+                self.set_mode("NORMAL")
+            return False
+        return False
 
     def _terminal_in_well(self):
         """The player must be a solid window over the well, not a faded child of the glass."""
@@ -179,16 +288,37 @@ class GlassHost:
             if self._on_close(x, y, width, height):
                 self.renderer.request_close()
                 dragging = False
-            elif self._on_bezel(x, y, width, height):
+            elif self._on_top_bezel(x, y, width, height):
+                now = time.monotonic()
+                if (now - getattr(self, "_last_top_click", 0.0) < 0.38
+                    and abs(x - getattr(self, "_last_top_click_x", 0)) < 25
+                    and abs(y - getattr(self, "_last_top_click_y", 0)) < 25):
+                    self.toggle_maximize()
+                    dragging = False
+                    self._last_top_click = 0.0
+                else:
+                    self._last_top_click = now
+                    self._last_top_click_x = x
+                    self._last_top_click_y = y
+                    if self._on_bezel(x, y, width, height) and not self.is_maximized:
+                        dragging = True
+                        origin = self.renderer.window_pos()
+                        rx, ry = self.renderer.root_pointer()
+                        press_screen = (rx, ry) if (rx or ry) else (origin[0] + x, origin[1] + y)
+            elif self._on_bezel(x, y, width, height) and not self.is_maximized:
                 dragging = True
                 origin = self.renderer.window_pos()
-                press_screen = (origin[0] + x, origin[1] + y)
+                rx, ry = self.renderer.root_pointer()
+                press_screen = (rx, ry) if (rx or ry) else (origin[0] + x, origin[1] + y)
         elif down and dragging:
-            wx, wy = self.renderer.window_pos()
-            self.renderer.set_window_pos(
-                int(origin[0] + ((wx + x) - press_screen[0])),
-                int(origin[1] + ((wy + y) - press_screen[1])),
-            )
+            rx, ry = self.renderer.root_pointer()
+            if rx or ry:
+                new_x = int(origin[0] + (rx - press_screen[0]))
+                new_y = int(origin[1] + (ry - press_screen[1]))
+            else:
+                new_x = int(origin[0] + (x - (press_screen[0] - origin[0])))
+                new_y = int(origin[1] + (y - (press_screen[1] - origin[1])))
+            self.renderer.set_window_pos(new_x, new_y)
         else:
             dragging = False
         return down, dragging, origin, press_screen
@@ -199,7 +329,10 @@ class GlassHost:
         if char_w < 4 or char_h < 8:
             char_w, char_h = 9, 18
         margin = self.renderer.bezel_px
-        self.renderer.set_window_size(COLS * char_w + 2 * margin, ROWS * char_h + 2 * margin)
+        cols = getattr(self, "_target_cols", COLS)
+        rows = getattr(self, "_target_rows", ROWS)
+        self.renderer.set_window_size(cols * char_w + 2 * margin, rows * char_h + 2 * margin)
+        term.set_size(cols, rows)
         term.set_size(COLS, ROWS)
 
     def run(self):
@@ -237,6 +370,7 @@ class GlassHost:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
         self._place_terminal()
         self.renderer.focus_window(self.child_xid)
+        term.connect("key-press-event", self._on_key_press)
         term.connect("child-exited", self._on_child_exit)
         term.spawn_async(
             vte.PtyFlags.DEFAULT,
@@ -340,10 +474,11 @@ def main(argv):
         run_self_test()
         return 0
     embed = "--embed-check" in argv
-    command = embed_check_argv() if embed else player_argv()
+    mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
+    command = embed_check_argv() if embed else player_argv(mode=mode)
     if not Path(command[1]).is_file() and not embed:
         raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
-    host = GlassHost(command, embed_check=embed)
+    host = GlassHost(command, embed_check=embed, mode=mode)
     ok = host.run()
     if embed:
         if not ok:

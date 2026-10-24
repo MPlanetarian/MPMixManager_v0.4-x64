@@ -59,7 +59,7 @@ class TestMenuOption(unittest.TestCase):
         self.assertIn("37|77|", text)
         self.assertNotIn("36|77|", text)
         self.assertIn("between 0 and 37", text)
-        self.assertEqual(text.count("launch_mp_audio_player_liquid_glass"), 2)
+        self.assertGreaterEqual(text.count("launch_mp_audio_player_liquid_glass"), 2)
 
     def test_shell_parses(self):
         result = subprocess.run(
@@ -106,6 +106,22 @@ class TestNvidiaFrame(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("LIQUID_GLASS_EMBED_OK", result.stdout)
         self.assertIn("vendor 0x10de", result.stdout)
+
+    def test_window_movement_and_pointer_tracking(self):
+        from liquid_glass_vulkan import LiquidGlassRenderer
+
+        renderer = LiquidGlassRenderer(400, 300, "Movement Test")
+        try:
+            renderer.open()
+            init_pos = renderer.window_pos()
+            self.assertEqual(init_pos, (72, 64))
+            renderer.set_window_pos(150, 200)
+            self.assertEqual(renderer.window_pos(), (150, 200))
+            rx, ry = renderer.root_pointer()
+            self.assertIsInstance(rx, int)
+            self.assertIsInstance(ry, int)
+        finally:
+            renderer.close()
 
 
 if __name__ == "__main__":

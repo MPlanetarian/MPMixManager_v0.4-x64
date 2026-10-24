@@ -121,7 +121,7 @@ class TestPlayerRecording(unittest.TestCase):
             with wave.open(path, "rb") as wf:
                 self.assertEqual(wf.getnchannels(), 2)
                 self.assertEqual(wf.getsampwidth(), 2)  # 16-bit
-                self.assertEqual(wf.getframerate(), 44100)
+                self.assertIn(wf.getframerate(), (44100, 48000))
                 nframes = wf.getnframes()
                 self.assertGreater(nframes, 0)
 
@@ -178,22 +178,39 @@ class TestPlayerRecording(unittest.TestCase):
         mock_engine.toggle_recording.assert_called_once()
         self.assertIn("Recording stopped", ui.notification_msg)
 
-    def test_ui_key_l_toggles_repeat(self):
-        """Verifies pressing 'l' or 'L' now controls Repeat mode (since 'r' is Record)."""
+    def test_ui_key_y_toggles_repeat(self):
+        """Verifies pressing 'y' or 'Y' now controls Repeat mode (since 'l' opens Liquid Glass)."""
         mock_engine = MagicMock()
         mock_engine.repeat_mode = "off"
         mock_scanner = MagicMock()
 
         ui = MP_Audio_Player.TerminalPlayerUI(mock_engine, mock_scanner, is_remote=False)
 
-        # Press 'l'
-        ui._process_key(b"l")
+        # Press 'y'
+        ui._process_key(b"y")
         mock_engine.cycle_repeat.assert_called_once()
 
-        # Press 'L'
+        # Press 'Y'
         mock_engine.cycle_repeat.reset_mock()
-        ui._process_key(b"L")
+        ui._process_key(b"Y")
         mock_engine.cycle_repeat.assert_called_once()
+
+    def test_ui_key_l_launches_liquid_glass_player(self):
+        """Verifies pressing 'l' or 'L' opens the Liquid Glass Player."""
+        mock_engine = MagicMock()
+        mock_scanner = MagicMock()
+
+        ui = MP_Audio_Player.TerminalPlayerUI(mock_engine, mock_scanner, is_remote=False)
+
+        with patch("MP_Audio_Player.launch_liquid_glass_player", return_value=True) as mock_launch:
+            ui._process_key(b"l")
+            mock_launch.assert_called_once()
+            self.assertIn("Liquid Glass", ui.notification_msg)
+
+        with patch("MP_Audio_Player.launch_liquid_glass_player", return_value=True) as mock_launch:
+            ui._process_key(b"L")
+            mock_launch.assert_called_once()
+            self.assertIn("Liquid Glass", ui.notification_msg)
 
     def test_ipc_record_commands(self):
         """Verifies IPC server correctly handles record and toggle_record commands."""

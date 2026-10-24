@@ -1370,8 +1370,8 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             <button class="btn-sub btn-mode" id="btnShuffle" onclick="sendAction('shuffle')" title="Toggle Shuffle Mode [S]">
                 <span class="mode-icon">🔀</span> Shuffle: <span id="shufText">OFF</span> <kbd>[S]</kbd>
             </button>
-            <button class="btn-sub btn-mode" id="btnRepeat" onclick="sendAction('repeat')" title="Cycle Repeat Mode [L]">
-                <span class="mode-icon">🔁</span> Repeat: <span id="repText">ALL</span> <kbd>[L]</kbd>
+            <button class="btn-sub btn-mode" id="btnRepeat" onclick="sendAction('repeat')" title="Cycle Repeat Mode [Y]">
+                <span class="mode-icon">🔁</span> Repeat: <span id="repText">ALL</span> <kbd>[Y]</kbd>
             </button>
         </div>
 

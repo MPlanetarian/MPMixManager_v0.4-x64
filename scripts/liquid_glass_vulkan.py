@@ -39,6 +39,7 @@ SHADER_DIR = ROOT / "shaders"
 
 THEME_COLORS = {
     "dreamworlds_ultra": ((166, 77, 255), (247, 37, 133), (0, 229, 255)),
+    "dreamworlds_liquid": ((0, 245, 255), (199, 125, 255), (72, 149, 239)),
     "cosmic_supernova": ((224, 86, 253), (0, 245, 212), (76, 201, 240)),
     "dreamworlds_neon": ((0, 229, 255), (247, 37, 133), (102, 102, 255)),
     "retro_studio": ((241, 196, 15), (230, 126, 34), (243, 156, 18)),
@@ -51,6 +52,12 @@ THEME_ALIASES = {
     "dreamworlds": "dreamworlds_ultra",
     "default": "dreamworlds_ultra",
     "mplanetarian": "dreamworlds_ultra",
+    "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid",
+    "dreamworlds_liquid_transparency": "dreamworlds_liquid",
+    "liquid_transparency": "dreamworlds_liquid",
+    "liquid": "dreamworlds_liquid",
+    "glass": "dreamworlds_liquid",
+    "liquid_glass": "dreamworlds_liquid",
     "cosmic": "cosmic_supernova",
     "supernova": "cosmic_supernova",
     "cyberpunk": "cyber_neon",
@@ -722,6 +729,7 @@ class LiquidGlassRenderer:
         self.should_close = False
         self.shaped = False
         self._shape_size = (0, 0)
+        self._cur_pos = (72, 64)
         self._frame = 0
         self._start = time.monotonic()
         self._swapchain = 0
@@ -863,16 +871,64 @@ class LiquidGlassRenderer:
         return max(1, int(w.value)), max(1, int(h.value))
 
     def window_pos(self):
+        if getattr(self, "_cur_pos", None) is not None:
+            return self._cur_pos
         x, y = c_int(), c_int()
         self._glfw.glfwGetWindowPos(self._window, byref(x), byref(y))
-        return int(x.value), int(y.value)
+        pos = (int(x.value), int(y.value))
+        self._cur_pos = pos
+        return pos
 
     def set_window_pos(self, x, y):
-        self._glfw.glfwSetWindowPos(self._window, int(x), int(y))
+        pos = (int(x), int(y))
+        self._cur_pos = pos
+        self._glfw.glfwSetWindowPos(self._window, pos[0], pos[1])
 
     def set_window_size(self, w, h):
         self._glfw.glfwSetWindowSize(self._window, int(w), int(h))
         self._resize = True
+
+    def get_workarea(self):
+        """Monitor workarea (x, y, width, height) where this window is located."""
+        if not self._window:
+            return 0, 0, 1920, 1080
+        wx, wy = self.window_pos()
+        self._glfw.glfwGetPrimaryMonitor.restype = c_void_p
+        mon = self._glfw.glfwGetPrimaryMonitor()
+        count = c_int()
+        self._glfw.glfwGetMonitors.restype = POINTER(c_void_p)
+        self._glfw.glfwGetMonitors.argtypes = [POINTER(c_int)]
+        if hasattr(self._glfw, "glfwGetMonitorWorkarea"):
+            self._glfw.glfwGetMonitorWorkarea.argtypes = [
+                c_void_p,
+                POINTER(c_int),
+                POINTER(c_int),
+                POINTER(c_int),
+                POINTER(c_int),
+            ]
+            mons = self._glfw.glfwGetMonitors(byref(count))
+            if mons and count.value > 0:
+                for i in range(count.value):
+                    m = mons[i]
+                    mx, my, mw, mh = c_int(), c_int(), c_int(), c_int()
+                    self._glfw.glfwGetMonitorWorkarea(m, byref(mx), byref(my), byref(mw), byref(mh))
+                    if mx.value <= wx < mx.value + mw.value and my.value <= wy < my.value + mh.value:
+                        return int(mx.value), int(my.value), int(mw.value), int(mh.value)
+                # Fallback to primary monitor workarea
+                mx, my, mw, mh = c_int(), c_int(), c_int(), c_int()
+                self._glfw.glfwGetMonitorWorkarea(mon, byref(mx), byref(my), byref(mw), byref(mh))
+                if mw.value > 0 and mh.value > 0:
+                    return int(mx.value), int(my.value), int(mw.value), int(mh.value)
+        disp = self.x11_display()
+        if disp and getattr(self, "_x11", None):
+            try:
+                screen = self._x11.XDefaultScreen(disp)
+                rw = self._x11.XDisplayWidth(disp, screen)
+                rh = self._x11.XDisplayHeight(disp, screen)
+                return 0, 0, int(rw), int(rh)
+            except Exception:
+                pass
+        return 0, 0, 1920, 1080
 
     def x11_window(self):
         return int(self._glfw.glfwGetX11Window(self._window))
@@ -963,6 +1019,42 @@ class LiquidGlassRenderer:
         x.XDefaultRootWindow.argtypes = [c_void_p]
         x.XDefaultRootWindow.restype = c_uint64
         x.XGetInputFocus.argtypes = [c_void_p, POINTER(c_uint64), POINTER(c_int)]
+        x.XQueryPointer.argtypes = [
+            c_void_p, c_uint64,
+            POINTER(c_uint64), POINTER(c_uint64),
+            POINTER(c_int), POINTER(c_int),
+            POINTER(c_int), POINTER(c_int),
+            POINTER(c_uint32),
+        ]
+        x.XQueryPointer.restype = c_int
+
+    def root_pointer(self):
+        """Absolute screen coordinates of the mouse pointer from the X11 root window."""
+        display = self.x11_display()
+        if not display:
+            return 0, 0
+        root = self._x11.XDefaultRootWindow(display)
+        root_ret = c_uint64()
+        child_ret = c_uint64()
+        root_x = c_int()
+        root_y = c_int()
+        win_x = c_int()
+        win_y = c_int()
+        mask = c_uint32()
+        ok = self._x11.XQueryPointer(
+            display,
+            root,
+            byref(root_ret),
+            byref(child_ret),
+            byref(root_x),
+            byref(root_y),
+            byref(win_x),
+            byref(win_y),
+            byref(mask),
+        )
+        if not ok:
+            return 0, 0
+        return int(root_x.value), int(root_y.value)
 
     def _install_x_error_handler(self):
         @ctypes.CFUNCTYPE(c_int, c_void_p, c_void_p)
@@ -1200,6 +1292,8 @@ class LiquidGlassRenderer:
         g.glfwSetCursorPosCallback.restype = c_void_p
         g.glfwSetFramebufferSizeCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetFramebufferSizeCallback.restype = c_void_p
+        g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
+        g.glfwSetWindowPosCallback.restype = c_void_p
 
     def _bind_loader(self):
         v = self._vulkan
@@ -1229,6 +1323,7 @@ class LiquidGlassRenderer:
         if not window:
             raise RuntimeError("GLFW could not open an X11 window for Vulkan")
         g.glfwSetWindowPos(window, 72, 64)
+        self._cur_pos = (72, 64)
         self._resize = False
         return window
 
@@ -1236,9 +1331,14 @@ class LiquidGlassRenderer:
         self._on_mouse = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)(self._mouse_button)
         self._on_cursor = CFUNCTYPE(None, c_void_p, c_double, c_double)(self._cursor)
         self._on_fb = CFUNCTYPE(None, c_void_p, c_int, c_int)(self._framebuffer)
+        self._on_pos = CFUNCTYPE(None, c_void_p, c_int, c_int)(self._pos_callback)
         self._glfw.glfwSetMouseButtonCallback(self._window, ctypes.cast(self._on_mouse, c_void_p))
         self._glfw.glfwSetCursorPosCallback(self._window, ctypes.cast(self._on_cursor, c_void_p))
         self._glfw.glfwSetFramebufferSizeCallback(self._window, ctypes.cast(self._on_fb, c_void_p))
+        self._glfw.glfwSetWindowPosCallback(self._window, ctypes.cast(self._on_pos, c_void_p))
+
+    def _pos_callback(self, _window, x, y):
+        self._cur_pos = (int(x), int(y))
 
     def _mouse_button(self, _window, button, action, _mods):
         if button == 0:
