@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.0 Stable"; fi; fi; export VERSION
+if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; _TERM_LINES=""; _TERM_COLS=""; _TERM_RESIZED=1; _on_winch() { _TERM_RESIZED=1; }; trap '_on_winch' WINCH; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.0 Stable"; fi; fi; export VERSION
 _has_flatpak() { [[ -d "/var/lib/flatpak/app/$1" || -d "$HOME/.local/share/flatpak/app/$1" ]] && return 0; command -v flatpak &>/dev/null || return 1; [[ -z "${_FP_LIST_CACHE+x}" ]] && _FP_LIST_CACHE="$(flatpak list --columns=application 2>/dev/null)"; [[ "$_FP_LIST_CACHE" == *"$1"* ]]; }
 _fmt_sec() { local t=${1:-0}; ((t<0)) && t=0; ((t>=3600)) && printf "%02d:%02d:%02d" $((t/3600)) $(((t%3600)/60)) $((t%60)) || printf "%02d:%02d" $(((t%3600)/60)) $((t%60)); }
 format_seconds_aud() { _fmt_sec "$1"; }
@@ -51,22 +51,19 @@ if _win_console_size win_l win_c; then
 fi
 
 if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then 
-    local new_l="${LINES:-}" new_c="${COLUMNS:-}" need_stty=0
-    if [[ -z "$new_l" || -z "$new_c" || ( "$force" -eq 1 && "$new_l" = "${_TERM_LINES:-}" && "$new_c" = "${_TERM_COLS:-}" ) ]]; then 
-        need_stty=1
-    fi
-    if [[ "$need_stty" -eq 1 ]]; then 
-        local sz
-        if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then 
-            read -r new_l new_c <<< "$sz"
-        else 
-            new_l=$(tput lines 2>/dev/null || echo 40)
-            new_c=$(tput cols 2>/dev/null || echo 100)
-        fi
+    local new_l="" new_c=""
+    local sz
+    if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then 
+        read -r new_l new_c <<< "$sz"
+    else 
+        new_l=$(tput lines 2>/dev/null || echo "${LINES:-40}")
+        new_c=$(tput cols 2>/dev/null || echo "${COLUMNS:-100}")
     fi 
     _TERM_LINES="${new_l:-${_TERM_LINES:-40}}"
     _TERM_COLS="${new_c:-${_TERM_COLS:-100}}"
     _TERM_RESIZED=0
+    export LINES="$_TERM_LINES"
+    export COLUMNS="$_TERM_COLS"
     return 0
 fi 
 return 1
@@ -93,11 +90,21 @@ if _win_console_size win_l win_c; then
         _TERM_RESIZED=1
         return 0
     fi
+    return 1
 fi
-local cur_l="${LINES:-40}" cur_c="${COLUMNS:-100}"
-if [[ "$cur_l" != "${_SEEN_LINES:-}" || "$cur_c" != "${_SEEN_COLS:-}" ]]; then
-    _TERM_RESIZED=1
+if [[ "${_TERM_RESIZED:-0}" -eq 1 ]]; then
     return 0
+fi
+local sz
+if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then
+    local cur_l cur_c
+    read -r cur_l cur_c <<< "$sz"
+    if [[ -n "$cur_l" && -n "$cur_c" ]]; then
+        if [[ "$cur_l" != "${_TERM_LINES:-}" || "$cur_c" != "${_TERM_COLS:-}" ]]; then
+            _TERM_RESIZED=1
+            return 0
+        fi
+    fi
 fi
 return 1
 }
@@ -268,7 +275,7 @@ frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; d
 RESIZE) 
     # Force full geometry re-evaluation
     update_terminal_geometry 1
-    _TERM_RESIZED=1
+    _TERM_RESIZED=0
     last_term_lines=0
     _last_menu_frame=""
     cached_header_block=""
@@ -281,15 +288,15 @@ RESIZE)
     if declare -F build_header_block >/dev/null; then
         build_header_block
     fi
-    printf '\033[?25l\033[?12l\033[?7l'
+    printf '\033[2J\033[H\033[?25l\033[?12l\033[?7l'
     continue ;; 
 TICK) 
     local _now_s="${SECONDS:-0}"
     # Continuously check for pending resizes on every tick to catch window drags/maximizations instantly
     if _resize_pending; then
         update_terminal_geometry 1
+        _TERM_RESIZED=0
         last_term_lines=0
-        __TERM_RESIZED=1
         _last_menu_frame=""
         cached_header_block=""
         if declare -F _set_menu_box_width >/dev/null; then
@@ -299,6 +306,7 @@ TICK)
         if declare -F build_header_block >/dev/null; then
             build_header_block
         fi
+        printf '\033[2J\033[H\033[?25l\033[?12l\033[?7l'
     fi
     if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then 
         _LAST_MENU_TICK_S="$_now_s"
@@ -943,7 +951,7 @@ local prompt_msg="${1:-Press [Enter] to return to the main menu...}"
 printf '%s' "$prompt_msg"
 while true; do
     local key=""
-    IFS= read -rsn1 key 2>/dev/null || { read -r _discard 2>/dev/null || true; break; }
+    IFS= read -rsn1 key 2>/dev/null || { local _rc=$?; if (( _rc > 128 )); then continue; fi; read -r _discard 2>/dev/null || true; break; }
     case "$key" in
         "") echo ""; break ;;
         " ")
