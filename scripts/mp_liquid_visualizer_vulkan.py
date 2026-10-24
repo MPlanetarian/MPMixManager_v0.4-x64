@@ -186,6 +186,20 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
         "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20120811 - Constellation (2012) [ISIu20AePHw].mkv"),
         "defasten_video": "20120811 - Constellation (2012) [ISIu20AePHw].mkv",
     },
+    {
+        "id": 9,
+        "key": "resonant_fluid_dynamics",
+        "name": "Resonant Fluid Dynamics",
+        "album": "MPlanetarian - Resonant Fluid Dynamics",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "resonant_fluid_dynamics_cover.png",
+            COVERS_DIR / "Resonant_Fluid_Dynamics_Preset.png",
+            Path("/home/mplanetarian/Documents/Resonant Fluid Dynamics.png"),
+        ],
+        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv"),
+        "defasten_video": "20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv",
+    },
 ]
 
 
@@ -419,6 +433,8 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
             candidates.extend(["particle accelerator", "particle_accelerator", "particle", "accelerator", "toroid", "vortex sync", "vortex_sync", "collider"])
         elif p["key"] == "cosmic_universe":
             candidates.extend(["cosmic universe", "cosmic_universe", "cosmic", "universe", "constellation", "the cosmological horizon", "cosmological horizon", "horizon"])
+        elif p["key"] == "resonant_fluid_dynamics":
+            candidates.extend(["resonant fluid dynamics", "resonant_fluid_dynamics", "resonant", "fluid dynamics", "fluid_dynamics", "earth flipper", "earth_flipper", "10", "yaporigami", "defasten earth flipper"])
         if target in candidates:
             return p
     # Partial matching if target provided

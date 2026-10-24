@@ -353,7 +353,7 @@ vec3 resonantFluidDynamicsPalette(float t, vec2 uvHint) {
 }
 
 vec3 getPresetPalette(float t, vec2 uvHint) {
-    if (u.preset.x > 5.5) {
+    if (u.preset.x > 8.5) {
         return resonantFluidDynamicsPalette(t, uvHint);
     } else if (u.preset.x > 3.5) {
         return sensoriumPalette(t, uvHint);
@@ -390,9 +390,9 @@ vec2 mapScene(vec3 p) {
     float midPhase = u.audio2.z;
     float highPhase = u.audio2.w;
 
-    if (u.preset.x > 5.5) {
+    if (u.preset.x > 8.5) {
         // =========================================================================
-        // PRESET 6 / 7: RESONANT FLUID DYNAMICS (DEFASTEN EARTH FLIPPER & DYNAMIC CORE)
+        // PRESET 10: RESONANT FLUID DYNAMICS (DEFASTEN EARTH FLIPPER & DYNAMIC CORE)
         // Inspired by Defasten's "Yaporigami - Earth Flipper (2022)" & Resonant Fluid Dynamics:
         // "A primordial liquidstream of celestial origin spins itself back into existence 🌀🌌💦"
         // Elevated to supreme procedural complexity & dynamic fluidity:
@@ -1125,8 +1125,8 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
     float bassPhase = u.audio2.y;
     float highPhase = u.audio2.w;
 
-    if (u.preset.x > 5.5) {
-        // --- PRESET 6 / 7: RESONANT FLUID DYNAMICS (DYNAMIC CONTINUOUS COLOR-CHANGING BACKGROUND) ---
+    if (u.preset.x > 8.5) {
+        // --- PRESET 10: RESONANT FLUID DYNAMICS (DYNAMIC CONTINUOUS COLOR-CHANGING BACKGROUND) ---
         // 3D ray-projected celestial fluid manifold with infinite complexity design (dreamworlds),
         // continuously evolving background color palette, Defasten mirrored perspective grid,
         // chromatic dispersion 3D ray-sampling of Resonant Fluid Dynamics.png,
@@ -1483,7 +1483,7 @@ void main() {
 
     // --- Dynamic Orbital 3D Camera ---
     // Smoothly glides around the scene and zooms on bass drops
-    float baseCamDist = (u.preset.x > 7.5) ? 5.30 : ((u.preset.x > 6.5) ? 5.10 : ((u.preset.x > 5.5) ? 5.15 : ((u.preset.x > 3.5) ? 5.20 : ((u.preset.x > 2.5) ? 5.25 : ((u.preset.x > 1.5) ? 5.10 : 4.35)))));
+    float baseCamDist = (u.preset.x > 8.5) ? 5.35 : ((u.preset.x > 7.5) ? 5.30 : ((u.preset.x > 6.5) ? 5.10 : ((u.preset.x > 5.5) ? 5.15 : ((u.preset.x > 3.5) ? 5.20 : ((u.preset.x > 2.5) ? 5.25 : ((u.preset.x > 1.5) ? 5.10 : 4.35))))));
     float camDist = baseCamDist - 0.45 * bass - 0.22 * beat + 0.35 * sin(t * 0.19);
     float camYaw = t * 0.16 + 0.25 * sin(t * 0.11 + bassPhase * 0.08);
     float camPitch = 0.18 * sin(t * 0.14 + midPhase * 0.06);
@@ -1584,21 +1584,23 @@ void main() {
             float coreDepth = pow(max(dot(n, v), 0.0), 1.6);
             float innerCaust = noise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
             vec3 innerSwatch = getPresetPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
-            vec3 deepGlassCore = (u.preset.x > 7.5)
-                ? mix(refrCol * 0.94, vec3(0.005, 0.008, 0.022), 0.46 * coreDepth)
-                : ((u.preset.x > 6.5)
-                    ? mix(refrCol * 0.94, vec3(0.012, 0.005, 0.025), 0.46 * coreDepth)
-                    : ((u.preset.x > 5.5)
-                        ? mix(refrCol * 0.94, vec3(0.015, 0.008, 0.035), 0.46 * coreDepth)
-                        : ((u.preset.x > 3.5)
-                            ? mix(refrCol * 0.94, vec3(0.012, 0.010, 0.024), 0.46 * coreDepth)
-                            : ((u.preset.x > 2.5)
-                                ? mix(refrCol * 0.94, vec3(0.008, 0.015, 0.012), 0.46 * coreDepth)
-                                : ((u.preset.x > 1.5)
-                                    ? mix(refrCol * 0.92, vec3(0.015, 0.022, 0.038), 0.48 * coreDepth)
-                                    : ((u.preset.x > 0.5)
-                                        ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
-                                        : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth)))))));
+            vec3 deepGlassCore = (u.preset.x > 8.5)
+                ? mix(refrCol * 0.94, vec3(0.015, 0.008, 0.035), 0.46 * coreDepth)
+                : ((u.preset.x > 7.5)
+                    ? mix(refrCol * 0.94, vec3(0.005, 0.008, 0.022), 0.46 * coreDepth)
+                    : ((u.preset.x > 6.5)
+                        ? mix(refrCol * 0.94, vec3(0.012, 0.005, 0.025), 0.46 * coreDepth)
+                        : ((u.preset.x > 5.5)
+                            ? mix(refrCol * 0.94, vec3(0.015, 0.008, 0.035), 0.46 * coreDepth)
+                            : ((u.preset.x > 3.5)
+                                ? mix(refrCol * 0.94, vec3(0.012, 0.010, 0.024), 0.46 * coreDepth)
+                                : ((u.preset.x > 2.5)
+                                    ? mix(refrCol * 0.94, vec3(0.008, 0.015, 0.012), 0.46 * coreDepth)
+                                    : ((u.preset.x > 1.5)
+                                        ? mix(refrCol * 0.92, vec3(0.015, 0.022, 0.038), 0.48 * coreDepth)
+                                        : ((u.preset.x > 0.5)
+                                            ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
+                                            : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth))))))));
             refrCol = mix(deepGlassCore, innerSwatch * (0.75 + 0.5 * diff1), 0.42 + 0.22 * bass);
 
             // Specular highlights & iridescent glass rim
@@ -1606,32 +1608,36 @@ void main() {
             float spec1 = pow(max(dot(n, halfVec1), 0.0), 72.0);
             float spec2 = pow(max(dot(reflect(-lightDir2, n), v), 0.0), 36.0);
 
-            vec3 rimColor = (u.preset.x > 7.5)
-                ? mix(vec3(0.220, 0.741, 0.973), vec3(0.984, 0.749, 0.141), 0.5 + 0.5 * n.y)
-                : ((u.preset.x > 6.5)
-                    ? mix(vec3(0.000, 0.824, 1.000), vec3(1.000, 0.000, 0.502), 0.5 + 0.5 * n.y)
-                    : ((u.preset.x > 5.5)
-                        ? mix(vec3(0.000, 0.961, 0.831), vec3(0.969, 0.145, 0.522), 0.5 + 0.5 * n.y)
-                        : ((u.preset.x > 3.5)
-                            ? mix(vec3(0.000, 0.961, 1.000), vec3(0.941, 0.659, 0.847), 0.5 + 0.5 * n.y)
-                            : ((u.preset.x > 2.5)
-                                ? mix(vec3(0.165, 0.886, 0.467), vec3(0.973, 0.910, 0.988), 0.5 + 0.5 * n.y)
-                                : ((u.preset.x > 1.5)
-                                    ? mix(vec3(0.00, 0.95, 1.00), vec3(1.00, 0.48, 0.68), 0.5 + 0.5 * n.y)
-                                    : ((u.preset.x > 0.5)
-                                        ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
-                                        : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y)))))));
-            vec3 rimLight2 = (u.preset.x > 7.5)
-                ? vec3(0.984, 0.443, 0.522)
-                : ((u.preset.x > 6.5)
-                    ? vec3(0.000, 1.000, 0.749)
-                    : ((u.preset.x > 5.5)
-                        ? vec3(0.420, 0.067, 1.000)
-                        : ((u.preset.x > 3.5)
-                            ? vec3(0.463, 0.576, 0.443)
-                            : ((u.preset.x > 2.5)
-                                ? vec3(0.906, 0.898, 0.765)
-                                : ((u.preset.x > 1.5) ? vec3(0.98, 0.99, 1.00) : ((u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00)))))));
+            vec3 rimColor = (u.preset.x > 8.5)
+                ? mix(vec3(0.290, 0.867, 0.647), vec3(0.894, 0.039, 0.655), 0.5 + 0.5 * n.y)
+                : ((u.preset.x > 7.5)
+                    ? mix(vec3(0.220, 0.741, 0.973), vec3(0.984, 0.749, 0.141), 0.5 + 0.5 * n.y)
+                    : ((u.preset.x > 6.5)
+                        ? mix(vec3(0.000, 0.824, 1.000), vec3(1.000, 0.000, 0.502), 0.5 + 0.5 * n.y)
+                        : ((u.preset.x > 5.5)
+                            ? mix(vec3(0.000, 0.961, 0.831), vec3(0.969, 0.145, 0.522), 0.5 + 0.5 * n.y)
+                            : ((u.preset.x > 3.5)
+                                ? mix(vec3(0.000, 0.961, 1.000), vec3(0.941, 0.659, 0.847), 0.5 + 0.5 * n.y)
+                                : ((u.preset.x > 2.5)
+                                    ? mix(vec3(0.165, 0.886, 0.467), vec3(0.973, 0.910, 0.988), 0.5 + 0.5 * n.y)
+                                    : ((u.preset.x > 1.5)
+                                        ? mix(vec3(0.00, 0.95, 1.00), vec3(1.00, 0.48, 0.68), 0.5 + 0.5 * n.y)
+                                        : ((u.preset.x > 0.5)
+                                            ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
+                                            : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y))))))));
+            vec3 rimLight2 = (u.preset.x > 8.5)
+                ? vec3(0.455, 0.043, 0.431)
+                : ((u.preset.x > 7.5)
+                    ? vec3(0.984, 0.443, 0.522)
+                    : ((u.preset.x > 6.5)
+                        ? vec3(0.000, 1.000, 0.749)
+                        : ((u.preset.x > 5.5)
+                            ? vec3(0.420, 0.067, 1.000)
+                            : ((u.preset.x > 3.5)
+                                ? vec3(0.463, 0.576, 0.443)
+                                : ((u.preset.x > 2.5)
+                                    ? vec3(0.906, 0.898, 0.765)
+                                    : ((u.preset.x > 1.5) ? vec3(0.98, 0.99, 1.00) : ((u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00))))))));
 
             col = refrCol * (0.65 + 0.45 * diff1) * (0.55 + 0.45 * ao)
                 + rimColor * fresnel * (1.35 + 0.65 * rms)
@@ -1642,7 +1648,14 @@ void main() {
             // --- Material 2: Incandescent Planetary / Accretion Rings ---
             float ringWave = sin(length(p) * 18.0 - bassPhase * 2.5);
             vec3 ringBase;
-            if (u.preset.x > 7.5) {
+            if (u.preset.x > 8.5) {
+                ringBase = mix(
+                    vec3(0.290, 0.867, 0.647), // Electric Mint Aqua
+                    vec3(0.894, 0.039, 0.655), // High-Voltage Neon Orchid
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(0.902, 0.945, 0.820), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 7.5) {
                 ringBase = mix(
                     vec3(0.220, 0.741, 0.973), // Celestial Starlight Cyan
                     vec3(0.984, 0.749, 0.141), // Supernova Solar Gold
@@ -1709,17 +1722,19 @@ void main() {
             float pulse = pow(0.5 + 0.5 * sin(p.y * 8.0 + bassPhase * 2.2), 4.0);
             vec3 strandCol = getPresetPalette(p.y * 0.25 + p.x * 0.15 + t * 0.05, mirrorUv(screenUv));
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 40.0);
-            vec3 conduitFresnel = (u.preset.x > 7.5)
-                ? vec3(0.220, 0.741, 0.973) // Starlight Cyan
-                : ((u.preset.x > 6.5)
-                    ? vec3(0.000, 1.000, 0.749) // Cherenkov Aqua
-                    : ((u.preset.x > 5.5)
-                        ? vec3(0.000, 0.961, 0.831) // Cotangent Cyan
-                        : ((u.preset.x > 3.5)
-                            ? vec3(0.463, 0.576, 0.443) // Earth Flipper Celestial Jade
-                            : ((u.preset.x > 2.5)
-                                ? vec3(0.894, 0.694, 0.757) // Rose Quartz
-                                : ((u.preset.x > 1.5) ? vec3(1.00, 0.48, 0.68) : ((u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00)))))));
+            vec3 conduitFresnel = (u.preset.x > 8.5)
+                ? vec3(0.290, 0.867, 0.647) // Electric Mint Aqua
+                : ((u.preset.x > 7.5)
+                    ? vec3(0.220, 0.741, 0.973) // Starlight Cyan
+                    : ((u.preset.x > 6.5)
+                        ? vec3(0.000, 1.000, 0.749) // Cherenkov Aqua
+                        : ((u.preset.x > 5.5)
+                            ? vec3(0.000, 0.961, 0.831) // Cotangent Cyan
+                            : ((u.preset.x > 3.5)
+                                ? vec3(0.463, 0.576, 0.443) // Earth Flipper Celestial Jade
+                                : ((u.preset.x > 2.5)
+                                    ? vec3(0.894, 0.694, 0.757) // Rose Quartz
+                                    : ((u.preset.x > 1.5) ? vec3(1.00, 0.48, 0.68) : ((u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00))))))));
             col = strandCol * (0.38 + 0.68 * diff1 + 0.25 * diff2) * ao
                 + strandCol * pulse * (0.85 + 0.95 * bass)
                 + conduitFresnel * fresnel * 0.95

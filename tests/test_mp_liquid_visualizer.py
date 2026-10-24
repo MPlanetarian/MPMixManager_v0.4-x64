@@ -427,6 +427,85 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(ret1, 0)
         self.assertEqual(ret2, 0)
 
+    def test_4k_display_rendered_at_1080p_not_4k(self):
+        """When the Visualizer runs or goes fullscreen on a 4K display, it must render at 1920x1080, NOT 4K."""
+        renderer = vis.LiquidVisualizerVulkanRenderer(target_4k=True)
+        bridge = vis.AudioTelemetryBridge()
+        try:
+            renderer.open()
+            # If a 4K display is present on the machine, target_4k will target it and enter fullscreen
+            self.assertTrue(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_size(), (1920, 1080))
+            self.assertEqual(renderer.framebuffer_size(), (1920, 1080))
+            self.assertEqual(renderer._extent, (1920, 1080))
+
+            for _ in range(5):
+                bridge.update(0.05, force_playing=True, synthetic_audio=True)
+                renderer.draw(bridge, capture=False)
+                time.sleep(0.01)
+
+            # Ensure Vulkan swapchain extent and framebuffer are strictly 1920x1080 (never 4K: 3840x2160)
+            self.assertEqual(renderer._extent, (1920, 1080))
+            self.assertEqual(renderer.framebuffer_size(), (1920, 1080))
+            self.assertNotEqual(renderer._extent, (3840, 2160))
+
+            # Toggle Z -> returns cleanly to normal 1400x1400 windowed mode
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertFalse(renderer.is_fullscreen)
+            for _ in range(5):
+                bridge.update(0.05, force_playing=True, synthetic_audio=True)
+                renderer.draw(bridge, capture=False)
+                time.sleep(0.01)
+            self.assertEqual(renderer.window_size(), (1400, 1400))
+            self.assertEqual(renderer._extent, (1400, 1400))
+        finally:
+            renderer.close()
+
+    def test_is_4k_display_detection_and_constants(self):
+        """Verify 4K display detection logic and 1080p resolution constants."""
+        self.assertEqual(vis.RENDER_1080P_WIDTH, 1920)
+        self.assertEqual(vis.RENDER_1080P_HEIGHT, 1080)
+        self.assertEqual(vis.FOUR_K_MIN_WIDTH, 3840)
+        self.assertEqual(vis.FOUR_K_MIN_HEIGHT, 2160)
+
+        # Mock monitor with 4K video mode (3840x2160)
+        class MockVideoMode:
+            width = 3840
+            height = 2160
+            refreshRate = 60
+
+        class MockGLFW:
+            def glfwGetVideoMode(self, mon):
+                class Ptr:
+                    contents = MockVideoMode()
+                return Ptr()
+            def glfwGetMonitorName(self, mon):
+                return b"Hisense 4K TV"
+
+        renderer = vis.LiquidVisualizerVulkanRenderer()
+        renderer._glfw = MockGLFW()
+        self.assertTrue(renderer.is_4k_display(12345))
+
+        # Mock standard 1080p monitor
+        MockVideoMode.width = 1920
+        MockVideoMode.height = 1080
+        MockGLFW.glfwGetMonitorName = lambda s, m: b"Standard 1080p Display"
+        self.assertFalse(renderer.is_4k_display(12345))
+
+    def test_cli_4k_and_fullscreen_options(self):
+        """CLI must accept --fullscreen, --4k, and --screen flags."""
+        res = subprocess.run(
+            [sys.executable, str(ROOT / "MP_Liquid_Visualizer.py"), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("--fullscreen", res.stdout)
+        self.assertIn("--4k", res.stdout)
+        self.assertIn("--screen", res.stdout)
+        self.assertIn("1920x1080", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
