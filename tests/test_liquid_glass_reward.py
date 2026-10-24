@@ -62,5 +62,25 @@ class TestLiquidGlassReward(unittest.TestCase):
             mock_install.assert_called_once()
             mock_flag.touch.assert_called_once()
 
+    def test_copied_launcher_resolves_base_dir(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        launcher_script = ROOT / "scripts" / "launch_liquid_glass.sh"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            copied_launcher = Path(tmpdir) / "launch-liquid-glass"
+            shutil.copy2(launcher_script, copied_launcher)
+            copied_launcher.chmod(0o755)
+            proc = subprocess.run(
+                [str(copied_launcher), "--self-test"],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            self.assertNotIn("No such file or directory", proc.stderr)
+            self.assertEqual(proc.returncode, 0, f"Copied launcher failed: {proc.stderr}")
+
 if __name__ == "__main__":
     unittest.main()

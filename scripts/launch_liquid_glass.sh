@@ -5,9 +5,34 @@
 # (Metal on Apple Silicon macOS, or OpenGL Core 3.3 [Default] / NVIDIA Vulkan on Linux).
 # ==============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so BASE_DIR is accurate even if invoked via ~/.local/bin symlink
+_RESOLVED_SRC="${BASH_SOURCE[0]}"
+while [ -h "$_RESOLVED_SRC" ]; do
+    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
+    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
+    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
 BASE_DIR="$(dirname "$SCRIPT_DIR")"
-[ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && BASE_DIR="$SCRIPT_DIR"
+[ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass.py" ] && BASE_DIR="$SCRIPT_DIR"
+
+# Fallback candidate search when script is copied to ~/.local/bin/launch-liquid-glass
+if [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then
+    for _c in \
+        "${MP_MIX_MANAGER_DIR:-}" \
+        "$PWD" \
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.4" \
+        "$HOME/MP_Mix_Manager_v0.4" \
+        "/home/mplanetarian/MP_Mix_Manager_v0.4" \
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.3" \
+        "$HOME/MP_Mix_Manager_v0.3"; do
+        if [ -n "$_c" ] && { [ -f "$_c/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass_macOS.py" ]; }; then
+            BASE_DIR="$_c"
+            break
+        fi
+    done
+fi
+unset _RESOLVED_SRC _RESOLVED_DIR _c
 
 CONFIG_FILE="$HOME/.config/mix-manager/config.env"
 [ ! -f "$CONFIG_FILE" ] && CONFIG_FILE="$BASE_DIR/config.env"

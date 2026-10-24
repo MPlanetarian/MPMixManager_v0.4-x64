@@ -2507,7 +2507,7 @@ def launch_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", pl
     return False
 
 def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
-    if sys.platform != "linux" and not sys.platform.startswith("freebsd") and sys.platform != "darwin":
+    if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
 
@@ -2566,6 +2566,12 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
         pass
     log_file = log_dir / "liquid_glass.log"
 
+    extra_kwargs = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        extra_kwargs["start_new_session"] = True
+
     try:
         with open(log_file, "a") as log_fd:
             proc = subprocess.Popen(
@@ -2574,8 +2580,8 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
                 stdin=subprocess.DEVNULL,
                 stdout=log_fd,
                 stderr=log_fd,
-                start_new_session=True,
                 close_fds=True,
+                **extra_kwargs,
             )
             return proc.pid > 0
     except Exception:
@@ -2586,8 +2592,8 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True,
                 close_fds=True,
+                **extra_kwargs,
             )
             return proc.pid > 0
         except Exception as exc:

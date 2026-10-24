@@ -8,8 +8,10 @@ shows through, and the player's boxed panels are a darker glass underneath.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -60,6 +62,8 @@ def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NOR
 
 
 def _import_gtk():
+    if sys.platform == "win32":
+        return None, None, None
     os.environ["GDK_BACKEND"] = "x11"
     import gi
 
@@ -156,25 +160,28 @@ class GlassHost:
         self._sync_panels()
 
     def _sync_panels(self):
-        term = self.terminal
-        if term is None or self.renderer is None:
+        if self.renderer is None:
             return
-        char_w = int(term.get_char_width() or 0)
-        char_h = int(term.get_char_height() or 0)
-        if char_w < 4 or char_h < 8:
-            char_w, char_h = 9, 18
+        char_w, char_h = 9, 18
+        if self.terminal is not None:
+            cw = int(self.terminal.get_char_width() or 0)
+            ch = int(self.terminal.get_char_height() or 0)
+            if cw >= 4 and ch >= 8:
+                char_w, char_h = cw, ch
         margin = self.renderer.bezel_px
         cols = getattr(self, "_target_cols", COLS)
         rows = getattr(self, "_target_rows", ROWS)
         self.renderer.set_panels(player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode))
 
     def toggle_maximize(self):
-        if self.terminal is None or self.renderer is None:
+        if self.renderer is None:
             return
-        char_w = int(self.terminal.get_char_width() or 0)
-        char_h = int(self.terminal.get_char_height() or 0)
-        if char_w < 4 or char_h < 8:
-            char_w, char_h = 9, 18
+        char_w, char_h = 9, 18
+        if self.terminal is not None:
+            cw = int(self.terminal.get_char_width() or 0)
+            ch = int(self.terminal.get_char_height() or 0)
+            if cw >= 4 and ch >= 8:
+                char_w, char_h = cw, ch
         margin = self.renderer.bezel_px
 
         if not self.is_maximized:
@@ -187,7 +194,8 @@ class GlassHost:
             self._target_rows = max_rows
             self.renderer.set_window_pos(wx, wy)
             self.renderer.set_window_size(ww, wh)
-            self.terminal.set_size(max_cols, max_rows)
+            if self.terminal is not None:
+                self.terminal.set_size(max_cols, max_rows)
             self._place_terminal()
             self.is_maximized = True
         else:
@@ -205,13 +213,14 @@ class GlassHost:
             win_h = rows * char_h + 2 * margin
             self.renderer.set_window_pos(pos[0], pos[1])
             self.renderer.set_window_size(win_w, win_h)
-            self.terminal.set_size(cols, rows)
+            if self.terminal is not None:
+                self.terminal.set_size(cols, rows)
             self._place_terminal()
             self.is_maximized = False
 
     def set_mode(self, mode: str):
         self.mode = mode.upper()
-        if self.terminal is None or self.renderer is None:
+        if self.renderer is None:
             return
         if self.is_maximized:
             self.is_maximized = False
@@ -223,15 +232,18 @@ class GlassHost:
             cols, rows = COLS, ROWS
         self._target_cols = cols
         self._target_rows = rows
-        char_w = int(self.terminal.get_char_width() or 0)
-        char_h = int(self.terminal.get_char_height() or 0)
-        if char_w < 4 or char_h < 8:
-            char_w, char_h = 9, 18
+        char_w, char_h = 9, 18
+        if self.terminal is not None:
+            cw = int(self.terminal.get_char_width() or 0)
+            ch = int(self.terminal.get_char_height() or 0)
+            if cw >= 4 and ch >= 8:
+                char_w, char_h = cw, ch
         margin = self.renderer.bezel_px
         win_w = cols * char_w + 2 * margin
         win_h = rows * char_h + 2 * margin
         self.renderer.set_window_size(win_w, win_h)
-        self.terminal.set_size(cols, rows)
+        if self.terminal is not None:
+            self.terminal.set_size(cols, rows)
         self._place_terminal()
 
     def _on_key_press(self, _term, event):
@@ -336,6 +348,12 @@ class GlassHost:
         term.set_size(COLS, ROWS)
 
     def run(self):
+        if sys.platform == "win32":
+            self.renderer = LiquidGlassRenderer(1280, 820, "MP Audio Player (Liquid Glass - Vulkan)")
+            try:
+                return self._run_windows()
+            finally:
+                self.close()
         glib, gtk, vte = _import_gtk()
         self.glib = glib
         gtk.init([])
@@ -345,9 +363,119 @@ class GlassHost:
         finally:
             self.close()
 
+    def _run_windows(self):
+        self.renderer.open()
+        char_w, char_h = 9, 18
+        margin = self.renderer.bezel_px
+        cols = getattr(self, "_target_cols", COLS)
+        rows = getattr(self, "_target_rows", ROWS)
+        win_w = cols * char_w + 2 * margin
+        win_h = rows * char_h + 2 * margin
+        self.renderer.set_window_size(win_w, win_h)
+        self._sync_panels()
+
+        if self.embed_check:
+            theme = read_player_theme()
+            self.renderer.draw(theme)
+            return True
+
+        env = dict(os.environ)
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["MP_LIQUID_GLASS"] = "1"
+        env["MP_LIQUID_GLASS_BACKEND"] = "vulkan"
+        env["MP_LIQUID_GLASS_PLATFORM"] = "win32"
+
+        proc = subprocess.Popen(
+            self.argv,
+            cwd=str(ROOT),
+            env=env,
+            creationflags=0x00000010,  # CREATE_NEW_CONSOLE
+        )
+        self.child_pid = proc.pid
+
+        # Attempt to locate console HWND
+        child_hwnd = None
+        try:
+            user32 = ctypes.windll.user32
+            ENUM_PROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            found = []
+
+            def _enum_win(hwnd, _lparam):
+                pid = ctypes.c_uint32()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value == proc.pid and user32.IsWindowVisible(hwnd):
+                    found.append(hwnd)
+                return True
+
+            for _ in range(50):
+                if proc.poll() is not None:
+                    break
+                user32.EnumWindows(ENUM_PROC(_enum_win), 0)
+                if found:
+                    child_hwnd = found[0]
+                    break
+                time.sleep(0.02)
+        except Exception:
+            pass
+
+        self.child_xid = child_hwnd or 0
+
+        if child_hwnd:
+            try:
+                style = user32.GetWindowLongPtrW(child_hwnd, -16)
+                style &= ~(0x00C00000 | 0x00040000)
+                style |= 0x80000000
+                user32.SetWindowLongPtrW(child_hwnd, -16, style)
+                glass_hwnd = self.renderer.win32_window()
+                if glass_hwnd:
+                    user32.SetParent(child_hwnd, glass_hwnd)
+            except Exception:
+                pass
+            self._place_terminal()
+
+        down = False
+        dragging = False
+        origin = self.renderer.window_pos()
+        press_screen = (0, 0)
+        theme = read_player_theme()
+        theme_at = 0.0
+
+        try:
+            while not self.renderer.should_close:
+                if proc.poll() is not None:
+                    break
+
+                now = time.monotonic()
+                if now - theme_at > 0.4:
+                    theme = read_player_theme()
+                    theme_at = now
+
+                self._sync_panels()
+                self.renderer.draw(theme)
+
+                down, dragging, origin, press_screen = self._handle_input(
+                    down, dragging, origin, press_screen
+                )
+                if dragging:
+                    self._place_terminal()
+
+                if not self.renderer.poll():
+                    break
+                time.sleep(0.008)
+        finally:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
+            self.close()
+
+        return True
+
     def _run_window(self, vte, glib):
         self.renderer.open()
-        if self.renderer.vendor_id != NVIDIA_VENDOR_ID:
+        if not (sys.platform == "win32") and self.renderer.vendor_id != NVIDIA_VENDOR_ID:
             raise RuntimeError(self.renderer.summary)
 
         window = self._gtk_terminal_window()

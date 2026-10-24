@@ -69,6 +69,12 @@ class TestMenuOption(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_key_l_launches_liquid_glass_on_main_screen(self):
+        text = (ROOT / "Mix_Archive_Manager.sh").read_text(encoding="utf-8")
+        self.assertIn("CHAR:l|CHAR:L)", text)
+        self.assertIn("[lL]) launch_mp_audio_player_liquid_glass", text)
+        self.assertIn("[L] Liquid", text)
+
 
 class TestHostDoesNotForkThePlayer(unittest.TestCase):
     def test_embed_check_uses_a_dummy_child(self):

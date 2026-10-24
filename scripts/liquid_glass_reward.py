@@ -80,6 +80,7 @@ Type=Application
 Name=MP Liquid Glass Audio Player
 GenericName=Liquid Transparent Audio Player
 Comment=Launch MP Audio Player in Liquid Transparent Glass Mode
+Path={ROOT}
 Exec={target_launcher}
 Icon={ICON_PNG}
 Terminal=false

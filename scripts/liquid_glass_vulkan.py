@@ -13,6 +13,7 @@ import colorsys
 import ctypes
 import math
 import os
+import platform
 import sys
 import time
 from ctypes import (
@@ -32,6 +33,65 @@ from ctypes import (
     c_void_p,
 )
 from pathlib import Path
+
+
+def is_windows() -> bool:
+    """Check if running on Windows."""
+    return sys.platform == "win32" or platform.system().lower() == "windows"
+
+
+def is_windows_10_or_11() -> bool:
+    """Check if running on Windows 10 or Windows 11."""
+    if not is_windows():
+        return False
+    try:
+        ver = sys.getwindowsversion()
+        return ver.major >= 10
+    except Exception:
+        return True
+
+
+def load_glfw_dll():
+    """Load the GLFW shared library across Windows and Linux."""
+    if is_windows():
+        candidates = ["glfw3.dll", "glfw.dll"]
+        try:
+            from ctypes.util import find_library
+            for name in ("glfw3", "glfw"):
+                f = find_library(name)
+                if f and f not in candidates:
+                    candidates.insert(0, f)
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                return ctypes.CDLL(cand)
+            except OSError:
+                continue
+        raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+    return ctypes.CDLL("libglfw.so.3")
+
+
+def load_vulkan_dll():
+    """Load the Vulkan loader shared library across Windows and Linux."""
+    if is_windows():
+        candidates = ["vulkan-1.dll"]
+        try:
+            from ctypes.util import find_library
+            for name in ("vulkan-1", "vulkan"):
+                f = find_library(name)
+                if f and f not in candidates:
+                    candidates.insert(0, f)
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                return ctypes.CDLL(cand)
+            except OSError:
+                continue
+        raise RuntimeError("Could not load Vulkan loader on Windows. Ensure vulkan-1.dll is installed.")
+    return ctypes.CDLL("libvulkan.so.1")
+
 
 NVIDIA_VENDOR_ID = 0x10DE
 DISCRETE_GPU = 2
@@ -86,16 +146,22 @@ THEME_ALIASES = {
 
 
 def select_nvidia_device(devices):
-    """Pick the NVIDIA discrete GPU. devices are dicts with vendor_id, device_type, name."""
+    """Pick the preferred GPU for Vulkan. On Windows, supports NVIDIA, AMD, and Intel Vulkan GPUs."""
     nvidia = [i for i, dev in enumerate(devices) if int(dev["vendor_id"]) == NVIDIA_VENDOR_ID]
-    if not nvidia:
-        seen = ", ".join(str(dev.get("name") or "unknown") for dev in devices) or "none"
-        raise RuntimeError(
-            "Liquid Glass requires the NVIDIA Vulkan API. "
-            f"No NVIDIA device was found (saw: {seen})."
-        )
-    discrete = [i for i in nvidia if int(devices[i].get("device_type", -1)) == DISCRETE_GPU]
-    return (discrete or nvidia)[0]
+    if nvidia:
+        discrete = [i for i in nvidia if int(devices[i].get("device_type", -1)) == DISCRETE_GPU]
+        return (discrete or nvidia)[0]
+    if is_windows():
+        discrete = [i for i, dev in enumerate(devices) if int(dev.get("device_type", -1)) == DISCRETE_GPU]
+        if discrete:
+            return discrete[0]
+        if devices:
+            return 0
+    seen = ", ".join(str(dev.get("name") or "unknown") for dev in devices) or "none"
+    raise RuntimeError(
+        "Liquid Glass requires a compatible Vulkan GPU. "
+        f"No suitable device was found (saw: {seen})."
+    )
 
 
 def theme_rgb(name):
@@ -792,24 +858,35 @@ class LiquidGlassRenderer:
     @property
     def summary(self):
         kind = "discrete" if self.device_type == DISCRETE_GPU else "gpu"
+        vendor = "NVIDIA" if self.vendor_id == NVIDIA_VENDOR_ID else (
+            "AMD" if self.vendor_id == 0x1002 else ("Intel" if self.vendor_id == 0x8086 else f"0x{self.vendor_id:04x}")
+        )
         return (
             f"Vulkan device: {self.device_name} "
-            f"(vendor 0x{self.vendor_id:04x}, {kind}, NVIDIA)"
+            f"(vendor 0x{self.vendor_id:04x}, {kind}, {vendor})"
         )
 
     def open(self):
         self._silence_overlays()
-        self._step = "x11 threads"
-        self._x11 = ctypes.CDLL("libX11.so.6")
-        self._x11.XInitThreads.restype = c_int
-        self._x11.XInitThreads()
-        self._bind_x11()
-        self._install_x_error_handler()
-        self._bind_xext()
-        self._step = "glfw"
-        self._glfw = ctypes.CDLL("libglfw.so.3")
-        self._bind_glfw()
-        self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
+        if is_windows():
+            self._step = "glfw"
+            self._glfw = load_glfw_dll()
+            self._bind_glfw()
+            self._x11 = None
+            self._xext = None
+        else:
+            self._step = "x11 threads"
+            self._x11 = ctypes.CDLL("libX11.so.6")
+            self._x11.XInitThreads.restype = c_int
+            self._x11.XInitThreads()
+            self._bind_x11()
+            self._install_x_error_handler()
+            self._bind_xext()
+            self._step = "glfw"
+            self._glfw = load_glfw_dll()
+            self._bind_glfw()
+            self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
+
         if not self._glfw.glfwInit():
             raise RuntimeError("glfwInit failed")
         if not self._glfw.glfwVulkanSupported():
@@ -818,7 +895,7 @@ class LiquidGlassRenderer:
         self._window = self._create_window()
         self._bind_input()
         self._step = "instance"
-        self._vulkan = ctypes.CDLL("libvulkan.so.1")
+        self._vulkan = load_vulkan_dll()
         self._bind_loader()
         self._create_instance()
         self._load_instance()
@@ -960,6 +1037,16 @@ class LiquidGlassRenderer:
                 self._glfw.glfwGetMonitorWorkarea(mon, byref(mx), byref(my), byref(mw), byref(mh))
                 if mw.value > 0 and mh.value > 0:
                     return int(mx.value), int(my.value), int(mw.value), int(mh.value)
+        if is_windows():
+            try:
+                class RECT(ctypes.Structure):
+                    _fields_ = [("left", c_int), ("top", c_int), ("right", c_int), ("bottom", c_int)]
+                rc = RECT()
+                # SPI_GETWORKAREA = 0x0030
+                if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, byref(rc), 0):
+                    return int(rc.left), int(rc.top), int(rc.right - rc.left), int(rc.bottom - rc.top)
+            except Exception:
+                pass
         disp = self.x11_display()
         if disp and getattr(self, "_x11", None):
             try:
@@ -971,10 +1058,21 @@ class LiquidGlassRenderer:
                 pass
         return 0, 0, 1920, 1080
 
+    def win32_window(self):
+        if not self._window or not getattr(self, "_glfw", None):
+            return None
+        if hasattr(self._glfw, "glfwGetWin32Window"):
+            return self._glfw.glfwGetWin32Window(self._window)
+        return None
+
     def x11_window(self):
+        if is_windows() or not hasattr(self._glfw, "glfwGetX11Window"):
+            return 0
         return int(self._glfw.glfwGetX11Window(self._window))
 
     def x11_display(self):
+        if is_windows() or not hasattr(self._glfw, "glfwGetX11Display"):
+            return None
         return self._glfw.glfwGetX11Display(self._window)
 
     def poll(self):
@@ -1076,9 +1174,19 @@ class LiquidGlassRenderer:
         x.XQueryPointer.restype = c_int
 
     def root_pointer(self):
-        """Absolute screen coordinates of the mouse pointer from the X11 root window."""
+        """Absolute screen coordinates of the mouse pointer."""
+        if is_windows():
+            try:
+                class POINT(ctypes.Structure):
+                    _fields_ = [("x", c_int), ("y", c_int)]
+                pt = POINT()
+                if ctypes.windll.user32.GetCursorPos(byref(pt)):
+                    return int(pt.x), int(pt.y)
+            except Exception:
+                pass
+            return self.window_pos()
         display = self.x11_display()
-        if not display:
+        if not display or not getattr(self, "_x11", None):
             return 0, 0
         root = self._x11.XDefaultRootWindow(display)
         root_ret = c_uint64()
@@ -1127,10 +1235,25 @@ class LiquidGlassRenderer:
         self._xext = ext
 
     def _apply_shape(self):
-        """Clip the X11 window to the same rounded rectangle the shader draws."""
+        """Clip the window to the same rounded rectangle the shader draws."""
         self._shape_size = self.window_size()
         self.shaped = False
         self._apply_desktop_glass()
+        if is_windows():
+            hwnd = self.win32_window()
+            if hwnd:
+                try:
+                    gdi32 = ctypes.windll.gdi32
+                    user32 = ctypes.windll.user32
+                    width, height = self._shape_size
+                    diameter = max(16, min(int(self.radius_px * 2), width // 2, height // 2))
+                    rgn = gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter)
+                    if rgn:
+                        user32.SetWindowRgn(hwnd, rgn, True)
+                        self.shaped = True
+                except Exception:
+                    pass
+            return
         if not getattr(self, "_xext", None):
             return
         display = self.x11_display()
@@ -1211,12 +1334,29 @@ class LiquidGlassRenderer:
         self._change_cardinal(window, self._x_atom("_NET_WM_WINDOW_OPACITY"), [value])
 
     def _apply_desktop_glass(self):
-        """Blur the desktop behind the pane and fade it to clear glass.
-
-        Per-pixel Vulkan alpha never reaches the compositor on this GPU.
-        """
+        """Blur the desktop behind the pane and fade it to clear glass."""
+        if is_windows():
+            hwnd = self.win32_window()
+            if not hwnd:
+                return
+            try:
+                dwmapi = ctypes.windll.dwmapi
+                class MARGINS(ctypes.Structure):
+                    _fields_ = [
+                        ("cxLeftWidth", c_int),
+                        ("cxRightWidth", c_int),
+                        ("cyTopHeight", c_int),
+                        ("cyBottomHeight", c_int),
+                    ]
+                margins = MARGINS(-1, -1, -1, -1)
+                dwmapi.DwmExtendFrameIntoClientArea(hwnd, byref(margins))
+                corner_pref = c_int(2)
+                dwmapi.DwmSetWindowAttribute(hwnd, 33, byref(corner_pref), ctypes.sizeof(corner_pref))
+            except Exception:
+                pass
+            return
         window = self.x11_window()
-        if not self.x11_display() or not window:
+        if not self.x11_display() or not window or not getattr(self, "_x11", None):
             return
         width, height = self.window_size()
         self._set_opacity(window, self.clear_opacity)
@@ -1228,6 +1368,9 @@ class LiquidGlassRenderer:
         self._x11.XFlush(self.x11_display())
 
     def reparent_window(self, child, x, y, width, height):
+        if is_windows():
+            self.place_terminal(child, x, y, width, height)
+            return
         display = self.x11_display()
         self._x11.XReparentWindow(display, int(child), self.x11_window(), int(x), int(y))
         self._x11.XMoveResizeWindow(display, int(child), int(x), int(y), int(width), int(height))
@@ -1238,18 +1381,48 @@ class LiquidGlassRenderer:
         self._x11.XFlush(display)
 
     def focus_window(self, window):
-        self._x11.XSetInputFocus(self.x11_display(), int(window), 2, 0)
-        self._x11.XFlush(self.x11_display())
+        if not window:
+            return
+        if is_windows():
+            try:
+                ctypes.windll.user32.SetForegroundWindow(int(window))
+            except Exception:
+                pass
+            return
+        if getattr(self, "_x11", None):
+            self._x11.XSetInputFocus(self.x11_display(), int(window), 2, 0)
+            self._x11.XFlush(self.x11_display())
 
     def focused_window(self):
+        if is_windows():
+            try:
+                return int(ctypes.windll.user32.GetForegroundWindow() or 0)
+            except Exception:
+                return 0
+        if not getattr(self, "_x11", None):
+            return 0
         window = c_uint64()
         revert = c_int()
         self._x11.XGetInputFocus(self.x11_display(), byref(window), byref(revert))
         return int(window.value)
 
     def window_rect(self, window):
-        """Screen position and size of an X window."""
+        """Screen position and size of a window."""
+        if not window:
+            return 0, 0, 0, 0
+        if is_windows():
+            try:
+                class RECT(ctypes.Structure):
+                    _fields_ = [("left", c_int), ("top", c_int), ("right", c_int), ("bottom", c_int)]
+                rc = RECT()
+                if ctypes.windll.user32.GetWindowRect(int(window), byref(rc)):
+                    return int(rc.left), int(rc.top), int(rc.right - rc.left), int(rc.bottom - rc.top)
+            except Exception:
+                pass
+            return 0, 0, 0, 0
         display = self.x11_display()
+        if not display or not getattr(self, "_x11", None):
+            return 0, 0, 0, 0
         root = c_uint64()
         x = c_int()
         y = c_int()
@@ -1273,14 +1446,20 @@ class LiquidGlassRenderer:
         return int(origin_x.value), int(origin_y.value), int(width.value), int(height.value)
 
     def place_terminal(self, child, x, y, width, height):
-        """Keep the player window solid and above the glass pane.
-
-        The toolkit has already moved it to ``x, y``. Moving a managed window
-        again with XMoveResizeWindow uses frame-relative coordinates and would
-        miss the well.
-        """
+        """Keep the player window solid and above the glass pane."""
+        if not child:
+            return
+        if is_windows():
+            try:
+                # SWP_NOZORDER = 0x0004, SWP_SHOWWINDOW = 0x0040
+                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0044)
+            except Exception:
+                pass
+            return
         del x, y, width, height
         display = self.x11_display()
+        if not display or not getattr(self, "_x11", None):
+            return
         child = int(child)
         self._x11.XSetTransientForHint(display, child, self.x11_window())
         self._set_opacity(child, 1.0)
@@ -1291,12 +1470,22 @@ class LiquidGlassRenderer:
         self._x11.XFlush(display)
 
     def window_parent(self, child):
+        if not child:
+            return 0
+        if is_windows():
+            try:
+                return int(ctypes.windll.user32.GetParent(int(child)) or 0)
+            except Exception:
+                return 0
+        display = self.x11_display()
+        if not display or not getattr(self, "_x11", None):
+            return 0
         root = c_uint64()
         parent = c_uint64()
         children = POINTER(c_uint64)()
         count = c_uint32()
         ok = self._x11.XQueryTree(
-            self.x11_display(), int(child), byref(root), byref(parent), byref(children), byref(count),
+            display, int(child), byref(root), byref(parent), byref(children), byref(count),
         )
         if children:
             self._x11.XFree(children)
@@ -1325,10 +1514,15 @@ class LiquidGlassRenderer:
         g.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwGetFramebufferSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwGetCursorPos.argtypes = [c_void_p, POINTER(c_double), POINTER(c_double)]
-        g.glfwGetX11Display.argtypes = [c_void_p]
-        g.glfwGetX11Display.restype = c_void_p
-        g.glfwGetX11Window.argtypes = [c_void_p]
-        g.glfwGetX11Window.restype = c_uint64
+        if not is_windows():
+            g.glfwGetX11Display.argtypes = [c_void_p]
+            g.glfwGetX11Display.restype = c_void_p
+            g.glfwGetX11Window.argtypes = [c_void_p]
+            g.glfwGetX11Window.restype = c_uint64
+        else:
+            if hasattr(g, "glfwGetWin32Window"):
+                g.glfwGetWin32Window.argtypes = [c_void_p]
+                g.glfwGetWin32Window.restype = c_void_p
         g.glfwGetRequiredInstanceExtensions.argtypes = [POINTER(c_uint32)]
         g.glfwGetRequiredInstanceExtensions.restype = POINTER(c_char_p)
         g.glfwCreateWindowSurface.argtypes = [c_void_p, c_void_p, c_void_p, POINTER(c_uint64)]
@@ -1368,7 +1562,7 @@ class LiquidGlassRenderer:
             window = g.glfwCreateWindow(self.width, self.height, title, None, None)
             self.transparent = False
         if not window:
-            raise RuntimeError("GLFW could not open an X11 window for Vulkan")
+            raise RuntimeError("GLFW could not open a window for Vulkan")
         g.glfwSetWindowPos(window, 72, 64)
         self._cur_pos = (72, 64)
         self._resize = False
@@ -1505,7 +1699,7 @@ class LiquidGlassRenderer:
         self.device_name = chosen["name"]
         self.vendor_id = chosen["vendor_id"]
         self.device_type = chosen["device_type"]
-        if self.vendor_id != NVIDIA_VENDOR_ID:
+        if not is_windows() and self.vendor_id != NVIDIA_VENDOR_ID:
             raise RuntimeError(f"Refusing to render on {self.device_name}")
         self._queue_family = self._present_family(self._physical)
 
@@ -2242,7 +2436,7 @@ def run_self_test(png_path=None):
     renderer = LiquidGlassRenderer(720, 440, "MP Liquid Glass self-test")
     try:
         renderer.open()
-        if renderer.vendor_id != NVIDIA_VENDOR_ID:
+        if not is_windows() and renderer.vendor_id != NVIDIA_VENDOR_ID:
             raise RuntimeError(renderer.summary)
         renderer.set_panels(((60.0, 58.0, 600.0, 52.0), (60.0, 180.0, 600.0, 200.0)))
         pixels = None
