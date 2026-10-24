@@ -88,8 +88,15 @@ THEME_COLORS = {
     "phosphor": ((57, 255, 20), (166, 255, 0), (0, 255, 102)),
     "ice_cold": ((0, 229, 255), (136, 192, 208), (129, 161, 193)),
     "retro_terminal": ((230, 230, 230), (180, 180, 180), (255, 255, 255)),
+    "cosmic_dreamworlds_radioactive": ((57, 255, 20), (0, 245, 212), (166, 77, 255)),
 }
 THEME_ALIASES = {
+    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
+    "radioactive": "cosmic_dreamworlds_radioactive",
     "dreamworlds": "dreamworlds_ultra",
     "default": "dreamworlds_ultra",
     "mplanetarian": "dreamworlds_ultra",
@@ -212,6 +219,8 @@ uniform vec4 u_themeC;
 uniform vec4 u_bezel;
 uniform vec4 u_panel0;
 uniform vec4 u_panel1;
+uniform sampler2D u_skinTex;
+uniform float u_hasSkin;
 
 struct GlassUBO_t {
     vec4 res;
@@ -292,16 +301,40 @@ void main() {
     float caust = smoothstep(0.58, 0.86, n);
     float caustFine = smoothstep(0.74, 0.92, n2);
 
-    vec3 water = vec3(0.76, 0.80, 0.87);
-    water = mix(water, theme, 0.22);
-    water += theme * (caust * 0.16 + caustFine * 0.08);
-    water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
-
     float title = panelMask(frag, u.panel0);
     float library = panelMask(frag, u.panel1);
     float panel = max(title, library);
-    vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
-    water = mix(water, panelCol, panel * 0.82);
+
+    vec3 water;
+    if (u_hasSkin > 0.5) {
+        // --- CRYSTAL CLEAR WATER LOOK WITH FULL-WINDOW COVER IMAGE ---
+        // Aquatic optical refraction through clear water layer:
+        vec2 waterWave = vec2(
+            sin(uv.y * 36.0 + n * 4.0) * 0.0022 + (n2 - 0.5) * 0.0025,
+            cos(uv.x * 28.0 + n2 * 4.0) * 0.0022 + (n - 0.5) * 0.0025
+        );
+        vec2 skinUv = clamp(uv + waterWave, 0.0, 1.0);
+        vec4 skinSample = texture(u_skinTex, skinUv);
+
+        // Pristine, crystal-clear water with bright aquatic caustics & shimmer:
+        float caustClear = pow(caustFine, 1.6) * 0.38 + pow(caust, 2.0) * 0.22;
+        vec3 caustGlint = mix(vec3(1.0), theme, 0.25) * caustClear;
+
+        // Inside the panels: translucent water well for pristine terminal text readability
+        vec3 clearBase = mix(skinSample.rgb, skinSample.rgb * 0.32, panel * 0.65);
+        // Subtle crystalline water purity tint
+        clearBase = mix(clearBase, clearBase + vec3(0.04, 0.12, 0.10), 0.12);
+        clearBase += caustGlint;
+        water = clearBase;
+    } else {
+        water = vec3(0.76, 0.80, 0.87);
+        water = mix(water, theme, 0.22);
+        water += theme * (caust * 0.16 + caustFine * 0.08);
+        water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
+        vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
+        water = mix(water, panelCol, panel * 0.82);
+    }
+
     float panelLip = 0.0;
     if (u.panel0.z > 4.0) {
         vec2 h0 = 0.5 * u.panel0.zw;
@@ -313,7 +346,11 @@ void main() {
         float d1 = sdRoundRect(frag - (u.panel1.xy + h1), h1, 16.0);
         panelLip = max(panelLip, exp(-pow((abs(d1) - 1.5) / 2.4, 2.0)));
     }
-    water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
+    if (u_hasSkin > 0.5) {
+        water += mix(vec3(1.0), theme, 0.35) * panelLip * 0.32;
+    } else {
+        water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
+    }
 
     float edge = max(-outer, 0.0);
     float large = exp(-pow((edge - 6.5) / 5.0, 2.0));
@@ -328,19 +365,29 @@ void main() {
     float glint = step(0.94, hash(floor(frag / 3.0) + vec2(4.0, 1.0))) * step(edge, 12.0) * step(1.0, edge);
 
     vec3 col = water;
-    col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
-    col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
-    col += mix(theme, vec3(1.0), 0.35) * echo * 0.16;
-    col += theme * echoFar * 0.08;
-    col = mix(col, col * vec3(0.72, 0.76, 0.84), toe * 0.65);
-    col = mix(col, vec3(1.0), hair);
-    col = mix(col, mix(vec3(1.0), theme, 0.15), bead * 0.9);
-    col += vec3(1.0) * glint * 0.75;
+    if (u_hasSkin > 0.5) {
+        // Pristine clear water rim reflections & liquid caustics
+        col = mix(col, mix(vec3(1.0), theme, 0.20), large * 0.72);
+        col = mix(col, mix(theme, vec3(1.0), 0.35), shoulder * 0.48);
+        col += mix(theme, vec3(1.0), 0.40) * echo * 0.16;
+        col = mix(col, vec3(1.0), hair * 0.85);
+        col = mix(col, mix(vec3(1.0), theme, 0.20), bead * 0.8);
+        col += vec3(1.0) * glint * 0.85;
+    } else {
+        col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
+        col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
+        col += mix(theme, vec3(1.0), 0.35) * echo * 0.16;
+        col += theme * echoFar * 0.08;
+        col = mix(col, col * vec3(0.72, 0.76, 0.84), toe * 0.65);
+        col = mix(col, vec3(1.0), hair);
+        col = mix(col, mix(vec3(1.0), theme, 0.15), bead * 0.9);
+        col += vec3(1.0) * glint * 0.75;
+    }
 
     vec2 m = vec2(u.themeA.w, u.themeB.w);
     vec2 lp = (m - uv) * vec2(max(u.res.w, 0.5), 1.0);
     float spec = pow(max(0.0, 1.0 - length(lp) * 1.8), 8.0);
-    col += vec3(1.0) * spec * 0.28 * large;
+    col += vec3(1.0) * spec * (u_hasSkin > 0.5 ? 0.36 : 0.28) * large;
 
     if (u.bezel.w > 0.5) {
         float margin = max(u.bezel.x, 8.0);
@@ -374,6 +421,10 @@ void main() {
 }
 """
 
+SKIN_FILES = {
+    "cosmic_dreamworlds_radioactive": ROOT / "assets" / "skins" / "cosmic_dreamworlds_radioactive.png",
+}
+
 
 class LiquidGlassRendererOpenGL:
     """A borderless X11 window rendered via OpenGL supporting AMD, Intel, NVIDIA, and legacy GPUs."""
@@ -401,6 +452,7 @@ class LiquidGlassRendererOpenGL:
         self._window = None
         self._vao = 0
         self._vbo = 0
+        self._skin_textures = {}
         self._prog = 0
         self._u_locs = {}
 
@@ -437,6 +489,7 @@ class LiquidGlassRendererOpenGL:
 
         self._step = "window"
         self._window = self._create_window()
+        self._apply_window_icon()
         self._bind_input()
         self._glfw.glfwMakeContextCurrent(self._window)
         try:
@@ -850,7 +903,7 @@ class LiquidGlassRendererOpenGL:
         return atoms[name]
 
     def _change_cardinal(self, window, prop, values):
-        data = (c_uint32 * len(values))(*[int(value) & 0xFFFFFFFF for value in values])
+        data = (ctypes.c_ulong * len(values))(*[int(value) & 0xFFFFFFFF for value in values])
         self._prop_keep = data
         self._x11.XChangeProperty(
             self.x11_display(),
@@ -862,6 +915,79 @@ class LiquidGlassRendererOpenGL:
             ctypes.cast(data, c_void_p),
             len(values),
         )
+
+    def _apply_window_icon(self):
+        icon_candidates = [
+            ROOT / "assets" / "mp_liquid_glass_icon.png",
+            Path.home() / ".local" / "share" / "icons" / "mp_liquid_glass_icon.png",
+        ]
+        icon_path = next((p for p in icon_candidates if p.is_file()), None)
+        if not icon_path:
+            return
+        try:
+            from PIL import Image
+            base_img = Image.open(icon_path).convert("RGBA")
+        except Exception:
+            return
+
+        # 1. Set via GLFW (works on X11 and Windows)
+        if hasattr(self._glfw, "glfwSetWindowIcon") and self._window:
+            try:
+                class _GLFWimage(ctypes.Structure):
+                    _fields_ = [
+                        ("width", c_int),
+                        ("height", c_int),
+                        ("pixels", POINTER(ctypes.c_ubyte)),
+                    ]
+                sizes = (256, 128, 64, 48, 32, 16)
+                c_imgs = (_GLFWimage * len(sizes))()
+                keep_bufs = []
+                for idx, sz in enumerate(sizes):
+                    im = base_img.resize((sz, sz), Image.Resampling.LANCZOS)
+                    raw = im.tobytes()
+                    buf = (ctypes.c_ubyte * len(raw)).from_buffer_copy(raw)
+                    keep_bufs.append(buf)
+                    c_imgs[idx].width = sz
+                    c_imgs[idx].height = sz
+                    c_imgs[idx].pixels = ctypes.cast(buf, POINTER(ctypes.c_ubyte))
+                self._icon_keep = (c_imgs, keep_bufs)
+                self._glfw.glfwSetWindowIcon(self._window, len(sizes), ctypes.cast(c_imgs, c_void_p))
+            except Exception:
+                pass
+
+        # 2. Set X11 _NET_WM_ICON, WM_CLASS, and _KDE_NET_WM_DESKTOP_FILE for KDE Task Panel
+        if not is_windows() and self.x11_display() and self.x11_window() and getattr(self, "_x11", None):
+            try:
+                display = self.x11_display()
+                win = int(self.x11_window())
+
+                wm_class = b"mp_liquid\x00MP_Liquid\x00"
+                wm_buf = ctypes.create_string_buffer(wm_class, len(wm_class))
+                self._x11.XChangeProperty(
+                    display, win, self._x_atom("WM_CLASS"), self._x_atom("STRING"),
+                    8, 0, ctypes.cast(wm_buf, c_void_p), len(wm_class),
+                )
+
+                desk_str = b"MP_Liquid"
+                desk_buf = ctypes.create_string_buffer(desk_str, len(desk_str))
+                self._x11.XChangeProperty(
+                    display, win, self._x_atom("_KDE_NET_WM_DESKTOP_FILE"), self._x_atom("UTF8_STRING"),
+                    8, 0, ctypes.cast(desk_buf, c_void_p), len(desk_str),
+                )
+
+                icon_vals = []
+                for sz in (128, 64, 48, 32, 16):
+                    im = base_img.resize((sz, sz), Image.Resampling.LANCZOS)
+                    icon_vals.append(sz)
+                    icon_vals.append(sz)
+                    raw = im.tobytes()
+                    for i in range(0, len(raw), 4):
+                        r, g, b, a = raw[i], raw[i + 1], raw[i + 2], raw[i + 3]
+                        icon_vals.append(((a << 24) | (r << 16) | (g << 8) | b) & 0xFFFFFFFF)
+                self._change_cardinal(win, self._x_atom("_NET_WM_ICON"), icon_vals)
+                self._x11.XFlush(display)
+            except Exception:
+                pass
 
     def _set_opacity(self, window, opacity):
         value = int(max(0.0, min(1.0, float(opacity))) * 0xFFFFFFFF)
@@ -1024,6 +1150,10 @@ class LiquidGlassRendererOpenGL:
         g.glfwInit.restype = c_int
         g.glfwInitHint.argtypes = [c_int, c_int]
         g.glfwWindowHint.argtypes = [c_int, c_int]
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString.argtypes = [c_int, c_char_p]
+        if hasattr(g, "glfwSetWindowIcon"):
+            g.glfwSetWindowIcon.argtypes = [c_void_p, c_int, c_void_p]
         g.glfwDefaultWindowHints.argtypes = []
         g.glfwCreateWindow.restype = c_void_p
         g.glfwCreateWindow.argtypes = [c_int, c_int, c_char_p, c_void_p, c_void_p]
@@ -1071,6 +1201,9 @@ class LiquidGlassRendererOpenGL:
         g.glfwWindowHint(GLFW_VISIBLE, 1)
         g.glfwWindowHint(GLFW_FOCUSED, 1)
         g.glfwWindowHint(GLFW_TRANSPARENT, 1)
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString(0x00024001, b"MP_Liquid")
+            g.glfwWindowHintString(0x00024002, b"mp_liquid")
 
         title = self.title.encode("utf-8")
         window = g.glfwCreateWindow(self.width, self.height, title, None, None)

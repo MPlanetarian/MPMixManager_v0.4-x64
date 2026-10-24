@@ -58,7 +58,7 @@ except ImportError: termios = tty = None
 BOLD, DIM, ITALIC, NC = "\033[1m", "\033[2m", "\033[3m", "\033[0m"
 COLOR_HOT_PURPLE, COLOR_INDIGO_BLUE, COLOR_LILAC = "\033[38;2;166;77;255m", "\033[38;2;102;102;255m", "\033[38;2;153;153;255m"
 COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER, COLOR_TRAFFIC_RED = "\033[38;2;0;255;0m", "\033[38;2;255;153;51m", "\033[38;2;255;0;0m"
-COLOR_MAIN_FG, COLOR_NEON_PINK, COLOR_ELECTRIC_CYAN, WHITE = "\033[38;2;209;209;224m", "\033[38;2;247;37;133m", "\033[38;2;0;229;255m", "\033[1;37m"
+COLOR_MAIN_FG, COLOR_NEON_PINK, COLOR_ELECTRIC_CYAN, WHITE = "\033[38;2;209;209;224m", "\033[38;2;247;37;133m", "\033[38;2;0;229;255m", "\033[1;38;2;255;255;255m"
 RED, GREEN, YELLOW, MAGENTA, CYAN = COLOR_TRAFFIC_RED, COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER, COLOR_HOT_PURPLE, COLOR_LILAC
 
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
@@ -1030,7 +1030,7 @@ class AudioEngine:
         _ensure_audio_backends()
         self.mode, self.playlist, self.play_queue, self._queue_lock = str(mode or "MIX_ARCHIVE").upper(), playlist, [], threading.Lock()
         self.current_index, self.current_track = 0, playlist[0] if playlist else None
-        self.state, self.volume, self.muted, self.shuffle, self.repeat_mode = "stopped", 0.85, False, False, "all"
+        self.state, self.volume, self.muted, self.shuffle, self.repeat_mode = "stopped", 1.0, False, False, "all"
         self.position_sec, self.duration_sec, self.sample_rate, self.channels = 0.0, 0.0, 44100, 2
         self.pitch_percent, self.pitch_factor, self.resampler = 0, 1.0, AudioResampler()
         self.sf_file = self.stream = self.audio_source = self.audio_buffer = self.feeder = self.stream_error = self.pending_seek_sec = None
@@ -2253,7 +2253,8 @@ class EqualizerVisualizer:
         else: lines = self.render_stereo_eq(ll, lr, pk, width, height)
         if width >= 122:
             faders = self.render_vertical_pitch_fader(int(status.get("pitch_percent", 0)), len(lines))
-            return [f"{el}{' ' * max(0, 91 - _display_width(el))}  {fl}" for el, fl in zip(lines, faders)]
+            pad_to = max(91, (width - 6) - 26)
+            return [f"{el}{' ' * max(2, pad_to - _display_width(el))}{fl}" for el, fl in zip(lines, faders)]
         return lines
 
 def _get_dynamic_gradient(step: float) -> Tuple[Tuple[int, int, int], Tuple[int, int, int], Tuple[int, int, int]]:
@@ -2506,7 +2507,16 @@ def launch_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", pl
         except Exception: pass
     return False
 
-def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
+def launch_liquid_glass_player(
+    base_dir: Optional[Path] = None,
+    mode: Optional[str] = None,
+    folder_name: Optional[str] = None,
+    playlist_path: Optional[str] = None,
+    theme: Optional[str] = None,
+    style: Optional[str] = None,
+    mini: bool = False,
+    micro: bool = False,
+) -> bool:
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
@@ -2559,6 +2569,24 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
     if not script_path:
         return False
 
+    cmd = [sys.executable, str(script_path)]
+    if micro:
+        cmd.append("--micro")
+    elif mini:
+        cmd.append("--mini")
+    if str(mode or "").upper() == "MUSIC":
+        cmd.append("--music-mode")
+        if folder_name and str(folder_name).upper() != "ALL":
+            cmd.extend(["--music-folder", str(folder_name)])
+        if playlist_path:
+            cmd.extend(["--playlist", str(playlist_path)])
+    elif str(mode or "").upper() == "MIX_ARCHIVE":
+        cmd.append("--mix-archive-mode")
+    if theme:
+        cmd.extend(["--theme", str(theme)])
+    if style:
+        cmd.extend(["--style", str(style)])
+
     log_dir = Path.home() / ".config" / "mix-manager"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -2575,7 +2603,7 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
     try:
         with open(log_file, "a") as log_fd:
             proc = subprocess.Popen(
-                [sys.executable, str(script_path)],
+                cmd,
                 cwd=str(base),
                 stdin=subprocess.DEVNULL,
                 stdout=log_fd,
@@ -2587,7 +2615,7 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
     except Exception:
         try:
             proc = subprocess.Popen(
-                [sys.executable, str(script_path)],
+                cmd,
                 cwd=str(base),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -2599,6 +2627,77 @@ def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
         except Exception as exc:
             try:
                 mp_log_error("MP_Audio_Player", f"Failed launching Liquid Glass player: {exc}", exc)
+            except Exception:
+                pass
+            return False
+
+
+def launch_liquid_visualizer(
+    base_dir: Optional[Path] = None,
+    preset: Optional[str] = None,
+) -> bool:
+    """Launch MP_Liquid_Visualizer in its native 1400x1400 borderless Vulkan window."""
+    if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
+        return False
+    base = base_dir or get_base_dir()
+    candidates = [
+        base / "MP_Liquid_Visualizer.py",
+        base / "scripts" / "mp_liquid_visualizer_vulkan.py",
+        Path(__file__).resolve().parent / "MP_Liquid_Visualizer.py",
+        Path(__file__).resolve().parent / "scripts" / "mp_liquid_visualizer_vulkan.py",
+    ]
+    script_path = None
+    for cand in candidates:
+        if cand.is_file():
+            script_path = cand
+            break
+    if not script_path:
+        return False
+
+    cmd = [sys.executable, str(script_path)]
+    if preset:
+        cmd.extend(["--preset", str(preset)])
+
+    log_dir = Path.home() / ".config" / "mix-manager"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_file = log_dir / "liquid_visualizer.log"
+
+    extra_kwargs = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        extra_kwargs["start_new_session"] = True
+
+    try:
+        with open(log_file, "a") as log_fd:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=log_fd,
+                stderr=log_fd,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+    except Exception:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+        except Exception as exc:
+            try:
+                mp_log_error("MP_Audio_Player", f"Failed launching MP_Liquid_Visualizer: {exc}", exc)
             except Exception:
                 pass
             return False
@@ -2684,6 +2783,17 @@ class TerminalPlayerUI:
         self._duration_in_queue.add(p)
         if self._duration_queue: self._duration_queue.put((p, m))
 
+    def _sync_mode_scanner(self, new_mode: Optional[str]):
+        if not new_mode:
+            return
+        nm = str(new_mode).upper()
+        if nm != self.mode:
+            self.mode = nm
+        if self.mode == "MUSIC" and isinstance(self.scanner, MixArchiveScanner):
+            self.scanner = MusicFolderPlaylistScanner(folder_name=self.folder_name)
+        elif self.mode == "MIX_ARCHIVE" and isinstance(self.scanner, MusicFolderPlaylistScanner):
+            self.scanner = MixArchiveScanner(getattr(self.scanner, "base_dir", None) or get_base_dir())
+
     def _get_status(self) -> Dict[str, Any]:
         if self.is_remote:
             if STATE_FILE.exists():
@@ -2693,14 +2803,14 @@ class TerminalPlayerUI:
                 except Exception: pass
             elif not self.cached_status.get("title") or self.cached_status.get("title") == "Loading...":
                 if (res := send_ipc_command("status")) and isinstance(res.get("data"), dict): self.cached_status = res["data"]
-            if self.cached_status.get("mode"): self.mode = str(self.cached_status.get("mode")).upper()
+            if self.cached_status.get("mode"): self._sync_mode_scanner(self.cached_status.get("mode"))
             if not self.equalizer_hud_active:
                 if self.cached_status.get("eq_preset"): self.eq_manager.active_preset = str(self.cached_status["eq_preset"])
                 if isinstance(self.cached_status.get("eq_bands"), list) and len(self.cached_status["eq_bands"]) == 10:
                     self.eq_manager.current_bands = [float(x) for x in self.cached_status["eq_bands"]]
             return self.cached_status
         st = self.engine.get_status_dict() if self.engine else self.cached_status
-        if st.get("mode"): self.mode = str(st.get("mode")).upper()
+        if st.get("mode"): self._sync_mode_scanner(st.get("mode"))
         return st
 
     def _sync_initial_selection(self, status: Dict[str, Any]):
@@ -2745,7 +2855,7 @@ class TerminalPlayerUI:
         if st is None: st = self._get_status()
         if iw is None:
             w, _ = _win_visible_size((80, 24))
-            iw = 115 if w >= 122 else max(20, w - 6)
+            iw = max(20, w - 6)
         tp = st.get("path", "")
         tname = st.get("title", os.path.basename(tp))
         folder = next((m.get("folder") for m in getattr(self.scanner, "mixes", []) if m.get("path") == tp and m.get("folder")), None) or self.folder_name
@@ -2756,23 +2866,30 @@ class TerminalPlayerUI:
         ext, sr, ch = os.path.splitext(tp)[1][1:].upper() or "FLAC", st.get("sample_rate", 44100), st.get("channels", 2)
         ch_s = "Stereo" if ch == 2 else ("Mono" if ch == 1 else f"{ch} Channels")
         b_col = f"{BOLD}{self.visualizer.get_theme_palette().get('border', COLOR_HOT_PURPLE)}"
-        return [
-            f"  {b_col}╭── ✦ TRACK AUDIO INSPECTOR (METADATA & HARDWARE HUD) ───────────────────────╮{NC}",
-            f"  {b_col}│{NC} {BOLD}{WHITE}Track Title{NC}  : {dt}",
-            f"  {b_col}│{NC} {BOLD}{CYAN}Folder / Src{NC} : {'SMB Share' if is_net else 'Local Drive'} [{folder}] • Music Library",
-            f"  {b_col}│{NC} {BOLD}{CYAN}Format/Codec{NC} : {ext} Lossless • {sr/1000:.1f} kHz • {ch_s}",
-            f"  {b_col}│{NC} {BOLD}{CYAN}Time Position{NC}: {st.get('position_fmt','00:00')} / {st.get('duration_fmt','00:00')} ({st.get('progress_pct',0):.1f}%)",
-            f"  {b_col}│{NC} {BOLD}{CYAN}Volume/Pitch{NC} : Volume: {st.get('volume', 85)}%  │  Pitch: {st.get('pitch_percent', 0):+d}%",
-            f"  {b_col}│{NC} {BOLD}{CYAN}Audio Engine{NC} : Output Rate: {st.get('output_rate', 44100)/1000:.1f} kHz • Device: {st.get('output_device', 'Default Audio Device')}",
-            f"  {b_col}│{NC} {BOLD}{CYAN}{'Network Path' if is_net else 'File Path   '}{NC} : {ds}",
-            f"  {b_col}╰── [G] Generate Spek • Press [I], [Esc], or [Enter] to Close ─────────────╯{NC}"
+        lines = [
+            _boxed_rule("╭", "── ✦ TRACK AUDIO INSPECTOR (METADATA & HARDWARE HUD) ", "╮", iw, b_col),
         ]
+        info_items = [
+            (f" {BOLD}{WHITE}Track Title{NC}", dt),
+            (f" {BOLD}{CYAN}Folder / Src{NC}", f"{'SMB Share' if is_net else 'Local Drive'} [{folder}] • Music Library"),
+            (f" {BOLD}{CYAN}Format/Codec{NC}", f"{ext} Lossless • {sr/1000:.1f} kHz • {ch_s}"),
+            (f" {BOLD}{CYAN}Time Position{NC}", f"{st.get('position_fmt','00:00')} / {st.get('duration_fmt','00:00')} ({st.get('progress_pct',0):.1f}%)"),
+            (f" {BOLD}{CYAN}Volume/Pitch{NC}", f"Volume: {st.get('volume', 85)}%  │  Pitch: {st.get('pitch_percent', 0):+d}%"),
+            (f" {BOLD}{CYAN}Audio Engine{NC}", f"Output Rate: {st.get('output_rate', 44100)/1000:.1f} kHz • Device: {st.get('output_device', 'Default Audio Device')}"),
+            (f" {BOLD}{CYAN}{'Network Path' if is_net else 'File Path   '}{NC}", ds),
+        ]
+        for label, val in info_items:
+            row_str = f"{label}  : {val}"
+            pad = max(0, iw - _display_width(row_str))
+            lines.append(f"  {b_col}│{NC}{row_str}{' ' * pad}{b_col}│{NC}")
+        lines.append(_boxed_rule("╰", "── [G] Generate Spek • Press [I], [Esc], or [Enter] to Close ", "╯", iw, b_col))
+        return lines
 
     def _render_equalizer_hud(self, st: Optional[Dict[str, Any]] = None, iw: Optional[int] = None, h: int = 24) -> List[str]:
         if st is None: st = self._get_status()
         if iw is None:
             w, _ = _win_visible_size((80, 24))
-            iw = 115 if w >= 122 else max(20, w - 6)
+            iw = max(20, w - 6)
 
         cur_p = self.eq_manager.active_preset
         gains = self.eq_manager.current_bands
@@ -3219,8 +3336,20 @@ class TerminalPlayerUI:
                 self._notify("✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window", 3.0)
         elif data in (b"r", b"R"): self._toggle_recording()
         elif data in (b"l", b"L"):
-            ok = launch_liquid_glass_player(base_dir=getattr(self.scanner, "base_dir", None))
+            ok = launch_liquid_glass_player(
+                base_dir=getattr(self.scanner, "base_dir", None),
+                mode=self.mode,
+                folder_name=self.folder_name,
+                playlist_path=str(getattr(self.scanner, "playlist_path", "") or ""),
+                theme=self.visualizer.theme,
+                style=self.visualizer.style,
+                mini=(self.ui_size_mode == "MINI"),
+                micro=(self.ui_size_mode == "MICRO"),
+            )
             self._notify("✦ Launched MP Audio Player (Liquid Glass)" if ok else "Failed to open Liquid Glass Player window", 3.0)
+        elif data in (b"z", b"Z"):
+            ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
+            self._notify("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 1400x1400 Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
         elif data in (b"y", b"Y"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
@@ -3272,7 +3401,7 @@ class TerminalPlayerUI:
                 self._notify(f"🎧 Auto-switched to Bluetooth: {bt_dev}{c_sfx}", 4.0)
             elif not is_bt and self._last_seen_bt_state: self._notify("🔊 Bluetooth disconnected — Reverted to System Audio", 4.0)
         self._last_seen_bt_state, self._last_seen_bt_device = is_bt, bt_dev
-        iw = 115 if w >= 122 else max(20, w - 6)
+        iw = max(20, w - 6)
         pal = self.visualizer.get_theme_palette()
         hl_col, act_col, b_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK), f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
         accent_col = pal.get("accent", COLOR_LILAC)
@@ -3280,27 +3409,29 @@ class TerminalPlayerUI:
         bsub = (f"Music Library  •  {music_library_label(self.folder_name)}  •  Local Drives & SMB Shares" if self.mode == "MUSIC" else "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition")[:max(0, iw - 1)]
         lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {BOLD}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
 
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        dim_s = BOLD if is_lg else DIM
         tname, maxlen = st.get("title", "Unknown Mix"), max(58, iw - 20)
         if len(tname) > maxlen: tname = tname[:maxlen - 3] + "..."
         ch_str, sr, ext = ("Stereo" if st.get("channels", 2) == 2 else "Mono"), st.get("sample_rate", 44100), os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
         badge = f"{BOLD}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{BOLD}{RED}⏹ STOPPED{NC}")
-        mode_b = f" {BOLD}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {DIM}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
+        mode_b = f" {BOLD}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {dim_s}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
         is_rec, flash = bool(st.get("recording", False)), (int(time.time() * 1.5) % 2 == 0)
-        rec_b = f"  {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash) else (f"  {DIM}{RED}○ REC{NC}" if is_rec else "")
+        rec_b = f"  {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash) else (f"  {dim_s}{RED}○ REC{NC}" if is_rec else "")
         lines.append(f"  {badge}{mode_b}{rec_b}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
         if is_rec:
             rf, rmb, rdur = os.path.basename(st.get("recording_file", "")), float(st.get("recording_bytes", 0)) / 1048576.0, format_seconds(float(st.get("recording_duration", 0.0)))
-            rdot = f"{BOLD}{COLOR_TRAFFIC_RED}●{NC}" if flash else f"{DIM}{RED}○{NC}"
-            lines.append(f"  {rdot} {BOLD}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}{rf}{NC} {DIM}[{rmb:.1f} MB  •  {rdur}  •  Max 3GB/WAV]{NC}")
+            rdot = f"{BOLD}{COLOR_TRAFFIC_RED}●{NC}" if flash else f"{dim_s}{RED}○{NC}"
+            lines.append(f"  {rdot} {BOLD}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}{rf}{NC} {dim_s}[{rmb:.1f} MB  •  {rdur}  •  Max 3GB/WAV]{NC}")
         out_n = bt_dev or st.get("output_device", "Speakers")
-        bt_b = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_n}{NC}" if (is_bt or "bluetooth" in str(out_n).lower()) else f"{DIM}{CYAN}🔊 Output: {out_n}{NC}"
+        bt_b = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_n}{NC}" if (is_bt or "bluetooth" in str(out_n).lower()) else f"{dim_s}{CYAN}🔊 Output: {out_n}{NC}"
         s4_b = f"  │  {BOLD}\033[38;2;0;255;127m🎛️ S4 MIDI [hw:0,0]{NC}" if (CONFIG_DIR / "traktor_s4_midi.pid").exists() else ""
-        lines.append(f"  {DIM}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_b}{s4_b}{NC}" if w >= 106 else f"  {DIM}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_b}{NC}")
+        lines.append(f"  {dim_s}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_b}{s4_b}{NC}" if w >= 106 else f"  {dim_s}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_b}{NC}")
 
-        pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(54, iw - 42))
+        pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(max(54, iw - 42), iw - 28))
         fw = int((pct / 100.0) * bw)
         lines.extend([
-            f"  {COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  ({pct:.1f}%)",
+            f"  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {BOLD}{WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
             self.visualizer.render_horizontal_pitch_bar(int(st.get("pitch_percent", 0)), width=bw, max_cols=max(20, w - 1)), ""
         ])
         lines.extend(self.visualizer.render(st, width=w, height=(7 if h >= 34 else (5 if h >= 28 else 3))) + [""])
@@ -3325,7 +3456,7 @@ class TerminalPlayerUI:
             if not active_tracks:
                 em1 = "No audio tracks found in playlist." if self.mode == "MUSIC" else "No audio mixes found in archive. (Mix archive folders not yet configured)"
                 em2 = "Option 1: add a local drive or SMB folder, then generate its playlist." if self.mode == "MUSIC" else "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
-                for em in (em1, em2): lines.append(f"  {b_col}│{NC} {COLOR_TRAFFIC_AMBER}{em}{NC}{' ' * max(0, iw - _display_width(em) - 2)}{b_col}│{NC}")
+                for em in (em1, em2): lines.append(f"  {b_col}│{NC} {BOLD}{COLOR_TRAFFIC_AMBER}{em}{NC}{' ' * max(0, iw - _display_width(em) - 2)}{b_col}│{NC}")
                 for _ in range(max(0, vrows - 2)): lines.append(f"  {b_col}│{NC}{' ' * iw}{b_col}│{NC}")
             else:
                 for i in range(self.scroll_offset, min(len(active_tracks), self.scroll_offset + vrows)):
@@ -3353,39 +3484,43 @@ class TerminalPlayerUI:
                     if sel: lines.append(f"  {b_col}│{NC}\033[7m{BOLD}{hl_col}{ip}\033[0m{b_col}│{NC}")
                     elif act: lines.append(f"  {b_col}│{NC}{BOLD}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{BOLD}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
-                    else: lines.append(f"  {b_col}│{NC}{ip}{b_col}│{NC}")
+                    else: lines.append(f"  {b_col}│{NC}{BOLD}{WHITE}{ip}{NC}{b_col}│{NC}" if is_lg else f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
             lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  w: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
 
-        shuf = f"{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{DIM}OFF{NC}"
-        rep, vol = f"{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}", (f"{st.get('volume', 85)}%" if not st.get("muted") else f"{COLOR_TRAFFIC_RED}MUTED{NC}")
+        hint_col = f"{BOLD}{WHITE}" if is_lg else DIM
+        shuf = f"{BOLD}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
+        rep = f"{BOLD}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
+        vol = (f"{BOLD}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{BOLD}{COLOR_TRAFFIC_RED}MUTED{NC}")
         pval = int(st.get("pitch_percent", 0))
         pcol = COLOR_TRAFFIC_GREEN if pval == 0 else (COLOR_TRAFFIC_AMBER if pval > 0 else COLOR_INDIGO_BLUE)
-        pbadge, eq_n, th_n = f"{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}", self.visualizer.get_style_display_name(), self.visualizer.theme.replace("_", " ").title()
+        pbadge = f"{BOLD}{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}"
+        eq_n = self.visualizer.get_style_display_name()
+        th_n = self.visualizer.theme.replace("_", " ").title()
         eq_p = self.eq_manager.active_preset
         eq_p_col = COLOR_TRAFFIC_GREEN if eq_p != "Flat" else COLOR_ELECTRIC_CYAN
         lines.append(_fit_text_line([
-            f"  🔊 Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  🎚 Pitch: {BOLD}{pbadge}  │  🎛 EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  📊 Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_n}{NC}",
-            f"  Vol: {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC}  │  Pitch: {BOLD}{pbadge}  │  EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
+            f"  🔊 Vol: {vol}  │  🎚 Pitch: {pbadge}  │  🎛 EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  📊 Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_n}{NC}",
+            f"  Vol: {vol}  │  Pitch: {pbadge}  │  EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
             f"  Vol {vol}  Pitch {pbadge}  EQ {eq_p}  Vis {eq_n}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         if self.mode == "MUSIC":
             lines.extend([
                 _fit_text_line([
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {COLOR_ELECTRIC_CYAN}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Q] Queue  [G] Spek  [I] Track Inspector  [E] Equalizer HUD  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit{NC}",
-                    f"  {COLOR_TRAFFIC_GREEN}CONTROLS:{NC} [Space] Play  [R] Rec WAV  [M] Mini  [L] Liquid  [Q] Queue  [G] Spek  [I] Inspector  [E] Equalizer  [/] Search  [n/p] Skip  [+/-] Pitch  [v/V] Vol  [u] Mute  [b/Esc] Exit",
-                    "  Space Play  [R] Rec  [M] Mini  [L] Liquid  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit"
+                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}[Space]{NC} {BOLD}Play/Pause{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[R]{NC} {BOLD}Record WAV{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[M]{NC} {BOLD}Mini Mode{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[L]{NC} {BOLD}Liquid Glass{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Z]{NC} {BOLD}3D Visualizer{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Q]{NC} {BOLD}Queue{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[G]{NC} {BOLD}Spek{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[I]{NC} {BOLD}Track Inspector{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[E]{NC} {BOLD}Equalizer HUD{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[/]{NC} {BOLD}Search{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {BOLD}Skip{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {BOLD}Pitch{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {BOLD}Vol{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[u]{NC} {BOLD}Mute{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {BOLD}Exit{NC}",
+                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {BOLD}[Space] Play{NC}  {BOLD}[R] Rec WAV{NC}  {BOLD}[M] Mini{NC}  {BOLD}[L] Liquid{NC}  {BOLD}[Z] 3D Vis{NC}  {BOLD}[Q] Queue{NC}  {BOLD}[G] Spek{NC}  {BOLD}[I] Inspector{NC}  {BOLD}[E] Equalizer{NC}  {BOLD}[/] Search{NC}  {BOLD}[n/p] Skip{NC}  {BOLD}[+/-] Pitch{NC}  {BOLD}[v/V] Vol{NC}  {BOLD}[u] Mute{NC}  {BOLD}[b/Esc] Exit{NC}",
+                    f"  {BOLD}Space Play  [R] Rec  [M] Mini  [L] Liquid  [Z] 3D Vis  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
                 ], max(20, w - 1)),
                 _fit_text_line([
-                    f"  {DIM}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
-                    f"  {DIM}0 Reset  u Mute  s Shuf  y Rep  L Glass  E Equalizer  e Vis  c Theme  a BT  O Open  F Files{NC}",
-                    f"  {DIM}0 Reset  u Mute  s Shuf  y Rep  L Glass  E Equalizer  e Vis  c Theme  b/Esc Exit{NC}"
+                    f"  {hint_col}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [Z] 3D Visualizer  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
+                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z 3D Vis  E Equalizer  e Vis  c Theme  a BT  O Open  F Files{NC}",
+                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z 3D Vis  E Equalizer  e Vis  c Theme  b/Esc Exit{NC}"
                 ], max(20, w - 1))
             ])
         else:
             lines.append(_fit_text_line([
-                f"  {DIM}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  L Glass  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
-                f"  {DIM}Space Play  R Rec  M Mini  L Glass  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
+                f"  {hint_col}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Z] 3D Visualizer  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
+                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z 3D Vis  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
+                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z 3D Vis  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
             ], max(20, w - 1)))
         _present_frame(lines, w, h)
 
@@ -3530,7 +3665,7 @@ def main():
         (("--list-mixes",), dict(action="store_true")), (("--open-file-manager", "-f"), dict(action="store_true")),
         (("--tracklist", "-t"), dict(action="store_true")), (("--export-playlist", "-e"), dict(nargs="?", const="default")),
         (("--style", "--eq"), dict(type=str, choices=EqualizerVisualizer.STYLES)), (("--theme",), dict(type=str, choices=EqualizerVisualizer.THEMES)),
-        (("--cmd",), dict(type=str)), (("--music-mode",), dict(action="store_true")),
+        (("--cmd",), dict(type=str)), (("--music-mode",), dict(action="store_true")), (("--mix-archive-mode",), dict(action="store_true")),
         (("--music-folder",), dict(type=str, default="ALL")), (("--playlist",), dict(type=str, default="")),
         (("--no-bluetooth-auto",), dict(action="store_true")), (("--bluetooth-status",), dict(action="store_true")),
         (("--bluetooth-route",), dict(action="store_true")), (("--mini",), dict(action="store_true")),
@@ -3538,6 +3673,9 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP_Liquid_Visualizer 3D Vulkan Visualizer (1400x1400 fixed borderless)")),
+        (("--visualizer-preset",), dict(type=str, default=None, help="Select MP_Liquid_Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
+        (("--list-visualizer-presets",), dict(action="store_true", help="List available MP_Liquid_Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
         (("--record", "--toggle-record", "-r"), dict(action="store_true")),
         (("--eq-preset",), dict(type=str, help="Set active equalizer preset (Flat, Ambient, Trance, Techno, House, Progressive, Vapourwave, or custom)")),
@@ -3619,8 +3757,41 @@ def main():
             sys.exit(0)
         print(f"✖ Spek generation failed: {res}", file=sys.stderr); sys.exit(1)
 
+    if args.list_visualizer_presets:
+        vis_script = base_dir / "MP_Liquid_Visualizer.py"
+        if not vis_script.is_file():
+            vis_script = base_dir / "scripts" / "mp_liquid_visualizer_vulkan.py"
+        sys.exit(subprocess.call([sys.executable, str(vis_script), "--list-presets"]))
+
+    if args.visualizer_preset and not args.visualizer:
+        vis_script = base_dir / "MP_Liquid_Visualizer.py"
+        if not vis_script.is_file():
+            vis_script = base_dir / "scripts" / "mp_liquid_visualizer_vulkan.py"
+        sys.exit(subprocess.call([sys.executable, str(vis_script), "--set-preset", str(args.visualizer_preset)]))
+
+    if args.visualizer:
+        ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
+        if ok:
+            print("✔ Launched MP_Liquid_Visualizer [Cosmic Dreamworlds (Liquid)] — 1400x1400 Fixed Borderless Vulkan")
+            sys.exit(0)
+        print("✖ Failed to launch MP_Liquid_Visualizer", file=sys.stderr)
+        sys.exit(1)
+
     if args.liquid:
-        sys.exit(0 if launch_liquid_glass_player(base_dir) else 1)
+        sys.exit(
+            0
+            if launch_liquid_glass_player(
+                base_dir,
+                mode=("MUSIC" if args.music_mode else ("MIX_ARCHIVE" if args.mix_archive_mode else None)),
+                folder_name=(args.music_folder if is_music else None),
+                playlist_path=(args.playlist or None),
+                theme=args.theme,
+                style=args.style,
+                mini=bool(args.mini),
+                micro=bool(args.micro),
+            )
+            else 1
+        )
 
     if args.new_window:
         if daemon_running:
@@ -3629,7 +3800,7 @@ def main():
                 if st and isinstance(st.get("data"), dict):
                     d_data = st["data"]
                     if d_mode := d_data.get("mode"):
-                        if not args.music_mode:
+                        if not args.music_mode and not args.mix_archive_mode:
                             current_mode = d_mode
                             is_music = (current_mode == "MUSIC")
             except Exception: pass
@@ -3847,7 +4018,7 @@ def main():
         elif daemon_running and d_status and isinstance(d_status.get("data"), dict):
             d_data = d_status["data"]
             if d_mode := d_data.get("mode"):
-                if not args.music_mode:
+                if not args.music_mode and not args.mix_archive_mode:
                     current_mode = d_mode
                     is_music = (current_mode == "MUSIC")
 

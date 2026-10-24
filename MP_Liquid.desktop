@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=MP Liquid Glass Audio Player
+Name=MP Liquid
 GenericName=Liquid Transparent Audio Player
 Comment=Launch MP Audio Player in Liquid Transparent Glass Mode
 Path=/var/home/mplanetarian/MP_Mix_Manager_v0.4
@@ -9,4 +9,5 @@ Icon=/var/home/mplanetarian/MP_Mix_Manager_v0.4/assets/mp_liquid_glass_icon.png
 Terminal=false
 Categories=AudioVideo;Audio;Player;
 StartupNotify=true
+StartupWMClass=MP_Liquid
 X-KDE-GlobalAccel-CommandShortcut=true

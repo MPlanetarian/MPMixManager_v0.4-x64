@@ -17,6 +17,8 @@ uniform vec4 u_themeC;  // second reflection rgb, opacity hint
 uniform vec4 u_bezel;   // margin px, corner radius, premul (1/0), close-button flag
 uniform vec4 u_panel0;  // x, y, width, height in framebuffer pixels
 uniform vec4 u_panel1;
+uniform sampler2D u_skinTex;
+uniform float u_hasSkin;
 
 struct GlassUBO_t {
     vec4 res;
@@ -98,17 +100,40 @@ void main() {
     float caust = smoothstep(0.58, 0.86, n);
     float caustFine = smoothstep(0.74, 0.92, n2);
 
-    vec3 water = vec3(0.76, 0.80, 0.87);
-    water = mix(water, theme, 0.22);
-    water += theme * (caust * 0.16 + caustFine * 0.08);
-    water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
-
     float title = panelMask(frag, u.panel0);
     float library = panelMask(frag, u.panel1);
     float panel = max(title, library);
-    vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
-    // A short slope around each panel, lighter on the lip and darker inside.
-    water = mix(water, panelCol, panel * 0.82);
+
+    vec3 water;
+    if (u_hasSkin > 0.5) {
+        // --- CRYSTAL CLEAR WATER LOOK WITH FULL-WINDOW COVER IMAGE ---
+        // Aquatic optical refraction through clear water layer:
+        vec2 waterWave = vec2(
+            sin(uv.y * 36.0 + n * 4.0) * 0.0022 + (n2 - 0.5) * 0.0025,
+            cos(uv.x * 28.0 + n2 * 4.0) * 0.0022 + (n - 0.5) * 0.0025
+        );
+        vec2 skinUv = clamp(uv + waterWave, 0.0, 1.0);
+        vec4 skinSample = texture(u_skinTex, skinUv);
+
+        // Pristine, crystal-clear water with bright aquatic caustics & shimmer:
+        float caustClear = pow(caustFine, 1.6) * 0.38 + pow(caust, 2.0) * 0.22;
+        vec3 caustGlint = mix(vec3(1.0), theme, 0.25) * caustClear;
+
+        // Inside the panels: translucent water well for pristine terminal text readability
+        vec3 clearBase = mix(skinSample.rgb, skinSample.rgb * 0.32, panel * 0.65);
+        // Subtle crystalline water purity tint
+        clearBase = mix(clearBase, clearBase + vec3(0.04, 0.12, 0.10), 0.12);
+        clearBase += caustGlint;
+        water = clearBase;
+    } else {
+        water = vec3(0.76, 0.80, 0.87);
+        water = mix(water, theme, 0.22);
+        water += theme * (caust * 0.16 + caustFine * 0.08);
+        water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
+        vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
+        water = mix(water, panelCol, panel * 0.82);
+    }
+
     float panelLip = 0.0;
     if (u.panel0.z > 4.0) {
         vec2 h0 = 0.5 * u.panel0.zw;
@@ -120,7 +145,11 @@ void main() {
         float d1 = sdRoundRect(frag - (u.panel1.xy + h1), h1, 16.0);
         panelLip = max(panelLip, exp(-pow((abs(d1) - 1.5) / 2.4, 2.0)));
     }
-    water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
+    if (u_hasSkin > 0.5) {
+        water += mix(vec3(1.0), theme, 0.35) * panelLip * 0.32;
+    } else {
+        water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
+    }
 
     // Sloped outer edge. Distance across the bevel changes what it reflects.
     float edge = max(-outer, 0.0);
@@ -136,19 +165,29 @@ void main() {
     float glint = step(0.94, hash(floor(frag / 3.0) + vec2(4.0, 1.0))) * step(edge, 12.0) * step(1.0, edge);
 
     vec3 col = water;
-    col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
-    col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
-    col += mix(theme, vec3(1.0), 0.35) * echo * 0.16;
-    col += theme * echoFar * 0.08;
-    col = mix(col, col * vec3(0.72, 0.76, 0.84), toe * 0.65);
-    col = mix(col, vec3(1.0), hair);
-    col = mix(col, mix(vec3(1.0), theme, 0.15), bead * 0.9);
-    col += vec3(1.0) * glint * 0.75;
+    if (u_hasSkin > 0.5) {
+        // Pristine clear water rim reflections & liquid caustics
+        col = mix(col, mix(vec3(1.0), theme, 0.20), large * 0.72);
+        col = mix(col, mix(theme, vec3(1.0), 0.35), shoulder * 0.48);
+        col += mix(theme, vec3(1.0), 0.40) * echo * 0.16;
+        col = mix(col, vec3(1.0), hair * 0.85);
+        col = mix(col, mix(vec3(1.0), theme, 0.20), bead * 0.8);
+        col += vec3(1.0) * glint * 0.85;
+    } else {
+        col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
+        col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
+        col += mix(theme, vec3(1.0), 0.35) * echo * 0.16;
+        col += theme * echoFar * 0.08;
+        col = mix(col, col * vec3(0.72, 0.76, 0.84), toe * 0.65);
+        col = mix(col, vec3(1.0), hair);
+        col = mix(col, mix(vec3(1.0), theme, 0.15), bead * 0.9);
+        col += vec3(1.0) * glint * 0.75;
+    }
 
     vec2 m = vec2(u.themeA.w, u.themeB.w);
     vec2 lp = (m - uv) * vec2(max(u.res.w, 0.5), 1.0);
     float spec = pow(max(0.0, 1.0 - length(lp) * 1.8), 8.0);
-    col += vec3(1.0) * spec * 0.28 * large;
+    col += vec3(1.0) * spec * (u_hasSkin > 0.5 ? 0.36 : 0.28) * large;
 
     if (u.bezel.w > 0.5) {
         float margin = max(u.bezel.x, 8.0);

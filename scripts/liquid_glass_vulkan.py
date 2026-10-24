@@ -893,6 +893,7 @@ class LiquidGlassRenderer:
             raise RuntimeError("GLFW reports Vulkan is unavailable")
         self._step = "window"
         self._window = self._create_window()
+        self._apply_window_icon()
         self._bind_input()
         self._step = "instance"
         self._vulkan = load_vulkan_dll()
@@ -1316,7 +1317,7 @@ class LiquidGlassRenderer:
         return atoms[name]
 
     def _change_cardinal(self, window, prop, values):
-        data = (c_uint32 * len(values))(*[int(value) & 0xFFFFFFFF for value in values])
+        data = (ctypes.c_ulong * len(values))(*[int(value) & 0xFFFFFFFF for value in values])
         self._prop_keep = data
         self._x11.XChangeProperty(
             self.x11_display(),
@@ -1328,6 +1329,79 @@ class LiquidGlassRenderer:
             ctypes.cast(data, c_void_p),
             len(values),
         )
+
+    def _apply_window_icon(self):
+        icon_candidates = [
+            ROOT / "assets" / "mp_liquid_glass_icon.png",
+            Path.home() / ".local" / "share" / "icons" / "mp_liquid_glass_icon.png",
+        ]
+        icon_path = next((p for p in icon_candidates if p.is_file()), None)
+        if not icon_path:
+            return
+        try:
+            from PIL import Image
+            base_img = Image.open(icon_path).convert("RGBA")
+        except Exception:
+            return
+
+        # 1. Set via GLFW (works on X11 and Windows)
+        if hasattr(self._glfw, "glfwSetWindowIcon") and self._window:
+            try:
+                class _GLFWimage(ctypes.Structure):
+                    _fields_ = [
+                        ("width", c_int),
+                        ("height", c_int),
+                        ("pixels", POINTER(ctypes.c_ubyte)),
+                    ]
+                sizes = (256, 128, 64, 48, 32, 16)
+                c_imgs = (_GLFWimage * len(sizes))()
+                keep_bufs = []
+                for idx, sz in enumerate(sizes):
+                    im = base_img.resize((sz, sz), Image.Resampling.LANCZOS)
+                    raw = im.tobytes()
+                    buf = (ctypes.c_ubyte * len(raw)).from_buffer_copy(raw)
+                    keep_bufs.append(buf)
+                    c_imgs[idx].width = sz
+                    c_imgs[idx].height = sz
+                    c_imgs[idx].pixels = ctypes.cast(buf, POINTER(ctypes.c_ubyte))
+                self._icon_keep = (c_imgs, keep_bufs)
+                self._glfw.glfwSetWindowIcon(self._window, len(sizes), ctypes.cast(c_imgs, c_void_p))
+            except Exception:
+                pass
+
+        # 2. Set X11 _NET_WM_ICON, WM_CLASS, and _KDE_NET_WM_DESKTOP_FILE for KDE Task Panel
+        if not is_windows() and self.x11_display() and self.x11_window() and getattr(self, "_x11", None):
+            try:
+                display = self.x11_display()
+                win = int(self.x11_window())
+
+                wm_class = b"mp_liquid\x00MP_Liquid\x00"
+                wm_buf = ctypes.create_string_buffer(wm_class, len(wm_class))
+                self._x11.XChangeProperty(
+                    display, win, self._x_atom("WM_CLASS"), self._x_atom("STRING"),
+                    8, 0, ctypes.cast(wm_buf, c_void_p), len(wm_class),
+                )
+
+                desk_str = b"MP_Liquid"
+                desk_buf = ctypes.create_string_buffer(desk_str, len(desk_str))
+                self._x11.XChangeProperty(
+                    display, win, self._x_atom("_KDE_NET_WM_DESKTOP_FILE"), self._x_atom("UTF8_STRING"),
+                    8, 0, ctypes.cast(desk_buf, c_void_p), len(desk_str),
+                )
+
+                icon_vals = []
+                for sz in (128, 64, 48, 32, 16):
+                    im = base_img.resize((sz, sz), Image.Resampling.LANCZOS)
+                    icon_vals.append(sz)
+                    icon_vals.append(sz)
+                    raw = im.tobytes()
+                    for i in range(0, len(raw), 4):
+                        r, g, b, a = raw[i], raw[i + 1], raw[i + 2], raw[i + 3]
+                        icon_vals.append(((a << 24) | (r << 16) | (g << 8) | b) & 0xFFFFFFFF)
+                self._change_cardinal(win, self._x_atom("_NET_WM_ICON"), icon_vals)
+                self._x11.XFlush(display)
+            except Exception:
+                pass
 
     def _set_opacity(self, window, opacity):
         value = int(max(0.0, min(1.0, float(opacity))) * 0xFFFFFFFF)
@@ -1498,6 +1572,10 @@ class LiquidGlassRenderer:
         g.glfwInit.restype = c_int
         g.glfwInitHint.argtypes = [c_int, c_int]
         g.glfwWindowHint.argtypes = [c_int, c_int]
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString.argtypes = [c_int, c_char_p]
+        if hasattr(g, "glfwSetWindowIcon"):
+            g.glfwSetWindowIcon.argtypes = [c_void_p, c_int, c_void_p]
         g.glfwVulkanSupported.restype = c_int
         g.glfwCreateWindow.argtypes = [c_int, c_int, c_char_p, c_void_p, c_void_p]
         g.glfwCreateWindow.restype = c_void_p
@@ -1554,6 +1632,9 @@ class LiquidGlassRenderer:
         g.glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE)
         g.glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE)
         g.glfwWindowHint(GLFW_TRANSPARENT, GLFW_TRUE)
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString(0x00024001, b"MP_Liquid")
+            g.glfwWindowHintString(0x00024002, b"mp_liquid")
         title = self.title.encode()
         window = g.glfwCreateWindow(self.width, self.height, title, None, None)
         self.transparent = True

@@ -28,8 +28,8 @@ ICON_SVG = ASSETS_DIR / "mp_liquid_glass_icon.svg"
 LAUNCHER_SCRIPT = ROOT / "scripts" / "launch_liquid_glass.sh"
 
 USER_DESKTOP = Path.home() / "Desktop"
-DESKTOP_SHORTCUT = USER_DESKTOP / "MP_Liquid_Glass_Audio_Player.desktop"
-APPS_SHORTCUT = Path.home() / ".local" / "share" / "applications" / "MP_Liquid_Glass_Audio_Player.desktop"
+DESKTOP_SHORTCUT = USER_DESKTOP / "MP_Liquid.desktop"
+APPS_SHORTCUT = Path.home() / ".local" / "share" / "applications" / "MP_Liquid.desktop"
 
 
 def is_welcomed() -> bool:
@@ -77,7 +77,7 @@ def install_reward_desktop_shortcut():
     # 4. Create Desktop shortcut content
     content = f"""[Desktop Entry]
 Type=Application
-Name=MP Liquid Glass Audio Player
+Name=MP Liquid
 GenericName=Liquid Transparent Audio Player
 Comment=Launch MP Audio Player in Liquid Transparent Glass Mode
 Path={ROOT}
@@ -86,6 +86,7 @@ Icon={ICON_PNG}
 Terminal=false
 Categories=AudioVideo;Audio;Player;
 StartupNotify=true
+StartupWMClass=MP_Liquid
 X-KDE-GlobalAccel-CommandShortcut=true
 """
     DESKTOP_SHORTCUT.write_text(content, encoding="utf-8")

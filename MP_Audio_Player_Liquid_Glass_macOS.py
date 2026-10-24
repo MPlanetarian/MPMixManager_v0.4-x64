@@ -47,18 +47,18 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
     m = str(mode).upper()
     if m == "MICRO":
         return (
-            box(2, 0, min(cols - 4, 70), rows),
+            box(2, 0, max(20, cols - 4), rows),
             (0.0, 0.0, 0.0, 0.0),
         )
     elif m == "MINI":
         return (
-            box(2, 0, min(cols - 4, 74), 3),
-            box(2, 3, min(cols - 4, 74), max(1, rows - 3)),
+            box(2, 0, max(20, cols - 4), 3),
+            box(2, 3, max(20, cols - 4), max(1, rows - 3)),
         )
     else:
-        iw = 115 if cols >= 122 else max(20, cols - 6)
+        iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + viz_rows + 1
+        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
         body_rows = max(1, rows - (before + 1) - 4)
         return (
             box(2, 0, iw + 2, 4),
@@ -66,13 +66,15 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
         )
 
 
-def player_argv(mode="NORMAL"):
+def player_argv(mode="NORMAL", extra_args=None):
     cmd = [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
     m = str(mode).upper()
     if m == "MINI":
         cmd.append("--mini")
     elif m == "MICRO":
         cmd.append("--micro")
+    if extra_args:
+        cmd.extend(extra_args)
     return cmd
 
 
@@ -325,7 +327,8 @@ def main(argv):
 
     embed = "--embed-check" in argv
     mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
-    command = embed_check_argv() if embed else player_argv(mode=mode)
+    extra = [a for a in argv if a not in ("--self-test", "--embed-check", "--mini", "--micro")]
+    command = embed_check_argv() if embed else player_argv(mode=mode, extra_args=extra)
     if not Path(command[1]).is_file() and not embed:
         raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
 

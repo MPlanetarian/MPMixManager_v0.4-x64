@@ -48,18 +48,18 @@ def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NOR
 
     if mode == "MICRO":
         return (
-            box(2, 0, min(cols - 4, 70), rows),
+            box(2, 0, max(20, cols - 4), rows),
             (0.0, 0.0, 0.0, 0.0),
         )
     elif mode == "MINI":
         return (
-            box(2, 0, min(cols - 4, 74), 3),
-            box(2, 3, min(cols - 4, 74), max(1, rows - 3)),
+            box(2, 0, max(20, cols - 4), 3),
+            box(2, 3, max(20, cols - 4), max(1, rows - 3)),
         )
     else:
-        iw = 115 if cols >= 122 else max(20, cols - 6)
+        iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + viz_rows + 1
+        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
         body_rows = max(1, rows - (before + 1) - 4)
         return (
             box(2, 0, iw + 2, 4),
@@ -84,12 +84,14 @@ def _import_gtk():
     return GLib, Gtk, Vte
 
 
-def player_argv(mode="NORMAL"):
+def player_argv(mode="NORMAL", extra_args=None):
     cmd = [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
     if mode == "MINI":
         cmd.append("--mini")
     elif mode == "MICRO":
         cmd.append("--micro")
+    if extra_args:
+        cmd.extend(extra_args)
     return cmd
 
 
@@ -177,6 +179,13 @@ class GlassHost:
         margin = self.renderer.bezel_px
         cols = getattr(self, "_target_cols", COLS)
         rows = getattr(self, "_target_rows", ROWS)
+        if self.terminal is not None:
+            tc = int(self.terminal.get_column_count() or 0)
+            tr = int(self.terminal.get_row_count() or 0)
+            if tc >= 20:
+                cols = tc
+            if tr >= 5:
+                rows = tr
         self.renderer.set_panels(player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode))
 
     def toggle_maximize(self):
@@ -200,6 +209,7 @@ class GlassHost:
             self._target_rows = max_rows
             self.renderer.set_window_pos(wx, wy)
             self.renderer.set_window_size(ww, wh)
+            self.renderer.poll()
             if self.terminal is not None:
                 self.terminal.set_size(max_cols, max_rows)
             self._place_terminal()
@@ -219,6 +229,7 @@ class GlassHost:
             win_h = rows * char_h + 2 * margin
             self.renderer.set_window_pos(pos[0], pos[1])
             self.renderer.set_window_size(win_w, win_h)
+            self.renderer.poll()
             if self.terminal is not None:
                 self.terminal.set_size(cols, rows)
             self._place_terminal()
@@ -298,6 +309,14 @@ class GlassHost:
         while context.pending():
             context.iteration(False)
 
+    def _on_term_button_press(self, _term, event):
+        from gi.repository import Gdk
+        if event.type == Gdk.EventType._2BUTTON_PRESS and event.button == 1:
+            if event.y <= 90:
+                self.toggle_maximize()
+                return True
+        return False
+
     def _track_drag(self, was_down, dragging, origin, press_screen):
         x, y = self.renderer.cursor
         width, height = self.renderer.window_size()
@@ -308,9 +327,9 @@ class GlassHost:
                 dragging = False
             elif self._on_top_bezel(x, y, width, height):
                 now = time.monotonic()
-                if (now - getattr(self, "_last_top_click", 0.0) < 0.38
-                    and abs(x - getattr(self, "_last_top_click_x", 0)) < 25
-                    and abs(y - getattr(self, "_last_top_click_y", 0)) < 25):
+                if (now - getattr(self, "_last_top_click", 0.0) < 0.45
+                    and abs(x - getattr(self, "_last_top_click_x", 0)) < 35
+                    and abs(y - getattr(self, "_last_top_click_y", 0)) < 35):
                     self.toggle_maximize()
                     dragging = False
                     self._last_top_click = 0.0
@@ -501,6 +520,7 @@ class GlassHost:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
         self._place_terminal()
         self.renderer.focus_window(self.child_xid)
+        term.connect("button-press-event", self._on_term_button_press)
         term.connect("key-press-event", self._on_key_press)
         term.connect("child-exited", self._on_child_exit)
         term.spawn_async(
@@ -552,7 +572,18 @@ class GlassHost:
     def _gtk_terminal_window(self):
         from gi.repository import Gdk, Gtk
 
+        icon_path = ROOT / "assets" / "mp_liquid_glass_icon.png"
+        if icon_path.is_file():
+            try:
+                Gtk.Window.set_default_icon_from_file(str(icon_path))
+            except Exception:
+                pass
         window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        if icon_path.is_file():
+            try:
+                window.set_icon_from_file(str(icon_path))
+            except Exception:
+                pass
         window.set_decorated(False)
         window.set_skip_taskbar_hint(True)
         window.set_skip_pager_hint(True)
@@ -565,7 +596,7 @@ class GlassHost:
         return window
 
     def _clear_terminal_background(self, window, term):
-        """Let the still-water glass show through the player cells."""
+        """Let the still-water glass show through the player cells while keeping text high-contrast."""
         from gi.repository import Gdk, Gtk
 
         rgba = Gdk.RGBA()
@@ -573,8 +604,43 @@ class GlassHost:
         rgba.alpha = 0
         if hasattr(term, "set_color_background"):
             term.set_color_background(rgba)
+        fg = Gdk.RGBA()
+        fg.red = fg.green = fg.blue = 1.0
+        fg.alpha = 1.0
+        if hasattr(term, "set_color_foreground"):
+            term.set_color_foreground(fg)
+        if hasattr(term, "set_color_bold"):
+            term.set_color_bold(fg)
+        if hasattr(term, "set_bold_is_bright"):
+            term.set_bold_is_bright(True)
+        try:
+            import gi
+            gi.require_version("Pango", "1.0")
+            from gi.repository import Pango
+            font_desc = Pango.FontDescription.from_string("Monospace Bold 11")
+            term.set_font(font_desc)
+        except Exception:
+            pass
+        try:
+            import cairo
+            import gi
+
+            gi.require_version("PangoCairo", "1.0")
+            from gi.repository import PangoCairo
+
+            fo = cairo.FontOptions()
+            fo.set_antialias(cairo.ANTIALIAS_GRAY)
+            fo.set_hint_style(cairo.HINT_STYLE_FULL)
+            if window.get_screen() is not None:
+                window.get_screen().set_font_options(fo)
+            if term.get_pango_context() is not None:
+                PangoCairo.context_set_font_options(term.get_pango_context(), fo)
+        except Exception:
+            pass
         provider = Gtk.CssProvider()
-        provider.load_from_data(b"vte-terminal, window { background-color: transparent; }")
+        provider.load_from_data(
+            b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: bold; }"
+        )
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
@@ -606,7 +672,8 @@ def main(argv):
         return 0
     embed = "--embed-check" in argv
     mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
-    command = embed_check_argv() if embed else player_argv(mode=mode)
+    extra = [a for a in argv if a not in ("--self-test", "--embed-check", "--mini", "--micro")]
+    command = embed_check_argv() if embed else player_argv(mode=mode, extra_args=extra)
     if not Path(command[1]).is_file() and not embed:
         raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
     host = GlassHost(command, embed_check=embed, mode=mode)
