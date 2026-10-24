@@ -229,6 +229,63 @@ class TestTracklistViewerActions(unittest.TestCase):
             ffmpeg_calls = [c for c in mock_run.call_args_list if c.args and c.args[0] and c.args[0][0] == "ffmpeg"]
             self.assertEqual(len(ffmpeg_calls), 0)
 
+    def test_viewer_applies_user_selected_theme_from_config_file(self):
+        tl = self.base / "Mix_Theme.txt"
+        tl.write_text("01. Artist One - Track One (Remix)\n", encoding="utf-8")
+        theme_file = self.base / "theme"
+
+        theme_checks = [
+            ("cosmic_supernova", "Cosmic Supernova", "\033[38;2;224;86;253m", "\033[38;2;76;201;240m"),
+            ("dreamworlds_ultra", "Dreamworlds Ultra", "\033[38;2;166;77;255m", "\033[38;2;153;153;255m"),
+            ("dreamworlds_liquid", "MP Dreamworlds Liquid Transparency", "\033[38;2;199;125;255m", "\033[38;2;0;245;255m"),
+            ("orbital_void_reflux", "Orbital Void Reflux", "\033[38;2;157;78;221m", "\033[38;2;0;240;255m"),
+            ("retro_terminal", "Retro Terminal", "\033[1;37m", "\033[1;37m"),
+        ]
+
+        for theme_id, display_name, expected_magenta, expected_cyan in theme_checks:
+            theme_file.write_text(f"{theme_id}\n", encoding="utf-8")
+            env = os.environ.copy()
+            env["MP_THEME_FILE"] = str(theme_file)
+            env.pop("CURRENT_THEME", None)
+            env.pop("MP_TRACKLIST_THEME", None)
+
+            res = subprocess.run(
+                ["bash", str(self.viewer_sh), str(tl)],
+                input="q",
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+            self.assertEqual(res.returncode, 0)
+            self.assertIn(display_name, res.stdout)
+            self.assertIn(f"({theme_id})", res.stdout)
+            self.assertIn(expected_magenta, res.stdout)
+            self.assertIn(expected_cyan, res.stdout)
+
+    def test_viewer_accepts_cli_and_env_theme_and_cycles_with_t(self):
+        tl = self.base / "Mix_Cycle.txt"
+        tl.write_text("01. Solar Fields - Mirror\n", encoding="utf-8")
+        theme_file = self.base / "theme"
+        theme_file.write_text("dreamworlds\n", encoding="utf-8")
+
+        env = os.environ.copy()
+        env["MP_THEME_FILE"] = str(theme_file)
+        env.pop("CURRENT_THEME", None)
+        env.pop("MP_TRACKLIST_THEME", None)
+
+        res = subprocess.run(
+            ["bash", str(self.viewer_sh), "--theme", "dreamworlds", str(tl)],
+            input="tq",
+            text=True,
+            capture_output=True,
+            env=env,
+            timeout=10,
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("Theme switched to: Dreamworlds Ultra (dreamworlds_ultra)", res.stdout)
+        self.assertEqual(theme_file.read_text(encoding="utf-8").strip(), "dreamworlds_ultra")
+
 
 if __name__ == "__main__":
     unittest.main()

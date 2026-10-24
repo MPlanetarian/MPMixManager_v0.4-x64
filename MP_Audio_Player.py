@@ -261,7 +261,7 @@ def find_tracklist_for_mix(mix_file: Union[str, Path, None]) -> Optional[str]:
         except Exception: pass
     return None
 
-def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None) -> bool:
+def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
     base = get_base_dir()
     v_sh = base / "scripts" / "view_tracklist_console.sh"
@@ -269,18 +269,29 @@ def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: 
     t_str, v_str, title = str(tl), str(v_sh), "Mix Tracklist Viewer"
     a_str = str(Path(audio_path).expanduser().resolve()) if audio_path and os.path.exists(str(audio_path)) else ""
     if a_str: os.environ["MP_TRACKLIST_AUDIO_FILE"] = a_str
-    sh_args = [v_str, t_str] + ([a_str] if a_str else [])
+    active_theme = (theme or "").strip()
+    if not active_theme:
+        try:
+            th_file = CONFIG_DIR / "theme"
+            if th_file.is_file(): active_theme = th_file.read_text(encoding="utf-8").strip()
+        except Exception: pass
+    if not active_theme:
+        active_theme = os.environ.get("MP_TRACKLIST_THEME") or os.environ.get("CURRENT_THEME") or ""
+    if active_theme:
+        os.environ["MP_TRACKLIST_THEME"] = active_theme
+        os.environ["CURRENT_THEME"] = active_theme
+    sh_args = [v_str] + (["--theme", active_theme] if active_theme else []) + [t_str] + ([a_str] if a_str else [])
     if (cust := os.environ.get("TRACKLIST_VIEWER")) and cust not in ("console", "auto") and shutil.which(cust) and _run_bg([cust, t_str]): return True
     if sys.platform.startswith(("linux", "freebsd")):
         if shutil.which("konsole") and v_sh.is_file() and _run_bg(["konsole", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title, "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "-p", "TerminalColumns=95", "-p", "TerminalRows=35", "-e", "bash"] + sh_args):
             threading.Thread(target=lambda: (time.sleep(0.15), shutil.which("xprop") and subprocess.run(["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x2, 0x0, 0x0, 0x0, 0x0"], capture_output=True)), daemon=True).start()
             return True
-        xfce_cmd = f"bash '{v_str}' '{t_str}'" + (f" '{a_str}'" if a_str else "")
+        xfce_cmd = f"bash '{v_str}'" + (f" --theme '{active_theme}'" if active_theme else "") + f" '{t_str}'" + (f" '{a_str}'" if a_str else "")
         for term, args in [("gnome-terminal", [f"--title={title}", "--hide-menubar", "--", "bash"] + sh_args), ("xfce4-terminal", [f"--title={title}", "--hide-menubar", "--hide-borders", "-e", xfce_cmd]), ("alacritty", ["--title", title, "-e", "bash"] + sh_args), ("foot", ["-T", title, "bash"] + sh_args), ("xterm", ["-title", title, "-bd", "0", "-geometry", "95x35", "-e", "bash"] + sh_args), ("xdg-open", [t_str])]:
             if shutil.which(term) and _run_bg([term] + args): return True
     elif sys.platform == "darwin":
         if v_sh.is_file():
-            mac_args = f'\\"{v_str}\\" \\"{t_str}\\"' + (f' \\"{a_str}\\"' if a_str else "")
+            mac_args = f'\\"{v_str}\\"' + (f' --theme \\"{active_theme}\\"' if active_theme else "") + f' \\"{t_str}\\"' + (f' \\"{a_str}\\"' if a_str else "")
             if _run_bg(["osascript", "-e", f'tell application "Terminal" to do script "bash {mac_args}"']): return True
         return _run_bg(["open", t_str])
     elif sys.platform == "win32":
@@ -3132,7 +3143,7 @@ class TerminalPlayerUI:
         tp, tn = self._get_target_path()
         if not tp: return self._notify("No mix selected to view tracklist.", 3.0)
         if (tl := find_tracklist_for_mix(tp)) and os.path.isfile(tl):
-            self._notify(f"{'Opened' if open_tracklist_window(tl, tp) else 'Failed to open'} Tracklist: {os.path.basename(tl)}", 3.5)
+            self._notify(f"{'Opened' if open_tracklist_window(tl, tp, theme=self.visualizer.theme) else 'Failed to open'} Tracklist: {os.path.basename(tl)}", 3.5)
         else: self._notify(f"No tracklist found for: {tn or os.path.basename(tp)}", 3.5)
 
     def _open_audio_file(self):
@@ -3822,7 +3833,7 @@ def main():
             print(f"✔ Opened in file manager: {target}" if ok else "✖ Failed to open file manager")
             sys.exit(0 if ok else 1)
         tl = find_tracklist_for_mix(tp) if tp else None
-        if tl and os.path.isfile(tl) and open_tracklist_window(tl, tp): print(f"✔ Opened tracklist: {tl}"); sys.exit(0)
+        if tl and os.path.isfile(tl) and open_tracklist_window(tl, tp, theme=args.theme): print(f"✔ Opened tracklist: {tl}"); sys.exit(0)
         print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr); sys.exit(1)
 
     if args.export_playlist is not None:
@@ -3867,7 +3878,8 @@ def main():
     if args.visualizer:
         ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
         if ok:
-            print("✔ Launched MP_Liquid_Visualizer [Cosmic Dreamworlds (Liquid)] — 1400x1400 Fixed Borderless Vulkan")
+            p_label = args.visualizer_preset or "Active Preset"
+            print(f"✔ Launched MP_Liquid_Visualizer [{p_label}] — 1400x1400 Fixed Borderless Vulkan")
             sys.exit(0)
         print("✖ Failed to launch MP_Liquid_Visualizer", file=sys.stderr)
         sys.exit(1)
