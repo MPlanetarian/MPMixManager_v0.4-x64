@@ -318,6 +318,46 @@ class MetalGlassHost:
             self.renderer = None
 
 
+def ensure_random_visualizer_started() -> bool:
+    """Automatically start MP Liquid Visualizer with a random preset if not already running."""
+    try:
+        import shutil, subprocess
+        if shutil.which("pgrep"):
+            res = subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode == 0:
+                return False
+
+        root = Path(__file__).resolve().parent
+        vis_candidates = [
+            root / "MP_Liquid_Visualizer.py",
+            root / "scripts" / "mp_liquid_visualizer_vulkan.py",
+        ]
+        vis_script = None
+        for cand in vis_candidates:
+            if cand.is_file():
+                vis_script = cand
+                break
+        if not vis_script:
+            return False
+
+        log_dir = Path.home() / ".config" / "mix-manager"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "liquid_visualizer.log"
+
+        with open(log_file, "a") as f:
+            subprocess.Popen(
+                [sys.executable, str(vis_script), "--preset", "random"],
+                cwd=str(root),
+                stdin=subprocess.DEVNULL,
+                stdout=f,
+                stderr=f,
+                start_new_session=True,
+            )
+        return True
+    except Exception:
+        return False
+
+
 def main(argv):
     # 1. Check Apple Silicon hardware requirement first
     if "--help" not in argv and "-h" not in argv:
@@ -365,7 +405,10 @@ def main(argv):
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--tracklist" and i + 1 < len(argv):
+        if arg == "--no-visualizer":
+            i += 1
+            continue
+        elif arg == "--tracklist" and i + 1 < len(argv):
             tracklist_path = argv[i + 1]
             i += 2
             continue
@@ -391,6 +434,9 @@ def main(argv):
             continue
         cleaned_argv.append(arg)
         i += 1
+
+    if not embed and not tracklist_path and "--self-test" not in argv and "--no-visualizer" not in argv:
+        ensure_random_visualizer_started()
 
     if tracklist_path and not embed:
         mode = "TRACKLIST"

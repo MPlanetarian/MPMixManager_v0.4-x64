@@ -124,6 +124,18 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
             Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Sensorium_Interface.jpeg"),
         ],
     },
+    {
+        "id": 5,
+        "key": "stream_of_frequency",
+        "name": "Stream of Frequency",
+        "album": "MPlanetarian - Stream of Frequency",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "stream_of_frequency_cover.jpg",
+            COVERS_DIR / "Stream_of_Frequency_Preset.png",
+            Path("/home/mplanetarian/Documents/Stream_of_Frequency.jpg"),
+        ],
+    },
 ]
 
 
@@ -174,11 +186,17 @@ def load_vulkan_dll():
 def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
     """Return the active visualizer preset dictionary."""
     target = str(preset_arg or "").strip().lower()
+    if target in ("random", "rand", "rnd", "-1", "any", "shuffle"):
+        import random
+        return random.choice(VISUALIZER_PRESETS)
     if not target:
         preset_file = CONFIG_DIR / "visualizer_preset"
         if preset_file.is_file():
             try:
                 target = preset_file.read_text(encoding="utf-8").strip().lower()
+                if target in ("random", "rand", "rnd", "-1", "any", "shuffle"):
+                    import random
+                    return random.choice(VISUALIZER_PRESETS)
             except OSError:
                 pass
     if not target:
@@ -189,13 +207,13 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
                 if th in ("sensorium", "sensorium_interface", "sensorium interface", "earth_flipper", "earth flipper"):
                     target = "sensorium_interface"
                 elif th in ("stream_of_frequency", "stream", "frequency", "sof", "frequency_stream"):
-                    target = "sensorium_interface"
+                    target = "stream_of_frequency"
             except OSError:
                 pass
     for p in VISUALIZER_PRESETS:
         candidates = [
-            str(p["id"]),
-            str(p["id"] + 1),  # Allow 1-based indexing too (e.g. 1 for first, 2 for second)
+            str(p["id"] + 1),  # 1-based indexing (1..6)
+            str(p["id"]),      # 0-based indexing (0..5)
             p["key"].lower(),
             p["name"].lower(),
             p["key"].replace("_", "-").lower(),
@@ -203,6 +221,8 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
         ]
         if p["key"] == "sensorium_interface":
             candidates.extend(["sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper"])
+        elif p["key"] == "stream_of_frequency":
+            candidates.extend(["stream of frequency", "stream_of_frequency", "stream", "frequency", "sof", "stream of frequency preset"])
         if target in candidates:
             return p
     # Partial matching if target provided
@@ -2675,12 +2695,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="MP Liquid Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer",
     )
     parser.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
+    parser.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     parser.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
     parser.add_argument("--list-presets", action="store_true", help="List available visualizer presets and exit")
     parser.add_argument("--self-test", action="store_true", help="Run Vulkan 1400x1400 render & pause/play verification")
     parser.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
     parser.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
     args = parser.parse_args(argv)
+
+    if args.random_preset:
+        args.preset = "random"
 
     if args.list_presets:
         active = get_active_preset()
@@ -2694,7 +2718,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Active Preset set to: {saved['name']} ({saved['key']})")
         return 0
 
-    if args.preset is not None:
+    if args.preset is not None and args.preset.lower() not in ("random", "rand", "rnd", "-1", "any", "shuffle"):
         save_active_preset(args.preset)
 
     if args.self_test:

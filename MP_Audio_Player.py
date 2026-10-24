@@ -3080,6 +3080,7 @@ def launch_liquid_glass_player(
     style: Optional[str] = None,
     mini: bool = False,
     micro: bool = False,
+    no_visualizer: bool = False,
 ) -> bool:
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
@@ -3134,6 +3135,8 @@ def launch_liquid_glass_player(
         return False
 
     cmd = [sys.executable, str(script_path)]
+    if no_visualizer:
+        cmd.append("--no-visualizer")
     if micro:
         cmd.append("--micro")
     elif mini:
