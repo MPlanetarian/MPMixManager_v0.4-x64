@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0 Stable] - 2026-10-24
 
+### Changed
+- **MP Liquid Glass Audio Player — Reduced Bezel Width by 86% for Default Window, Mini, and Micro Modes** (`scripts/liquid_glass_vulkan.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_metal.py`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`, `tests/test_liquid_glass_player_features.py`, `tests/test_liquid_glass_windows.py`):
+  - **86% Bezel Width Reduction**: Reduced the liquid glass bezel border width by 86% (from 52px down to 7px: `52 * (1 - 0.86) = 7.28 ≈ 7px`) across all Vulkan, OpenGL, and Apple Silicon Metal renderers.
+  - **Support Across Default Window, Mini, and Micro Modes**:
+    - **Default Window (NORMAL)**: Streamlined border around the 120x40 terminal, tightening outer dimensions from 1184x824 down to 1094x734 for a modern ultra-slim aesthetic.
+    - **Mini Mode (MINI)**: Scaled border around the 74x14 terminal, reducing window footprint down to 680x266 while maximizing usable content area.
+    - **Micro Mode (MICRO)**: Scaled border around the compact 74x7 terminal, reducing window footprint down to 680x140 and eliminating bezel bulk.
+  - **Hit Testing & Terminal Docking**: Updated inner well geometry, window resize/restore handlers, top bezel drag regions, and close button hit areas to match the streamlined 7px bezel.
+
 ### Added
 - **MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer (`Cosmic Dreamworlds (Liquid)` Preset 1)** (`MP_Liquid_Visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `scripts/launch_liquid_visualizer.sh`, `shaders/mp_liquid_visualizer.vert`, `shaders/mp_liquid_visualizer.frag`, `shaders/mp_liquid_visualizer.vert.spv`, `shaders/mp_liquid_visualizer.frag.spv`, `assets/cosmic_dreamworlds_cover.jpg`, `COVERS/Cosmic_Dreamworlds_Liquid_Preset.png`, `MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `tests/test_mp_liquid_visualizer.py`):
   - **Built from the Ground Up in Vulkan**: Native Vulkan 1.x graphics pipeline (`libvulkan` + `GLFW`) featuring a UBO (`VisualizerUBO`, `binding = 0`) + combined 2D GPU image sampler (`binding = 1`) uploading the preset's cover art (`1024x1024` RGBA8) to GPU device-local memory.
