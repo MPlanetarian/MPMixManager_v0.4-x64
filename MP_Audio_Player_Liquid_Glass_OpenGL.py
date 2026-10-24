@@ -131,12 +131,12 @@ class GlassHost:
         self._target_rows = 14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS)
 
     def _on_bezel(self, x, y, width, height):
-        margin = self.renderer.bezel_px
+        margin = max(float(self.renderer.bezel_px), 24.0)
         return x < margin or y < margin or x >= width - margin or y >= height - margin
 
     def _on_top_bezel(self, x, y, width, height):
-        margin = self.renderer.bezel_px
-        return y < margin + 40 and not self._on_close(x, y, width, height)
+        margin = max(float(self.renderer.bezel_px), 24.0)
+        return y < margin + 48 and not self._on_close(x, y, width, height)
 
     def _on_close(self, x, y, width, height):
         margin = max(float(self.renderer.bezel_px), 8.0)
@@ -316,10 +316,40 @@ class GlassHost:
 
     def _on_term_button_press(self, _term, event):
         from gi.repository import Gdk
-        if event.type == Gdk.EventType._2BUTTON_PRESS and event.button == 1:
-            if event.y <= 90:
+        double_click_type = getattr(Gdk.EventType, "_2BUTTON_PRESS", 5)
+        if event.button == 1:
+            if event.type == double_click_type and event.y <= 90:
                 self.toggle_maximize()
+                self._term_dragging = False
                 return True
+            mod1 = getattr(Gdk.ModifierType, "MOD1_MASK", 8)
+            super_mod = getattr(Gdk.ModifierType, "SUPER_MASK", 0x4000000)
+            is_modifier_drag = bool(getattr(event, "state", 0) & (mod1 | super_mod))
+            if (event.y <= 90 or is_modifier_drag) and not self.is_maximized:
+                self._term_dragging = True
+                self._term_drag_origin = self.renderer.window_pos()
+                rx, ry = self.renderer.root_pointer()
+                self._term_drag_press = (rx, ry) if (rx or ry) else (int(event.x_root), int(event.y_root))
+                return True
+        return False
+
+    def _on_term_motion_notify(self, _term, event):
+        if getattr(self, "_term_dragging", False) and not self.is_maximized:
+            rx, ry = self.renderer.root_pointer()
+            cur_x = rx if (rx or ry) else int(event.x_root)
+            cur_y = ry if (rx or ry) else int(event.y_root)
+            dx = cur_x - self._term_drag_press[0]
+            dy = cur_y - self._term_drag_press[1]
+            new_x = int(self._term_drag_origin[0] + dx)
+            new_y = int(self._term_drag_origin[1] + dy)
+            self.renderer.set_window_pos(new_x, new_y)
+            self._place_terminal()
+            return True
+        return False
+
+    def _on_term_button_release(self, _term, event):
+        if event.button == 1:
+            self._term_dragging = False
         return False
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
@@ -342,7 +372,7 @@ class GlassHost:
                     self._last_top_click = now
                     self._last_top_click_x = x
                     self._last_top_click_y = y
-                    if self._on_bezel(x, y, width, height) and not self.is_maximized:
+                    if not self.is_maximized:
                         dragging = True
                         origin = self.renderer.window_pos()
                         rx, ry = self.renderer.root_pointer()
@@ -489,7 +519,7 @@ class GlassHost:
                 self._sync_panels()
                 self.renderer.draw(theme)
 
-                down, dragging, origin, press_screen = self._handle_input(
+                down, dragging, origin, press_screen = self._track_drag(
                     down, dragging, origin, press_screen
                 )
                 if dragging:
@@ -531,7 +561,16 @@ class GlassHost:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
         self._place_terminal()
         self.renderer.focus_window(self.child_xid)
+        from gi.repository import Gdk
+        term.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.BUTTON1_MOTION_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+        )
         term.connect("button-press-event", self._on_term_button_press)
+        term.connect("button-release-event", self._on_term_button_release)
+        term.connect("motion-notify-event", self._on_term_motion_notify)
         term.connect("key-press-event", self._on_key_press)
         term.connect("child-exited", self._on_child_exit)
         term.spawn_async(

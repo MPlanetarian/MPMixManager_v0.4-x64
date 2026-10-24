@@ -129,6 +129,45 @@ vec3 cosmicPalette(float t, vec2 uvHint) {
     return mix(procCol, coverSample, 0.42);
 }
 
+// Orbital Void Reflux Signature Palette
+// Extracted directly from Cover_WMI_V2.png cover art
+vec3 orbitalVoidPalette(float t, vec2 uvHint) {
+    vec3 colCyan      = vec3(0.00, 0.94, 1.00); // Electric Reflux Cyan (#00f0ff)
+    vec3 colViolet    = vec3(0.61, 0.31, 0.87); // Deep Orbital Void Violet (#9d4edd)
+    vec3 colMagenta   = vec3(1.00, 0.00, 0.50); // Radiant Nebula Flux Magenta (#ff007f)
+    vec3 colGold      = vec3(1.00, 0.84, 0.12); // Accretion Flare Gold
+    vec3 colIndigo    = vec3(0.15, 0.07, 0.38); // Deep Void Space Indigo
+    vec3 colStarlight = vec3(0.85, 0.96, 1.00); // Pure Celestial Starlight
+
+    float s = fract(t);
+    vec3 procCol;
+    if (s < 0.20) {
+        procCol = mix(colIndigo, colViolet, s * 5.0);
+    } else if (s < 0.40) {
+        procCol = mix(colViolet, colMagenta, (s - 0.20) * 5.0);
+    } else if (s < 0.60) {
+        procCol = mix(colMagenta, colGold, (s - 0.40) * 5.0);
+    } else if (s < 0.80) {
+        procCol = mix(colGold, colCyan, (s - 0.60) * 5.0);
+    } else {
+        procCol = mix(colCyan, colStarlight, (s - 0.80) * 5.0);
+    }
+
+    vec2 texUv = fract(uvHint * 0.35 + vec2(0.5));
+    vec3 coverSample = texture(uCoverTex, texUv).rgb;
+    float luma = dot(coverSample, vec3(0.299, 0.587, 0.114));
+    coverSample = clamp(mix(vec3(luma), coverSample, 1.55), 0.0, 1.0);
+
+    return mix(procCol, coverSample, 0.46);
+}
+
+vec3 getPresetPalette(float t, vec2 uvHint) {
+    if (u.preset.x > 0.5) {
+        return orbitalVoidPalette(t, uvHint);
+    }
+    return cosmicPalette(t, uvHint);
+}
+
 // =============================================================================
 // 3D Generative Scene Map
 // Returns vec2(distance, material_id)
@@ -151,6 +190,82 @@ vec2 mapScene(vec3 p) {
     float bassPhase = u.audio2.y;
     float midPhase = u.audio2.z;
     float highPhase = u.audio2.w;
+
+    if (u.preset.x > 0.5) {
+        // --- PRESET 1: ORBITAL VOID REFLUX ---
+        vec3 centerVoid = vec3(
+            0.15 * sin(t * 0.31 + bassPhase * 0.20),
+            0.10 * cos(t * 0.27 + midPhase * 0.15),
+            0.0
+        );
+        float radCore = 0.78 + 0.18 * subBass + 0.09 * beat;
+        float rippleVoid = 0.052 * (0.35 + bass * 1.45) * sin(p.x * 6.8 + bassPhase * 2.1) * cos(p.y * 6.8 - t * 2.2) * sin(p.z * 6.8 + highPhase);
+        float dVoid = sdSphere(p - centerVoid, radCore) + rippleVoid;
+
+        // Orbiting fluid satellites in elliptical reflux orbits (Liquid Metaballs)
+        float dLiquid = dVoid;
+        for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            float ang = t * (0.62 + fi * 0.12) + fi * 1.047 + bassPhase * 0.35;
+            float elev = sin(t * (0.45 + fi * 0.11) + fi * 2.2) * 0.62;
+            float orbitR = (1.45 + 0.35 * sin(t * 0.32 + fi * 1.4)) * (1.0 + 0.22 * u.bands0[i % 4]);
+            vec3 dropPos = centerVoid + vec3(cos(ang) * orbitR, elev, sin(ang) * orbitR);
+            dropPos.yz *= rot2(0.42 * sin(fi * 1.2 + t * 0.25));
+            float dropR = 0.18 + 0.09 * u.bands1[i % 4] + 0.05 * beat;
+            float dDrop = sdSphere(p - dropPos, dropR);
+            dLiquid = smin(dLiquid, dDrop, 0.42 + 0.18 * bass);
+        }
+
+        // Multi-tier Relativistic Accretion Rings (Reflux Ergosphere)
+        vec3 pRing1 = p - centerVoid;
+        pRing1.xy *= rot2(0.52 + 0.07 * sin(t * 0.28));
+        pRing1.yz *= rot2(1.22 + 0.11 * cos(t * 0.31 + midPhase * 0.18));
+        float dRing1 = sdTorus(pRing1, vec2(radCore * 1.72 + 0.14 * mid, 0.038 + 0.020 * beat));
+
+        vec3 pRing2 = p - centerVoid;
+        pRing2.xy *= rot2(-0.45 - t * 0.18 - bassPhase * 0.12);
+        pRing2.yz *= rot2(1.08 + 0.12 * sin(t * 0.24));
+        float dRing2 = sdTorus(pRing2, vec2(radCore * 2.38 + 0.20 * subBass, 0.028 + 0.018 * lowMid));
+
+        vec3 pHalo = p - vec3(0.0, -0.1, -0.3);
+        pHalo.xz *= rot2(t * 0.07);
+        pHalo.xy *= rot2(0.32 + 0.06 * sin(t * 0.19));
+        float dHalo = sdTorus(pHalo, vec2(3.35 + 0.24 * bass, 0.035 + 0.022 * beat));
+
+        float dRings = min(min(dRing1, dRing2), dHalo);
+
+        // Axial Relativistic Void Jets / Energy Conduits
+        vec3 pJet = p - centerVoid;
+        float rJet = length(pJet.xz);
+        float jetAngle = atan(pJet.z, pJet.x);
+        float spiral = jetAngle - pJet.y * 3.2 + bassPhase * 1.6;
+        float dJet = length(vec2(rJet - (0.24 + 0.16 * abs(pJet.y) * 0.35), 0.075 * sin(spiral * 2.0))) - (0.024 + 0.016 * mid);
+        dJet = max(dJet, abs(pJet.y) - 2.85);
+
+        // Kinetic Polyhedral Shards orbiting in equatorial plane
+        float dShards = 1e5;
+        for (int j = 0; j < 8; j++) {
+            float fj = float(j);
+            float sAng = -t * (0.45 + fj * 0.06) + fj * (TAU / 8.0) - midPhase * 0.28;
+            float sRad = 1.95 + 0.42 * sin(fj * 2.0 + t * 0.5) + 0.22 * u.bands3[j % 4];
+            vec3 sCenter = centerVoid + vec3(
+                cos(sAng) * sRad,
+                0.72 * sin(t * 0.52 + fj * 1.4),
+                sin(sAng) * sRad
+            );
+            vec3 sp = p - sCenter;
+            sp.xy *= rot2(sAng + highPhase * 0.32);
+            sp.yz *= rot2(fj * 0.85 + t * 0.65);
+            vec3 boxDim = vec3(0.19 + 0.12 * highMid, 0.016 + 0.008 * beat, 0.065 + 0.08 * u.bands2[j % 4]);
+            dShards = min(dShards, sdBox(sp, boxDim));
+        }
+
+        vec2 res = vec2(dLiquid, 1.0);
+        if (dRings < res.x)  res = vec2(dRings, 2.0);
+        if (dJet < res.x)    res = vec2(dJet, 3.0);
+        if (dShards < res.x) res = vec2(dShards, 4.0);
+        return res;
+    }
 
     // Twin Planetary System matching the cover art's two ringed glass worlds
     // World A (Upper-Right primary glass orb with multi-rings)
@@ -329,6 +444,62 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
     float bassPhase = u.audio2.y;
     float highPhase = u.audio2.w;
 
+    if (u.preset.x > 0.5) {
+        // --- PRESET 1: ORBITAL VOID REFLUX BACKGROUND ---
+        // 1. Relativistic Gravitational Lensing of Cover_WMI_V2.png around void center
+        vec2 centered = screenUv - 0.5;
+        float r = length(centered);
+        float theta = atan(centered.y, centered.x);
+
+        float lensStrength = 0.075 * (1.0 + 0.35 * bass);
+        float defl = lensStrength / (r + 0.08);
+        vec2 lensedUv = centered * (1.0 - defl) + 0.5;
+        lensedUv = (lensedUv - 0.5) * rot2(0.12 * sin(t * 0.25 - r * 3.5)) + 0.5;
+        vec3 coverTex = texture(uCoverTex, mirrorUv(lensedUv)).rgb;
+
+        float radVignette = smoothstep(0.92, 0.14, r);
+        vec3 deepVoid = vec3(0.008, 0.004, 0.022);
+        vec3 bg = mix(deepVoid, pow(coverTex, vec3(2.05)) * (0.42 + 0.30 * bass + 0.25 * beat), 0.50 + 0.50 * radVignette);
+
+        // Photon ring accretion halo around singularity
+        float photonRing = exp(-pow((r - 0.28) * 14.0, 2.0));
+        vec3 ringFluxCol = mix(vec3(0.0, 0.94, 1.0), vec3(1.0, 0.0, 0.5), 0.5 + 0.5 * sin(theta * 3.0 + t));
+        bg += ringFluxCol * photonRing * (0.35 + 0.45 * beat);
+
+        // 2. Axial Relativistic Flux Shafts (Cyan / Radiant Magenta)
+        vec2 fluxUv = (screenUv - 0.5) * rot2(0.42);
+        float fluxMask = exp(-pow(fluxUv.x * (2.8 - 0.4 * bass), 2.0));
+        float fluxStreaks = pow(0.5 + 0.5 * sin(fluxUv.x * 38.0 + sin(fluxUv.y * 7.0 + t * 0.9) * 2.2), 3.0);
+        vec3 fluxCol = mix(
+            vec3(0.00, 0.94, 1.00), // Electric Cyan
+            vec3(0.61, 0.31, 0.87), // Reflux Violet
+            0.5 + 0.5 * sin(fluxUv.y * 4.0 - t * 0.6)
+        );
+        fluxCol = mix(fluxCol, vec3(1.00, 0.00, 0.50), smoothstep(0.15, 0.45, abs(fluxUv.x)));
+        bg += fluxCol * fluxMask * (0.16 + 0.24 * fluxStreaks) * (0.60 + 0.50 * mid + 0.35 * beat);
+
+        // 3. Stardust & High-energy Accretion Particles
+        for (int layer = 0; layer < 3; layer++) {
+            float fl = float(layer);
+            float scale = 14.0 + fl * 11.0;
+            vec2 pUv = (screenUv - 0.5) * scale;
+            pUv += vec2(sin(t * 0.11 * (fl + 1.0)), cos(t * 0.09 * (fl + 1.0))) * 1.8;
+            vec2 cell = floor(pUv);
+            vec2 f = fract(pUv) - 0.5;
+            float h = hash21(cell + fl * 89.3);
+            if (h > 0.54) {
+                vec2 offset = (vec2(hash11(h * 23.3), hash11(h * 51.7)) - 0.5) * 0.55;
+                float d = length(f - offset);
+                float dotRad = (0.06 + 0.18 * hash11(h * 83.1)) * (0.85 + 0.45 * treble + 0.30 * beat);
+                float splat = smoothstep(dotRad, dotRad * 0.12, d);
+                vec3 splatCol = orbitalVoidPalette(h + fl * 0.25 + t * 0.03, mirrorUv(screenUv));
+                bg += splatCol * splat * (0.28 + 0.30 * fl / 3.0);
+            }
+        }
+        return bg;
+    }
+
+    // --- PRESET 0: COSMIC DREAMWORLDS BACKGROUND ---
     // 1. Deep Cosmic Void base with seamless 3D spherical/mirror projection of Cosmic Dreamworlds cover
     vec2 centered = (screenUv - 0.5) * 0.88;
     centered *= rot2(0.04 * sin(t * 0.14));
@@ -435,18 +606,18 @@ void main() {
         vec2 h = mapScene(p);
         float d = h.x;
 
-        // Accumulate tight volumetric neon bloom near rings, tendrils, and liquid orbs (no wide haze washout)
+        // Accumulate tight volumetric neon bloom near rings, tendrils/jets, and liquid orbs (no wide haze washout)
         float glowFactor = exp(-d * 9.0) / (1.0 + d * d * 110.0);
         if (h.y == 2.0) {
-            // Planetary rings emit intense crimson/gold/cyan luminescence
-            vec3 ringCol = cosmicPalette(length(p.xy) * 0.35 + t * 0.08, screenUv);
+            // Planetary / Accretion rings emit intense luminescence
+            vec3 ringCol = getPresetPalette(length(p.xy) * 0.35 + t * 0.08, screenUv);
             glowAccum += ringCol * glowFactor * (0.016 + 0.022 * beat);
         } else if (h.y == 3.0) {
-            // Mycelial tendrils emit pulsing magenta/cobalt/emerald bioluminescence
-            vec3 tendrilCol = cosmicPalette(p.y * 0.4 - bassPhase * 0.15, screenUv);
+            // Tendrils or axial void jets emit pulsing luminescence
+            vec3 tendrilCol = getPresetPalette(p.y * 0.4 - bassPhase * 0.15, screenUv);
             glowAccum += tendrilCol * glowFactor * (0.012 + 0.018 * treble);
         } else {
-            vec3 orbGlow = cosmicPalette(0.65 + 0.2 * sin(t * 0.2), screenUv);
+            vec3 orbGlow = getPresetPalette(0.65 + 0.2 * sin(t * 0.2), screenUv);
             glowAccum += orbGlow * glowFactor * 0.005;
         }
 
@@ -476,8 +647,8 @@ void main() {
         float fresnel = pow(clamp(1.0 - max(dot(n, v), 0.0), 0.0, 1.0), 3.0);
 
         if (matId == 1.0) {
-            // --- Material 1: Liquid Glass Planetary Orbs & Metaballs ---
-            // Chromatic dispersion refraction of the Cosmic Dreamworlds artwork & environment
+            // --- Material 1: Liquid Glass Planetary Orbs & Metaballs / Singularity Core ---
+            // Chromatic dispersion refraction of the artwork & environment
             vec3 refrDirR = refract(rd, n, 1.0 / 1.44);
             vec3 refrDirG = refract(rd, n, 1.0 / 1.49);
             vec3 refrDirB = refract(rd, n, 1.0 / 1.54);
@@ -494,8 +665,10 @@ void main() {
             // Deep translucent glass attenuation + internal iridescent swirling liquid caustics
             float coreDepth = pow(max(dot(n, v), 0.0), 1.6);
             float innerCaust = noise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
-            vec3 innerSwatch = cosmicPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
-            vec3 deepGlassCore = mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth);
+            vec3 innerSwatch = getPresetPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
+            vec3 deepGlassCore = (u.preset.x > 0.5)
+                ? mix(refrCol * 0.85, vec3(0.010, 0.005, 0.028), 0.52 * coreDepth)
+                : mix(refrCol * 0.85, vec3(0.02, 0.05, 0.22), 0.45 * coreDepth);
             refrCol = mix(deepGlassCore, innerSwatch * (0.75 + 0.5 * diff1), 0.42 + 0.22 * bass);
 
             // Specular highlights & iridescent glass rim
@@ -503,45 +676,58 @@ void main() {
             float spec1 = pow(max(dot(n, halfVec1), 0.0), 72.0);
             float spec2 = pow(max(dot(reflect(-lightDir2, n), v), 0.0), 36.0);
 
-            vec3 rimColor = mix(vec3(0.04, 0.92, 1.0), vec3(1.0, 0.12, 0.78), 0.5 + 0.5 * n.y);
+            vec3 rimColor = (u.preset.x > 0.5)
+                ? mix(vec3(0.00, 0.94, 1.00), vec3(1.00, 0.00, 0.50), 0.5 + 0.5 * n.y)
+                : mix(vec3(0.04, 0.92, 1.00), vec3(1.00, 0.12, 0.78), 0.5 + 0.5 * n.y);
+            vec3 rimLight2 = (u.preset.x > 0.5) ? vec3(0.61, 0.31, 0.87) : vec3(0.12, 0.42, 1.00);
+
             col = refrCol * (0.65 + 0.45 * diff1) * (0.55 + 0.45 * ao)
                 + rimColor * fresnel * (1.35 + 0.65 * rms)
                 + vec3(1.0, 0.98, 0.92) * spec1 * (1.6 + 0.9 * beat)
-                + vec3(0.12, 0.42, 1.0) * spec2 * 0.85;
+                + rimLight2 * spec2 * 0.85;
 
         } else if (matId == 2.0) {
-            // --- Material 2: Incandescent Planetary Accretion Rings ---
-            // Radial banded rings in Crimson Red, Solar Yellow, Pure White, and Acid Green
+            // --- Material 2: Incandescent Planetary / Accretion Rings ---
             float ringWave = sin(length(p) * 18.0 - bassPhase * 2.5);
-            vec3 ringBase = mix(
-                vec3(0.98, 0.06, 0.14), // Crimson Red outer ring
-                vec3(1.00, 0.94, 0.18), // Incandescent Gold-White inner core
-                0.5 + 0.5 * ringWave
-            );
-            ringBase = mix(ringBase, vec3(0.06, 0.98, 0.32), smoothstep(0.4, 0.9, sin(p.x * 6.0 + t)));
+            vec3 ringBase;
+            if (u.preset.x > 0.5) {
+                ringBase = mix(
+                    vec3(0.00, 0.94, 1.00), // Electric Reflux Cyan
+                    vec3(1.00, 0.84, 0.12), // Accretion Flare Gold
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(1.00, 0.00, 0.50), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else {
+                ringBase = mix(
+                    vec3(0.98, 0.06, 0.14), // Crimson Red outer ring
+                    vec3(1.00, 0.94, 0.18), // Incandescent Gold-White inner core
+                    0.5 + 0.5 * ringWave
+                );
+                ringBase = mix(ringBase, vec3(0.06, 0.98, 0.32), smoothstep(0.4, 0.9, sin(p.x * 6.0 + t)));
+            }
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 48.0);
             col = ringBase * (0.55 + 0.65 * diff1) * ao * (1.25 + 0.80 * beat + 0.50 * mid)
                 + ringBase * fresnel * 1.15
                 + vec3(1.0) * spec * 0.95;
 
         } else if (matId == 3.0) {
-            // --- Material 3: Cascading Mycelial Liquid Conduits ---
-            // Travelling energy pulses down the strands synced to audio spectrum
+            // --- Material 3: Cascading Mycelial Conduits / Axial Relativistic Jets ---
             float pulse = pow(0.5 + 0.5 * sin(p.y * 8.0 + bassPhase * 2.2), 4.0);
-            vec3 strandCol = cosmicPalette(p.y * 0.25 + p.x * 0.15 + t * 0.05, mirrorUv(screenUv));
+            vec3 strandCol = getPresetPalette(p.y * 0.25 + p.x * 0.15 + t * 0.05, mirrorUv(screenUv));
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 40.0);
+            vec3 conduitFresnel = (u.preset.x > 0.5) ? vec3(0.00, 0.94, 1.00) : vec3(0.55, 0.88, 1.00);
             col = strandCol * (0.38 + 0.68 * diff1 + 0.25 * diff2) * ao
                 + strandCol * pulse * (0.85 + 0.95 * bass)
-                + vec3(0.55, 0.88, 1.0) * fresnel * 0.95
+                + conduitFresnel * fresnel * 0.95
                 + vec3(1.0) * spec * 0.75;
 
         } else {
             // --- Material 4: Kinetic Polyhedral Shards ---
-            // High-contrast obsidian & chrome plates reflecting neon splashes (Defasten-inspired structural precision)
+            // High-contrast obsidian & chrome plates reflecting neon splashes
             vec3 reflDir = reflect(rd, n);
             vec3 envRefl = renderCosmicBackground(reflDir, mirrorUv(screenUv + reflDir.xy * 0.15));
             float spec = pow(max(dot(reflect(-lightDir1, n), v), 0.0), 56.0);
-            vec3 edgeGlow = cosmicPalette(p.z * 0.3 + highPhase * 0.1, mirrorUv(screenUv));
+            vec3 edgeGlow = getPresetPalette(p.z * 0.3 + highPhase * 0.1, mirrorUv(screenUv));
             col = mix(vec3(0.02, 0.03, 0.07), envRefl, 0.58 + 0.32 * fresnel) * ao
                 + edgeGlow * fresnel * (1.2 + 0.9 * treble)
                 + vec3(1.0) * spec * 1.35;

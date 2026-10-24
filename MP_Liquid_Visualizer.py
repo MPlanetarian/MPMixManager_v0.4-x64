@@ -39,6 +39,7 @@ from scripts.mp_liquid_visualizer_vulkan import (  # noqa: E402
     run_self_test,
     run_visualizer,
     save_active_preset,
+    save_png,
 )
 
 __all__ = [
@@ -50,6 +51,7 @@ __all__ = [
     "VisualizerUBO",
     "get_active_preset",
     "save_active_preset",
+    "save_png",
     "run_self_test",
     "run_visualizer",
     "main",

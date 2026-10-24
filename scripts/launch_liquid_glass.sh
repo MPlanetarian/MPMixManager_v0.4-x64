@@ -71,6 +71,33 @@ if [ -z "$TARGET_PY" ]; then
     fi
 fi
 
+# Ensure audio volume level is set to 100% and unmuted
+if command -v wpctl >/dev/null 2>&1; then
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
+    wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 2>/dev/null || true
+fi
+if command -v pactl >/dev/null 2>&1; then
+    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null || true
+    pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
+    pactl list short sinks 2>/dev/null | awk '{print $1}' | while read -r _s; do
+        pactl set-sink-mute "$_s" 0 2>/dev/null || true
+        pactl set-sink-volume "$_s" 100% 2>/dev/null || true
+    done
+fi
+
+# Ensure MP Audio Player engine volume is set to 100%
+if [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
+    python3 "$BASE_DIR/MP_Audio_Player.py" --vol 100 2>/dev/null || true
+fi
+
+# Single instance check: if MP Liquid is already running, activate window and exit
+if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+    if command -v wmctrl >/dev/null 2>&1; then
+        wmctrl -a "MP Audio Player (Liquid Glass" 2>/dev/null || true
+    fi
+    exit 0
+fi
+
 mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
 cd "$BASE_DIR" || exit 1
 exec python3 "$TARGET_PY" "$@"

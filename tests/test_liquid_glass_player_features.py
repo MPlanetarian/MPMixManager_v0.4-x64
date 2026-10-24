@@ -237,6 +237,80 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
                 # Client area (inside well) should not be considered bezel
                 self.assertFalse(host._on_bezel(win_w // 2, win_h // 2, win_w, win_h))
 
+    def test_window_dragging_terminal_header_and_modifiers(self):
+        """Verifies dragging from terminal header (y <= 90) or with Alt/Super moves window."""
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gdk
+        for mod in (lg_vulkan, lg_opengl):
+            host = mod.GlassHost(["test"], mode="NORMAL")
+            host.renderer = MagicMock()
+            host.renderer.bezel_px = 7
+            host.renderer.window_size.return_value = (1280, 820)
+            host.renderer.window_pos.return_value = (100, 200)
+            host.renderer.root_pointer.return_value = (300, 400)
+            host.is_maximized = False
+            host.gtk_window = MagicMock()
+
+            # 1. Single click on terminal header (y = 45 <= 90)
+            mock_press = MagicMock()
+            mock_press.button = 1
+            mock_press.type = Gdk.EventType.BUTTON_PRESS
+            mock_press.y = 45
+            mock_press.state = 0
+            mock_press.x_root = 300
+            mock_press.y_root = 400
+
+            res = host._on_term_button_press(None, mock_press)
+            self.assertTrue(res, f"{mod.__name__} should accept header button press for dragging")
+            self.assertTrue(getattr(host, "_term_dragging", False))
+            self.assertEqual(host._term_drag_origin, (100, 200))
+
+            # 2. Motion notify while dragging
+            mock_motion = MagicMock()
+            host.renderer.root_pointer.return_value = (350, 480)
+            mock_motion.x_root = 350
+            mock_motion.y_root = 480
+
+            res_motion = host._on_term_motion_notify(None, mock_motion)
+            self.assertTrue(res_motion)
+            # Origin was (100, 200), moved by dx=+50, dy=+80 -> (150, 280)
+            host.renderer.set_window_pos.assert_called_with(150, 280)
+
+            # 3. Button release ends drag
+            mock_release = MagicMock()
+            mock_release.button = 1
+            host._on_term_button_release(None, mock_release)
+            self.assertFalse(host._term_dragging)
+
+            # 4. Alt+Click anywhere (e.g. y = 300) allows dragging
+            mock_alt_press = MagicMock()
+            mock_alt_press.button = 1
+            mock_alt_press.type = Gdk.EventType.BUTTON_PRESS
+            mock_alt_press.y = 300
+            mock_alt_press.state = Gdk.ModifierType.MOD1_MASK
+            res_alt = host._on_term_button_press(None, mock_alt_press)
+            self.assertTrue(res_alt, "Alt+click anywhere should initiate window drag")
+            self.assertTrue(host._term_dragging)
+
+    def test_window_dragging_top_bezel_glass(self):
+        """Verifies clicking on top bezel of glass window initiates drag even with slim 7px bezel."""
+        for mod in (lg_vulkan, lg_opengl):
+            host = mod.GlassHost(["test"], mode="NORMAL")
+            host.renderer = MagicMock()
+            host.renderer.bezel_px = 7
+            host.renderer.window_size.return_value = (1280, 820)
+            host.renderer.window_pos.return_value = (50, 50)
+            host.renderer.root_pointer.return_value = (150, 60)
+            host.renderer.cursor = (100, 15)  # y=15 is in top bezel (15 < 7 + 48 = 55)
+            host.renderer.mouse_down = True
+            host.is_maximized = False
+
+            was_down, dragging, origin, press = host._track_drag(False, False, (50, 50), (0, 0))
+            self.assertTrue(dragging, f"{mod.__name__} should start dragging when top bezel is clicked")
+            self.assertEqual(origin, (50, 50))
+
 
 if __name__ == "__main__":
     unittest.main()

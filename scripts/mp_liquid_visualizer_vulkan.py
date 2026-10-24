@@ -58,7 +58,9 @@ WINDOW_WIDTH = 1400
 WINDOW_HEIGHT = 1400
 
 # Preset Registry (Each preset uses strictly ONE Bandcamp cover)
-# Eventually ~5 presets; Preset 0 is the first one: Cosmic Dreamworlds (Liquid).
+# Visualizer Presets:
+#   Preset 0: Cosmic Dreamworlds (Liquid)
+#   Preset 1: Orbital Void Reflux
 VISUALIZER_PRESETS: List[Dict[str, Any]] = [
     {
         "id": 0,
@@ -70,7 +72,19 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
             ASSETS_DIR / "cosmic_dreamworlds_cover.jpg",
             COVERS_DIR / "Cosmic_Dreamworlds_Liquid_Preset.png",
         ],
-    }
+    },
+    {
+        "id": 1,
+        "key": "orbital_void_reflux",
+        "name": "Orbital Void Reflux",
+        "album": "MPlanetarian - Orbital Void Reflux",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "orbital_void_reflux_cover.png",
+            COVERS_DIR / "Orbital_Void_Reflux_Preset.png",
+            Path("/home/mplanetarian/Desktop/Cover_WMI_V2.png"),
+        ],
+    },
 ]
 
 
@@ -129,8 +143,21 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
             except OSError:
                 pass
     for p in VISUALIZER_PRESETS:
-        if target in (str(p["id"]), p["key"].lower(), p["name"].lower()):
+        candidates = [
+            str(p["id"]),
+            str(p["id"] + 1),  # Allow 1-based indexing too (e.g. 1 for first, 2 for second)
+            p["key"].lower(),
+            p["name"].lower(),
+            p["key"].replace("_", "-").lower(),
+            p["key"].replace("_", " ").lower(),
+        ]
+        if target in candidates:
             return p
+    # Partial matching if target provided
+    if target:
+        for p in VISUALIZER_PRESETS:
+            if target in p["key"].lower() or target in p["name"].lower():
+                return p
     return VISUALIZER_PRESETS[0]
 
 
@@ -1204,8 +1231,7 @@ class LiquidVisualizerVulkanRenderer:
         elif key in (GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5):
             idx = key - GLFW_KEY_1
             if 0 <= idx < len(VISUALIZER_PRESETS):
-                self.preset = VISUALIZER_PRESETS[idx]
-                save_active_preset(self.preset["key"])
+                self.switch_preset(VISUALIZER_PRESETS[idx])
 
     def _on_mouse(self, _window, button, action, _mods):
         if button == 0:
@@ -1726,8 +1752,7 @@ class LiquidVisualizerVulkanRenderer:
             self._fences.append(fence.value)
         self._frame = 0
 
-    def _create_cover_texture(self):
-        """Upload the single Bandcamp cover for Cosmic Dreamworlds (Liquid) into a Vulkan 2D Texture."""
+    def _upload_cover_image(self):
         tw, th, rgba_bytes = load_preset_cover_rgba(self.preset, tex_size=1024)
         byte_len = len(rgba_bytes)
 
@@ -1837,6 +1862,10 @@ class LiquidVisualizerVulkanRenderer:
         _check(self._vk.CreateImageView(self._device, _addr(view_info), None, byref(tview)), "cover image view")
         self._tex_view = tview.value
 
+    def _create_cover_texture(self):
+        """Upload the Bandcamp cover for the active preset into a Vulkan 2D Texture."""
+        self._upload_cover_image()
+
         samp_info = VkSamplerCreateInfo()
         samp_info.sType = ST_SAMPLER_CREATE_INFO
         samp_info.magFilter = FILTER_LINEAR
@@ -1850,6 +1879,39 @@ class LiquidVisualizerVulkanRenderer:
         sampler = c_uint64()
         _check(self._vk.CreateSampler(self._device, _addr(samp_info), None, byref(sampler)), "cover sampler")
         self._tex_sampler = sampler.value
+
+    def switch_preset(self, preset: Dict[str, Any]):
+        if preset.get("id") == self.preset.get("id"):
+            return
+        self.preset = preset
+        save_active_preset(self.preset["key"])
+        if hasattr(self, "_device") and self._device and getattr(self, "_tex_sampler", 0):
+            try:
+                self._vk.QueueWaitIdle(self._queue)
+                if getattr(self, "_tex_view", None):
+                    self._vk.DestroyImageView(self._device, self._tex_view, None)
+                    self._tex_view = None
+                if getattr(self, "_tex_image", None):
+                    self._vk.DestroyImage(self._device, self._tex_image, None)
+                    self._tex_image = None
+                if getattr(self, "_tex_memory", None):
+                    self._vk.FreeMemory(self._device, self._tex_memory, None)
+                    self._tex_memory = None
+                self._upload_cover_image()
+                # Update descriptor set binding 1 with new image view
+                image_info = VkDescriptorImageInfo(self._tex_sampler, self._tex_view, LAYOUT_SHADER_READ_ONLY)
+                write = VkWriteDescriptorSet()
+                write.sType = ST_WRITE_DESCRIPTOR_SET
+                write.dstSet = self._dset
+                write.dstBinding = 1
+                write.descriptorCount = 1
+                write.descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
+                write.pImageInfo = _addr(image_info)
+                self._desc_switch_keep = (image_info, write)
+                self._vk.UpdateDescriptorSets(self._device, 1, _addr(write), 0, None)
+            except Exception as e:
+                import sys
+                print(f"[LiquidVisualizer] Warning: failed to switch cover texture: {e}", file=sys.stderr)
 
     def _shader_module(self, path: Path) -> int:
         data = Path(path).read_bytes()
@@ -2314,9 +2376,10 @@ def save_png(path: Union[str, Path], width: int, height: int, bgra: bytes, swap_
     return image
 
 
-def run_self_test(png_path: Optional[Union[str, Path]] = None) -> str:
+def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Optional[str] = None) -> str:
     """Verify 1400x1400 borderless Vulkan rendering, cover texture binding, and pause/play freeze behavior."""
-    renderer = LiquidVisualizerVulkanRenderer("Cosmic Dreamworlds (Liquid)")
+    target_preset = preset_name or get_active_preset()["name"]
+    renderer = LiquidVisualizerVulkanRenderer(target_preset)
     bridge = AudioTelemetryBridge()
     try:
         renderer.open()

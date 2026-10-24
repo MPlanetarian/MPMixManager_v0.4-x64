@@ -30,7 +30,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
-        self.assertGreaterEqual(len(vis.VISUALIZER_PRESETS), 1)
+        self.assertGreaterEqual(len(vis.VISUALIZER_PRESETS), 2)
         preset = vis.get_active_preset("Cosmic Dreamworlds (Liquid)")
         self.assertEqual(preset["name"], "Cosmic Dreamworlds (Liquid)")
         self.assertEqual(preset["key"], "cosmic_dreamworlds_liquid")
@@ -44,6 +44,30 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             len(existing_covers),
             1,
             "Cover art file for Cosmic Dreamworlds (Liquid) must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
+    def test_preset_orbital_void_reflux_single_bandcamp_cover(self):
+        """Second preset must be 'Orbital Void Reflux' using strictly ONE Bandcamp cover (Cover_WMI_V2.png)."""
+        preset = vis.get_active_preset("Orbital Void Reflux")
+        self.assertEqual(preset["name"], "Orbital Void Reflux")
+        self.assertEqual(preset["key"], "orbital_void_reflux")
+        self.assertEqual(preset["id"], 1)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("orbital_void_reflux")["id"], 1)
+        self.assertEqual(vis.get_active_preset("orbital-void-reflux")["id"], 1)
+        self.assertEqual(vis.get_active_preset("orbital void")["id"], 1)
+        self.assertEqual(vis.get_active_preset("2")["id"], 1)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Orbital Void Reflux must exist",
         )
 
         w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
@@ -152,6 +176,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         )
         self.assertEqual(res_list.returncode, 0)
         self.assertIn("Cosmic Dreamworlds (Liquid)", res_list.stdout)
+        self.assertIn("Orbital Void Reflux", res_list.stdout)
 
         with tempfile.TemporaryDirectory() as td:
             out_png = Path(td) / "self_test_1400.png"

@@ -369,36 +369,24 @@ void main() {
         water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
     }
 
+    // Sloped outer edge. Distance across the bevel changes what it reflects.
+    // Clear liquid glass effect: smooth specular reflections with no frosty snow stipple.
     float edge = max(-outer, 0.0);
-    float large = exp(-pow((edge - 6.5) / 5.0, 2.0));
-    float shoulder = exp(-pow((edge - 16.0) / 4.2, 2.0));
-    float echo = exp(-pow((edge - 46.0) / 9.0, 2.0));
-    float echoFar = exp(-pow((edge - 84.0) / 7.0, 2.0));
-    float hair = 1.0 - smoothstep(0.15, 2.0, edge);
-    float toe = smoothstep(20.0, 28.0, edge) * (1.0 - smoothstep(28.0, 36.0, edge));
-
-    vec2 beadCell = floor(frag / 6.5);
-    float bead = step(0.84, hash(beadCell)) * step(edge, 24.0) * step(2.0, edge);
-    float glint = step(0.94, hash(floor(frag / 3.0) + vec2(4.0, 1.0))) * step(edge, 12.0) * step(1.0, edge);
+    float bz = max(u.bezel.x, 2.0);
+    float large = exp(-pow((edge - bz * 0.5) / max(bz * 0.45, 1.0), 2.0));
+    float shoulder = exp(-pow((edge - bz * 0.85) / max(bz * 0.35, 0.8), 2.0));
+    float hair = 1.0 - smoothstep(0.15, min(1.2, bz * 0.35), edge);
 
     vec3 col = water;
     if (u_hasSkin > 0.5) {
         // Pristine clear water rim reflections & liquid caustics
         col = mix(col, mix(vec3(1.0), theme, 0.20), large * 0.72);
         col = mix(col, mix(theme, vec3(1.0), 0.35), shoulder * 0.48);
-        col += mix(theme, vec3(1.0), 0.40) * echo * 0.16;
         col = mix(col, vec3(1.0), hair * 0.85);
-        col = mix(col, mix(vec3(1.0), theme, 0.20), bead * 0.8);
-        col += vec3(1.0) * glint * 0.85;
     } else {
         col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
         col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
-        col += mix(theme, vec3(1.0), 0.35) * echo * 0.16;
-        col += theme * echoFar * 0.08;
-        col = mix(col, col * vec3(0.72, 0.76, 0.84), toe * 0.65);
         col = mix(col, vec3(1.0), hair);
-        col = mix(col, mix(vec3(1.0), theme, 0.15), bead * 0.9);
-        col += vec3(1.0) * glint * 0.75;
     }
 
     vec2 m = vec2(u.themeA.w, u.themeB.w);
