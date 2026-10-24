@@ -266,6 +266,7 @@ class GlassHost:
     def _on_key_press(self, _term, event):
         from gi.repository import Gdk
         keyval = getattr(event, "keyval", 0)
+        state = getattr(event, "state", 0)
         if keyval in (Gdk.KEY_m, Gdk.KEY_M):
             if self.mode == "NORMAL":
                 self.set_mode("MINI")
@@ -274,6 +275,10 @@ class GlassHost:
             else:
                 self.set_mode("NORMAL")
             return False
+        if keyval == Gdk.KEY_K or (keyval in (Gdk.KEY_k, Gdk.KEY_K) and bool(state & Gdk.ModifierType.SHIFT_MASK)):
+            import subprocess
+            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+            return True
         return False
 
     def _terminal_in_well(self):

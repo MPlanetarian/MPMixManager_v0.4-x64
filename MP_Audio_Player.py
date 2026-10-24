@@ -1834,16 +1834,33 @@ _THEME_PALETTES = {
     "ice_cold": {"highlight": "\033[38;2;0;229;255m", "active": "\033[38;2;136;192;208m", "border": "\033[38;2;0;229;255m", "accent": "\033[38;2;129;161;193m"},
     "retro_terminal": {"highlight": "\033[1;37m", "active": "\033[1;37m", "border": "\033[1;37m", "accent": "\033[1;37m"},
     "cosmic_dreamworlds_radioactive": {"highlight": "\033[38;2;57;255;20m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;57;255;20m", "accent": "\033[38;2;166;77;255m"},
+    "cosmic_dreamworlds": {"highlight": "\033[38;2;232;13;104m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;232;13;104m", "accent": "\033[38;2;176;88;255m"},
+    "orbital_void_reflux": {"highlight": "\033[38;2;0;240;255m", "active": "\033[38;2;255;0;127m", "border": "\033[38;2;0;240;255m", "accent": "\033[38;2;157;78;221m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
 _THEME_ALIASES = {
+    "cosmic_dreamworlds": "cosmic_dreamworlds",
+    "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
+    "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
+    "cosmic dreamworlds": "cosmic_dreamworlds",
+    "cosmic_dreamworld": "cosmic_dreamworlds",
+    "cosmic dreamworld": "cosmic_dreamworlds",
+    "cosmic_dream": "cosmic_dreamworlds",
+    "cosmic dream": "cosmic_dreamworlds",
     "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
     "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
     "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
     "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
     "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
     "radioactive": "cosmic_dreamworlds_radioactive",
+    "orbital_void_reflux": "orbital_void_reflux",
+    "orbital_void_reflux_(liquid_glass_skin)": "orbital_void_reflux",
+    "orbital void reflux (liquid glass skin)": "orbital_void_reflux",
+    "orbital void reflux": "orbital_void_reflux",
+    "orbital_void": "orbital_void_reflux",
+    "void_reflux": "orbital_void_reflux",
+    "orbital": "orbital_void_reflux",
     "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal", "white_on_black": "retro_terminal", "old_style_unix": "retro_terminal", "terminal": "retro_terminal", "classic": "retro_terminal",
     "cosmic": "cosmic_supernova", "supernova": "cosmic_supernova",
     "cyberpunk": "cyber_neon", "cyber": "cyber_neon",
@@ -1883,6 +1900,8 @@ class EqualizerVisualizer:
         "ice_cold",
         "retro_terminal",
         "cosmic_dreamworlds_radioactive",
+        "cosmic_dreamworlds",
+        "orbital_void_reflux",
     ]
     THEME_NAMES = {
         "dreamworlds_ultra": "Dreamworlds Ultra",
@@ -1896,6 +1915,8 @@ class EqualizerVisualizer:
         "ice_cold": "Ice Cold",
         "retro_terminal": "Retro Terminal",
         "cosmic_dreamworlds_radioactive": "Cosmic Dreamworlds Radioactive (Liquid Glass Skin)",
+        "cosmic_dreamworlds": "Cosmic Dreamworlds (Liquid Glass Skin)",
+        "orbital_void_reflux": "Orbital Void Reflux (Liquid Glass Skin)",
     }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
@@ -1949,6 +1970,21 @@ class EqualizerVisualizer:
 
     def _base_theme_rgb(self, c_frac: float, ultra_floor: float = 0.10) -> Tuple[float, float, float]:
         t = self.theme
+        if t in ("orbital_void_reflux", "orbital_void", "void_reflux", "orbital"):
+            if c_frac < 0.50:
+                s = c_frac / 0.50
+                return 0.61 * s, 0.94 - 0.63 * s, 1.0 - 0.13 * s
+            s = (c_frac - 0.50) / 0.50
+            return 0.61 + 0.39 * s, 0.31 * (1.0 - s), 0.87 - 0.37 * s
+        if t in ("cosmic_dreamworlds", "cosmic_dream", "cosmic_dreamworld"):
+            if c_frac < 0.33:
+                s = c_frac / 0.33
+                return 0.0 + 0.69 * s, 0.96 - 0.61 * s, 0.83 + 0.17 * s
+            if c_frac < 0.66:
+                s = (c_frac - 0.33) / 0.33
+                return 0.69 + 0.22 * s, 0.35 - 0.30 * s, 1.0 - 0.59 * s
+            s = (c_frac - 0.66) / 0.34
+            return 0.91 + 0.09 * s, 0.05 + 0.84 * s, 0.41 - 0.16 * s
         if t in ("cosmic_dreamworlds_radioactive", "radioactive", "cosmic_radioactive"):
             if c_frac < 0.40:
                 s = c_frac / 0.40
@@ -3132,6 +3168,19 @@ class TerminalPlayerUI:
             q_len = len(cur_q)
         self._notify(f"✔ Queued Mix: {tn or os.path.basename(tp)} (#{q_len} in Queue)", 3.5)
 
+    def _cleanup_terminal(self):
+        fd = getattr(self, "_orig_fd", None)
+        old_settings = getattr(self, "_orig_termios", None)
+        if fd is not None and old_settings and termios:
+            try: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception: pass
+        try:
+            sys.stdout.write("\033]111\007\033[49m\033[?7h\033[?25h\033[?1049l\033]0;MP Audio Player\007\n")
+            sys.stdout.flush()
+        except Exception: pass
+        if hasattr(self, "_win_cstate"):
+            _win_console_end(self._win_cstate)
+
     def run(self):
         fd = sys.stdin.fileno() if sys.stdin.isatty() else None
         old_settings = None
@@ -3143,6 +3192,9 @@ class TerminalPlayerUI:
                 termios.tcsetattr(fd, termios.TCSADRAIN, new)
             except Exception: pass
         cstate = _win_console_begin()
+        self._orig_fd = fd
+        self._orig_termios = old_settings
+        self._win_cstate = cstate
         if self.ui_size_mode in ("MINI", "MICRO"):
             _setup_mini_terminal_appearance()
             t_rows = 7 if self.ui_size_mode == "MICRO" else 14
@@ -3165,11 +3217,7 @@ class TerminalPlayerUI:
             if self.engine and not self.is_remote:
                 try: self.engine.stop_recording()
                 except Exception: pass
-            if fd is not None and old_settings and termios:
-                try: termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                except Exception: pass
-            sys.stdout.write("\033]111\007\033[49m\033[?7h\033[?25h\033[?1049l\033]0;MP Audio Player\007"); sys.stdout.flush()
-            _win_console_end(cstate)
+            self._cleanup_terminal()
 
     def _input_loop(self):
         if not sys.stdin.isatty(): return
@@ -3195,38 +3243,70 @@ class TerminalPlayerUI:
 
     def _process_key(self, data: bytes):
         if not data: return
-        if self.equalizer_hud_active:
-            if self.eq_naming_mode:
-                if data in (b"\r", b"\n"):
-                    self.eq_naming_mode = False
-                    p_name = self.eq_custom_name_input.strip() or "Custom 1"
-                    cb = list(self.eq_manager.current_bands)
-                    if self.is_remote: self._send_cmd("save_eq_preset", name=p_name, bands=cb)
-                    elif self.engine: self.engine.save_eq_preset(p_name, cb)
-                    self.eq_manager.save_custom_preset(p_name, cb)
-                    self._notify(f"Equalizer preset saved: {p_name}", 3.0)
-                    return
-                elif data == b"\x1b":
-                    self.eq_naming_mode = False
-                    self._notify("Preset save cancelled", 2.0)
-                    return
-                elif data in (b"\x7f", b"\x08"):
-                    self.eq_custom_name_input = self.eq_custom_name_input[:-1]
-                    return
-                else:
-                    try:
-                        c = data.decode("utf-8", "ignore")
-                        if c.isprintable(): self.eq_custom_name_input += c
-                    except Exception: pass
-                    return
+        if self.equalizer_hud_active and self.eq_naming_mode:
+            if data in (b"\r", b"\n"):
+                self.eq_naming_mode = False
+                p_name = self.eq_custom_name_input.strip() or "Custom 1"
+                cb = list(self.eq_manager.current_bands)
+                if self.is_remote: self._send_cmd("save_eq_preset", name=p_name, bands=cb)
+                elif self.engine: self.engine.save_eq_preset(p_name, cb)
+                self.eq_manager.save_custom_preset(p_name, cb)
+                self._notify(f"Equalizer preset saved: {p_name}", 3.0)
+                return
+            elif data == b"\x1b":
+                self.eq_naming_mode = False
+                self._notify("Preset save cancelled", 2.0)
+                return
+            elif data in (b"\x7f", b"\x08"):
+                self.eq_custom_name_input = self.eq_custom_name_input[:-1]
+                return
+            else:
+                try:
+                    c = data.decode("utf-8", "ignore")
+                    if c.isprintable(): self.eq_custom_name_input += c
+                except Exception: pass
+                return
+        if self.export_mode:
+            if data in (b"\r", b"\n"):
+                self.export_mode = False
+                mixes = self.scanner.get_mixes(self.search_query)
+                ok, res = export_playlist_m3u(mixes, self.export_path.strip() or os.path.expanduser("~/Desktop/MP_Archive_Playlist.m3u"))
+                self._notify(f"Exported {len(mixes)} mixes to: {os.path.basename(res)}" if ok else f"Export failed: {res}", 4.0)
+            elif data == b"\x1b": self.export_mode = False; self._notify("Export cancelled", 2.5)
+            elif data in (b"\x7f", b"\x08"): self.export_path = self.export_path[:-1]
+            else:
+                try: self.export_path += data.decode("utf-8", "ignore")
+                except Exception: pass
+            return
+        if self.search_mode:
+            if data in (b"\r", b"\n"): self.search_mode = False
+            elif data == b"\x1b": self.search_mode, self.search_query = False, ""
+            elif data in (b"\x7f", b"\x08"): self.search_query, self.selected_row = self.search_query[:-1], 0
+            elif data in (b"\x1b[A", b"\x1bOA"): self._navigate_list(-1)
+            elif data in (b"\x1b[B", b"\x1bOB"): self._navigate_list(1)
+            else:
+                try:
+                    if (c := data.decode("utf-8", "ignore")).isprintable(): self.search_query, self.selected_row = self.search_query + c, 0
+                except Exception: pass
+            return
 
+        if data == b"K":
+            self._cleanup_terminal()
+            try:
+                subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+            except Exception:
+                pass
+            self.running = False
+            return
+
+        if self.equalizer_hud_active:
             if data in (b"\x1b[D", b"\x1bOD", b"h", b"H"):
                 self.eq_selected_band = max(0, self.eq_selected_band - 1)
                 return
             elif data in (b"\x1b[C", b"\x1bOC", b"l", b"L"):
                 self.eq_selected_band = min(9, self.eq_selected_band + 1)
                 return
-            elif data in (b"\x1b[A", b"\x1bOA", b"k", b"K", b"+", b"="):
+            elif data in (b"\x1b[A", b"\x1bOA", b"k", b"+", b"="):
                 new_gain = round(min(12.0, self.eq_manager.current_bands[self.eq_selected_band] + 0.5), 1)
                 self.eq_manager.set_band(self.eq_selected_band, new_gain)
                 if self.is_remote: self._send_cmd("set_eq_band", band=self.eq_selected_band, gain=new_gain)
@@ -3278,30 +3358,6 @@ class TerminalPlayerUI:
             elif data in (b"\x1b", b"E", b"\r", b"\n", b"q", b"Q", b"b", b"B"):
                 self.equalizer_hud_active = False
                 return
-
-        if self.export_mode:
-            if data in (b"\r", b"\n"):
-                self.export_mode = False
-                mixes = self.scanner.get_mixes(self.search_query)
-                ok, res = export_playlist_m3u(mixes, self.export_path.strip() or os.path.expanduser("~/Desktop/MP_Archive_Playlist.m3u"))
-                self._notify(f"Exported {len(mixes)} mixes to: {os.path.basename(res)}" if ok else f"Export failed: {res}", 4.0)
-            elif data == b"\x1b": self.export_mode = False; self._notify("Export cancelled", 2.5)
-            elif data in (b"\x7f", b"\x08"): self.export_path = self.export_path[:-1]
-            else:
-                try: self.export_path += data.decode("utf-8", "ignore")
-                except Exception: pass
-            return
-        if self.search_mode:
-            if data in (b"\r", b"\n"): self.search_mode = False
-            elif data == b"\x1b": self.search_mode, self.search_query = False, ""
-            elif data in (b"\x7f", b"\x08"): self.search_query, self.selected_row = self.search_query[:-1], 0
-            elif data in (b"\x1b[A", b"\x1bOA"): self._navigate_list(-1)
-            elif data in (b"\x1b[B", b"\x1bOB"): self._navigate_list(1)
-            else:
-                try:
-                    if (c := data.decode("utf-8", "ignore")).isprintable(): self.search_query, self.selected_row = self.search_query + c, 0
-                except Exception: pass
-            return
         if self.inspector_hud_active:
             if data in (b"g", b"G"): return self._generate_selected_spek()
             if data in (b"\x1b", b"i", b"I", b"\r", b"\n", b"q", b"Q", b" "): self.inspector_hud_active = False; return
@@ -3310,7 +3366,7 @@ class TerminalPlayerUI:
             self.equalizer_hud_active = not self.equalizer_hud_active
             if self.equalizer_hud_active: self.inspector_hud_active = False
             return
-        if data in (b"\x1b[A", b"\x1bOA", b"k", b"K"): self._navigate_list(-1)
+        if data in (b"\x1b[A", b"\x1bOA", b"k"): self._navigate_list(-1)
         elif data in (b"\x1b[B", b"\x1bOB", b"j", b"J"): self._navigate_list(1)
         elif data == b"\x1b[5~": self._navigate_list(-5)
         elif data == b"\x1b[6~": self._navigate_list(5)

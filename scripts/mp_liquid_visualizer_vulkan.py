@@ -1198,6 +1198,9 @@ class LiquidVisualizerVulkanRenderer:
         # Pressing Escape or 'q'/'Q' immediately closes the visualizer
         if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q):
             self.request_close()
+        elif key == 75 and (_mods & 1):  # GLFW_KEY_K = 75, GLFW_MOD_SHIFT = 1
+            import subprocess
+            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
         elif key in (GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5):
             idx = key - GLFW_KEY_1
             if 0 <= idx < len(VISUALIZER_PRESETS):
