@@ -2507,38 +2507,48 @@ def launch_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", pl
     return False
 
 def launch_liquid_glass_player(base_dir: Optional[Path] = None) -> bool:
-    if sys.platform != "linux" and not sys.platform.startswith("freebsd"):
+    if sys.platform != "linux" and not sys.platform.startswith("freebsd") and sys.platform != "darwin":
         return False
     base = base_dir or get_base_dir()
-    backend = os.environ.get("LIQUID_GLASS_BACKEND", "").strip().lower()
-    if not backend:
-        for cfg in (base / "config.env", CONFIG_DIR / "config.env", Path(__file__).resolve().parent / "config.env"):
-            if cfg.is_file():
-                if val := parse_env_file(cfg).get("LIQUID_GLASS_BACKEND"):
-                    backend = val.strip().lower()
-                    break
-    if not backend:
-        backend = "opengl"
 
-    candidates = []
-    if backend == "vulkan":
+    if sys.platform == "darwin":
+        import platform as _plat
+        if _plat.machine().lower() not in ("arm64", "aarch64"):
+            return False
         candidates = [
-            base / "MP_Audio_Player_Liquid_Glass.py",
-            base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
-            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
-            base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
-            base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
-            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+            base / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_macOS.py",
         ]
     else:
-        candidates = [
-            base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
-            base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
-            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
-            base / "MP_Audio_Player_Liquid_Glass.py",
-            base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
-            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
-        ]
+        backend = os.environ.get("LIQUID_GLASS_BACKEND", "").strip().lower()
+        if not backend:
+            for cfg in (base / "config.env", CONFIG_DIR / "config.env", Path(__file__).resolve().parent / "config.env"):
+                if cfg.is_file():
+                    if val := parse_env_file(cfg).get("LIQUID_GLASS_BACKEND"):
+                        backend = val.strip().lower()
+                        break
+        if not backend:
+            backend = "opengl"
+
+        if backend == "vulkan":
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+            ]
+        else:
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+            ]
 
     script_path = None
     for cand in candidates:

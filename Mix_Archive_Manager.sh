@@ -890,41 +890,53 @@ if python3 "$mp_py" --mini --new-window &>/dev/null; then return 0; fi; if pytho
 fi
 }
 launch_mp_audio_player_liquid_glass() {
-local backend="${LIQUID_GLASS_BACKEND:-opengl}"
-backend="$(echo "$backend" | tr '[:upper:]' '[:lower:]')"
-local py=""
-local backend_name="OpenGL"
-if [ "$backend" = "vulkan" ]; then
-py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-[ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
-backend_name="Vulkan"
-else
-py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
-[ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
-backend_name="OpenGL"
-if [ ! -f "$py" ]; then
-py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-[ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
-backend_name="Vulkan"
-fi
-fi
-if [ -z "$py" ] || [ ! -f "$py" ]; then
-echo -e "\n${RED}Liquid Glass player script was not found. Opening the standard MP Audio Player.${NC}\n"
-manage_mp_audio_player
-return
-fi
-case "$(uname -s)" in
-Linux) ;;
-*)
-echo -e "\n${YELLOW}Liquid Glass Mode requires Linux. Opening the standard MP Audio Player.${NC}\n"
-manage_mp_audio_player
-return
-;;
-esac
-mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
-echo -e "\n${BOLD}${CYAN}Opening MP Audio Player (Liquid Glass Mode - ${backend_name}) in its own window.${NC}\n"
-nohup python3 "$py" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
-disown
+    local os_type="$(uname -s)"
+    local arch_type="$(uname -m)"
+    local py=""
+    local backend_name="OpenGL"
+
+    if [ "$os_type" = "Darwin" ]; then
+        if [ "$arch_type" != "arm64" ]; then
+            echo -e "\n${RED}Liquid Glass Metal mode requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported.${NC}\n"
+            manage_mp_audio_player
+            return
+        fi
+        py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
+        [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
+        backend_name="Metal (Apple Silicon)"
+    elif [ "$os_type" = "Linux" ]; then
+        local backend="${LIQUID_GLASS_BACKEND:-opengl}"
+        backend="$(echo "$backend" | tr '[:upper:]' '[:lower:]')"
+        if [ "$backend" = "vulkan" ]; then
+            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
+            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+            backend_name="Vulkan"
+        else
+            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            backend_name="OpenGL"
+            if [ ! -f "$py" ]; then
+                py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
+                [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+                backend_name="Vulkan"
+            fi
+        fi
+    else
+        echo -e "\n${YELLOW}Liquid Glass Mode requires Linux or Apple Silicon macOS. Opening the standard MP Audio Player.${NC}\n"
+        manage_mp_audio_player
+        return
+    fi
+
+    if [ -z "$py" ] || [ ! -f "$py" ]; then
+        echo -e "\n${RED}Liquid Glass player script was not found. Opening the standard MP Audio Player.${NC}\n"
+        manage_mp_audio_player
+        return
+    fi
+
+    mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+    echo -e "\n${BOLD}${CYAN}Opening MP Audio Player (Liquid Glass Mode - ${backend_name}) in its own window.${NC}\n"
+    nohup python3 "$py" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
+    disown
 }
 configure_liquid_glass_backend() {
 while true; do
