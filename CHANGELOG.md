@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.0 Stable] - 2026-10-24
+
+### Added
+- **Traktor Kontrol S4 Hardware MIDI Controller Support (`hw:0,0` / `/dev/snd/midiC0D0`)**:
+  - Exclusively supports Native Instruments Traktor Kontrol S4 via ALSA rawmidi hardware port `hw:0,0` and `amidi`.
+  - **Dual-Deck Real-Time Pitch Controls**: Physical pitch faders on either side of the unit (Deck A and Deck B) smoothly control MP Audio Player playback pitch between **-20% and +20%**, featuring automatic deadband snapping at center detent (`0.0%`).
+  - **Pitch Nudge & Sync**: Pitch bend buttons (`+` / `-`) for ±1% micro-adjustments; SYNC button for instant pitch reset to 0% (Left) or shuffle mode toggle (Right).
+  - **Intelligent Transport & Navigation Mapping**:
+    - `PLAY ▶`: Instant Play / Pause toggle with player auto-spawn.
+    - `CUE ⏹`: Stop playback and return to start (`0:00`).
+    - `CUP ⏯`: Seek to `0:00` and immediately trigger playback.
+    - `BROWSE Encoder`: Rotate clockwise for Next Track, counter-clockwise for Previous; push to Play/Select.
+    - `LOOP IN / OUT`: Quick seek -10s / +10s.
+    - `LOOP SIZE Encoder`: Scrub seek ±30s.
+    - `HOTCUES 1..4`: Instant jump across mix (0%, 25%, 50%, 75%).
+    - `Channel Faders (A, B, C, D) & Master Level`: Dynamic volume control (0%–100%).
+    - `Headphone Cue Buttons`: Instant audio output mute / unmute.
+    - `Loop Recorder REC / PLAY`: Toggle live session recording to WAV / toggle playback.
+- **Traktor S4 MIDI Service Daemon (`scripts/traktor_s4_midi.py` / `traktor_s4_midi.sh`)**:
+  - Lightweight background daemon supporting `--start`, `--stop`, `--restart`, `--status`, `--daemon`, `--guide`, and interactive `--monitor`.
+  - IPC client communicating directly with MP Audio Player daemon (`send_ipc_command`).
+- **Studio Hardware & MIDI Menu Integration (Option 18)**:
+  - Option 3 in Option 18 menu: `Traktor Kontrol S4 Hardware MIDI Control & Mapping`.
+  - Submenu for enabling/disabling MIDI support, status badge, restarting service, launching live MIDI packet monitor, viewing user guide, and opening official PDF manuals.
+  - Direct main console shortcut aliases: `s4`, `midi`, `kontrol`, `traktor-s4`.
+- **First-Time Detection Notification on Manager Main Page**:
+  - Automatically notifies user at the top of the Main Page upon first detecting a connected Traktor Kontrol S4:
+    `🎛️ Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]! Please navigate to Option 18 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.`
+  - Flag persisted in `config.env` (`TRAKTOR_S4_NOTIFIED`) and `~/.config/mix-manager/traktor_s4_notified.flag`.
+- **MUSIC Folders Configuration Notification**:
+  - Alerts the user at the top of the Main Page if 0 MUSIC folders are configured, prompting navigation to Option 1.
+- **Documentation & Official Manuals**:
+  - `docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md`: Comprehensive user guide with hardware MIDI mode toggle (`SHIFT + BROWSE` / `PREVIEW`), ALSA setup, and mapping tables.
+  - Official downloaded manuals: `docs/Controller_Editor_Manual_English.pdf` and `docs/traktor_kontrol_s4_mk2_manual_english.pdf`.
+- **Unit Test Suite (`tests/test_traktor_s4_midi.py`)**:
+  - 14 automated unit tests verifying ALSA port detection, pitch CC scaling, 14-bit pitch bend decoding, deadband snapping, note/CC parsing, and player IPC command dispatching.
+
+
 - **MP Audio Player Files Key** (`MP_Audio_Player.py`, `tests/test_open_in_file_manager.py`):
   - Pressing `F` opens the folder of the audio file that is playing and selects that file. Windows uses Explorer's select API, macOS uses Finder `open -R`, and Linux and FreeBSD use the desktop file-manager select interface with Dolphin, Nautilus, Nemo, and Caja as fallbacks.
 

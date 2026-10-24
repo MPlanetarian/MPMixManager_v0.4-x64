@@ -269,7 +269,7 @@ cleanup_submenu_screen() {
 _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
 }                                            
 _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 4 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - 16 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 2 ] && l1_pad=2; local l1_sp
-printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle  [M] Window  [n] Next  [</>] Track  [p] UI  [f] FM"; local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} )); local l2_pad=$(( text_w - raw_l2_len )); [ "$l2_pad" -lt 2 ] && l2_pad=2; local l2_sp; printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 1 ? 1 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${CYAN}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
+printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle  [M] Mini  [n] Next  [</>] Track  [p] UI  [f] FM"; local eq_disp="${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; local raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} )); local l2_pad=$(( text_w - raw_l2_len )); [ "$l2_pad" -lt 2 ] && l2_pad=2; local l2_sp; printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 1 ? 1 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${CYAN}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
 frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
 
 RESIZE) 
@@ -333,7 +333,19 @@ if [ "$search_mode" -eq 1 ]; then search_query+="+"; _find_menu_search_match "$s
 continue; fi; fi; typed_buffer+="$ch"; local m_idx=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "$typed_buffer" ]; then cur_idx=$m_idx; break; fi; ((m_idx++)); done; if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ] || [ "$typed_buffer" = "b" ] || [ "$typed_buffer" = "B" ]; then cleanup_submenu_screen; clear; REPLY="$typed_buffer"; return 0; fi ;; esac; done
 }
 load_theme() {
-local theme_file="$HOME/.config/mix-manager/theme"; if [ -f "$theme_file" ]; then local saved_theme; saved_theme="$(tr -d ' \t\n\r' < "$theme_file" 2>/dev/null)"; if [ -n "$saved_theme" ]; then set_theme_colors "$saved_theme"; return; fi; fi; set_theme_colors "dreamworlds"
+local theme_file="$HOME/.config/mix-manager/theme"; if [ -f "$theme_file" ]; then local saved_theme; saved_theme="$(tr -d ' \t\n\r' < "$theme_file" 2>/dev/null)"; if [ -n "$saved_theme" ]; then set_theme_colors "$saved_theme"; _ensure_konsole_default_scheme; return; fi; fi; set_theme_colors "dreamworlds"; _ensure_konsole_default_scheme
+}
+_ensure_konsole_default_scheme() {
+if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
+    local def_prof="" def_scheme="WhiteOnBlack"
+    if [ -f "$HOME/.config/konsolerc" ]; then
+        def_prof=$(grep -E "^DefaultProfile=" "$HOME/.config/konsolerc" 2>/dev/null | cut -d= -f2 | tr -d ' \r\n')
+    fi
+    if [ -n "$def_prof" ] && [ -f "$HOME/.local/share/konsole/$def_prof" ]; then
+        def_scheme=$(grep -E "^ColorScheme=" "$HOME/.local/share/konsole/$def_prof" 2>/dev/null | cut -d= -f2 | tr -d ' \r\n')
+    fi
+    printf '\033]50;ColorScheme=%s\a\033]111\007\033]110\007' "${def_scheme:-WhiteOnBlack}" 2>/dev/null || true
+fi
 }
 save_theme() {
 local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"
@@ -681,7 +693,7 @@ local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIP
 }
 launch_mp_audio_player_window() {
 local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then
-if python3 "$mp_py" --new-window &>/dev/null; then return 0; fi; launch_in_terminal "MP Audio Player" "python3 \"$mp_py\" --interactive" "window"
+if python3 "$mp_py" --mini --new-window &>/dev/null; then return 0; fi; if python3 "$mp_py" --new-window &>/dev/null; then return 0; fi; launch_in_terminal "MP Mini Audio Player" "python3 \"$mp_py\" --interactive --mini" "window"
 fi
 }
 if [ -f "$SCRIPT_DIR/config.env" ]; then source "$SCRIPT_DIR/config.env"; elif [ -f "$HOME/.config/mix-manager/config.env" ]; then source "$HOME/.config/mix-manager/config.env"; fi; OUTPUT_DIR="${OUTPUT_DIR:-FLAC_CONVERTED_OUTPUTS}"; ARCHIVE_DIR="${ARCHIVE_DIR:-CONVERTED_WAV_FILES}"; MP3_OUTPUT_DIR="${MP3_OUTPUT_DIR:-MP3_CONVERTED_OUTPUTS}"; WAV_OUTPUT_DIR="${WAV_OUTPUT_DIR:-WAV_CONVERTED_OUTPUTS}"; MP4_OUTPUT_DIR="${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}"; EXTRA_MIX_ARCHIVE_DIRS="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"; export OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR EXTRA_MIX_ARCHIVE_DIRS
@@ -960,7 +972,7 @@ while true; do
             ;;
         m|M)
             launch_mp_audio_player_window
-            printf '\r\033[K%s \033[1;36m[♫ Player Window Launched]\033[0m' "$prompt_msg"
+            printf '\r\033[K%s \033[1;36m[♫ Mini Player Launched]\033[0m' "$prompt_msg"
             ;;
         $'\e') local rest=""; read -rsn2 -t 0.05 rest 2>/dev/null || true; echo ""; break ;;
         q|Q) echo ""; break ;;
@@ -2617,8 +2629,98 @@ local f; for f in "$SCRIPT_DIR/scripts/top_5_tracks_manager.py" "$SCRIPT_DIR/top
 manage_daws_suite() {
 local opts=("1|Digital Audio Workstations (DAWs) Menu|(Reaper, Logic Pro, FL Studio, Traktor, Ardour, Bitwig...)" "2|Open Mix WAV/FLAC Audio File in DAW|(Direct Mix Search/Select & Dispatch)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "DIGITAL AUDIO WORKSTATIONS (DAWS) SUITE" "" opts 0; case "$REPLY" in 1) manage_daws ;; 2) open_mix_in_daw ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
+manage_traktor_s4_midi_menu() {
+save_config_setting "TRAKTOR_S4_NOTIFIED" "true"
+touch "$HOME/.config/mix-manager/traktor_s4_notified.flag" 2>/dev/null || true
+local py_s4="$SCRIPT_DIR/scripts/traktor_s4_midi.py"
+[ ! -f "$py_s4" ] && py_s4="$SCRIPT_DIR/traktor_s4_midi.py"
+while true; do
+local det_badge="${RED}Not Detected / Offline${NC}"
+if amidi -l 2>/dev/null | grep -qi "Traktor"; then
+det_badge="${GREEN}Detected & Connected (hw:0,0)${NC}"
+elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then
+det_badge="${GREEN}Detected & Connected (/dev/snd/midiC0D0)${NC}"
+fi
+local srv_badge="${RED}Disabled / Inactive${NC}" srv_pid=""
+local pid_file="$HOME/.config/mix-manager/traktor_s4_midi.pid"
+if [ -f "$pid_file" ]; then
+srv_pid="$(cat "$pid_file" 2>/dev/null || echo "")"
+if [ -n "$srv_pid" ] && kill -0 "$srv_pid" 2>/dev/null; then
+srv_badge="${GREEN}Enabled & Active (PID: ${srv_pid})${NC}"
+else
+rm -f "$pid_file" 2>/dev/null || true
+fi
+fi
+local pl_badge="${DIM}Standby / Offline${NC}"
+if [ -f "$HOME/.config/mix-manager/mp_audio_player.sock" ] || [ -f "$HOME/.config/mix-manager/mp_audio_player.port" ]; then
+pl_badge="${GREEN}Connected to MP Audio Player${NC}"
+fi
+local s4_hdr="  • Hardware Unit         : ${BOLD}${WHITE}Native Instruments Traktor Kontrol S4${NC}\n"
+s4_hdr+="  • ALSA Hardware Port    : ${CYAN}hw:0,0${NC} ${DIM}(/dev/snd/midiC0D0)${NC}\n"
+s4_hdr+="  • Hardware Status       : ${det_badge}\n"
+s4_hdr+="  • MIDI Service Daemon   : ${srv_badge}\n"
+s4_hdr+="  • Audio Player IPC      : ${pl_badge}\n"
+s4_hdr+="  • MIDI Mode Shortcut    : Hold ${BOLD}${YELLOW}SHIFT + BROWSE${NC} (MK1) or ${BOLD}${YELLOW}SHIFT + PREVIEW${NC} (MK2)\n"
+s4_hdr+="  • Supported in v0.4.0   : ${BOLD}${GREEN}Traktor Kontrol S4 Exclusively${NC}\n"
+local s4_opts=(
+"1|Enable Traktor Kontrol S4 MIDI Mapping Support|(Start Background Service & Save Setting)"
+"2|Disable Traktor Kontrol S4 MIDI Mapping Support|(Stop Background Service & Save Setting)"
+"3|Restart MIDI Controller Service / Rescan hw:0,0|(Re-initialize ALSA Rawmidi Connection)"
+"4|Interactive Live MIDI Monitor & Packet Test|(Real-Time Pitch Sliders, Buttons & Encoders)"
+"5|View Traktor Kontrol S4 Getting Started User Guide|(Full Hardware Mapping Documentation)"
+"6|Open Official Native Instruments PDF Manuals|(Controller Editor & S4 MK2 Guides)"
+"0|Return to Previous Menu|(or Esc / q)"
+)
+run_interactive_submenu "TRAKTOR KONTROL S4 MIDI HARDWARE CONTROL & MAPPING (v0.4.0)" "$s4_hdr" s4_opts 0
+local opt="$REPLY"
+case "$opt" in
+1)
+echo -e "\n${BOLD}${CYAN}Starting Traktor Kontrol S4 MIDI Service...${NC}\n"
+[ -f "$py_s4" ] && python3 "$py_s4" --start
+save_config_setting "MIDI_CONTROL_ENABLED" "true"
+save_config_setting "TRAKTOR_S4_NOTIFIED" "true"
+play_sound_effect "storage" 2>/dev/null || true
+sleep 1.5 ;;
+2)
+echo -e "\n${BOLD}${YELLOW}Stopping Traktor Kontrol S4 MIDI Service...${NC}\n"
+[ -f "$py_s4" ] && python3 "$py_s4" --stop
+save_config_setting "MIDI_CONTROL_ENABLED" "false"
+sleep 1.5 ;;
+3)
+echo -e "\n${BOLD}${CYAN}Restarting Traktor Kontrol S4 MIDI Service...${NC}\n"
+[ -f "$py_s4" ] && python3 "$py_s4" --restart
+sleep 1.5 ;;
+4|monitor|test)
+echo -e "\n${BOLD}${YELLOW}Launching Interactive Live MIDI Monitor Console...${NC}\n"
+[ -f "$py_s4" ] && python3 "$py_s4" --monitor
+press_enter ;;
+5|guide|help|manual)
+clear
+if [ -f "$py_s4" ]; then
+python3 "$py_s4" --guide | ${PAGER:-less -R} 2>/dev/null || python3 "$py_s4" --guide
+elif [ -f "$SCRIPT_DIR/docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md" ]; then
+cat "$SCRIPT_DIR/docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md" | ${PAGER:-less -R} 2>/dev/null || cat "$SCRIPT_DIR/docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md"
+fi
+press_enter ;;
+6|pdf|manuals)
+echo -e "\n${BOLD}${BLUE}=== OFFICIAL TRAKTOR KONTROL S4 PDF MANUALS ===${NC}\n"
+local m1="$SCRIPT_DIR/docs/Controller_Editor_Manual_English.pdf"
+local m2="$SCRIPT_DIR/docs/traktor_kontrol_s4_mk2_manual_english.pdf"
+echo -e "  ${BOLD}1)${NC} Native Instruments Controller Editor Manual (206 pages):\n     ${CYAN}${m1}${NC}"
+echo -e "  ${BOLD}2)${NC} Traktor Kontrol S4 MK2 Hardware & Setup Manual (233 pages):\n     ${CYAN}${m2}${NC}\n"
+read -r -p "Select manual to open [1-2, or 0 to cancel]: " m_sel
+if [ "$m_sel" = "1" ] && [ -f "$m1" ]; then
+(xdg-open "$m1" &>/dev/null &) || echo "Path: $m1"
+elif [ "$m_sel" = "2" ] && [ -f "$m2" ]; then
+(xdg-open "$m2" &>/dev/null &) || echo "Path: $m2"
+fi
+sleep 1 ;;
+0|[qQ]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;;
+esac; done
+}
 manage_studio_hardware_and_volume() {
-local opts=("1|Studio Hardware & Software Inspector|(PipeWire, ALSA, DAWs, MIDI Controllers & Surfaces)" "2|Toggle Audio Mute / Unmute & Master Volume Control|(Instant PipeWire/ALSA Mute)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "STUDIO HARDWARE, INTERFACES & VOLUME CONTROL" "" opts 0; case "$REPLY" in 1) inspect_audio_studio_menu ;; 2) toggle_audio_mute ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local opts=("1|Studio Hardware & Software Inspector|(PipeWire, ALSA, DAWs, MIDI Controllers & Surfaces)" "2|Toggle Audio Mute / Unmute & Master Volume Control|(Instant PipeWire/ALSA Mute)" "3|Traktor Kontrol S4 MIDI Hardware Control & Mapping|(Enable/Disable, Live Status, Port hw:0,0, Pitch & Guide)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "STUDIO HARDWARE, INTERFACES & VOLUME CONTROL" "" opts 0; case "$REPLY" in 1) inspect_audio_studio_menu ;; 2) toggle_audio_mute ;; 3|s4|midi|kontrol) manage_traktor_s4_midi_menu ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 manage_desktop_shortcuts() {
 local opts=("1|Run Any Desktop Shortcut Manually|(Games, Audio, Files, Tools, AI Servers)" "2|Generate Keyboard Shortcut for a Desktop Shortcut|(e.g. Ctrl+Alt+Enter)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "RUN ANY DESKTOP SHORTCUTS — Linux / Windows / macOS" "  Launch and automate Desktop Shortcuts (Linux KDE Plasma, Windows .lnk, macOS .app).\n" opts 0; case "$REPLY" in 1) _run_desktop_shortcut_manual ;; 2) _bind_desktop_shortcut_keyboard ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
@@ -2836,18 +2938,40 @@ manage_settings_and_system() {
 local rb="systemctl reboot with confirmation"; case "$OS_TYPE" in macos) rb="macOS restart with confirmation" ;; windows|wsl) rb="Windows restart with confirmation" ;; freebsd) rb="FreeBSD restart with confirmation" ;; esac; local -A _MENU_ACT=([1]="manage_themes" [2]="manage_installation_and_config" [3]="configure_daily_reports_settings" [4]="manage_mix_reports_menu" [5]="run_bash_cli" [6]="reboot_system"); _m_loop "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" "1|Manager Themes & Color Palette Switcher|(14 Themes: Dreamworlds, Cosmic Supernova, Retro Unix Terminal...)" "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)" "3|Automated Daily Reports & Continuous Telemetry Settings|(Schedule Time, On/Off, Catch-Up)" "4|Daily Mix Reports, Telemetry & Predictive Analytics Suite|(PDF Reports, Multi-Archive Stats, Math Models)" "5|Run Bash CLI Commands|(Interactive Shell & Direct Runner)" "6|Reboot System|(${rb})" "0|Return to Main Menu|(or Esc / q)"
 }
 render_main_header() {
-local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1; local h_eq h_dash title_sp; printf -v h_eq '%*s' "$cur_box_w" ''; h_dash="${h_eq// /-}"; h_eq="${h_eq// /=}"; local title="MP Mix Archive Manager (v${VERSION#v})"; local pad=$(( (cur_box_w - ${#title}) / 2 )); (( pad > 0 )) && printf -v title_sp '%*s' "$pad" ''; [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null; [[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null; local net="${GREEN}Online${NC}"; [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}"; local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
-local hdr="${b_mag}${h_eq}${NC}
-${b_mag}${title_sp}${title}${NC}
-${b_mag}${h_eq}${NC}
+local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1;
+local inner_w=$(( cur_box_w - 2 )) text_w=$(( cur_box_w - 4 ))
+local h_border h_dash; printf -v h_border '%*s' "$inner_w" ''; h_dash="${h_border// /-}"; h_border="${h_border// /─}";
+local title="MP Mix Archive Manager (v${VERSION#v})";
+local pad_left=$(( (text_w - ${#title}) / 2 ))
+(( pad_left < 0 )) && pad_left=0
+local pad_right=$(( text_w - ${#title} - pad_left ))
+(( pad_right < 0 )) && pad_right=0
+local sp_left="" sp_right=""
+(( pad_left > 0 )) && printf -v sp_left '%*s' "$pad_left" ''
+(( pad_right > 0 )) && printf -v sp_right '%*s' "$pad_right" ''
+[[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null;
+[[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null;
+local net="${GREEN}Online${NC}";
+[[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}";
+local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
+local hdr="  ${b_mag}╭${h_border}╮${NC}
+  ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
+  ${b_mag}╰${h_border}╯${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
-[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; hdr+=$'\n'"${b_mag}${h_dash}${NC}"; if ! is_mix_archive_configured; then
+[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}
   ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
+fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json"; [ -f "$_mf_f" ] && _mf_cnt=$(grep -c '"id":' "$_mf_f" 2>/dev/null || echo 0); if [ "${_mf_cnt:-0}" -eq 0 ]; then
+hdr+=$'\n\n  '"${BOLD}${YELLOW}⚠️  Please be advised you have 0 MUSIC Folders configured. Please use Option 1 to configure your music library folders now.${NC}
+  ${DIM}${YELLOW}(Support for local music libraries, external drives & network SMB shares)${NC}"
+fi; local _s4_conn=0; if amidi -l 2>/dev/null | grep -qi "Traktor"; then _s4_conn=1; elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then _s4_conn=1; fi; if [ "$_s4_conn" -eq 1 ] && [ "${TRAKTOR_S4_NOTIFIED:-false}" != "true" ] && [ ! -f "$HOME/.config/mix-manager/traktor_s4_notified.flag" ]; then
+hdr+=$'\n\n  '"${BOLD}${GREEN}🎛️  Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]!${NC}
+  ${BOLD}${CYAN}Please navigate to Option 18 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
+  ${DIM}${GREEN}(Control player transport, mixer, and pitch sliders directly from your S4 hardware)${NC}"
 fi; if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then load_header_cache 2>/dev/null || true
 [[ -z "${_CACHED_STATS_CORE:-}" ]] && _CACHED_STATS_CORE="${b_blue}=== CURRENT STATUS & STATISTICS ===${NC}
   ${DIM}⚡ Loading archive statistics in background...${NC}"
-fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; else hdr+=$'\n'"${b_mag}${h_dash}${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
+fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; else hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 run_deferred_startup() {
 [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
@@ -2856,6 +2980,9 @@ fi; fi
 if [ -f "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" ]; then
 (bash "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" --check-or-run &>/dev/null &)
 (bash "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" --daemon &>/dev/null &)
+fi
+if [ "${MIDI_CONTROL_ENABLED:-true}" = "true" ]; then
+local _s4_py="$SCRIPT_DIR/scripts/traktor_s4_midi.py"; [ ! -f "$_s4_py" ] && _s4_py="$SCRIPT_DIR/traktor_s4_midi.py"; [ -f "$_s4_py" ] && (python3 "$_s4_py" --start &>/dev/null &)
 fi
 if [ "${OS_TYPE:-}" = "macos" ] || [ "${UNAME_S:-}" = "Darwin" ] || [[ "${OSTYPE:-}" == darwin* ]]; then
 if pgrep -i -f "Traktor" &>/dev/null || (osascript -e 'application "Traktor" is running' 2>/dev/null | grep -qi "true"); then
@@ -2874,5 +3001,5 @@ _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Work
 manage_music_folders_menu ;; 2|convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
 manage_mix_conversion ;; 3) manage_audio_conversion ;; 4) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 5) manage_mix_search_and_import ;; 6) rename_mix; press_enter ;; 7) find_duplicate_audio_mixes; ;; 8) export_mixes_to_path ;; 9) manage_integrity_and_verification; ;; 10|backup|cloud-backup) manage_cloud_backup_suite ;; 11) play_sound_effect "storage"; manage_storage_and_archive_config ;;
 12|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"|"Play Mix/Audio File (MP Audio Player)")
-manage_mp_audio_player ;; 13) manage_tracklist_suite; ;; 14|manage-audio-players|players) manage_audio_players ;; 15|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 16) manage_playlists_and_history ;; 17) manage_daws_suite; ;; 18) manage_studio_hardware_and_volume ;; 19) manage_spek_generation; ;; 20) manage_mix_scheduler ;; 21) generate_youtube_video; ;; 22|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 23|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 24|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 25|manage-live-monitors|live-monitors) manage_live_monitors ;; 26|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 27|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 28) manage_promo_and_syndication ;; 29) manage_network_and_internet; ;; 30) manage_desktop_and_display ;; 31) manage_system_maintenance; ;; 32|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 33|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; ESC) ;; 36|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 36, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+manage_mp_audio_player ;; 13) manage_tracklist_suite; ;; 14|manage-audio-players|players) manage_audio_players ;; 15|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 16) manage_playlists_and_history ;; 17) manage_daws_suite; ;; 18|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 19) manage_spek_generation; ;; 20) manage_mix_scheduler ;; 21) generate_youtube_video; ;; 22|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 23|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 24|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 25|manage-live-monitors|live-monitors) manage_live_monitors ;; 26|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 27|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 28) manage_promo_and_syndication ;; 29) manage_network_and_internet; ;; 30) manage_desktop_and_display ;; 31) manage_system_maintenance; ;; 32|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 33|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; ESC) ;; 36|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 36, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
 fi

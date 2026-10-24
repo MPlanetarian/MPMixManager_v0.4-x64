@@ -2684,18 +2684,33 @@ manage_settings_and_system() {
 local rb="systemctl reboot with confirmation"; case "$OS_TYPE" in macos) rb="macOS restart with confirmation" ;; windows|wsl) rb="Windows restart with confirmation" ;; freebsd) rb="FreeBSD restart with confirmation" ;; esac; local -A _MENU_ACT=([1]="manage_themes" [2]="manage_installation_and_config" [3]="configure_daily_reports_settings" [4]="manage_mix_reports_menu" [5]="run_bash_cli" [6]="reboot_system"); _m_loop "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" "1|Manager Themes & Color Palette Switcher|(14 Themes: Dreamworlds, Cosmic Supernova, Retro Unix Terminal...)" "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)" "3|Automated Daily Reports & Continuous Telemetry Settings|(Schedule Time, On/Off, Catch-Up)" "4|Daily Mix Reports, Telemetry & Predictive Analytics Suite|(PDF Reports, Multi-Archive Stats, Math Models)" "5|Run Bash CLI Commands|(Interactive Shell & Direct Runner)" "6|Reboot System|(${rb})" "0|Return to Main Menu|(or Esc / q)"
 }
 render_main_header() {
-local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1; local h_eq h_dash title_sp; printf -v h_eq '%*s' "$cur_box_w" ''; h_dash="${h_eq// /-}"; h_eq="${h_eq// /=}"; local title="MP Mix Archive Manager (v${VERSION#v})"; local pad=$(( (cur_box_w - ${#title}) / 2 )); (( pad > 0 )) && printf -v title_sp '%*s' "$pad" ''; [[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null; [[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null; local net="${GREEN}Online${NC}"; [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}"; local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
-local hdr="${b_mag}${h_eq}${NC}
-${b_mag}${title_sp}${title}${NC}
-${b_mag}${h_eq}${NC}
+local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1;
+local inner_w=$(( cur_box_w - 2 )) text_w=$(( cur_box_w - 4 ))
+local h_border h_dash; printf -v h_border '%*s' "$inner_w" ''; h_dash="${h_border// /-}"; h_border="${h_border// /─}";
+local title="MP Mix Archive Manager (v${VERSION#v})";
+local pad_left=$(( (text_w - ${#title}) / 2 ))
+(( pad_left < 0 )) && pad_left=0
+local pad_right=$(( text_w - ${#title} - pad_left ))
+(( pad_right < 0 )) && pad_right=0
+local sp_left="" sp_right=""
+(( pad_left > 0 )) && printf -v sp_left '%*s' "$pad_left" ''
+(( pad_right > 0 )) && printf -v sp_right '%*s' "$pad_right" ''
+[[ -z "${_CACHED_OS_BADGE:-}" ]] && get_os_badge &>/dev/null;
+[[ -z "${_CACHED_PERF_DISPLAY:-}" ]] && get_system_perf_stats >/dev/null;
+local net="${GREEN}Online${NC}";
+[[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}";
+local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
+local hdr="  ${b_mag}╭${h_border}╮${NC}
+  ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
+  ${b_mag}╰${h_border}╯${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
-[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; hdr+=$'\n'"${b_mag}${h_dash}${NC}"; if ! is_mix_archive_configured; then
+[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 14 or 10 to Configure this now.${NC}
   ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
 fi; if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then load_header_cache 2>/dev/null || true
 [[ -z "${_CACHED_STATS_CORE:-}" ]] && _CACHED_STATS_CORE="${b_blue}=== CURRENT STATUS & STATISTICS ===${NC}
   ${DIM}⚡ Loading archive statistics in background...${NC}"
-fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; else hdr+=$'\n'"${b_mag}${h_dash}${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
+fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; else hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 run_deferred_startup() {
 [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &

@@ -1,9 +1,10 @@
-# MP Mix Manager 0.3.6 Beta by Dreamworlds Productions (MPlanetarian)
+# MP Mix Manager 0.4.0 Stable by Dreamworlds Productions (MPlanetarian)
 
-> 📅 **Last Updated:** October 17, 2026 • **Latest Release:** `v0.3.6 Beta`
+> 📅 **Last Updated:** October 24, 2026 • **Latest Release:** `v0.4.0 Stable`
 
-[![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2017%2C%202026-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.3.6%20Beta-f72585.svg)](VERSION)
+[![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2024%2C%202026-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-0.4.0%20Stable-f72585.svg)](VERSION)
+[![MIDI Controller](https://img.shields.io/badge/Hardware%20MIDI-Traktor%20Kontrol%20S4%20hw%3A0%2C0-00ffcc.svg)](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-00e5ff.svg)](README.md)
 [![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20%7C%20Apple%20Silicon%20M1--M4%20%26%20Intel-silver.svg)]()
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011%20%7C%20Git%20Bash%20%7C%20WSL2-0078D6.svg)]()

@@ -78,7 +78,7 @@ class TestManagerResize(unittest.TestCase):
         source <(sed -n '1,142p' """ + f'"{MANAGER_SH}"' + """)
         is_mix_archive_configured() { return 0; }
         get_manager_uptime() { _MANAGER_UPTIME_LINE="Uptime: 1h"; }
-        source <(sed -n '2838,2851p' """ + f'"{MANAGER_SH}"' + """)
+        source <(sed -n '/^render_main_header() {/,/^}/p' """ + f'"{MANAGER_SH}"' + """)
         
         # Case 1: Zoom In with Ctrl + (e.g. font becomes bigger, so window cols shrink to 90)
         _TERM_COLS=90
@@ -86,10 +86,10 @@ class TestManagerResize(unittest.TestCase):
         _set_menu_box_width w_zoom_in "$_TERM_COLS"
         [ "$w_zoom_in" -eq 86 ] || exit 10
         render_main_header "$w_zoom_in" >/dev/null
-        # Header should not exceed w_zoom_in
-        first_line="$(printf '%b\\n' "$_RENDERED_MAIN_HEADER" | head -n 1)"
-        clean_len=$(printf '%b' "$first_line" | sed 's/\\x1b\\[[0-9;]*m//g' | tr -d '\\r\\n' | wc -c)
-        [ "$clean_len" -eq 86 ] || exit 11
+        # Header panel width matches w_zoom_in + 2 (with 2 spaces indent)
+        first_line="$(printf '%b\n' "$_RENDERED_MAIN_HEADER" | head -n 1)"
+        clean_line=$(printf '%b' "$first_line" | sed 's/\\x1b\\[[0-9;]*m//g' | tr -d '\r\n')
+        [ "${#clean_line}" -eq $((w_zoom_in + 2)) ] || exit 11
         
         # Case 2: Zoom Out with Ctrl - (e.g. font becomes smaller, so window cols expand to 160)
         _TERM_COLS=160
@@ -97,9 +97,9 @@ class TestManagerResize(unittest.TestCase):
         _set_menu_box_width w_zoom_out "$_TERM_COLS"
         [ "$w_zoom_out" -eq 156 ] || exit 20
         render_main_header "$w_zoom_out" >/dev/null
-        first_line="$(printf '%b\\n' "$_RENDERED_MAIN_HEADER" | head -n 1)"
-        clean_len=$(printf '%b' "$first_line" | sed 's/\\x1b\\[[0-9;]*m//g' | tr -d '\\r\\n' | wc -c)
-        [ "$clean_len" -eq 156 ] || exit 21
+        first_line="$(printf '%b\n' "$_RENDERED_MAIN_HEADER" | head -n 1)"
+        clean_line=$(printf '%b' "$first_line" | sed 's/\\x1b\\[[0-9;]*m//g' | tr -d '\r\n')
+        [ "${#clean_line}" -eq $((w_zoom_out + 2)) ] || exit 21
         
         echo "ZOOM_SUCCESS"
         """

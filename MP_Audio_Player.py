@@ -1862,26 +1862,102 @@ class EqualizerVisualizer:
 
 def _get_dynamic_gradient(step: float) -> Tuple[Tuple[int, int, int], Tuple[int, int, int], Tuple[int, int, int]]:
     return (
-        (int(127.5 + 127.5 * math.sin(step * 0.6180339887 + 0.3)), int(127.5 + 127.5 * math.sin(step * 0.8408964152 + 2.1)), int(127.5 + 127.5 * math.sin(step * 0.7071067811 + 4.2))),
-        (int(127.5 + 127.5 * math.sin(step * 0.6180339887 + 3.14159)), int(127.5 + 127.5 * math.sin(step * 0.8408964152 + 5.28318)), int(127.5 + 127.5 * math.sin(step * 0.7071067811 + 1.04719))),
+        (int(180 + 75 * math.sin(step * 0.6180339887 + 0.3)), int(180 + 75 * math.sin(step * 0.8408964152 + 2.1)), int(180 + 75 * math.sin(step * 0.7071067811 + 4.2))),
+        (int(180 + 75 * math.sin(step * 0.6180339887 + 3.14159)), int(180 + 75 * math.sin(step * 0.8408964152 + 5.28318)), int(180 + 75 * math.sin(step * 0.7071067811 + 1.04719))),
         (int(60 + 52 * math.sin(step * 0.41 + 0.5)), int(48 + 42 * math.sin(step * 0.53 + 2.4)), int(78 + 58 * math.sin(step * 0.47 + 4.1)))
     )
+
+def ensure_mini_player_kwin_rules():
+    if not sys.platform.startswith(("linux", "freebsd")):
+        return
+    rc_path = Path.home() / ".config" / "kwinrulesrc"
+    try:
+        import configparser, uuid
+        cp = configparser.ConfigParser()
+        if rc_path.exists():
+            cp.read(str(rc_path))
+        else:
+            rc_path.parent.mkdir(parents=True, exist_ok=True)
+            cp.add_section("General")
+            cp.set("General", "count", "0")
+            cp.set("General", "rules", "")
+
+        rules_defs = [
+            ("MP Mini Audio Player (Fixed Size)", "MP Mini Audio Player"),
+            ("MP Micro Audio Player (Fixed Size)", "MP Micro Audio Player")
+        ]
+        modified = False
+        for desc, title in rules_defs:
+            found_sec = None
+            for sec in cp.sections():
+                if cp.has_option(sec, "description") and cp.get(sec, "description") == desc:
+                    found_sec = sec
+                    break
+            if not found_sec:
+                found_sec = str(uuid.uuid4())
+                cp.add_section(found_sec)
+                cp.set(found_sec, "description", desc)
+                cp.set(found_sec, "wmclass", "konsole")
+                cp.set(found_sec, "wmclassmatch", "1")
+                cp.set(found_sec, "title", title)
+                cp.set(found_sec, "titlematch", "2")
+                cp.set(found_sec, "types", "1")
+                cp.set(found_sec, "maximizehoriz", "false")
+                cp.set(found_sec, "maximizehorizrule", "2")
+                cp.set(found_sec, "maximizevert", "false")
+                cp.set(found_sec, "maximizevertrule", "2")
+                if not cp.has_section("General"):
+                    cp.add_section("General")
+                count = int(cp.get("General", "count", fallback="0")) + 1
+                cp.set("General", "count", str(count))
+                existing = [r.strip() for r in cp.get("General", "rules", fallback="").split(",") if r.strip()]
+                existing.append(found_sec)
+                cp.set("General", "rules", ",".join(existing))
+                modified = True
+        if modified:
+            with open(str(rc_path), "w", encoding="utf-8") as f:
+                cp.write(f)
+            if shutil.which("qdbus"):
+                subprocess.run(["qdbus", "org.kde.KWin", "/KWin", "reconfigure"], capture_output=True)
+            elif shutil.which("qdbus-qt6"):
+                subprocess.run(["qdbus-qt6", "org.kde.KWin", "/KWin", "reconfigure"], capture_output=True)
+    except Exception:
+        pass
 
 def _setup_mini_terminal_appearance():
     if sys.platform.startswith(("linux", "freebsd")):
         if (k_dir := Path.home() / ".local" / "share" / "konsole").is_dir():
             try:
-                (k_dir / "MP_Mini_Player.colorscheme").write_text("[Background]\nColor=16,18,28\nOpacity=0.30\n\n[BackgroundFaint]\nColor=18,22,34\n\n[Color0]\nColor=16,18,28\n[Color1]\nColor=247,37,133\n[Color2]\nColor=0,229,255\n[Color3]\nColor=255,170,0\n[Color4]\nColor=102,102,255\n[Color5]\nColor=166,77,255\n[Color6]\nColor=0,193,228\n[Color7]\nColor=209,209,224\n", encoding="utf-8")
+                (k_dir / "MP_Mini_Player.colorscheme").write_text(
+                    "[Background]\nColor=12,14,24\nOpacity=0.30\n\n"
+                    "[BackgroundFaint]\nColor=14,16,28\nOpacity=0.30\n\n"
+                    "[Foreground]\nColor=240,245,255\n\n"
+                    "[ForegroundIntense]\nColor=255,255,255\n\n"
+                    "[Color0]\nColor=12,14,24\n[Color1]\nColor=255,51,102\n[Color2]\nColor=0,255,180\n"
+                    "[Color3]\nColor=255,200,50\n[Color4]\nColor=102,153,255\n[Color5]\nColor=190,100,255\n"
+                    "[Color6]\nColor=0,229,255\n[Color7]\nColor=240,245,255\n\n"
+                    "[Color0Intense]\nColor=40,45,65\n[Color1Intense]\nColor=255,80,130\n[Color2Intense]\nColor=50,255,200\n"
+                    "[Color3Intense]\nColor=255,220,90\n[Color4Intense]\nColor=130,175,255\n[Color5Intense]\nColor=210,130,255\n"
+                    "[Color6Intense]\nColor=80,240,255\n[Color7Intense]\nColor=255,255,255\n",
+                    encoding="utf-8"
+                )
                 prof = k_dir / "MP_Mini_Player.profile"
-                if not prof.exists():
-                    prof.write_text("[Appearance]\nColorScheme=MP_Mini_Player\nFont=Monospace,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0\n\n[General]\nEnvironment=TERM=xterm-256color,COLORTERM=truecolor\nInheritContainerContext=true\nName=MP_Mini_Player\nParent=FALLBACK/\nTerminalColumns=74\nTerminalRows=14\n\n[Terminal Features]\nBlinkingCursorEnabled=true\n", encoding="utf-8")
+                prof.write_text(
+                    "[Appearance]\nColorScheme=MP_Mini_Player\nFont=Monospace,11,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0\n\n"
+                    "[General]\nEnvironment=TERM=xterm-256color,COLORTERM=truecolor\nInheritContainerContext=true\nName=MP_Mini_Player\nParent=FALLBACK/\nTerminalColumns=74\nTerminalRows=14\n\n"
+                    "[Scrolling]\nScrollBarPosition=0\nHistoryMode=0\n\n"
+                    "[Terminal Features]\nBlinkingCursorEnabled=true\n",
+                    encoding="utf-8"
+                )
             except Exception: pass
-        if os.environ.get("KONSOLE_VERSION") or os.environ.get("KONSOLE_DBUS_SERVICE"):
-            try: sys.stdout.write("\033]50;ColorScheme=MP_Mini_Player\a"); sys.stdout.flush()
-            except Exception: pass
+        ensure_mini_player_kwin_rules()
 
-def _build_window_cmd(mini: bool, mode: str, folder_name: str, playlist_path: str, theme: Optional[str], style: Optional[str]) -> List[str]:
-    cmd = [sys.executable or "python3", str(Path(__file__).resolve()), "--interactive"] + (["--mini"] if mini else [])
+def _build_window_cmd(mini: bool, mode: str, folder_name: str, playlist_path: str, theme: Optional[str], style: Optional[str], micro: bool = False) -> List[str]:
+    cmd = [sys.executable or "python3", str(Path(__file__).resolve()), "--interactive"]
+    if micro:
+        cmd.append("--micro")
+    elif mini:
+        cmd.append("--mini")
     if mode == "MUSIC":
         cmd.append("--music-mode")
         if folder_name and folder_name != "ALL": cmd.extend(["--music-folder", str(folder_name)])
@@ -1890,21 +1966,27 @@ def _build_window_cmd(mini: bool, mode: str, folder_name: str, playlist_path: st
     if style: cmd.extend(["--style", str(style)])
     return cmd
 
-def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "", theme: Optional[str] = None, style: Optional[str] = None) -> bool:
-    title, cmd = "MP Mini Audio Player", _build_window_cmd(True, mode, folder_name, playlist_path, theme, style)
+def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "", theme: Optional[str] = None, style: Optional[str] = None, micro: bool = False) -> bool:
+    title = "MP Micro Audio Player" if micro else "MP Mini Audio Player"
+    t_rows = "7" if micro else "14"
+    cmd = _build_window_cmd(not micro, mode, folder_name, playlist_path, theme, style, micro=micro)
     if sys.platform.startswith(("linux", "freebsd")):
         _setup_mini_terminal_appearance()
-        if shutil.which("konsole") and _run_bg(["konsole", "--profile", "MP_Mini_Player", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title, "-p", f"tabtitle={title}", "-p", "TerminalColumns=74", "-p", "TerminalRows=14", "-e"] + cmd):
+        if shutil.which("konsole") and _run_bg(["konsole", "--profile", "MP_Mini_Player", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title, "-p", f"tabtitle={title}", "-p", "TerminalColumns=74", "-p", f"TerminalRows={t_rows}", "-p", "ScrollBarPosition=0", "-e"] + cmd):
             if shutil.which("xprop"):
-                threading.Thread(target=lambda: (time.sleep(0.2), subprocess.run(["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0x4d000000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)), daemon=True).start()
+                def _set_hints():
+                    time.sleep(0.25)
+                    subprocess.run(["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0x4d000000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x1, 0x1c, 0x0, 0x0, 0x0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                threading.Thread(target=_set_hints, daemon=True).start()
             return True
-        for term, targs in [("gnome-terminal", [f"--title={title}", "--geometry=74x14", "--"] + cmd), ("xfce4-terminal", [f"--title={title}", "--geometry=74x14", "--hide-menubar", "--hide-borders", "-e", " ".join(f'"{a}"' for a in cmd)]), ("alacritty", ["--title", title, "-o", "window.opacity=0.30", "-o", "window.dimensions.columns=74", "-o", "window.dimensions.lines=14", "-e"] + cmd), ("foot", ["-T", title, "-w", "74x14", "-a", "0.30"] + cmd), ("xterm", ["-title", title, "-geometry", "74x14", "-e"] + cmd), ("xdg-terminal-exec", cmd)]:
+        for term, targs in [("gnome-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--"] + cmd), ("xfce4-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--hide-menubar", "--hide-borders", "-e", " ".join(f'"{a}"' for a in cmd)]), ("alacritty", ["--title", title, "-o", "window.opacity=0.30", "-o", "window.dimensions.columns=74", "-o", f"window.dimensions.lines={t_rows}", "-e"] + cmd), ("foot", ["-T", title, "-w", f"74x{t_rows}", "-a", "0.30"] + cmd), ("xterm", ["-title", title, "-geometry", f"74x{t_rows}", "-e"] + cmd), ("xdg-terminal-exec", cmd)]:
             if shutil.which(term) and _run_bg([term] + targs): return True
     elif sys.platform == "darwin":
         c_str = " ".join(f'\\"{a}\\"' for a in cmd)
         return _run_bg(["osascript", "-e", f'tell application "Terminal" to do script "{c_str}"'])
     elif sys.platform == "win32":
-        if shutil.which("wt.exe") and _run_bg(["wt.exe", "-w", "new", "--title", title, "-p", "Command Prompt", "--size", "74,14"] + cmd): return True
+        if shutil.which("wt.exe") and _run_bg(["wt.exe", "-w", "new", "--title", title, "-p", "Command Prompt", "--size", f"74,{t_rows}"] + cmd): return True
         c_str = " ".join(f'"{a}"' for a in cmd)
         try: subprocess.Popen(f'start "{title}" {c_str}', shell=True); return True
         except Exception: pass
@@ -2166,7 +2248,8 @@ class TerminalPlayerUI:
         cstate = _win_console_begin()
         if self.ui_size_mode in ("MINI", "MICRO"):
             _setup_mini_terminal_appearance()
-            sys.stdout.write(f"\033]0;MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player\007")
+            t_rows = 7 if self.ui_size_mode == "MICRO" else 14
+            sys.stdout.write(f"\033[8;{t_rows};74t\033]0;MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player\007")
         else: sys.stdout.write("\033]0;MP Audio Player\007")
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[2J\033[H"); sys.stdout.flush()
         threading.Thread(target=self._input_loop, daemon=True).start()
@@ -2281,8 +2364,9 @@ class TerminalPlayerUI:
         elif data in (b"m", b"M"):
             if self.ui_size_mode in ("MINI", "MICRO"):
                 self.ui_size_mode = "MICRO" if self.ui_size_mode == "MINI" else "MINI"
-                _setup_mini_terminal_appearance()
-                sys.stdout.write(f"\033]0;MP {'Micro' if self.ui_size_mode == 'MICRO' else 'Mini'} Audio Player\007"); sys.stdout.flush()
+                t_rows = 7 if self.ui_size_mode == "MICRO" else 14
+                title = f"MP {'Micro' if self.ui_size_mode == 'MICRO' else 'Mini'} Audio Player"
+                sys.stdout.write(f"\033[8;{t_rows};74t\033]0;{title}\007"); sys.stdout.flush()
             else:
                 ok = launch_mini_player_window(self.mode, self.folder_name, getattr(self.scanner, "playlist_path", ""), self.visualizer.theme, self.visualizer.style)
                 self._notify("✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window", 3.0)
@@ -2357,7 +2441,8 @@ class TerminalPlayerUI:
             lines.append(f"  {rdot} {BOLD}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}{rf}{NC} {DIM}[{rmb:.1f} MB  •  {rdur}  •  Max 3GB/WAV]{NC}")
         out_n = bt_dev or st.get("output_device", "Speakers")
         bt_b = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_n}{NC}" if (is_bt or "bluetooth" in str(out_n).lower()) else f"{DIM}{CYAN}🔊 Output: {out_n}{NC}"
-        lines.append(f"  {DIM}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_b}{NC}" if w >= 106 else f"  {DIM}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_b}{NC}")
+        s4_b = f"  │  {BOLD}\033[38;2;0;255;127m🎛️ S4 MIDI [hw:0,0]{NC}" if (CONFIG_DIR / "traktor_s4_midi.pid").exists() else ""
+        lines.append(f"  {DIM}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_b}{s4_b}{NC}" if w >= 106 else f"  {DIM}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_b}{NC}")
 
         pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(54, iw - 42))
         fw = int((pct / 100.0) * bw)
@@ -2452,49 +2537,61 @@ class TerminalPlayerUI:
 
     def _draw_mini_frame(self, w: int, h: int, st: Dict[str, Any]):
         t_now = time.time()
-        g1, g2, gbg = _get_dynamic_gradient(t_now)
+        g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
-        sys.stdout.write(f"\033]11;#{gbg[0]:02x}{gbg[1]:02x}{gbg[2]:02x}\007\033]0;MP Mini Audio Player\007")
+        target_rows, target_cols = 14, 74
+        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")):
+            sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
+        sys.stdout.write("\033]0;MP Mini Audio Player\007")
         iw = max(24, min(w - 4, 74))
-        lines = [f"  {BOLD}{c1}╭{'─'*iw}╮{NC}", f"  {BOLD}{c1}│{c2}{'✦ MP MINI AUDIO PLAYER ✦'.center(iw)}{c1}│{NC}", f"  {BOLD}{c1}╰{'─'*iw}╯{NC}"]
+        lines = [f"  {BOLD}{c1}╭{'─'*iw}╮{NC}", f"  {BOLD}{c1}│{BOLD}{c2}{'✦ MP MINI AUDIO PLAYER ✦'.center(iw)}{c1}│{NC}", f"  {BOLD}{c1}╰{'─'*iw}╯{NC}"]
         tname, av = st.get("title", "Unknown Track"), max(18, iw - 18)
         if _display_width(tname) > av: tname = _clip_display(tname, av - 3) + "..."
         state = st.get("state", "stopped")
-        badge = f"{BOLD}{GREEN}▶ PLAY{NC}" if state == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSE{NC}" if state == "paused" else f"{BOLD}{RED}⏹ STOP{NC}")
+        badge = f"{BOLD}\033[1;38;2;0;255;127m▶ PLAY{NC}" if state == "playing" else (f"{BOLD}\033[1;38;2;255;191;0m⏸ PAUSE{NC}" if state == "paused" else f"{BOLD}\033[1;38;2;255;64;64m⏹ STOP{NC}")
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
-        rec_b = f" {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash) else (f" {DIM}{RED}○ REC{NC}" if is_rec else "")
-        lines.append(f"  {badge} {DIM}{c1}[{'MUSIC' if self.mode == 'MUSIC' else 'MIX'}]{NC}{rec_b} {BOLD}{c2}♫ {tname}{NC}")
+        rec_b = f" {BOLD}\033[1;38;2;255;64;64m● REC{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○ REC{NC}" if is_rec else "")
+        mode_str = 'MUSIC' if self.mode == 'MUSIC' else 'MIX'
+        lines.append(f"  {badge} {BOLD}\033[1;38;2;0;229;255m[{mode_str}]{NC}{rec_b} \033[1;38;2;255;255;255m♫ {tname}{NC}")
         ext, sr, ch_s = os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC", st.get("sample_rate", 44100), ("Stereo" if st.get("channels", 2) == 2 else "Mono")
         dev_s = f"{'🎧' if st.get('bluetooth_connected') else '🔊'} {st.get('output_device', 'Speakers')}"
         if _display_width(dev_s) > 22: dev_s = dev_s[:19] + "..."
-        lines.append(f"  {DIM}{CYAN}{ext} • {sr/1000:.1f}kHz • {ch_s}  │  {dev_s}{NC}")
+        lines.append(f"  \033[1;38;2;120;215;255m{ext} • {sr/1000:.1f}kHz • {ch_s}{NC}  │  \033[38;2;235;240;255m{dev_s}{NC}")
         pct, bw = float(st.get("progress_pct", 0.0)), max(16, min(34, iw - 30))
         fw = int((pct / 100.0) * bw)
-        lines.append(f"  {COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC} {c1}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC} {COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC} {DIM}({pct:.1f}%){NC}")
-        vol, pval = (f"{st.get('volume', 85)}%" if not st.get("muted") else f"{COLOR_TRAFFIC_RED}MUTED{NC}"), int(st.get("pitch_percent", 0))
-        p_str = f"{COLOR_TRAFFIC_GREEN}0%{NC}" if pval == 0 else f"{COLOR_TRAFFIC_AMBER}{pval:+d}%{NC}"
-        lines.append(f"  🔊 {BOLD}{COLOR_ELECTRIC_CYAN}{vol}{NC} │ 🎚 {p_str} │ 🎛 {BOLD}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:14]}{NC}")
+        bar_fill = f"\033[1;38;2;0;229;255m{'━' * fw}\033[1;38;2;255;255;255m●{NC}"
+        bar_empty = f"\033[38;2;90;105;135m{'─' * max(0, bw - fw - 1)}{NC}"
+        lines.append(f"  \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}{NC} {bar_fill}{bar_empty} \033[1;38;2;0;229;255m{st.get('duration_fmt', '00:00')}{NC} \033[1;38;2;255;215;0m({pct:.1f}%){NC}")
+        vol, pval = (f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"), int(st.get("pitch_percent", 0))
+        p_str = "\033[1;38;2;0;255;127m0%\033[0m" if pval == 0 else f"\033[1;38;2;255;191;0m{pval:+d}%\033[0m"
+        lines.append(f"  🔊 \033[1;38;2;0;229;255m{vol}{NC} │ 🎚 {p_str} │ 🎛 {BOLD}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:14]}{NC}")
         lines.extend(self.visualizer.render(st, width=iw + 4, height=(3 if h >= 14 else 2)))
-        lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}" if (t_now < self.notification_time and self.notification_msg) else f"  {c1}[Space]{NC} Play  {c1}[Q]{NC} Queue  {c1}[R]{NC} Rec  {c1}[G]{NC} Spek  {c1}[n/p]{NC} Skip  {c1}[v/V]{NC} Vol  {c1}[s]{NC} Shuf  {c1}[e]{NC} EQ  {c1}[c]{NC} Theme  {c2}[M]{NC} Micro  {c1}[b]{NC} Close")
+        if t_now < self.notification_time and self.notification_msg:
+            lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
+        else:
+            lines.append(f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
         _present_frame(lines, w, h)
 
     def _draw_micro_frame(self, w: int, h: int, st: Dict[str, Any]):
         t_now = time.time()
-        g1, g2, gbg = _get_dynamic_gradient(t_now)
+        g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
-        sys.stdout.write(f"\033]11;#{gbg[0]:02x}{gbg[1]:02x}{gbg[2]:02x}\007\033]0;MP Micro Audio Player\007")
+        target_rows, target_cols = 7, 74
+        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")):
+            sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
+        sys.stdout.write("\033]0;MP Micro Audio Player\007")
         iw, tname = max(24, min(w - 4, 70)), st.get("title", "Unknown Track")
         avail = max(10, iw - 43)
         if _display_width(tname) > avail: tname = _clip_display(tname, avail - 2) + ".."
         state, pval = st.get("state", "stopped"), int(st.get("pitch_percent", 0))
-        badge = f"{BOLD}{GREEN}▶{NC}" if state == "playing" else (f"{BOLD}{YELLOW}⏸{NC}" if state == "paused" else f"{BOLD}{RED}⏹{NC}")
+        badge = f"{BOLD}\033[1;38;2;0;255;127m▶{NC}" if state == "playing" else (f"{BOLD}\033[1;38;2;255;191;0m⏸{NC}" if state == "paused" else f"{BOLD}\033[1;38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
         if cs == "oscilloscope":
             wc = ("─", "∿", "~", "≈", "∽", "∿")
             m_str = "".join(f"{c2}{wc[max(0, min(5, int(abs(math.sin(i * 0.7 + t_now * 8.0) * (lv[i % len(lv)] if len(lv) else 0.0)) * 5)))] if (lv[i % len(lv)] if len(lv) else 0.0) > 0.05 else '─'}{NC}" for i in range(14))
         elif cs == "analog_vu":
             lb, rb = int(min(5, round((np.mean(st.get("levels_left", lv)) if len(lv) else 0.0) * 5))), int(min(5, round((np.mean(st.get("levels_right", lv)) if len(lv) else 0.0) * 5)))
-            m_str = f"{c1}L{NC}{c2}{'█'*lb}{DIM}{'░'*(5-lb)}{NC} {c1}R{NC}{c2}{'█'*rb}{DIM}{'░'*(5-rb)}{NC}"
+            m_str = f"{c1}L{NC}{c2}{'█'*lb}\033[38;2;90;105;135m{'░'*(5-lb)}{NC} {c1}R{NC}{c2}{'█'*rb}\033[38;2;90;105;135m{'░'*(5-rb)}{NC}"
         elif cs == "stardust_particles_eq":
             dc = [console_symbol(ch) for ch in (" ", "·", "˙", ":", "⋆", "✦", "◆", "█")]
             m_str = "".join(f"{c2}{dc[min(len(dc) - 1, int(val * len(dc)))]}{NC}" for val in lv[:14])
@@ -2503,10 +2600,11 @@ class TerminalPlayerUI:
         else: m_str = "".join(f"{c2}{prism_level_glyph(min(8, int(val * 9)))}{NC}" for val in lv[:14])
 
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
-        rec_d = f" {BOLD}{COLOR_TRAFFIC_RED}●{NC}" if (is_rec and flash) else (f" {DIM}{RED}○{NC}" if is_rec else "")
+        rec_d = f" {BOLD}\033[1;38;2;255;64;64m●{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○{NC}" if is_rec else "")
         p_txt = f"{pval:+d}%" if pval != 0 else "0%"
-        r1 = f" {badge}{rec_d} {BOLD}{c2}{tname}{NC} │ {COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: {st.get('volume', 85)}% │ {c1}Pitch: {p_txt}{NC} "
-        r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:10]}{NC} │ {c2}[M] Mini{NC} "
+        vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"
+        r1 = f" {badge}{rec_d} \033[1;38;2;255;255;255m{tname}{NC} │ \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[1;38;2;0;229;255m{vol_str}{NC} │ \033[1;38;2;255;215;0mPitch: {p_txt}{NC} "
+        r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:10]}{NC} │ \033[1;38;2;255;215;0m[M] Mini{NC} "
         lines = [
             f"  {BOLD}{c1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * max(0, iw - 28)}╮{NC}",
             f"  {BOLD}{c1}│{NC}{r1}{' ' * max(0, iw - _display_width(r1))}{BOLD}{c1}│{NC}",
@@ -2514,12 +2612,12 @@ class TerminalPlayerUI:
             f"  {BOLD}{c1}╰{'─' * iw}╯{NC}"
         ]
         if h >= 9: lines.extend(self.visualizer.render(st, width=iw + 4, height=(2 if h >= 12 else 1)))
-        if t_now < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
+        if t_now < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
             lines.append(_fit_text_line([
-                f"  {c1}[Space]{NC} Play  {c1}[Q]{NC} Que  {c1}[R]{NC} Rec  {c1}[G]{NC} Spek  {c1}[n/p]{NC} Skip  {c1}[v/V]{NC} Vol  {c1}[s]{NC} Shuf  {c1}[e]{NC} EQ  {c1}[c]{NC} Theme  {c2}[M]{NC} Mini  {c1}[b]{NC} Close",
-                f"  {c1}[Space]{NC} Play  {c1}[Q]{NC} Que  {c1}[R]{NC} Rec  {c1}[n/p]{NC} Skip  {c1}[v/V]{NC} Vol  {c1}[s]{NC} Shuf  {c1}[e]{NC} EQ  {c1}[c]{NC} Theme  {c2}[M]{NC} Mini  {c1}[b]{NC} Close",
-                f"  {c1}Space{NC} Play  {c1}Q{NC} Que  {c1}R{NC} Rec  {c1}n/p{NC} Skip  {c1}v/V{NC} Vol  {c1}s{NC} Shuf  {c1}e{NC} EQ  {c1}c{NC} Theme  {c2}M{NC} Mini  {c1}b{NC} Close"
+                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0mM{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
             ], max(20, w - 1)))
         _present_frame(lines, w, h)
 
@@ -2535,6 +2633,13 @@ def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool =
         proc = subprocess.Popen(cmd, cwd=str(get_base_dir()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         try: PID_FILE.write_text(str(proc.pid))
         except OSError: pass
+        # Auto-start Traktor S4 MIDI controller service if configured
+        try:
+            s4_script = Path(__file__).resolve().parent / "scripts" / "traktor_s4_midi.py"
+            if not s4_script.is_file(): s4_script = Path(__file__).resolve().parent / "traktor_s4_midi.py"
+            if s4_script.is_file() and os.environ.get("MIDI_CONTROL_ENABLED", "true").lower() != "false":
+                subprocess.Popen([sys.executable, str(s4_script), "--start"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception: pass
         return proc.pid
     except Exception as exc:
         try: mp_log_error("MP_Audio_Player", f"Failed spawning player daemon: {exc}", exc)
@@ -2649,6 +2754,8 @@ def main():
         print(f"✖ Spek generation failed: {res}", file=sys.stderr); sys.exit(1)
 
     if args.new_window:
+        if args.mini or args.micro:
+            sys.exit(0 if launch_mini_player_window(current_mode, folder_target, args.playlist, args.theme, args.style, micro=bool(args.micro)) else 1)
         sys.exit(0 if launch_player_window(current_mode, folder_target, args.playlist, args.theme, args.style) else 1)
 
     if args.cmd:
