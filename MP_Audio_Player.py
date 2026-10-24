@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -76,19 +76,26 @@ REC_MAX_FILE_BYTES = 3 * 1024 * 1024 * 1024
 
 _LIMITED_GLYPHS = os.name == "nt" or sys.platform in ("win32", "cygwin") or bool(os.environ.get("MSYSTEM"))
 def _use_limited_console_glyphs() -> bool: return _LIMITED_GLYPHS
-def prism_level_glyph(eighth: int) -> str: return (_PRISM_LEVELS_LIMITED if _LIMITED_GLYPHS else _PRISM_LEVELS_FULL)[max(0, min(8, int(eighth)))]
+def prism_level_glyph(eighth: int) -> str: return (_PRISM_LEVELS_LIMITED if _use_limited_console_glyphs() else _PRISM_LEVELS_FULL)[max(0, min(8, int(eighth)))]
 def prism_peak_glyph(hot: bool, column: int = 0) -> str:
-    return ("\u25b2" if hot else "\u2500") if _LIMITED_GLYPHS else (("\u2726" if column % 2 == 0 else "\u25c6") if hot else "\u2501")
-def meter_peak_glyph() -> str: return "\u2500" if _LIMITED_GLYPHS else "\u2594"
+    return ("\u25b2" if hot else "\u2500") if _use_limited_console_glyphs() else (("\u2726" if column % 2 == 0 else "\u25c6") if hot else "\u2501")
+def meter_peak_glyph() -> str: return "\u2500" if _use_limited_console_glyphs() else "\u2594"
 def meter_level_char(frac: float, peak_here: bool) -> str:
     return "█" if frac >= 1.0 else (prism_level_glyph(max(1, min(8, int(frac * 8)))) if frac > 0.0 else (meter_peak_glyph() if peak_here else " "))
 
-_STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": "."}
-def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _LIMITED_GLYPHS else ch
+_STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~", "∿": "~", "∽": "~", "›": ">", "»": ">"}
+def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _use_limited_console_glyphs() else ch
+
+# Precomputed high-efficiency rainbow color tables for Stream of Frequency visualizer (360 degrees of hue)
+_RAINBOW_RGB_TABLE = tuple(tuple(int(c * 255) for c in colorsys.hsv_to_rgb(deg / 360.0, 1.0, 1.0)) for deg in range(360))
+_RAINBOW_ANSI_BOLD = tuple(f"\033[1;38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_NORMAL = tuple(f"\033[38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_DIM = tuple(f"\033[38;2;{r//2};{g//2};{b//2}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_FAINT = tuple(f"\033[38;2;{max(20, int(r*0.35))};{max(20, int(g*0.35))};{max(20, int(b*0.35))}m" for r, g, b in _RAINBOW_RGB_TABLE)
 
 _DUST_CHOICES_LIM = {"hot": ["•", "°", "·", "˙", "+"], "mid": ["•", "°", "·", "˙", ".", "*"], "low": ["·", "˙", ".", "*", "'", ","]}
 _DUST_CHOICES_FULL = {"hot": ["✦", "✧", "⋆", "•", "°"], "mid": ["•", "°", "·", "˙", "⠄", "⠂"], "low": ["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"]}
-def stardust_dust_choices(tier: str) -> List[str]: return (_DUST_CHOICES_LIM if _LIMITED_GLYPHS else _DUST_CHOICES_FULL)[tier]
+def stardust_dust_choices(tier: str) -> List[str]: return (_DUST_CHOICES_LIM if _use_limited_console_glyphs() else _DUST_CHOICES_FULL)[tier]
 
 def music_library_label(folder_name: str) -> str:
     n = str(folder_name or "ALL").strip() or "ALL"
@@ -2008,11 +2015,23 @@ _THEME_ALIASES = {
 }
 
 class EqualizerVisualizer:
-    STYLES = ["stereo_eq", "neon_prism_eq", "stardust_particles_eq", "master_spectrum", "analog_vu", "oscilloscope"]
+    STYLES = [
+        "stream_of_frequency_eq",
+        "stereo_eq",
+        "neon_prism_eq",
+        "stardust_particles_eq",
+        "master_spectrum",
+        "analog_vu",
+        "oscilloscope",
+    ]
     STYLE_NAMES = {
-        "stereo_eq": "Dual Stereo (Default)", "neon_prism_eq": "Neon Chroma Prism (Thin Hi-Res)",
-        "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)", "master_spectrum": "Master Spectrum (24-Band)",
-        "analog_vu": "Analog Studio VU", "oscilloscope": "Oscilloscope Waveform",
+        "stream_of_frequency_eq": "Stream of Frequency (Dynamic Spectrogram)",
+        "stereo_eq": "Dual Stereo (12-Band)",
+        "neon_prism_eq": "Neon Chroma Prism (Thin Hi-Res)",
+        "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)",
+        "master_spectrum": "Master Spectrum (24-Band)",
+        "analog_vu": "Analog Studio VU",
+        "oscilloscope": "Oscilloscope Waveform",
     }
     THEMES = [
         "dreamworlds_ultra",
@@ -2049,6 +2068,7 @@ class EqualizerVisualizer:
         _ensure_numpy()
         self.style_idx = self.theme_idx = 0
         self.dust_particles, self.last_dust_update, self.dust_rng = [], time.time(), random.Random()
+        self._sof_buffer, self._sof_particles, self._sof_last_time, self._sof_rng = None, [], time.time(), random.Random()
         try:
             th_file = CONFIG_DIR / "theme"
             if saved := (theme or default_theme or (th_file.read_text(encoding="utf-8").strip().lower() if th_file.is_file() else None)):
@@ -2058,9 +2078,13 @@ class EqualizerVisualizer:
             eq_file = CONFIG_DIR / "eq_style"
             ts = style or default_style
             if ts and ts in self.STYLES: self.style_idx = self.STYLES.index(ts)
+            elif ts and str(ts).lower() in ("stream", "stream_of_frequency", "stream_of_frequency_eq", "frequency_stream", "frequency_stream_eq", "spectrogram", "dynamic_spectrogram", "river", "rainbow_stream"):
+                self.style_idx = self.STYLES.index("stream_of_frequency_eq")
             elif eq_file.is_file():
                 seq = eq_file.read_text(encoding="utf-8").strip().lower()
                 if seq in self.STYLES: self.style_idx = self.STYLES.index(seq)
+                elif seq in ("stream", "stream_of_frequency", "stream_of_frequency_eq", "frequency_stream", "frequency_stream_eq", "spectrogram", "dynamic_spectrogram", "river", "rainbow_stream"):
+                    self.style_idx = self.STYLES.index("stream_of_frequency_eq")
                 elif seq in ("neon", "prism", "chroma", "neon_prism"): self.style_idx = self.STYLES.index("neon_prism_eq")
                 elif seq in ("stardust", "particles", "dust", "falling_dust", "stardust_eq", "chroma_dust"): self.style_idx = self.STYLES.index("stardust_particles_eq")
         except Exception: pass
@@ -2281,7 +2305,7 @@ class EqualizerVisualizer:
                 lr_rat, tw = max(0.0, min(1.0, p["life"] / p["max_life"])), math.sin(now * p["twinkle_speed"] + p["twinkle_phase"])
                 if tw > 0.78 and lr_rat > 0.25:
                     p_col = "\033[1;38;2;255;255;255m"
-                    p_sym = (p["symbol"] if p["symbol"] in ("•", "°", "·", "˙", "+") else "•") if _LIMITED_GLYPHS else (p["symbol"] if p["symbol"] in ("✦", "✧", "⋆", "•") else "✦")
+                    p_sym = (p["symbol"] if p["symbol"] in ("•", "°", "·", "˙", "+") else "•") if _use_limited_console_glyphs() else (p["symbol"] if p["symbol"] in ("✦", "✧", "⋆", "•") else "✦")
                 else:
                     rc, gc_v, bc = p["color_rgb"]
                     fade = lr_rat * (0.60 + 0.40 * max(0.0, tw)) * (0.6 if pr_i == 0 else 1.0)
@@ -2402,6 +2426,177 @@ class EqualizerVisualizer:
             lines.append(f"  {self.b_col}│{NC}  {''.join(rc)}  {self.b_col}│{NC}")
         return lines + [bot_l]
 
+    def render_stream_of_frequency(self, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 7) -> List[str]:
+        st = status or {}
+        if width >= 80:
+            bw = 76
+            inner_w = 74
+            cw = 72
+            hdr_text = "── 🌊 STREAM OF FREQUENCY (DYNAMIC SPECTROGRAM) "
+            ftr_text = "── ◄ FLOW (RIGHT ➔ LEFT) ◄ ──── 32Hz  125Hz  500Hz  2kHz  8kHz  16kHz ────"
+        else:
+            bw = max(24, min(76, width - 4))
+            if bw % 2 != 0: bw -= 1
+            inner_w = max(18, bw - 2)
+            cw = max(16, inner_w - 2)
+            hdr_text = "── 🌊 STREAM OF FREQUENCY " if inner_w >= 32 else "── 🌊 STREAM "
+            ftr_text = "── ◄ FLOW (R ➔ L) ◄ " if inner_w >= 28 else "── ◄ FLOW ◄ "
+
+        top_l = f"  {self.b_col}╭{hdr_text}{'─' * max(0, inner_w - _display_width(hdr_text))}╮{NC}"
+        bot_l = f"  {self.b_col}╰{ftr_text}{'─' * max(0, inner_w - _display_width(ftr_text))}╯{NC}"
+
+        H = max(1, height)
+        now = time.time()
+        dt = max(0.005, min(0.08, now - getattr(self, "_sof_last_time", now)))
+        self._sof_last_time = now
+
+        state = st.get("state", "stopped")
+        rms = float(st.get("rms_level", 0.0))
+        peak_db = float(st.get("peak_db", -60.0))
+        pitch_pct = int(st.get("pitch_percent", 0))
+        speed_mult = max(0.5, min(2.0, 1.0 + pitch_pct / 100.0))
+
+        # Audio levels
+        lv = np.array(st.get("levels", [0.0] * 24), dtype=float)
+        ll = np.array(st.get("levels_left", lv), dtype=float)
+        lr = np.array(st.get("levels_right", lv), dtype=float)
+        mono = 0.5 * (ll + lr) if len(ll) == len(lr) and len(ll) > 0 else lv
+        if len(mono) < 24: mono = np.pad(mono, (0, max(0, 24 - len(mono))))
+
+        # Buffer: 16 vertical bins x 140 time slices
+        if getattr(self, "_sof_buffer", None) is None:
+            self._sof_buffer = np.zeros((16, 140), dtype=float)
+
+        if state == "playing":
+            interp_x = np.linspace(0.0, 1.0, 16)
+            levels_x = np.linspace(0.0, 1.0, len(mono))
+            slice_col = np.clip(np.interp(interp_x, levels_x, mono), 0.0, 1.0)
+            if rms > 0.12 or peak_db > -4.5:
+                slice_col = np.clip(slice_col * 1.25 + 0.15, 0.0, 1.0)
+        elif state == "paused":
+            slice_col = np.array([0.07 + 0.04 * math.sin(now * 2.2 + r * 0.4) for r in range(16)], dtype=float)
+        else:
+            slice_col = np.zeros(16, dtype=float)
+
+        shift_cols = max(1, min(3, int(round(dt * 24.0 * speed_mult))))
+        for _ in range(shift_cols):
+            self._sof_buffer[:, :-1] = self._sof_buffer[:, 1:]
+            self._sof_buffer[:, -1] = slice_col
+
+        if getattr(self, "_sof_particles", None) is None:
+            self._sof_particles = []
+
+        if state == "playing":
+            for r in range(H):
+                buf_r = min(15, int(r * (16.0 / max(1, H))))
+                val = float(slice_col[buf_r])
+                if val > 0.05:
+                    prob = min(0.85, val * 0.65 + (0.25 if (rms > 0.12 or peak_db > -4.5) else 0.0))
+                    if self._sof_rng.random() < prob:
+                        if r >= max(1, H - 2):
+                            sym = self._sof_rng.choice(["✦", "✧", "⋆", "•", "°", "·"])
+                        elif r >= max(1, H // 2):
+                            sym = self._sof_rng.choice(["≈", "≋", "~", "∿", "∽", "›"])
+                        else:
+                            sym = self._sof_rng.choice(["≋", "≈", "█", "▓", "▒", "░", "◆"])
+                        self._sof_particles.append({
+                            "x": float(cw - 1) + self._sof_rng.uniform(-0.2, 0.2),
+                            "base_y": float(r),
+                            "y": float(r),
+                            "vx": self._sof_rng.uniform(-20.0, -36.0) * speed_mult,
+                            "wave_amp": self._sof_rng.uniform(0.15, 0.55),
+                            "wave_freq": self._sof_rng.uniform(3.0, 7.5),
+                            "wave_phase": self._sof_rng.uniform(0.0, 6.283),
+                            "life": self._sof_rng.uniform(2.5, 4.5),
+                            "max_life": 4.5,
+                            "symbol": sym,
+                            "hue_offset": self._sof_rng.uniform(0.0, 1.0),
+                            "is_sparkle": (val > 0.70 or rms > 0.14)
+                        })
+
+            if (rms > 0.13 or peak_db > -4.5) and len(self._sof_particles) < 70:
+                for _ in range(self._sof_rng.randint(2, 4)):
+                    br = self._sof_rng.randint(0, H - 1)
+                    self._sof_particles.append({
+                        "x": float(cw - 1) + self._sof_rng.uniform(-0.5, 0.5),
+                        "base_y": float(br),
+                        "y": float(br),
+                        "vx": self._sof_rng.uniform(-26.0, -42.0) * speed_mult,
+                        "wave_amp": self._sof_rng.uniform(0.25, 0.70),
+                        "wave_freq": self._sof_rng.uniform(4.0, 9.0),
+                        "wave_phase": self._sof_rng.uniform(0.0, 6.283),
+                        "life": self._sof_rng.uniform(2.8, 4.8),
+                        "max_life": 4.8,
+                        "symbol": "✦" if br >= H // 2 else "≋",
+                        "hue_offset": self._sof_rng.uniform(0.0, 1.0),
+                        "is_sparkle": True
+                    })
+
+        if len(self._sof_particles) > 75:
+            self._sof_particles = self._sof_particles[-75:]
+
+        alive = []
+        for p in self._sof_particles:
+            p["life"] -= dt
+            if p["life"] > 0:
+                p["x"] += p["vx"] * dt
+                if p["x"] >= -0.8:
+                    w_disp = math.sin(now * p["wave_freq"] + p["wave_phase"] - 0.22 * p["x"]) * p["wave_amp"]
+                    p["y"] = max(0.0, min(float(H - 1), p["base_y"] + w_disp))
+                    alive.append(p)
+        self._sof_particles = alive
+
+        # 2D Grid buffers
+        grid_c = [[" "] * cw for _ in range(H)]
+        grid_col = [[""] * cw for _ in range(H)]
+
+        buf_offset = 140 - cw
+        for r in range(H):
+            buf_r = min(15, int(r * (16.0 / max(1, H))))
+            for c in range(cw):
+                energy = float(self._sof_buffer[buf_r, buf_offset + c])
+                if energy > 0.05:
+                    h_idx = int(((now * 0.40 + (cw - 1 - c) * 0.038 + r * 0.08) % 1.0) * 360) % 360
+                    if energy > 0.75:
+                        col = _RAINBOW_ANSI_BOLD[h_idx]
+                        glyph = "█" if energy > 0.90 else "▓"
+                    elif energy > 0.45:
+                        col = _RAINBOW_ANSI_BOLD[h_idx]
+                        glyph = "≋" if r < max(1, H // 2) else "≈"
+                    elif energy > 0.20:
+                        col = _RAINBOW_ANSI_NORMAL[h_idx]
+                        glyph = "≈" if r < max(1, H // 2) else "~"
+                    elif energy > 0.10:
+                        col = _RAINBOW_ANSI_DIM[h_idx]
+                        glyph = "∿" if r < max(1, H // 2) else "∽"
+                    else:
+                        col = _RAINBOW_ANSI_FAINT[h_idx]
+                        glyph = "·"
+                    grid_c[r][c] = glyph
+                    grid_col[r][c] = col
+
+        # Overlay particles
+        for p in self._sof_particles:
+            pr = max(0, min(H - 1, int(round(p["y"]))))
+            pc = int(round(p["x"]))
+            if 0 <= pc < cw:
+                p_hue = (now * 0.45 + (cw - 1 - pc) * 0.038 + p["hue_offset"]) % 1.0
+                p_h_idx = int(p_hue * 360) % 360
+                if p["is_sparkle"]:
+                    p_col = "\033[1;38;2;255;255;255m" if self._sof_rng.random() < 0.35 else _RAINBOW_ANSI_BOLD[p_h_idx]
+                else:
+                    p_col = _RAINBOW_ANSI_BOLD[p_h_idx]
+                grid_c[pr][pc] = console_symbol(p["symbol"])
+                grid_col[pr][pc] = p_col
+
+        # Build output lines (from top row H-1 down to bottom row 0)
+        lines = [top_l]
+        for r in range(H - 1, -1, -1):
+            row_str = "".join(f"{grid_col[r][c]}{grid_c[r][c]}{NC}" if grid_c[r][c] != " " else " " for c in range(cw))
+            lines.append(f"  {self.b_col}│{NC} {row_str} {self.b_col}│{NC}")
+        lines.append(bot_l)
+        return lines
+
     def render_vertical_pitch_fader(self, pitch_pct: int, total_lines: int = 10) -> List[str]:
         p, frows = max(-20, min(20, int(pitch_pct))), max(3, total_lines - 2)
         has_hint = frows % 2 == 0
@@ -2446,7 +2641,8 @@ class EqualizerVisualizer:
         ll, lr = np.array(status.get("levels_left", lv)), np.array(status.get("levels_right", lv))
         pl, pr = np.array(status.get("peaks_left", pk)), np.array(status.get("peaks_right", pk))
         rms, pdb, s = float(status.get("rms_level", 0.0)), float(status.get("peak_db", -60.0)), self.style
-        if s == "neon_prism_eq": lines = self.render_neon_prism_eq(ll, lr, pl, pr, width, height, rms, pdb)
+        if s == "stream_of_frequency_eq": lines = self.render_stream_of_frequency(status, width, height)
+        elif s == "neon_prism_eq": lines = self.render_neon_prism_eq(ll, lr, pl, pr, width, height, rms, pdb)
         elif s == "stardust_particles_eq": lines = self.render_stardust_particles_eq(ll, lr, pl, pr, width, height, rms, pdb)
         elif s == "master_spectrum": lines = self.render_master_spectrum(lv, pk, height)
         elif s == "analog_vu": lines = self.render_analog_vu(pdb, ll, lr)
@@ -3798,7 +3994,19 @@ class TerminalPlayerUI:
         state, pval = st.get("state", "stopped"), int(st.get("pitch_percent", 0))
         badge = f"{BOLD}\033[1;38;2;0;255;127m▶{NC}" if state == "playing" else (f"{BOLD}\033[1;38;2;255;191;0m⏸{NC}" if state == "paused" else f"{BOLD}\033[1;38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
-        if cs == "oscilloscope":
+        if cs == "stream_of_frequency_eq":
+            p_chars = []
+            for i in range(14):
+                v = float(lv[i % len(lv)]) if len(lv) else 0.0
+                h_idx = int(((t_now * 0.65 + (13 - i) * 0.075 + v * 0.25) % 1.0) * 360) % 360
+                col = _RAINBOW_ANSI_BOLD[h_idx] if v > 0.4 else _RAINBOW_ANSI_NORMAL[h_idx]
+                if v > 0.70: g = "✦" if (int(t_now * 5.0) + i) % 2 == 0 else "≋"
+                elif v > 0.35: g = "≈" if (int(t_now * 4.0) + i) % 2 == 0 else "∿"
+                elif v > 0.10: g = "~"
+                else: g = "·" if (int(t_now * 2.5) + i) % 3 == 0 else " "
+                p_chars.append(f"{col}{console_symbol(g)}{NC}")
+            m_str = "".join(p_chars)
+        elif cs == "oscilloscope":
             wc = ("─", "∿", "~", "≈", "∽", "∿")
             m_str = "".join(f"{c2}{wc[max(0, min(5, int(abs(math.sin(i * 0.7 + t_now * 8.0) * (lv[i % len(lv)] if len(lv) else 0.0)) * 5)))] if (lv[i % len(lv)] if len(lv) else 0.0) > 0.05 else '─'}{NC}" for i in range(14))
         elif cs == "analog_vu":

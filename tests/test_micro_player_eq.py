@@ -24,6 +24,12 @@ def strip_ansi(s: str) -> str:
 
 class TestMicroPlayerEQ(unittest.TestCase):
     def setUp(self):
+        import tempfile
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_path = Path(self.temp_dir.name)
+        self.config_patch = patch.object(MP_Audio_Player, "CONFIG_DIR", self.temp_path)
+        self.config_patch.start()
+
         self.mock_scanner = MagicMock()
         self.mock_scanner.get_mixes.return_value = []
         self.ui = MP_Audio_Player.TerminalPlayerUI(
@@ -50,6 +56,10 @@ class TestMicroPlayerEQ(unittest.TestCase):
             "rms_level": 0.1,
             "peak_db": -3.0
         }
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.temp_dir.cleanup()
 
     def test_key_e_and_E_cycle_style_in_micro_mode(self):
         """Verifies that both lowercase 'e' and uppercase 'E' cycle EQ style in MICRO mode without export mode."""
@@ -98,7 +108,7 @@ class TestMicroPlayerEQ(unittest.TestCase):
 
         # Check visualizer rendered header (e.g. LEFT CHANNEL or NEON PRISM or HIGH-RESOLUTION)
         has_eq_visualizer = any(
-            ("LEFT" in line or "HIGH-RESOLUTION" in line or "ANALOG" in line or "OSCILLOSCOPE" in line)
+            ("LEFT" in line or "HIGH-RESOLUTION" in line or "ANALOG" in line or "OSCILLOSCOPE" in line or "STREAM" in line)
             for line in captured_lines
         )
         self.assertTrue(has_eq_visualizer, "MICRO mode must render the EQ visualizer lines")

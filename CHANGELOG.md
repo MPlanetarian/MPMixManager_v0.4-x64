@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **Stream of Frequency Equalizer (Dynamic Spectrogram)** (`MP_Audio_Player.py`, `tests/test_stream_of_frequency_equalizer.py`, `tests/test_micro_player_eq.py`):
+  - **Dynamic Spectrogram Audio River**: Implemented a new equalizer visualizer effect `stream_of_frequency_eq` that renders audio frequency bands as a continuous river flowing from Right to Left, mapping 24 frequency bands across the display vertical height (sub-bass up to high treble).
+  - **Rainbow Coloured Particles & Undulating Waves**: Audio frequencies emit streams of rainbow-colored particles that ride traveling sine waves (`A * sin(omega * t + phi - k * x)`) flowing continuously down the river. Transients and beat drops trigger sparkling particle crest bursts.
+  - **Continuous Rainbow Hue Evolution**: Precomputed a high-efficiency 360-degree rainbow ANSI lookup table (`_RAINBOW_ANSI_BOLD`, `_RAINBOW_ANSI_NORMAL`, `_RAINBOW_ANSI_DIM`, `_RAINBOW_ANSI_FAINT`) to generate smooth, endless rainbow wave color rotations with sub-millisecond execution (< 0.1ms per frame).
+  - **New Default Equalizer for Default, Mini, and Micro Modes**: Configured `stream_of_frequency_eq` as the primary default equalizer style across all modes (Normal 120-column view, Mini 74x14 player, and Micro 74x7 player). Micro mode features a dedicated 14-character live rainbow wave particle stream in the status header.
 - **Liquid Glass Tracklist Viewer** (`MP_Audio_Player.py`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`, `Mix_Archive_Manager.sh`, `tests/test_tracklist_viewer_actions.py`, `tests/test_liquid_glass_player_features.py`):
   - **Seamless Liquid Glass Rendering for Tracklist Viewer**: When pressing `T` inside the MP Liquid Player (`MP_Audio_Player_Liquid_Glass*` or with `MP_LIQUID_GLASS=1`), the Tracklist Viewer opens rendered directly inside a dedicated Liquid Glass container window with dark glass panel well shading instead of spawning an external plain terminal.
   - **Dynamic Theme and Audio Integration**: Propagates `--theme` and `--audio` paths to the Liquid Glass tracklist session, matching the active player theme and enabling instant Spek generation (`[G]`) and audio extraction (`[D]`).
