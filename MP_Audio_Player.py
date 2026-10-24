@@ -1824,6 +1824,7 @@ def _present_frame(lines: List[str], width: int, height: int):
     sys.stdout.flush()
 
 _THEME_PALETTES = {
+    "dynamic_rainbow_liquid_glass": {"highlight": "\033[38;2;176;88;255m", "active": "\033[38;2;255;45;142m", "border": "\033[38;2;176;88;255m", "accent": "\033[38;2;0;242;254m"},
     "dreamworlds_liquid": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;199;125;255m", "border": "\033[38;2;72;149;239m", "accent": "\033[38;2;0;245;212m"},
     "cosmic_supernova": {"highlight": "\033[38;2;224;86;253m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;224;86;253m", "accent": "\033[38;2;76;201;240m"},
     "dreamworlds_neon": {"highlight": COLOR_ELECTRIC_CYAN, "active": COLOR_NEON_PINK, "border": COLOR_NEON_PINK, "accent": COLOR_ELECTRIC_CYAN},
@@ -1841,6 +1842,16 @@ _THEME_ALIASES = {
     "cyberpunk": "cyber_neon", "cyber": "cyber_neon",
     "matrix": "phosphor", "nord": "ice_cold", "dracula": "dreamworlds_neon", "gruvbox": "retro_studio",
     "dreamworlds": "dreamworlds_ultra", "default": "dreamworlds_ultra", "mplanetarian": "dreamworlds_ultra",
+    "dynamic_rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_rainbow": "dynamic_rainbow_liquid_glass",
+    "rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]_(new)": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours] (new)": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours]": "dynamic_rainbow_liquid_glass",
     "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid", "dreamworlds_liquid_transparency": "dreamworlds_liquid",
     "liquid_transparency": "dreamworlds_liquid", "liquid": "dreamworlds_liquid", "glass": "dreamworlds_liquid",
     "liquid_glass": "dreamworlds_liquid", "mp_liquid": "dreamworlds_liquid"
@@ -1853,7 +1864,7 @@ class EqualizerVisualizer:
         "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)", "master_spectrum": "Master Spectrum (24-Band)",
         "analog_vu": "Analog Studio VU", "oscilloscope": "Oscilloscope Waveform",
     }
-    THEMES = ["dreamworlds_ultra", "cosmic_supernova", "dreamworlds_liquid", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold", "retro_terminal"]
+    THEMES = ["dreamworlds_ultra", "dynamic_rainbow_liquid_glass", "cosmic_supernova", "dreamworlds_liquid", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold", "retro_terminal"]
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
         _ensure_numpy()
@@ -1916,6 +1927,11 @@ class EqualizerVisualizer:
             s = (c_frac - 0.66) / 0.34; return 0.28 + 0.50 * s, 0.49 * (1.0 - s), 0.94 + 0.06 * s
         if t in ("dreamworlds_ultra", "dreamworlds"):
             h6 = ((c_frac * 0.88 + 0.82) % 1.0) * 6.0
+            i, f = int(h6), h6 - int(h6)
+            q, u = 1.0 - f, ultra_floor
+            return ((1.0, f, u), (q, 1.0, u), (u, 1.0, f), (u, q, 1.0), (f, u, 1.0), (1.0, u, q))[i % 6]
+        if t in ("dynamic_rainbow_liquid_glass", "dynamic_liquid_glass_rainbow", "dynamic_rainbow", "rainbow"):
+            h6 = ((c_frac * 0.88 + 0.85) % 1.0) * 6.0
             i, f = int(h6), h6 - int(h6)
             q, u = 1.0 - f, ultra_floor
             return ((1.0, f, u), (q, 1.0, u), (u, 1.0, f), (u, q, 1.0), (f, u, 1.0), (1.0, u, q))[i % 6]
@@ -2090,6 +2106,8 @@ class EqualizerVisualizer:
             return "\033[38;2;0;245;212m" if fraction < 0.35 else ("\033[38;2;76;201;240m" if fraction < 0.65 else ("\033[38;2;224;86;253m" if fraction < 0.85 else "\033[38;2;255;51;102m"))
         if t in ("dreamworlds_liquid", "liquid_transparency", "mp_dreamworlds_liquid_transparency"):
             return "\033[38;2;0;245;255m" if fraction < 0.45 else ("\033[38;2;0;245;212m" if fraction < 0.75 else "\033[38;2;199;125;255m")
+        if t in ("dynamic_rainbow_liquid_glass", "dynamic_liquid_glass_rainbow", "dynamic_rainbow", "rainbow"):
+            return "\033[38;2;0;242;254m" if fraction < 0.40 else ("\033[38;2;255;215;0m" if fraction < 0.70 else ("\033[38;2;255;45;142m" if fraction < 0.90 else "\033[38;2;176;88;255m"))
         if t in ("dreamworlds_ultra", "dreamworlds"): return COLOR_TRAFFIC_GREEN if fraction < 0.60 else (COLOR_TRAFFIC_AMBER if fraction < 0.85 else COLOR_TRAFFIC_RED)
         if t == "dreamworlds_neon": return "\033[38;2;0;229;255m" if fraction < 0.4 else ("\033[38;2;247;37;133m" if fraction < 0.75 else "\033[38;2;255;140;0m")
         if t == "retro_studio": return "\033[38;2;46;204;113m" if fraction < 0.6 else ("\033[38;2;241;196;15m" if fraction < 0.85 else "\033[38;2;231;76;60m")

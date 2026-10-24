@@ -9,7 +9,9 @@ window opacity over a light frost drawn by the shader.
 
 from __future__ import annotations
 
+import colorsys
 import ctypes
+import math
 import os
 import sys
 import time
@@ -39,6 +41,7 @@ SHADER_DIR = ROOT / "shaders"
 
 THEME_COLORS = {
     "dreamworlds_ultra": ((166, 77, 255), (247, 37, 133), (0, 229, 255)),
+    "dynamic_rainbow_liquid_glass": ((176, 88, 255), (255, 45, 142), (0, 242, 254)),
     "dreamworlds_liquid": ((0, 245, 255), (199, 125, 255), (72, 149, 239)),
     "cosmic_supernova": ((224, 86, 253), (0, 245, 212), (76, 201, 240)),
     "dreamworlds_neon": ((0, 229, 255), (247, 37, 133), (102, 102, 255)),
@@ -52,6 +55,16 @@ THEME_ALIASES = {
     "dreamworlds": "dreamworlds_ultra",
     "default": "dreamworlds_ultra",
     "mplanetarian": "dreamworlds_ultra",
+    "dynamic_rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_rainbow": "dynamic_rainbow_liquid_glass",
+    "rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]_(new)": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours] (new)": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours]": "dynamic_rainbow_liquid_glass",
     "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid",
     "dreamworlds_liquid_transparency": "dreamworlds_liquid",
     "liquid_transparency": "dreamworlds_liquid",
@@ -88,6 +101,36 @@ def select_nvidia_device(devices):
 def theme_rgb(name):
     key = THEME_ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
     return THEME_COLORS.get(key, THEME_COLORS["dreamworlds_ultra"])
+
+
+def get_dynamic_theme_state(theme_name, base_opacity=1.0, current_time=None):
+    """
+    For 'dynamic_rainbow_liquid_glass':
+    - Dynamically cycles liquid glass through all rainbow colors slowly over time.
+    - Oscillates transparency between -9% and +9% over a 6-second period.
+    Returns (colors_tuple, effective_opacity, transparency_factor).
+    """
+    key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+    if key == "dynamic_rainbow_liquid_glass":
+        t = time.time() if current_time is None else current_time
+        # 1. Dynamic rainbow colors: smooth 18-second sweep through all rainbow hues
+        h0 = (t / 18.0) % 1.0
+        hA = h0
+        hB = (h0 + 0.16) % 1.0
+        hC = (h0 + 0.40) % 1.0
+        rA, gA, bA = [int(round(c * 255)) for c in colorsys.hsv_to_rgb(hA, 0.88, 1.0)]
+        rB, gB, bB = [int(round(c * 255)) for c in colorsys.hsv_to_rgb(hB, 0.94, 0.98)]
+        rC, gC, bC = [int(round(c * 255)) for c in colorsys.hsv_to_rgb(hC, 0.92, 1.0)]
+        colors = ((rA, gA, bA), (rB, gB, bB), (rC, gC, bC))
+
+        # 2. Dynamic transparency oscillation: alternating between -9% and +9% over a 6-second period
+        omega = 2.0 * math.pi / 6.0
+        transparency_factor = 1.0 + 0.09 * math.sin(omega * t)
+        effective_opacity = max(0.01, min(1.20, float(base_opacity) * transparency_factor))
+        return colors, effective_opacity, transparency_factor
+
+    colors = theme_rgb(theme_name)
+    return colors, float(base_opacity), 1.0
 
 
 def read_player_theme(config_dir=None):
@@ -708,9 +751,7 @@ class LiquidGlassRenderer:
 
     bezel_px = 52
     radius_px = 36
-    # See-through was 0.66 and the player text disappeared into the wallpaper.
-    # Cutting that transparency by about 40% leaves the pane at 0.60.
-    clear_opacity = 0.60
+    clear_opacity = 0.70
 
     def __init__(self, width=1280, height=820, title="MP Audio Player (Liquid Glass)"):
         self.width = int(width)
@@ -952,8 +993,14 @@ class LiquidGlassRenderer:
             self._recreate_swapchain()
         if self.window_size() != self._shape_size:
             self._apply_shape()
-        colors = theme_rgb(theme_name)
-        self._write_ubo(colors, opacity)
+        colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
+        win = self.x11_window() if hasattr(self, "x11_window") else None
+        if factor != 1.0 and win:
+            target_op = int(self.clear_opacity * factor * 1000)
+            if getattr(self, "_last_dyn_opacity", None) != target_op:
+                self._last_dyn_opacity = target_op
+                self._set_opacity(win, self.clear_opacity * factor)
+        self._write_ubo(colors, effective_opacity)
         return self._render(capture)
 
     def _silence_overlays(self):

@@ -168,7 +168,10 @@ void main() {
         col = mix(col, vec3(0.02, 0.02, 0.025), xmark);
     }
 
-    float alpha = 0.40 * (1.0 - panel * 0.25);
+    float alpha = 0.50 * (1.0 - panel * 0.25);
+    if (u.themeC.w > 0.0) {
+        alpha *= u.themeC.w;
+    }
     alpha *= smoothstep(0.8, -0.4, outer);
     vec3 rgb = clamp(col, 0.0, 1.0);
     if (u.bezel.z > 0.5) {

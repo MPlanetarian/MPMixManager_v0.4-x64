@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **Exclusive Dynamic Theme: "Dynamic Liquid Glass [Rainbow Colours] (New)" & Reduced Core Transparency** (`scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `shaders/liquid_glass_gl.frag`, `shaders/liquid_glass.frag`, `MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `scripts/mix_web_companion.py`, `tests/test_dynamic_rainbow_liquid_glass.py`):
+  - **Dynamic Rainbow Liquid Glass**: An exclusive theme for the MP Liquid Glass Audio Player derived from Dreamworlds Ultra with vibrant, dynamic hue shifting that cycles slowly through all rainbow colors in real time.
+  - **Alternating Breathing Transparency**: The liquid glass transparency dynamically oscillates between -9% reduction and +9% increase over an exact 6-second sinusoidal cycle, creating an organic breathing glass aesthetic.
+  - **10% Default Core Transparency Reduction**: Decreased the default transparency across the core player by 10% (increased window compositor `clear_opacity` from `0.60` to `0.70` and shader alpha from `0.40` to `0.50`), giving the window a firmer, crisper, and less transparent glass body.
+  - **Web Companion Dynamic Rainbow Theme**: Added full synchronization for `Dynamic Liquid Glass [Rainbow Colours] (New)` to the Web Companion, with translucent glass cards, rainbow caustics, and matching 6-second breathing animations.
+  - **Manager & Player Theme Menus**: Selectable as Option 16 in Manager Themes (`manage_themes()`) and cycleable via the `C` key in MP Audio Player.
 - **Continuous Liquid Glass Music Playback Across Manager Exit** (`Mix_Archive_Manager.sh`, `tests/test_manager_exit_stops_audio_player.py`):
   - **Preserve Active Listening**: Updated manager exit routines (`exit_mix_manager`, `_stop_mp_audio_daemon`, and `kill_all_mp_audio_players`) to check whether MP Liquid Glass is open (`is_liquid_glass_open`).
   - **Uninterrupted Music Playback**: When closing MP Mix Archive Manager, if the Liquid Glass Audio Player is open, the manager safely avoids terminating the player, stopping the audio engine, or closing its window, allowing users to continue listening to music seamlessly.

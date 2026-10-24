@@ -43,6 +43,51 @@ VERSION = _get_app_version()
 # THEME ENGINE — Palettes matching Mix_Archive_Manager.sh
 # ------------------------------------------------------------------------------
 THEMES: Dict[str, Dict[str, Any]] = {
+    "dynamic_rainbow_liquid_glass": {
+        "id": "dynamic_rainbow_liquid_glass",
+        "name": "Dynamic Liquid Glass [Rainbow Colours] (New)",
+        "bg": "#070614",
+        "card_bg": "rgba(22, 16, 42, 0.70)",
+        "card_border": "rgba(176, 88, 255, 0.45)",
+        "card_shadow": "0 14px 40px rgba(0, 0, 0, 0.85)",
+        "text_main": "#f3f0ff",
+        "text_dim": "#a29bfe",
+        "accent_primary": "#b058ff",     # Liquid Violet
+        "accent_secondary": "#00f2fe",   # Aqua Cyan
+        "accent_tertiary": "#ff2d8e",    # Liquid Rose
+        "accent_crimson": "#ff0844",     # Rainbow Red
+        "header_gradient": "linear-gradient(135deg, #b058ff 0%, #ff2d8e 35%, #fee140 70%, #00f2fe 100%)",
+        "btn_gradient": "linear-gradient(135deg, #b058ff, #ff2d8e)",
+        "btn_shadow": "0 4px 20px rgba(176, 88, 255, 0.55)",
+        "progress_fill": "linear-gradient(90deg, #b058ff, #ff2d8e, #fee140, #00f2fe)",
+        "badge_bg": "rgba(176, 88, 255, 0.20)",
+        "badge_color": "#00f2fe",
+        "eq_bar": "#00f2fe",
+        "eq_peak": "#ff2d8e",
+        "is_dynamic_rainbow": True,
+    },
+    "dreamworlds_liquid": {
+        "id": "dreamworlds_liquid",
+        "name": "MP Dreamworlds Liquid Transparency [Special Edition]",
+        "bg": "#060b17",
+        "card_bg": "rgba(11, 23, 44, 0.70)",
+        "card_border": "rgba(0, 245, 255, 0.35)",
+        "card_shadow": "0 12px 35px rgba(0, 0, 0, 0.85)",
+        "text_main": "#e2f8ff",
+        "text_dim": "#70a6c2",
+        "accent_primary": "#00f5ff",     # Crystalline Aqua Cyan
+        "accent_secondary": "#c77dff",   # Liquid Amethyst
+        "accent_tertiary": "#00f5d4",    # Seafoam Mint
+        "accent_crimson": "#ff4b82",     # Liquid Coral
+        "header_gradient": "linear-gradient(135deg, #00f5ff 0%, #c77dff 50%, #4899ef 100%)",
+        "btn_gradient": "linear-gradient(135deg, #00f5ff, #c77dff)",
+        "btn_shadow": "0 4px 18px rgba(0, 245, 255, 0.45)",
+        "progress_fill": "linear-gradient(90deg, #4899ef, #00f5ff, #00f5d4, #c77dff)",
+        "badge_bg": "rgba(0, 245, 255, 0.15)",
+        "badge_color": "#00f5ff",
+        "eq_bar": "#00f5ff",
+        "eq_peak": "#c77dff",
+    },
     "cosmic_supernova": {
         "id": "cosmic_supernova",
         "name": "Cosmic Supernova [Special Edition]",
@@ -354,6 +399,22 @@ THEMES: Dict[str, Dict[str, Any]] = {
 }
 
 THEME_ALIASES: Dict[str, str] = {
+    "dynamic_rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_rainbow": "dynamic_rainbow_liquid_glass",
+    "rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "rainbow": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]_(new)": "dynamic_rainbow_liquid_glass",
+    "dynamic_liquid_glass_[rainbow_colours]": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours] (new)": "dynamic_rainbow_liquid_glass",
+    "dynamic liquid glass [rainbow colours]": "dynamic_rainbow_liquid_glass",
+    "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid",
+    "dreamworlds_liquid_transparency": "dreamworlds_liquid",
+    "liquid_transparency": "dreamworlds_liquid",
+    "liquid": "dreamworlds_liquid",
+    "glass": "dreamworlds_liquid",
+    "liquid_glass": "dreamworlds_liquid",
     "mplanetarian_dreamworlds": "dreamworlds",
     "mplanetarian": "dreamworlds",
     "default": "dreamworlds",
@@ -1314,9 +1375,36 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             opacity: 0.75;
             padding: 10px 0;
         }}
+        @keyframes dynamicRainbowHue {{
+            0% {{ filter: hue-rotate(0deg); }}
+            100% {{ filter: hue-rotate(360deg); }}
+        }}
+        @keyframes dynamicRainbowBreath {{
+            0%, 100% {{
+                opacity: 0.91;
+            }}
+            50% {{
+                opacity: 1.09;
+            }}
+        }}
+        body.dynamic-rainbow-glass-active {{
+            background: radial-gradient(circle at 50% 20%, #17112b 0%, #06050e 100%);
+            animation: dynamicRainbowHue 18s linear infinite;
+        }}
+        body.dynamic-rainbow-glass-active .card {{
+            background: rgba(22, 16, 42, 0.70);
+            backdrop-filter: blur(24px) saturate(200%);
+            -webkit-backdrop-filter: blur(24px) saturate(200%);
+            border: 1px solid rgba(176, 88, 255, 0.55);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85), 0 0 24px rgba(176, 88, 255, 0.35);
+            animation: dynamicRainbowBreath 6s ease-in-out infinite;
+        }}
+        body.dynamic-rainbow-glass-active .badge {{
+            animation: dynamicRainbowBreath 6s ease-in-out infinite;
+        }}
     </style>
 </head>
-<body>
+<body class="{'dynamic-rainbow-glass-active' if t.get('is_dynamic_rainbow') else ''}">
     <div class="header">
         <h1>MP MIX MANAGER <span style="font-size: 0.45em; opacity: 0.75; font-weight: normal; vertical-align: middle;">v{html.escape(VERSION)}</span></h1>
         <p>Studio & DJ Booth Mobile Companion</p>
@@ -1481,6 +1569,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             if (badge && themeObj.name) {{
                 badge.innerText = '🎨 ' + themeObj.name;
             }}
+            document.body.classList.toggle('dynamic-rainbow-glass-active', !!(themeObj.is_dynamic_rainbow || themeObj.id === 'dynamic_rainbow_liquid_glass'));
         }}
 
         function seekClick(e) {{
