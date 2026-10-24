@@ -75,5 +75,18 @@ set "MP_LIQUID_GLASS=1"
 set "MP_LIQUID_GLASS_PLATFORM=win32"
 set "PYTHONIOENCODING=utf-8"
 
+:: Automatically start MP Liquid Visualizer with a random preset if not already running
+set "VIS_PY=%BASE_DIR%\MP_Liquid_Visualizer.py"
+if not exist "%VIS_PY%" set "VIS_PY=%BASE_DIR%\scripts\mp_liquid_visualizer_vulkan.py"
+if exist "%VIS_PY%" (
+    set "VIS_RUNNING=0"
+    for /f "tokens=*" %%P in ('powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*MP_Liquid_Visualizer*' -or $_.CommandLine -like '*mp_liquid_visualizer_vulkan*' } | Select-Object -ExpandProperty ProcessId" 2^>nul') do (
+        if not "%%P"=="" set "VIS_RUNNING=1"
+    )
+    if "!VIS_RUNNING!"=="0" (
+        start "" "%PYTHON_BIN%" "%VIS_PY%" --preset random
+    )
+)
+
 start "" "%PYTHON_BIN%" "%TARGET_PY%" %*
 exit /b 0

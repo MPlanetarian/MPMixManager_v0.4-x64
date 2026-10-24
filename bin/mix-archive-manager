@@ -82,6 +82,13 @@ elif [ "${1:-}" = "top5" ] || [ "${1:-}" = "--top5" ] || [ "${1:-}" = "top-5" ] 
     elif [ -f "$CODEBASE_DIR/scripts/top_5_tracks_manager.py" ]; then
         exec python3 "$CODEBASE_DIR/scripts/top_5_tracks_manager.py" "$@"
     fi
+elif [ "${1:-}" = "visualizer" ] || [ "${1:-}" = "--visualizer" ] || [ "${1:-}" = "vis" ] || [ "${1:-}" = "--vis" ] || [ "${1:-}" = "mp-visualizer" ] || [ "${1:-}" = "--mp-visualizer" ]; then
+    shift
+    if [ -f "$CODEBASE_DIR/MP_Liquid_Visualizer.py" ]; then
+        exec python3 "$CODEBASE_DIR/MP_Liquid_Visualizer.py" "$@"
+    elif [ -f "$CODEBASE_DIR/scripts/mp_liquid_visualizer_vulkan.py" ]; then
+        exec python3 "$CODEBASE_DIR/scripts/mp_liquid_visualizer_vulkan.py" "$@"
+    fi
 elif [ "${1:-}" = "block-internet" ] || [ "${1:-}" = "--block-internet" ]; then
     shift
     if command -v systemd-run >/dev/null 2>&1; then

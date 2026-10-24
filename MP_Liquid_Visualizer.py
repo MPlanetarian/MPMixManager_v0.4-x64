@@ -35,6 +35,12 @@ from scripts.mp_liquid_visualizer_vulkan import (  # noqa: E402
     LiquidVisualizerVulkanRenderer,
     VisualizerUBO,
     get_active_preset,
+    is_apple_silicon,
+    is_macos,
+    is_windows,
+    is_windows_10_or_11,
+    load_glfw_dll,
+    load_vulkan_dll,
     main,
     run_self_test,
     run_visualizer,
@@ -55,6 +61,12 @@ __all__ = [
     "run_self_test",
     "run_visualizer",
     "main",
+    "is_windows",
+    "is_windows_10_or_11",
+    "is_macos",
+    "is_apple_silicon",
+    "load_glfw_dll",
+    "load_vulkan_dll",
 ]
 
 if __name__ == "__main__":

@@ -10,6 +10,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **MP Visualizer Cross-Platform Support for macOS and Windows 10/11** (`scripts/mp_liquid_visualizer_vulkan.py`, `MP_Liquid_Visualizer.py`, `MP_Audio_Player.py`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `launch_liquid_visualizer.bat`, `scripts/launch_liquid_visualizer.bat`, `scripts/launch_liquid_visualizer.sh`, `scripts/launch_liquid_glass.bat`, `Mix_Archive_Manager.sh`, `bin/mix-archive-manager`, `tests/test_mp_liquid_visualizer_cross_platform.py`):
+  - **macOS (Darwin & Apple Silicon MoltenVK)**:
+    - Added macOS platform detection (`is_macos()`, `is_apple_silicon()`).
+    - Multi-path GLFW dynamic library discovery (`/opt/homebrew/lib/libglfw.3.dylib`, `/opt/homebrew/lib/libglfw.dylib`, `/usr/local/lib/...`, and `find_library`).
+    - Vulkan loader and MoltenVK discovery (`/opt/homebrew/lib/libMoltenVK.dylib`, `/opt/homebrew/lib/libvulkan.dylib`, LunarG Vulkan SDK `$VULKAN_SDK/lib/...`).
+    - Seamlessly bypasses X11 dependencies and avoids setting `GLFW_PLATFORM_X11` on macOS.
+    - Integrated MoltenVK portability flags: enables `VK_KHR_portability_enumeration` and sets `VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR` during instance creation.
+    - Dynamically enables `VK_KHR_portability_subset` device extension when supported by the physical device.
+    - Bound `glfwGetCocoaWindow` for native macOS window handle support (`cocoa_window()`).
+    - Adapted mouse pointer tracking (`root_pointer()`) using window offset and cursor position.
+  - **Windows 10 & 11 Support**:
+    - Added Windows 10/11 platform detection (`is_windows()`, `is_windows_10_or_11()`).
+    - Enhanced Windows GLFW library lookup (`glfw3.dll`, `glfw.dll`, `Program Files\glfw\lib`, `LOCALAPPDATA\Programs\glfw`).
+    - Enhanced Windows Vulkan loader lookup (`vulkan-1.dll`, `System32\vulkan-1.dll`, `SysWOW64\vulkan-1.dll`, `$VULKAN_SDK\Bin\vulkan-1.dll`).
+    - Bound `glfwGetWin32Window` for native Win32 window handle support (`win32_window()`).
+    - Win32 `GetCursorPos` query for absolute cursor position with fallback.
+    - Shift+K player termination using `taskkill` and PowerShell on Windows.
+    - Created standalone double-clickable Windows launchers `launch_liquid_visualizer.bat` and `scripts/launch_liquid_visualizer.bat`.
+    - Updated `scripts/launch_liquid_glass.bat` to automatically start MP Liquid Visualizer on Windows.
+    - Added PowerShell CIM instance query fallback for single-instance protection on Windows when `pgrep` is absent.
+  - **Direct CLI & Manager Shortcuts**:
+    - Added `visualizer` command handling to `bin/mix-archive-manager` and `Mix_Archive_Manager.sh`.
+    - Made `scripts/launch_liquid_visualizer.sh` fully cross-platform with Homebrew PATH and python3 discovery.
+  - **Comprehensive Test Suite**:
+    - Created `tests/test_mp_liquid_visualizer_cross_platform.py` with 18 unit tests covering Windows 10/11 detection, macOS Apple Silicon detection, DLL candidate resolution, Win32/Cocoa window handles, MoltenVK portability flags, and launcher scripts.
 - **Automatic Random Visualizer on MP Liquid Glass Player Launch** (`MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`, `MP_Audio_Player.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `scripts/launch_liquid_glass.sh`, `Mix_Archive_Manager.sh`, `tests/test_auto_start_visualizer_on_liquid_player.py`):
   - **Auto-Start Visualizer**: Whenever the user launches MP Liquid Glass Player (via Desktop shortcut `~/Desktop/MP_Liquid.desktop`, terminal launcher `launch-liquid-glass`, manager Option `3`, hotkey `[L]` / `[l]`, `--liquid`, or by directly executing `MP_Audio_Player_Liquid_Glass*.py`), an MP Liquid Visualizer window (`MP_Liquid_Visualizer.py` / `scripts/mp_liquid_visualizer_vulkan.py`) is automatically started with a randomly selected preset.
   - **Random Preset Engine**: Enhanced `get_active_preset()` and CLI arguments with `--random` / `--random-preset` (`--preset random`, `rand`, `rnd`, `any`, `shuffle`) to sample uniformly at runtime across all 6 official presets (Cosmic Dreamworlds, Orbital Void Reflux, Dreamworlds Ultra Defasten, Infinite Complexity, Sensorium Interface, and Stream of Frequency).

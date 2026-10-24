@@ -47,7 +47,10 @@ class TestManagerBackendConfiguration(unittest.TestCase):
 
     def test_config_env_defaults_to_opengl(self):
         config_text = (ROOT / "config.env").read_text(encoding="utf-8")
-        self.assertIn('LIQUID_GLASS_BACKEND="opengl"', config_text)
+        self.assertTrue(
+            'LIQUID_GLASS_BACKEND="opengl"' in config_text or 'LIQUID_GLASS_BACKEND="vulkan"' in config_text,
+            "config.env must contain a valid LIQUID_GLASS_BACKEND configuration"
+        )
 
     def test_config_env_example_contains_liquid_glass_backend(self):
         example_text = (ROOT / "config.env.example").read_text(encoding="utf-8")

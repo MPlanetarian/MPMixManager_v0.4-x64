@@ -140,17 +140,48 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
 
 
 def is_windows() -> bool:
+    """Check if running on Windows."""
     return sys.platform == "win32" or platform.system().lower() == "windows"
 
 
+def is_windows_10_or_11() -> bool:
+    """Check if running on Windows 10 or Windows 11."""
+    if not is_windows():
+        return False
+    try:
+        ver = sys.getwindowsversion()
+        return ver.major >= 10
+    except Exception:
+        return True
+
+
+def is_macos() -> bool:
+    """Check if running on macOS (Darwin)."""
+    return sys.platform == "darwin" or platform.system().lower() == "darwin"
+
+
+def is_apple_silicon() -> bool:
+    """Check if running natively on Apple Silicon (arm64/aarch64)."""
+    if not is_macos():
+        return False
+    arch = platform.machine().lower()
+    return arch in ("arm64", "aarch64")
+
+
 def load_glfw_dll():
+    """Load the GLFW shared library across Windows (10/11), macOS, and Linux."""
     if is_windows():
-        candidates = ["glfw3.dll", "glfw.dll"]
+        candidates = [
+            "glfw3.dll",
+            "glfw.dll",
+            os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "glfw", "lib", "glfw3.dll"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "glfw", "glfw3.dll"),
+        ]
         try:
             from ctypes.util import find_library
             for name in ("glfw3", "glfw"):
                 f = find_library(name)
-                if f and f not in candidates:
+                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dylib") and f not in candidates:
                     candidates.insert(0, f)
         except Exception:
             pass
@@ -160,17 +191,71 @@ def load_glfw_dll():
             except OSError:
                 continue
         raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+    elif is_macos():
+        candidates = [
+            "/opt/homebrew/lib/libglfw.3.dylib",
+            "/opt/homebrew/lib/libglfw.dylib",
+            "/usr/local/lib/libglfw.3.dylib",
+            "/usr/local/lib/libglfw.dylib",
+            "libglfw.3.dylib",
+            "libglfw.dylib",
+        ]
+        try:
+            from ctypes.util import find_library
+            for name in ("glfw3", "glfw"):
+                f = find_library(name)
+                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dll") and f not in candidates:
+                    candidates.insert(0, f)
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                return ctypes.CDLL(cand)
+            except OSError:
+                continue
+        raise RuntimeError(
+            "Could not load GLFW on macOS. Please install GLFW (e.g. 'brew install glfw') or ensure libglfw is available."
+        )
+
+    # Linux / FreeBSD / other UNIX
+    candidates = [
+        "libglfw.so.3",
+        "libglfw.so",
+        "/usr/lib64/libglfw.so.3",
+        "/usr/lib/x86_64-linux-gnu/libglfw.so.3",
+    ]
+    try:
+        from ctypes.util import find_library
+        for name in ("glfw3", "glfw"):
+            f = find_library(name)
+            if f and not f.endswith(".dll") and not f.endswith(".dylib") and f not in candidates:
+                candidates.insert(0, f)
+    except Exception:
+        pass
+    for cand in candidates:
+        try:
+            return ctypes.CDLL(cand)
+        except OSError:
+            continue
     return ctypes.CDLL("libglfw.so.3")
 
 
 def load_vulkan_dll():
+    """Load the Vulkan loader shared library across Windows (10/11), macOS (MoltenVK), and Linux."""
     if is_windows():
-        candidates = ["vulkan-1.dll"]
+        candidates = [
+            "vulkan-1.dll",
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "vulkan-1.dll"),
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "SysWOW64", "vulkan-1.dll"),
+        ]
+        vksdk = os.environ.get("VULKAN_SDK")
+        if vksdk:
+            candidates.insert(0, os.path.join(vksdk, "Bin", "vulkan-1.dll"))
         try:
             from ctypes.util import find_library
             for name in ("vulkan-1", "vulkan"):
                 f = find_library(name)
-                if f and f not in candidates:
+                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dylib") and f not in candidates:
                     candidates.insert(0, f)
         except Exception:
             pass
@@ -180,6 +265,61 @@ def load_vulkan_dll():
             except OSError:
                 continue
         raise RuntimeError("Could not load Vulkan loader on Windows. Ensure vulkan-1.dll is installed.")
+    elif is_macos():
+        candidates = [
+            "/opt/homebrew/lib/libvulkan.1.dylib",
+            "/opt/homebrew/lib/libvulkan.dylib",
+            "/opt/homebrew/lib/libMoltenVK.dylib",
+            "/usr/local/lib/libvulkan.1.dylib",
+            "/usr/local/lib/libvulkan.dylib",
+            "/usr/local/lib/libMoltenVK.dylib",
+            "libvulkan.1.dylib",
+            "libvulkan.dylib",
+            "libMoltenVK.dylib",
+        ]
+        vksdk = os.environ.get("VULKAN_SDK")
+        if vksdk:
+            candidates.insert(0, os.path.join(vksdk, "lib", "libvulkan.dylib"))
+            candidates.insert(0, os.path.join(vksdk, "lib", "libvulkan.1.dylib"))
+            candidates.insert(0, os.path.join(vksdk, "lib", "libMoltenVK.dylib"))
+        try:
+            from ctypes.util import find_library
+            for name in ("vulkan", "MoltenVK"):
+                f = find_library(name)
+                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dll") and f not in candidates:
+                    candidates.insert(0, f)
+        except Exception:
+            pass
+        for cand in candidates:
+            try:
+                return ctypes.CDLL(cand)
+            except OSError:
+                continue
+        raise RuntimeError(
+            "Could not load Vulkan loader or MoltenVK on macOS. "
+            "Please install MoltenVK or the Vulkan SDK (e.g. 'brew install molten-vk' or LunarG Vulkan SDK)."
+        )
+
+    # Linux / FreeBSD
+    candidates = [
+        "libvulkan.so.1",
+        "libvulkan.so",
+        "/usr/lib64/libvulkan.so.1",
+        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+    ]
+    try:
+        from ctypes.util import find_library
+        for name in ("vulkan-1", "vulkan"):
+            f = find_library(name)
+            if f and not f.endswith(".dll") and not f.endswith(".dylib") and f not in candidates:
+                candidates.insert(0, f)
+    except Exception:
+        pass
+    for cand in candidates:
+        try:
+            return ctypes.CDLL(cand)
+        except OSError:
+            continue
     return ctypes.CDLL("libvulkan.so.1")
 
 
@@ -493,6 +633,10 @@ BUFFER_USAGE_UNIFORM = 0x10
 
 SHARING_EXCLUSIVE = 0
 COMPOSITE_OPAQUE = 0x1
+COMPOSITE_PRE_MULTIPLIED = 0x2
+COMPOSITE_POST_MULTIPLIED = 0x4
+COMPOSITE_INHERIT = 0x8
+VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR = 0x00000001
 PRESENT_FIFO = 2
 TRANSFORM_IDENTITY = 0x1
 FORMAT_R8G8B8A8_UNORM = 37
@@ -1171,18 +1315,26 @@ class LiquidVisualizerVulkanRenderer:
 
     def open(self):
         self._silence_overlays()
-        if is_windows():
+        if is_windows() or is_macos():
             self._glfw = load_glfw_dll()
             self._bind_glfw()
             self._x11 = None
         else:
-            self._x11 = ctypes.CDLL("libX11.so.6")
-            self._x11.XInitThreads.restype = c_int
-            self._x11.XInitThreads()
-            self._bind_x11()
+            self._x11 = None
+            try:
+                self._x11 = ctypes.CDLL("libX11.so.6")
+                self._x11.XInitThreads.restype = c_int
+                self._x11.XInitThreads()
+                self._bind_x11()
+            except Exception:
+                pass
             self._glfw = load_glfw_dll()
             self._bind_glfw()
-            self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
+            if self._x11 is not None and hasattr(self._glfw, "glfwInitHint"):
+                try:
+                    self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
+                except Exception:
+                    pass
 
         if not self._glfw.glfwInit():
             raise RuntimeError("glfwInit failed")
@@ -1283,9 +1435,54 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwSetFramebufferSizeCallback.restype = c_void_p
         g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetWindowPosCallback.restype = c_void_p
-        if not is_windows() and hasattr(g, "glfwGetX11Display"):
-            g.glfwGetX11Display.argtypes = [c_void_p]
-            g.glfwGetX11Display.restype = c_void_p
+        if is_windows() and hasattr(g, "glfwGetWin32Window"):
+            g.glfwGetWin32Window.argtypes = [c_void_p]
+            g.glfwGetWin32Window.restype = c_void_p
+        elif is_macos() and hasattr(g, "glfwGetCocoaWindow"):
+            g.glfwGetCocoaWindow.argtypes = [c_void_p]
+            g.glfwGetCocoaWindow.restype = c_void_p
+        elif hasattr(g, "glfwGetX11Display"):
+            try:
+                g.glfwGetX11Display.argtypes = [c_void_p]
+                g.glfwGetX11Display.restype = c_void_p
+            except Exception:
+                pass
+        if hasattr(g, "glfwGetX11Window"):
+            try:
+                g.glfwGetX11Window.argtypes = [c_void_p]
+                g.glfwGetX11Window.restype = c_uint64
+            except Exception:
+                pass
+
+    def win32_window(self):
+        """Win32 HWND handle if on Windows."""
+        if is_windows() and hasattr(self._glfw, "glfwGetWin32Window") and self._window:
+            return self._glfw.glfwGetWin32Window(self._window)
+        return 0
+
+    def cocoa_window(self):
+        """macOS NSWindow handle if on macOS."""
+        if is_macos() and hasattr(self._glfw, "glfwGetCocoaWindow") and self._window:
+            return self._glfw.glfwGetCocoaWindow(self._window)
+        return 0
+
+    def x11_window(self):
+        """X11 Window handle if on X11."""
+        if not is_windows() and not is_macos() and hasattr(self._glfw, "glfwGetX11Window") and self._window:
+            try:
+                return self._glfw.glfwGetX11Window(self._window)
+            except Exception:
+                return 0
+        return 0
+
+    def x11_display(self):
+        """X11 Display pointer if on X11."""
+        if not is_windows() and not is_macos() and hasattr(self._glfw, "glfwGetX11Display") and self._window:
+            try:
+                return self._glfw.glfwGetX11Display(self._window)
+            except Exception:
+                return None
+        return None
 
     def _create_window(self):
         g = self._glfw
@@ -1340,8 +1537,13 @@ class LiquidVisualizerVulkanRenderer:
             # Pressing 'z'/'Z' toggles between fullscreen and normal 1400x1400 size
             self.toggle_fullscreen()
         elif key == 75 and (_mods & 1):  # GLFW_KEY_K = 75, GLFW_MOD_SHIFT = 1
-            import subprocess
-            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+            if is_windows():
+                import subprocess
+                subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
+                subprocess.run('powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like \'*MP_Audio_Player*\' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1', shell=True)
+            else:
+                import subprocess
+                subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
         elif key in (GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5):
             idx = key - GLFW_KEY_1
             if 0 <= idx < len(VISUALIZER_PRESETS):
@@ -1474,22 +1676,33 @@ class LiquidVisualizerVulkanRenderer:
                     return int(pt.x), int(pt.y)
             except Exception:
                 pass
-            return 0, 0
-        if not getattr(self, "_x11", None) or not hasattr(self._glfw, "glfwGetX11Display"):
-            return 0, 0
-        display = self._glfw.glfwGetX11Display(self._window)
-        if not display:
-            return 0, 0
-        root = self._x11.XDefaultRootWindow(display)
-        root_ret, child_ret = c_uint64(), c_uint64()
-        rx, ry, wx, wy = c_int(), c_int(), c_int(), c_int()
-        mask = c_uint32()
-        if self._x11.XQueryPointer(
-            display, root, byref(root_ret), byref(child_ret),
-            byref(rx), byref(ry), byref(wx), byref(wy), byref(mask),
-        ):
-            return int(rx.value), int(ry.value)
-        return 0, 0
+            return self.window_pos()
+        if is_macos():
+            try:
+                wx, wy = self.window_pos()
+                return int(wx + self.cursor[0]), int(wy + self.cursor[1])
+            except Exception:
+                return self.window_pos()
+        display = self.x11_display()
+        if not display or not getattr(self, "_x11", None):
+            try:
+                wx, wy = self.window_pos()
+                return int(wx + self.cursor[0]), int(wy + self.cursor[1])
+            except Exception:
+                return self.window_pos()
+        try:
+            root = self._x11.XDefaultRootWindow(display)
+            root_ret, child_ret = c_uint64(), c_uint64()
+            rx, ry, wx, wy = c_int(), c_int(), c_int(), c_int()
+            mask = c_uint32()
+            if self._x11.XQueryPointer(
+                display, root, byref(root_ret), byref(child_ret),
+                byref(rx), byref(ry), byref(wx), byref(wy), byref(mask),
+            ):
+                return int(rx.value), int(ry.value)
+        except Exception:
+            pass
+        return self.window_pos()
 
     def window_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
@@ -1538,11 +1751,35 @@ class LiquidVisualizerVulkanRenderer:
         v.vkGetDeviceProcAddr.argtypes = [c_void_p, c_char_p]
         v.vkCreateInstance.restype = c_int32
         v.vkCreateInstance.argtypes = [c_void_p, c_void_p, POINTER(c_void_p)]
+        if hasattr(v, "vkEnumerateInstanceExtensionProperties"):
+            v.vkEnumerateInstanceExtensionProperties.restype = c_int32
+            v.vkEnumerateInstanceExtensionProperties.argtypes = [c_char_p, POINTER(c_uint32), c_void_p]
 
     def _create_instance(self):
         count = c_uint32()
         ptr = self._glfw.glfwGetRequiredInstanceExtensions(byref(count))
         names = [ptr[i] for i in range(count.value)]
+
+        available_exts = set()
+        if hasattr(self._vulkan, "vkEnumerateInstanceExtensionProperties"):
+            ext_count = c_uint32(0)
+            self._vulkan.vkEnumerateInstanceExtensionProperties(None, byref(ext_count), None)
+            if ext_count.value > 0:
+                class _VkExtProp(ctypes.Structure):
+                    _fields_ = [("extensionName", ctypes.c_char * 256), ("specVersion", c_uint32)]
+                arr_props = (_VkExtProp * ext_count.value)()
+                self._vulkan.vkEnumerateInstanceExtensionProperties(None, byref(ext_count), arr_props)
+                available_exts = {p.extensionName.split(b"\x00")[0] for p in arr_props}
+
+        instance_flags = 0
+        if b"VK_KHR_portability_enumeration" in available_exts or is_macos():
+            if b"VK_KHR_portability_enumeration" not in names:
+                names.append(b"VK_KHR_portability_enumeration")
+            instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+
+        if b"VK_KHR_get_physical_device_properties2" in available_exts and b"VK_KHR_get_physical_device_properties2" not in names:
+            names.append(b"VK_KHR_get_physical_device_properties2")
+
         self._ext_names = names
         arr = (c_char_p * len(names))(*names)
         self._ext_arr = arr
@@ -1556,6 +1793,7 @@ class LiquidVisualizerVulkanRenderer:
         self._app = app
         info = VkInstanceCreateInfo()
         info.sType = ST_INSTANCE_CREATE_INFO
+        info.flags = instance_flags
         info.pApplicationInfo = _addr(app)
         info.enabledExtensionCount = len(names)
         info.ppEnabledExtensionNames = ctypes.cast(arr, c_void_p)
@@ -1601,6 +1839,9 @@ class LiquidVisualizerVulkanRenderer:
         )
         self._i.CreateDevice = load(
             "vkCreateDevice", c_int32, [c_void_p, c_void_p, c_void_p, POINTER(c_void_p)]
+        )
+        self._i.EnumerateDeviceExtensionProperties = load(
+            "vkEnumerateDeviceExtensionProperties", c_int32, [c_void_p, c_char_p, POINTER(U32), c_void_p]
         )
 
     def _device_header(self, phys) -> Dict[str, Any]:
@@ -1656,13 +1897,27 @@ class LiquidVisualizerVulkanRenderer:
         q.queueCount = 1
         q.pQueuePriorities = ctypes.cast(priority, c_void_p)
         self._queue_info = q
-        ext = (c_char_p * 1)(b"VK_KHR_swapchain")
+
+        dev_exts = [b"VK_KHR_swapchain"]
+        if hasattr(self._i, "EnumerateDeviceExtensionProperties"):
+            ext_count = c_uint32(0)
+            self._i.EnumerateDeviceExtensionProperties(self._physical, None, byref(ext_count), None)
+            if ext_count.value > 0:
+                class _VkExtProp(ctypes.Structure):
+                    _fields_ = [("extensionName", ctypes.c_char * 256), ("specVersion", c_uint32)]
+                arr_props = (_VkExtProp * ext_count.value)()
+                self._i.EnumerateDeviceExtensionProperties(self._physical, None, byref(ext_count), arr_props)
+                available = {p.extensionName.split(b"\x00")[0] for p in arr_props}
+                if b"VK_KHR_portability_subset" in available and b"VK_KHR_portability_subset" not in dev_exts:
+                    dev_exts.append(b"VK_KHR_portability_subset")
+
+        ext = (c_char_p * len(dev_exts))(*dev_exts)
         self._dev_ext = ext
         info = VkDeviceCreateInfo()
         info.sType = ST_DEVICE_CREATE_INFO
         info.queueCreateInfoCount = 1
         info.pQueueCreateInfos = _addr(q)
-        info.enabledExtensionCount = 1
+        info.enabledExtensionCount = len(dev_exts)
         info.ppEnabledExtensionNames = ctypes.cast(ext, c_void_p)
         self._device_info = info
         device = c_void_p()
@@ -1800,6 +2055,13 @@ class LiquidVisualizerVulkanRenderer:
         else:
             self._can_readback = False
 
+        composite_alpha = COMPOSITE_OPAQUE
+        if not (caps.supportedCompositeAlpha & COMPOSITE_OPAQUE):
+            for candidate in (COMPOSITE_PRE_MULTIPLIED, COMPOSITE_POST_MULTIPLIED, COMPOSITE_INHERIT):
+                if caps.supportedCompositeAlpha & candidate:
+                    composite_alpha = candidate
+                    break
+
         info = VkSwapchainCreateInfoKHR()
         info.sType = ST_SWAPCHAIN_CREATE
         info.surface = self._surface
@@ -1811,7 +2073,7 @@ class LiquidVisualizerVulkanRenderer:
         info.imageUsage = usage
         info.imageSharingMode = SHARING_EXCLUSIVE
         info.preTransform = caps.currentTransform or TRANSFORM_IDENTITY
-        info.compositeAlpha = COMPOSITE_OPAQUE
+        info.compositeAlpha = composite_alpha
         info.presentMode = present
         info.clipped = 1
         info.oldSwapchain = old

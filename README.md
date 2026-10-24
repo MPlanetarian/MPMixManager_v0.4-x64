@@ -230,7 +230,7 @@ flowchart LR
 ```
 
 ### 🔮 MP Liquid Visualizer Highlights:
-- ⚡ **Built from the Ground Up in Vulkan 1.x**: Native Vulkan graphics pipeline (`libvulkan` + `GLFW`) with custom compiled SPIR-V vertex and fragment shaders (`shaders/mp_liquid_visualizer.frag.spv`), UBO telemetry binding, and GPU device-local cover image samplers.
+- ⚡ **Built from the Ground Up in Vulkan 1.x (Cross-Platform)**: Native Vulkan graphics pipeline (`libvulkan` / `MoltenVK` / `vulkan-1.dll` + `GLFW`) with custom compiled SPIR-V vertex and fragment shaders (`shaders/mp_liquid_visualizer.frag.spv`), UBO telemetry binding, and GPU device-local cover image samplers. Fully supported across Linux, macOS (Apple Silicon via MoltenVK), and Windows 10 & 11.
 - 🖼️ **Fixed 1400x1400 Borderless Pure Visual Window**: Designed for pure visual immersion — locked to a non-resizable `1400x1400` borderless square window with **zero text overlay ever displayed**, no scrollbars, and no HUD clutter. Closes instantly on pressing `Esc` or `q`.
 - 🎵 **Continuous 3D Audio Reactivity & Instant Pause Freeze**:
   - Continuously ingests real-time 24-band FFT telemetry and playback state from `MP_Audio_Player` via shared memory/IPC (`~/.config/mix-manager/mp_player_state.json`).
@@ -855,6 +855,8 @@ python3 MP_Liquid_Visualizer.py --preset 5           # Launch MP Liquid Visualiz
 python3 MP_Liquid_Visualizer.py --list-presets       # List all available MP Liquid Visualizer presets
 python3 MP_Liquid_Visualizer.py --set-preset 2       # Set default active MP Liquid Visualizer preset
 mix-archive-manager visualizer                       # Launch MP Liquid Visualizer via Manager shortcut
+./scripts/launch_liquid_visualizer.sh                # Launch MP Liquid Visualizer on macOS & Linux
+launch_liquid_visualizer.bat                         # Launch MP Liquid Visualizer on Windows 10 & 11
 
 # Audio Playback & Web Companion
 mix-archive-manager p                 # Launch MP Audio Player terminal visualizer
