@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **Continuous Liquid Glass Music Playback Across Manager Exit** (`Mix_Archive_Manager.sh`, `tests/test_manager_exit_stops_audio_player.py`):
+  - **Preserve Active Listening**: Updated manager exit routines (`exit_mix_manager`, `_stop_mp_audio_daemon`, and `kill_all_mp_audio_players`) to check whether MP Liquid Glass is open (`is_liquid_glass_open`).
+  - **Uninterrupted Music Playback**: When closing MP Mix Archive Manager, if the Liquid Glass Audio Player is open, the manager safely avoids terminating the player, stopping the audio engine, or closing its window, allowing users to continue listening to music seamlessly.
+  - **Selective Job Cleanup**: Background process cleanup filters out Liquid Glass process IDs (`is_liquid_glass_pid`) while cleanly terminating other manager background workers.
 - **MP Liquid Transparent Glass Desktop Icon & First-Run Reward System** (`assets/mp_liquid_glass_icon.*`, `scripts/liquid_glass_reward.py`, `scripts/generate_liquid_glass_icon.py`, `scripts/launch_liquid_glass.sh`, `desktop/MP_Liquid_Glass_Audio_Player.desktop`, `Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_liquid_glass_reward.py`):
   - **High-Resolution Liquid Glass Desktop Icon**: Designed and rendered a translucent liquid glass icon (`512x512` RGBA PNG and SVG) featuring an ambient luminous glow, beveled glass border, refractive caustics, a dynamic 8-band floating EQ spectrum, play badge, and frosted MP monogram.
   - **First-Run Desktop Reward**: When the user launches MP Mix Archive Manager or MP Audio Player for the first time, a desktop shortcut (`~/Desktop/MP_Liquid_Glass_Audio_Player.desktop`) and application entry are automatically installed as a special reward for downloading and running the suite.

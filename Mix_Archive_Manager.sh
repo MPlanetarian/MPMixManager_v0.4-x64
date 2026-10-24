@@ -366,7 +366,45 @@ load_theme; _STOP_AUDIO_ON_EXIT=0; _MP_AUDIO_DAEMON_STOPPED=0
 _mp_player_pid_alive() {
 local pid="$1"; local comm=""; if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then comm=$(ps -W 2>/dev/null | awk -v pid="$pid" '$4 == pid {print $NF; found=1; exit} END {exit !found}') || return 1; else kill -0 "$pid" 2>/dev/null || return 1; return 0; fi; case "$comm" in *[Pp]ython*) return 0 ;; *) return 1 ;; esac
 }
+is_liquid_glass_open() {
+    if pgrep -f "MP_Audio_Player_Liquid_Glass" &>/dev/null; then
+        return 0
+    fi
+    if command -v wmctrl &>/dev/null; then
+        if wmctrl -l 2>/dev/null | grep -iE "Liquid Glass" &>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+is_liquid_glass_pid() {
+    local check_pid="$1"
+    [ -z "$check_pid" ] && return 1
+    local cmdline=""
+    cmdline="$(ps -p "$check_pid" -o command= 2>/dev/null || true)"
+    case "$cmdline" in
+        *MP_Audio_Player_Liquid_Glass*|*liquid_glass*|*liquid-glass*)
+            return 0
+            ;;
+    esac
+    local lg_pids
+    lg_pids="$(pgrep -f "MP_Audio_Player_Liquid_Glass" 2>/dev/null || true)"
+    if [ -n "$lg_pids" ]; then
+        for lp in $lg_pids; do
+            [ "$check_pid" -eq "$lp" ] && return 0
+            if pgrep -P "$lp" 2>/dev/null | grep -q "^${check_pid}$"; then
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
 _stop_mp_audio_daemon() {
+    local force=0
+    [ "${1:-}" = "--force" ] && force=1
+    if [ "$force" -eq 0 ] && type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
+        return 0
+    fi
     save_playback_resume_state 2>/dev/null || true
     if [ -n "${_AUTOPLAY_PID:-}" ]; then
         if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
@@ -512,6 +550,11 @@ except Exception:
     fi
 }
 kill_all_mp_audio_players() {
+    local force=0
+    [ "${1:-}" = "--force" ] && force=1
+    if [ "$force" -eq 0 ] && type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
+        return 0
+    fi
     _stop_mp_audio_daemon "$@"
 }
 update_mp_bridge_menu() {
@@ -533,11 +576,34 @@ exit_mix_manager() {
     trap - EXIT INT TERM HUP
     update_mp_bridge_menu "Stopped / Inactive" "false"
     save_playback_resume_state 2>/dev/null || true
-    _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill_all_mp_audio_players 2>/dev/null || true; kill $(jobs -p) 2>/dev/null || true
+    _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider
+    local _lg_open=0
+    if type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
+        _lg_open=1
+    fi
+    if [ "$_lg_open" -eq 1 ]; then
+        echo ""
+        echo -e "${BOLD}${CYAN}♫ MP Liquid Glass Audio Player is open — leaving playback active.${NC}"
+    else
+        _stop_mp_audio_daemon; kill_all_mp_audio_players 2>/dev/null || true
+    fi
+    local _bg_jobs
+    _bg_jobs="$(jobs -p 2>/dev/null || true)"
+    if [ -n "$_bg_jobs" ]; then
+        for _jp in $_bg_jobs; do
+            if [ "$_lg_open" -eq 1 ] && type is_liquid_glass_pid &>/dev/null && is_liquid_glass_pid "$_jp"; then
+                continue
+            fi
+            kill "$_jp" 2>/dev/null || true
+        done
+    fi
     # Switch back from alternate screen buffer and restore cursor/wrap
     printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"
+    if [ "$_lg_open" -eq 1 ]; then
+        echo -e "${DIM}Your Liquid Glass Audio Player will continue running on your desktop.${NC}"
+    fi
     echo ""
     exit 0
 }
