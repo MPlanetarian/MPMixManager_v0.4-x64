@@ -40,7 +40,7 @@ exported_configs/*
 !exported_configs/.gitkeep
 PLAYLISTS_GENERATED/*
 !PLAYLISTS_GENERATED/.gitkeep
-!assets/Cover.png
+assets/Cover.png
 !Cover.png
 Cover_old.png
 
