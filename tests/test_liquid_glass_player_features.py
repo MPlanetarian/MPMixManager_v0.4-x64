@@ -188,7 +188,8 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
 
         unselected = [l for l in captured if "Mix 02 - Unselected Track.flac" in l]
         self.assertTrue(unselected, "Unselected playlist entry was not rendered")
-        self.assertIn("\033[1;38;2;255;255;255m", unselected[0])
+        self.assertIn("\033[38;2;255;255;255m", unselected[0])
+        self.assertNotIn("\033[1;38;2;255;255;255m", unselected[0])
 
     def test_player_argv_forwards_extra_args(self):
         """Verifies player_argv forwards mode/playlist/theme flags to MP_Audio_Player.py."""

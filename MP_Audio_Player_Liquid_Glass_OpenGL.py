@@ -754,11 +754,14 @@ class GlassHost:
             term.set_color_foreground(fg)
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
+        if hasattr(term, "set_allow_bold"):
+            term.set_allow_bold(False)
         try:
             import gi
             gi.require_version("Pango", "1.0")
             from gi.repository import Pango
             font_desc = Pango.FontDescription.from_string(self.font_name)
+            font_desc.set_weight(Pango.Weight.NORMAL)
             term.set_font(font_desc)
         except Exception:
             pass
@@ -810,7 +813,18 @@ def ensure_random_visualizer_started() -> bool:
     """Automatically start MP Liquid Visualizer with a random preset if not already running."""
     try:
         import shutil, subprocess
-        if shutil.which("pgrep"):
+        if sys.platform == "win32":
+            try:
+                out = subprocess.check_output(
+                    ['powershell.exe', '-NoProfile', '-Command',
+                     'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*MP_Liquid_Visualizer*" -or $_.CommandLine -like "*mp_liquid_visualizer_vulkan*" } | Select-Object -ExpandProperty ProcessId'],
+                    stderr=subprocess.DEVNULL, text=True
+                ).strip()
+                if out:
+                    return False
+            except Exception:
+                pass
+        elif shutil.which("pgrep"):
             res = subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if res.returncode == 0:
                 return False
@@ -833,7 +847,9 @@ def ensure_random_visualizer_started() -> bool:
         log_file = log_dir / "liquid_visualizer.log"
 
         extra_kw = {}
-        if sys.platform != "win32":
+        if sys.platform == "win32":
+            extra_kw["creationflags"] = 0x00000008 | 0x00000200
+        else:
             extra_kw["start_new_session"] = True
 
         with open(log_file, "a") as f:

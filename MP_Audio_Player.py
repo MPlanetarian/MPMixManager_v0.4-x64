@@ -1954,8 +1954,16 @@ def _win_console_end(state):
         except Exception: pass
     _WIN_CONSOLE = None
 
+def _strip_bold_ansi(s: str) -> str:
+    def repl(m):
+        codes = [c for c in m.group(1).split(";") if c != "1"]
+        return f"\033[{';'.join(codes)}m" if codes else ""
+    return re.sub(r"\033\[([0-9;]*)m", repl, s)
+
 def _present_frame(lines: List[str], width: int, height: int):
     usable = max(1, width - 1)
+    if os.environ.get("MP_LIQUID_GLASS"):
+        lines = [_strip_bold_ansi(l) for l in lines]
     clipped = [_clip_display(l, usable) + "\033[K" for l in lines[:height]]
     clipped.extend(["\033[K"] * (height - len(clipped)))
     body = "\n".join(clipped)
@@ -2783,18 +2791,20 @@ class EqualizerVisualizer:
         return lines + [f"{self.b_col}╰────────────────────────╯{NC}"]
 
     def render_horizontal_pitch_bar(self, pitch_pct: int, width: int = 36, max_cols: Optional[int] = None) -> str:
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        bold_s = "" if is_lg else BOLD
         p, w = max(-20, min(20, int(pitch_pct))), max(11, width)
         if w % 2 == 0: w -= 1
         cp = w // 2
         kp = cp if p == 0 else max(0, min(w - 1, cp + int(round((p / 20.0) * cp))))
         def _trk(tw, k, c):
-            return "".join(f"{BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}●{NC}" if i == k else (f"{COLOR_TRAFFIC_GREEN}┼{NC}" if i == c else ((f"{DIM}━{NC}" if (i < k and p < 0) else (f"{COLOR_INDIGO_BLUE}━{NC}" if k <= i < c else f"{DIM}─{NC}")) if i < c else (f"{COLOR_TRAFFIC_AMBER}━{NC}" if c < i <= k else f"{DIM}─{NC}"))) for i in range(tw))
-        stag = f"{BOLD}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{BOLD}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
-        pfx, sfx = f"  {BOLD}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} [", f"] {DIM}+20%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
+            return "".join(f"{bold_s}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}●{NC}" if i == k else (f"{COLOR_TRAFFIC_GREEN}┼{NC}" if i == c else ((f"{DIM}━{NC}" if (i < k and p < 0) else (f"{COLOR_INDIGO_BLUE}━{NC}" if k <= i < c else f"{DIM}─{NC}")) if i < c else (f"{COLOR_TRAFFIC_AMBER}━{NC}" if c < i <= k else f"{DIM}─{NC}"))) for i in range(tw))
+        stag = f"{bold_s}{COLOR_TRAFFIC_GREEN}0.0% [CENTER DETENT]{NC}" if p == 0 else f"{bold_s}{COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE}{p:+d}% ({1.0 + p/100:.2f}x){NC}"
+        pfx, sfx = f"  {bold_s}{COLOR_HOT_PURPLE}🎚 DJ PITCH:{NC} {DIM}-20%{NC} [", f"] {DIM}+20%{NC}  {stag}  {DIM}[+/-: 1% • 0: Reset]{NC}"
         if max_cols and (_display_width(pfx) + w + _display_width(sfx) > max_cols):
             sfx = f"] {DIM}+20%{NC}  {stag}"
             if _display_width(pfx) + w + _display_width(sfx) > max_cols:
-                sfx = f"] {DIM}+20%{NC}  {BOLD}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
+                sfx = f"] {DIM}+20%{NC}  {bold_s}{COLOR_TRAFFIC_GREEN if p == 0 else (COLOR_TRAFFIC_AMBER if p > 0 else COLOR_INDIGO_BLUE)}{p:+d}%{NC}"
             if (avail := max_cols - _display_width(pfx) - _display_width(sfx)) < w:
                 w = max(7, avail)
                 if w % 2 == 0: w -= 1
@@ -4017,48 +4027,50 @@ class TerminalPlayerUI:
         self._last_seen_bt_state, self._last_seen_bt_device = is_bt, bt_dev
         iw = max(20, w - 6)
         pal = self.visualizer.get_theme_palette()
-        hl_col, act_col, b_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK), f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
-        accent_col = pal.get("accent", COLOR_LILAC)
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        bold_s = "" if is_lg else BOLD
+        hl_col, act_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK)
+        b_col = pal.get("border", COLOR_HOT_PURPLE) if is_lg else f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
+        accent_col = pal.get("accent", COLOR_LILAC)
         if is_lg:
             btitle = ("✦ MP AUDIO PLAYER (LIQUID GLASS) — MUSIC LIBRARY ✦" if self.mode == "MUSIC" else "✦ MP AUDIO PLAYER (LIQUID GLASS) — LIQUID AUDIO MODE ✦")[:max(0, iw - 1)]
             bsub = (f"Liquid Glass Music Library  •  {music_library_label(self.folder_name)}" if self.mode == "MUSIC" else "Liquid Glass Translucent Surface  •  Fluid Audio Navigation")[:max(0, iw - 1)]
         else:
             btitle = ("✦ MP AUDIO PLAYER — MUSIC MODE (TRACKS LIBRARY) ✦" if self.mode == "MUSIC" else "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦")[:max(0, iw - 1)]
             bsub = (f"Music Library  •  {music_library_label(self.folder_name)}  •  Local Drives & SMB Shares" if self.mode == "MUSIC" else "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition")[:max(0, iw - 1)]
-        lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {BOLD}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
+        lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {bold_s}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
 
         dim_s = DIM
         tname, maxlen = st.get("title", "Unknown Mix"), max(58, iw - 20)
         if len(tname) > maxlen: tname = tname[:maxlen - 3] + "..."
         ch_str, sr, ext = ("Stereo" if st.get("channels", 2) == 2 else "Mono"), st.get("sample_rate", 44100), os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
-        badge = f"{BOLD}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{BOLD}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{BOLD}{RED}⏹ STOPPED{NC}")
-        mode_b = f" {BOLD}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {dim_s}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
+        badge = f"{bold_s}{GREEN}▶ PLAYING{NC}" if st.get("state") == "playing" else (f"{bold_s}{YELLOW}⏸ PAUSED{NC}" if st.get("state") == "paused" else f"{bold_s}{RED}⏹ STOPPED{NC}")
+        mode_b = f" {bold_s}{COLOR_TRAFFIC_GREEN}[MUSIC MODE]{NC}" if self.mode == "MUSIC" else f" {dim_s}{COLOR_HOT_PURPLE}[MIX ARCHIVE]{NC}"
         is_rec, flash = bool(st.get("recording", False)), (int(time.time() * 1.5) % 2 == 0)
-        rec_b = f"  {BOLD}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash) else (f"  {dim_s}{RED}○ REC{NC}" if is_rec else "")
-        lines.append(f"  {badge}{mode_b}{rec_b}  {BOLD}{COLOR_NEON_PINK}♫  {tname}{NC}")
+        rec_b = f"  {bold_s}{COLOR_TRAFFIC_RED}● REC{NC}" if (is_rec and flash) else (f"  {dim_s}{RED}○ REC{NC}" if is_rec else "")
+        lines.append(f"  {badge}{mode_b}{rec_b}  {bold_s}{COLOR_NEON_PINK}♫  {tname}{NC}")
         if is_rec:
             rf, rmb, rdur = os.path.basename(st.get("recording_file", "")), float(st.get("recording_bytes", 0)) / 1048576.0, format_seconds(float(st.get("recording_duration", 0.0)))
-            rdot = f"{BOLD}{COLOR_TRAFFIC_RED}●{NC}" if flash else f"{dim_s}{RED}○{NC}"
-            lines.append(f"  {rdot} {BOLD}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}{rf}{NC} {dim_s}[{rmb:.1f} MB  •  {rdur}  •  Max 3GB/WAV]{NC}")
+            rdot = f"{bold_s}{COLOR_TRAFFIC_RED}●{NC}" if flash else f"{dim_s}{RED}○{NC}"
+            lines.append(f"  {rdot} {bold_s}{COLOR_TRAFFIC_RED}RECORDING TO WAV:{NC} {bold_s}{COLOR_ELECTRIC_CYAN}{rf}{NC} {dim_s}[{rmb:.1f} MB  •  {rdur}  •  Max 3GB/WAV]{NC}")
         out_n = bt_dev or st.get("output_device", "Speakers")
-        bt_b = f"{BOLD}{COLOR_NEON_PINK}🎧 Output: {out_n}{NC}" if (is_bt or "bluetooth" in str(out_n).lower()) else f"{dim_s}{CYAN}🔊 Output: {out_n}{NC}"
-        s4_b = f"  │  {BOLD}\033[38;2;0;255;127m🎛️ S4 MIDI [hw:0,0]{NC}" if (CONFIG_DIR / "traktor_s4_midi.pid").exists() else ""
+        bt_b = f"{bold_s}{COLOR_NEON_PINK}🎧 Output: {out_n}{NC}" if (is_bt or "bluetooth" in str(out_n).lower()) else f"{dim_s}{CYAN}🔊 Output: {out_n}{NC}"
+        s4_b = f"  │  {bold_s}\033[38;2;0;255;127m🎛️ S4 MIDI [hw:0,0]{NC}" if (CONFIG_DIR / "traktor_s4_midi.pid").exists() else ""
         lines.append(f"  {dim_s}{CYAN}Format: {ext}{' Lossless' if w>=116 else ''}  │  Sample Rate: {sr/1000:.1f} kHz  │  Channels: {ch_str}  │  {bt_b}{s4_b}{NC}" if w >= 106 else f"  {dim_s}{CYAN}Format: {ext}  │  {sr/1000:.1f} kHz  │  {bt_b}{NC}")
 
         pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(max(54, iw - 42), iw - 28))
         fw = int((pct / 100.0) * bw)
         lines.extend([
-            f"  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
+            f"  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
             self.visualizer.render_horizontal_pitch_bar(int(st.get("pitch_percent", 0)), width=bw, max_cols=max(20, w - 1)), ""
         ])
         lines.extend(self.visualizer.render(st, width=w, height=(7 if h >= 34 else (5 if h >= 28 else 3))) + [""])
 
         active_tracks = self._get_active_tracks()
-        if self.export_mode: lines.append(f"  {BOLD}{COLOR_TRAFFIC_AMBER}Export Playlist (.m3u) Path: [{self.export_path}█]  (Enter: Save, Esc: Cancel){NC}")
-        elif self.search_mode: lines.append(f"  {BOLD}{CYAN}Filter / Search: [{self.search_query}█]{NC}")
-        elif self.search_query: lines.append(f"  {BOLD}Search Filter: '{self.search_query}' (Press '/' to search)")
-        elif time.time() < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
+        if self.export_mode: lines.append(f"  {bold_s}{COLOR_TRAFFIC_AMBER}Export Playlist (.m3u) Path: [{self.export_path}█]  (Enter: Save, Esc: Cancel){NC}")
+        elif self.search_mode: lines.append(f"  {bold_s}{CYAN}Filter / Search: [{self.search_query}█]{NC}")
+        elif self.search_query: lines.append(f"  {bold_s}Search Filter: '{self.search_query}' (Press '/' to search)")
+        elif time.time() < self.notification_time and self.notification_msg: lines.append(f"  {bold_s}{COLOR_TRAFFIC_GREEN}📂 {self.notification_msg}{NC}")
 
         if self.inspector_hud_active: lines.extend(self._render_inspector_hud(st, iw))
         elif self.equalizer_hud_active: lines.extend(self._render_equalizer_hud(st, iw, h))
@@ -4074,7 +4086,7 @@ class TerminalPlayerUI:
             if not active_tracks:
                 em1 = "No audio tracks found in playlist." if self.mode == "MUSIC" else "No audio mixes found in archive. (Mix archive folders not yet configured)"
                 em2 = "Option 1: add a local drive or SMB folder, then generate its playlist." if self.mode == "MUSIC" else "Press [O] to open an audio file, [F] for File Manager, or Option 14 to configure archive."
-                for em in (em1, em2): lines.append(f"  {b_col}│{NC} {BOLD}{COLOR_TRAFFIC_AMBER}{em}{NC}{' ' * max(0, iw - _display_width(em) - 2)}{b_col}│{NC}")
+                for em in (em1, em2): lines.append(f"  {b_col}│{NC} {bold_s}{COLOR_TRAFFIC_AMBER}{em}{NC}{' ' * max(0, iw - _display_width(em) - 2)}{b_col}│{NC}")
                 for _ in range(max(0, vrows - 2)): lines.append(f"  {b_col}│{NC}{' ' * iw}{b_col}│{NC}")
             else:
                 for i in range(self.scroll_offset, min(len(active_tracks), self.scroll_offset + vrows)):
@@ -4099,34 +4111,34 @@ class TerminalPlayerUI:
                     ip = f" {pfx}[{i+1:4d}] {mn}{npad} {ext_s} {f_str} "
                     cw = _display_width(ip)
                     ip = ip + " " * (iw - cw) if cw < iw else (_clip_display(ip, iw) if cw > iw else ip)
-                    if sel: lines.append(f"  {b_col}│{NC}\033[7m{BOLD}{hl_col}{ip}\033[0m{b_col}│{NC}")
-                    elif act: lines.append(f"  {b_col}│{NC}{BOLD}{act_col}{ip}{NC}{b_col}│{NC}")
-                    elif in_q: lines.append(f"  {b_col}│{NC}{BOLD}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
+                    if sel: lines.append(f"  {b_col}│{NC}\033[7m{bold_s}{hl_col}{ip}\033[0m{b_col}│{NC}")
+                    elif act: lines.append(f"  {b_col}│{NC}{bold_s}{act_col}{ip}{NC}{b_col}│{NC}")
+                    elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
             lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  w: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
 
         hint_col = WHITE if is_lg else DIM
-        shuf = f"{BOLD}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
-        rep = f"{BOLD}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
-        vol = (f"{BOLD}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{BOLD}{COLOR_TRAFFIC_RED}MUTED{NC}")
+        shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
+        rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
+        vol = (f"{bold_s}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{bold_s}{COLOR_TRAFFIC_RED}MUTED{NC}")
         pval = int(st.get("pitch_percent", 0))
         pcol = COLOR_TRAFFIC_GREEN if pval == 0 else (COLOR_TRAFFIC_AMBER if pval > 0 else COLOR_INDIGO_BLUE)
-        pbadge = f"{BOLD}{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}"
+        pbadge = f"{bold_s}{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}"
         eq_n = self.visualizer.get_style_display_name()
         th_n = self.visualizer.get_theme_display_name()
         eq_p = self.eq_manager.active_preset
         eq_p_col = COLOR_TRAFFIC_GREEN if eq_p != "Flat" else COLOR_ELECTRIC_CYAN
         lines.append(_fit_text_line([
-            f"  🔊 Vol: {vol}  │  🎚 Pitch: {pbadge}  │  🎛 EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  📊 Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {BOLD}{COLOR_HOT_PURPLE}{th_n}{NC}",
-            f"  Vol: {vol}  │  Pitch: {pbadge}  │  EQ: {BOLD}{eq_p_col}{eq_p}{NC}  │  Vis: {BOLD}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
+            f"  🔊 Vol: {vol}  │  🎚 Pitch: {pbadge}  │  🎛 EQ: {bold_s}{eq_p_col}{eq_p}{NC}  │  📊 Vis: {bold_s}{COLOR_NEON_PINK}{eq_n}{NC}  │  🔀 Shuf: {shuf}  │  🔁 Rep: {rep}  │  🎨 {bold_s}{COLOR_HOT_PURPLE}{th_n}{NC}",
+            f"  Vol: {vol}  │  Pitch: {pbadge}  │  EQ: {bold_s}{eq_p_col}{eq_p}{NC}  │  Vis: {bold_s}{COLOR_NEON_PINK}{eq_n}{NC}  │  Shuf: {shuf}  │  Rep: {rep}",
             f"  Vol {vol}  Pitch {pbadge}  EQ {eq_p}  Vis {eq_n}  Shuf {shuf}  Rep {rep}"
         ], max(20, w - 1)))
         if self.mode == "MUSIC":
             lines.extend([
                 _fit_text_line([
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}[Space]{NC} {BOLD}Play/Pause{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[R]{NC} {BOLD}Record WAV{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[M]{NC} {BOLD}Mini Mode{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[L]{NC} {BOLD}Liquid Glass{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Z]{NC} {BOLD}MP Liquid Visualizer{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Q]{NC} {BOLD}Queue{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[G]{NC} {BOLD}Spek{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[I]{NC} {BOLD}Track Inspector{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[E]{NC} {BOLD}Equalizer HUD{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[/]{NC} {BOLD}Search{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {BOLD}Skip{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {BOLD}Pitch{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {BOLD}Vol{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[u]{NC} {BOLD}Mute{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {BOLD}Exit{NC}",
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {BOLD}[Space] Play{NC}  {BOLD}[R] Rec WAV{NC}  {BOLD}[M] Mini{NC}  {BOLD}[L] Liquid{NC}  {BOLD}[Z] Liquid Vis{NC}  {BOLD}[Q] Queue{NC}  {BOLD}[G] Spek{NC}  {BOLD}[I] Inspector{NC}  {BOLD}[E] Equalizer{NC}  {BOLD}[/] Search{NC}  {BOLD}[n/p] Skip{NC}  {BOLD}[+/-] Pitch{NC}  {BOLD}[v/V] Vol{NC}  {BOLD}[u] Mute{NC}  {BOLD}[b/Esc] Exit{NC}",
-                    f"  {BOLD}Space Play  [R] Rec  [M] Mini  [L] Liquid  [Z] Liquid Vis  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
+                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {bold_s}{COLOR_ELECTRIC_CYAN}[Space]{NC} {bold_s}Play/Pause{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[R]{NC} {bold_s}Record WAV{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[M]{NC} {bold_s}Mini Mode{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[L]{NC} {bold_s}Liquid Glass{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Z]{NC} {bold_s}MP Liquid Visualizer{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Q]{NC} {bold_s}Queue{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[G]{NC} {bold_s}Spek{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[I]{NC} {bold_s}Track Inspector{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[E]{NC} {bold_s}Equalizer HUD{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[/]{NC} {bold_s}Search{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {bold_s}Skip{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {bold_s}Pitch{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {bold_s}Vol{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[u]{NC} {bold_s}Mute{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {bold_s}Exit{NC}",
+                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {bold_s}[Space] Play{NC}  {bold_s}[R] Rec WAV{NC}  {bold_s}[M] Mini{NC}  {bold_s}[L] Liquid{NC}  {bold_s}[Z] Liquid Vis{NC}  {bold_s}[Q] Queue{NC}  {bold_s}[G] Spek{NC}  {bold_s}[I] Inspector{NC}  {bold_s}[E] Equalizer{NC}  {bold_s}[/] Search{NC}  {bold_s}[n/p] Skip{NC}  {bold_s}[+/-] Pitch{NC}  {bold_s}[v/V] Vol{NC}  {bold_s}[u] Mute{NC}  {bold_s}[b/Esc] Exit{NC}",
+                    f"  {bold_s}Space Play  [R] Rec  [M] Mini  [L] Liquid  [Z] Liquid Vis  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
                 ], max(20, w - 1)),
                 _fit_text_line([
                     f"  {hint_col}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [Z] MP Liquid Visualizer  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
@@ -4140,6 +4152,8 @@ class TerminalPlayerUI:
                 f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z Liquid Vis  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
                 f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z Liquid Vis  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
             ], max(20, w - 1)))
+        if is_lg:
+            lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
 
     def _draw_mini_frame(self, w: int, h: int, st: Dict[str, Any]):
@@ -4153,33 +4167,36 @@ class TerminalPlayerUI:
         sys.stdout.write("\033]0;MP Mini Audio Player\007")
         iw = max(24, min(w - 4, 74))
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        bold_s = "" if is_lg else BOLD
         header_title = '✦ MP MINI AUDIO PLAYER (LIQUID GLASS) ✦' if is_lg else '✦ MP MINI AUDIO PLAYER ✦'
         lines = [f"  {c1}╭{'─'*iw}╮{NC}", f"  {c1}│{c2}{header_title.center(iw)}{c1}│{NC}", f"  {c1}╰{'─'*iw}╯{NC}"] if is_lg else [f"  {BOLD}{c1}╭{'─'*iw}╮{NC}", f"  {BOLD}{c1}│{BOLD}{c2}{header_title.center(iw)}{c1}│{NC}", f"  {BOLD}{c1}╰{'─'*iw}╯{NC}"]
         tname, av = st.get("title", "Unknown Track"), max(18, iw - 18)
         if _display_width(tname) > av: tname = _clip_display(tname, av - 3) + "..."
         state = st.get("state", "stopped")
-        badge = f"{BOLD}\033[1;38;2;0;255;127m▶ PLAY{NC}" if state == "playing" else (f"{BOLD}\033[1;38;2;255;191;0m⏸ PAUSE{NC}" if state == "paused" else f"{BOLD}\033[1;38;2;255;64;64m⏹ STOP{NC}")
+        badge = f"{bold_s}\033[38;2;0;255;127m▶ PLAY{NC}" if state == "playing" else (f"{bold_s}\033[38;2;255;191;0m⏸ PAUSE{NC}" if state == "paused" else f"{bold_s}\033[38;2;255;64;64m⏹ STOP{NC}")
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
-        rec_b = f" {BOLD}\033[1;38;2;255;64;64m● REC{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○ REC{NC}" if is_rec else "")
+        rec_b = f" {bold_s}\033[38;2;255;64;64m● REC{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○ REC{NC}" if is_rec else "")
         mode_str = 'MUSIC' if self.mode == 'MUSIC' else 'MIX'
-        lines.append(f"  {badge} {BOLD}\033[1;38;2;0;229;255m[{mode_str}]{NC}{rec_b} \033[1;38;2;255;255;255m♫ {tname}{NC}")
+        lines.append(f"  {badge} {bold_s}\033[38;2;0;229;255m[{mode_str}]{NC}{rec_b} \033[38;2;255;255;255m♫ {tname}{NC}")
         ext, sr, ch_s = os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC", st.get("sample_rate", 44100), ("Stereo" if st.get("channels", 2) == 2 else "Mono")
         dev_s = f"{'🎧' if st.get('bluetooth_connected') else '🔊'} {st.get('output_device', 'Speakers')}"
         if _display_width(dev_s) > 22: dev_s = dev_s[:19] + "..."
-        lines.append(f"  \033[1;38;2;120;215;255m{ext} • {sr/1000:.1f}kHz • {ch_s}{NC}  │  \033[38;2;235;240;255m{dev_s}{NC}")
+        lines.append(f"  \033[38;2;120;215;255m{ext} • {sr/1000:.1f}kHz • {ch_s}{NC}  │  \033[38;2;235;240;255m{dev_s}{NC}")
         pct, bw = float(st.get("progress_pct", 0.0)), max(16, min(34, iw - 30))
         fw = int((pct / 100.0) * bw)
-        bar_fill = f"\033[1;38;2;0;229;255m{'━' * fw}\033[1;38;2;255;255;255m●{NC}"
+        bar_fill = f"\033[38;2;0;229;255m{'━' * fw}\033[38;2;255;255;255m●{NC}"
         bar_empty = f"\033[38;2;90;105;135m{'─' * max(0, bw - fw - 1)}{NC}"
-        lines.append(f"  \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}{NC} {bar_fill}{bar_empty} \033[1;38;2;0;229;255m{st.get('duration_fmt', '00:00')}{NC} \033[1;38;2;255;215;0m({pct:.1f}%){NC}")
-        vol, pval = (f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"), int(st.get("pitch_percent", 0))
-        p_str = "\033[1;38;2;0;255;127m0%\033[0m" if pval == 0 else f"\033[1;38;2;255;191;0m{pval:+d}%\033[0m"
-        lines.append(f"  🔊 \033[1;38;2;0;229;255m{vol}{NC} │ 🎚 {p_str} │ 🎛 {BOLD}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:14]}{NC}")
+        lines.append(f"  \033[38;2;0;229;255m{st.get('position_fmt', '00:00')}{NC} {bar_fill}{bar_empty} \033[38;2;0;229;255m{st.get('duration_fmt', '00:00')}{NC} \033[38;2;255;215;0m({pct:.1f}%){NC}")
+        vol, pval = (f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[38;2;255;64;64mMUTED\033[0m"), int(st.get("pitch_percent", 0))
+        p_str = "\033[38;2;0;255;127m0%\033[0m" if pval == 0 else f"\033[38;2;255;191;0m{pval:+d}%\033[0m"
+        lines.append(f"  🔊 \033[38;2;0;229;255m{vol}{NC} │ 🎚 {p_str} │ 🎛 {bold_s}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:14]}{NC}")
         lines.extend(self.visualizer.render(st, width=iw + 4, height=(3 if h >= 14 else 2)))
         if t_now < self.notification_time and self.notification_msg:
-            lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
+            lines.append(f"  {bold_s}\033[38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[y]{NC} \033[38;2;235;240;255mRep{NC}  \033[1;38;2;0;229;255m[L]{NC} \033[38;2;235;240;255mGlass{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
+            lines.append(f"  \033[38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[38;2;0;229;255m[y]{NC} \033[38;2;235;240;255mRep{NC}  \033[38;2;0;229;255m[L]{NC} \033[38;2;235;240;255mGlass{NC}  \033[38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
+        if is_lg:
+            lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
 
     def _draw_micro_frame(self, w: int, h: int, st: Dict[str, Any]):
@@ -4194,8 +4211,9 @@ class TerminalPlayerUI:
         iw, tname = max(24, min(w - 4, 70)), st.get("title", "Unknown Track")
         avail = max(10, iw - 43)
         if _display_width(tname) > avail: tname = _clip_display(tname, avail - 2) + ".."
-        state, pval = st.get("state", "stopped"), int(st.get("pitch_percent", 0))
-        badge = f"{BOLD}\033[1;38;2;0;255;127m▶{NC}" if state == "playing" else (f"{BOLD}\033[1;38;2;255;191;0m⏸{NC}" if state == "paused" else f"{BOLD}\033[1;38;2;255;64;64m⏹{NC}")
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        bold_s = "" if is_lg else BOLD
+        badge = f"{bold_s}\033[38;2;0;255;127m▶{NC}" if state == "playing" else (f"{bold_s}\033[38;2;255;191;0m⏸{NC}" if state == "paused" else f"{bold_s}\033[38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
         if cs == "stream_of_frequency_eq":
             p_chars = []
@@ -4223,12 +4241,11 @@ class TerminalPlayerUI:
         else: m_str = "".join(f"{c2}{prism_level_glyph(min(8, int(val * 9)))}{NC}" for val in lv[:14])
 
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
-        rec_d = f" {BOLD}\033[1;38;2;255;64;64m●{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○{NC}" if is_rec else "")
+        rec_d = f" {bold_s}\033[38;2;255;64;64m●{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○{NC}" if is_rec else "")
         p_txt = f"{pval:+d}%" if pval != 0 else "0%"
-        vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"
-        r1 = f" {badge}{rec_d} \033[1;38;2;255;255;255m{tname}{NC} │ \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[1;38;2;0;229;255m{vol_str}{NC} │ \033[1;38;2;255;215;0mPitch: {p_txt}{NC} "
-        r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[1;38;2;255;215;0m[M] Mini{NC} "
-        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[38;2;255;64;64mMUTED\033[0m"
+        r1 = f" {badge}{rec_d} \033[38;2;255;255;255m{tname}{NC} │ \033[38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[38;2;0;229;255m{vol_str}{NC} │ \033[38;2;255;215;0mPitch: {p_txt}{NC} "
+        r2 = f" 🎛 [{m_str}] │ EQ: {bold_s}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[38;2;255;215;0m[M] Mini{NC} "
         micro_hdr = "✦ MP MICRO AUDIO PLAYER (LIQUID GLASS) ✦" if is_lg else "✦ MP MICRO AUDIO PLAYER ✦"
         if is_lg:
             lines = [
@@ -4245,13 +4262,15 @@ class TerminalPlayerUI:
                 f"  {BOLD}{c1}╰{'─' * iw}╯{NC}"
             ]
         if h >= 9: lines.extend(self.visualizer.render(st, width=iw + 4, height=(2 if h >= 12 else 1)))
-        if t_now < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
+        if t_now < self.notification_time and self.notification_msg: lines.append(f"  {bold_s}\033[38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
             lines.append(_fit_text_line([
                 f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
                 f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
                 f"  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0mM{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
             ], max(20, w - 1)))
+        if is_lg:
+            lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
 
 def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None) -> Optional[int]:

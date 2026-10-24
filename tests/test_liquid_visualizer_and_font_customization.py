@@ -57,6 +57,7 @@ class TestLiquidVisualizerAndFontCustomization(unittest.TestCase):
 
             host._clear_terminal_background(mock_win, mock_term)
             mock_term.set_bold_is_bright.assert_called_with(False)
+            mock_term.set_allow_bold.assert_called_with(False)
 
             # Inspect CSS providers loaded into style context
             self.assertTrue(mock_style_ctx.add_provider.called)
@@ -99,7 +100,7 @@ class TestLiquidVisualizerAndFontCustomization(unittest.TestCase):
 
         captured = []
         with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
-             patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured.extend(lines)), \
+             patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured.extend([player._strip_bold_ansi(l) for l in lines])), \
              patch("MP_Audio_Player._win_visible_size", return_value=(100, 35)):
             ui._get_status = MagicMock(return_value=st)
             ui._draw_frame()
@@ -107,6 +108,22 @@ class TestLiquidVisualizerAndFontCustomization(unittest.TestCase):
         # Check banner title indicates Liquid Glass
         banner_lines = [l for l in captured if "LIQUID GLASS" in l]
         self.assertTrue(len(banner_lines) > 0, "Liquid Glass banner title not rendered")
+
+        # In MP_LIQUID_GLASS mode, bold escape codes must not be forced
+        for line in captured:
+            self.assertNotIn("\033[1m", line, f"Forced bold escape sequence found in line: {line!r}")
+
+        # Test _present_frame bold stripping under MP_LIQUID_GLASS
+        raw_lines = ["\033[1;38;2;0;229;255mTest Title\033[0m", "\033[1mBold Text\033[0m"]
+        out_buf = []
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
+             patch("sys.stdout.write", side_effect=out_buf.append), \
+             patch("sys.stdout.flush"):
+            player._present_frame(raw_lines, 80, 2)
+        presented = "".join(out_buf)
+        self.assertNotIn("\033[1m", presented)
+        self.assertNotIn("\033[1;", presented)
+        self.assertIn("\033[38;2;0;229;255mTest Title\033[0m", presented)
 
 
 if __name__ == "__main__":
