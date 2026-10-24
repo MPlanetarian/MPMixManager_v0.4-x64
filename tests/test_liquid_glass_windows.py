@@ -160,7 +160,7 @@ class TestWindowsPlayerHosts(unittest.TestCase):
         # On Windows, self.terminal is None (hosted via console HWND), so toggle_maximize and set_mode must not crash
         host_gl = MP_Audio_Player_Liquid_Glass_OpenGL.GlassHost(["test"], mode="NORMAL")
         host_gl.renderer = MagicMock()
-        host_gl.renderer.bezel_px = 52
+        host_gl.renderer.bezel_px = 7
         host_gl.renderer.window_pos.return_value = (100, 100)
         host_gl.renderer.window_size.return_value = (1280, 820)
         host_gl.renderer.get_workarea.return_value = (0, 0, 1920, 1080)

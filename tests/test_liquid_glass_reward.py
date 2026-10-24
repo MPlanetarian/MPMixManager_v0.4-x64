@@ -28,7 +28,7 @@ class TestLiquidGlassReward(unittest.TestCase):
         png_icon = ROOT / "assets" / "mp_liquid_glass_icon.png"
         svg_icon = ROOT / "assets" / "mp_liquid_glass_icon.svg"
         desktop_file = ROOT / "desktop" / "MP_Liquid_Glass_Audio_Player.desktop"
-        root_desktop_file = ROOT / "MP_Liquid_Glass_Audio_Player.desktop"
+        root_desktop_file = ROOT / "MP_Liquid.desktop" if (ROOT / "MP_Liquid.desktop").exists() else (ROOT / "MP_Liquid_Glass_Audio_Player.desktop")
         launcher_script = ROOT / "scripts" / "launch_liquid_glass.sh"
 
         self.assertTrue(png_icon.exists(), "PNG icon should exist")

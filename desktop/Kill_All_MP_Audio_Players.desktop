@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Kill All MP Audio Players
+GenericName=Stop MP Audio Players
+Comment=Immediately terminate all MP Audio Player instances, background daemons, and visualizers
+Exec=/var/home/mplanetarian/MP_Mix_Manager_v0.4/scripts/kill_all_mp_audio_players.sh
+Icon=media-playback-stop
+Terminal=false
+Categories=AudioVideo;Audio;Player;Utility;
+StartupNotify=false
+X-KDE-GlobalAccel-CommandShortcut=true

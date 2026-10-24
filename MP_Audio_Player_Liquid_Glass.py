@@ -133,10 +133,10 @@ class GlassHost:
         return y < margin + 40 and not self._on_close(x, y, width, height)
 
     def _on_close(self, x, y, width, height):
-        margin = self.renderer.bezel_px
+        margin = max(float(self.renderer.bezel_px), 8.0)
         cx = width - margin * 0.72
         cy = margin * 0.62
-        radius = margin * 0.30
+        radius = max(margin * 0.30, 4.0)
         return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
 
     def _well_rect(self):
@@ -366,8 +366,14 @@ class GlassHost:
         term.set_size(cols, rows)
 
     def run(self):
+        char_w, char_h = 9, 18
+        margin = LiquidGlassRenderer.bezel_px
+        cols = getattr(self, "_target_cols", COLS)
+        rows = getattr(self, "_target_rows", ROWS)
+        init_w = cols * char_w + 2 * margin
+        init_h = rows * char_h + 2 * margin
         if sys.platform == "win32":
-            self.renderer = LiquidGlassRenderer(1280, 820, "MP Audio Player (Liquid Glass - Vulkan)")
+            self.renderer = LiquidGlassRenderer(init_w, init_h, "MP Audio Player (Liquid Glass - Vulkan)")
             try:
                 return self._run_windows()
             finally:
@@ -375,7 +381,7 @@ class GlassHost:
         glib, gtk, vte = _import_gtk()
         self.glib = glib
         gtk.init([])
-        self.renderer = LiquidGlassRenderer(1280, 820, "MP Audio Player (Liquid Glass)")
+        self.renderer = LiquidGlassRenderer(init_w, init_h, "MP Audio Player (Liquid Glass)")
         try:
             return self._run_window(vte, glib)
         finally:

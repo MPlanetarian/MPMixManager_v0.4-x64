@@ -120,10 +120,10 @@ class MetalGlassHost:
         return y < margin + 40 and not self._on_close(x, y, width, height)
 
     def _on_close(self, x, y, width, height):
-        margin = self.renderer.bezel_px
+        margin = max(float(self.renderer.bezel_px), 8.0)
         cx = width - margin * 0.72
         cy = margin * 0.62
-        radius = margin * 0.30
+        radius = max(margin * 0.30, 4.0)
         return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
 
     def _sync_panels(self):
@@ -165,8 +165,10 @@ class MetalGlassHost:
                 cols, rows = COLS, ROWS
             self._target_cols = cols
             self._target_rows = rows
+            win_w = cols * char_w + 2 * margin
+            win_h = rows * char_h + 2 * margin
             self.renderer.set_window_pos(pos[0], pos[1])
-            self.renderer.set_window_size(size[0], size[1])
+            self.renderer.set_window_size(win_w, win_h)
             self._sync_panels()
             self.is_maximized = False
 

@@ -194,5 +194,49 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
             self.assertIn("Trance", argv)
 
 
+    def test_bezel_width_reduced_by_86_percent(self):
+        """Verifies bezel width is reduced by 86% (from 52px to 7px) across Vulkan, OpenGL, and Metal renderers."""
+        from liquid_glass_vulkan import LiquidGlassRenderer as VulkanRenderer
+        from liquid_glass_opengl import LiquidGlassRendererOpenGL as OpenGLRenderer
+        from liquid_glass_metal import LiquidGlassRendererMetal as MetalRenderer
+
+        # 52px reduced by 86% = 52 * 0.14 = 7.28px -> 7px
+        expected_bezel = round(52 * (1 - 0.86))
+        self.assertEqual(expected_bezel, 7)
+        self.assertEqual(VulkanRenderer.bezel_px, 7)
+        self.assertEqual(OpenGLRenderer.bezel_px, 7)
+        self.assertEqual(MetalRenderer.bezel_px, 7)
+
+    def test_bezel_width_modes_geometry(self):
+        """Verifies bezel width is 7px for default window (NORMAL), MINI, and MICRO modes."""
+        for mod in (lg_vulkan, lg_opengl):
+            for mode, cols, rows in [("NORMAL", mod.COLS, mod.ROWS), ("MINI", 74, 14), ("MICRO", 74, 7)]:
+                host = mod.GlassHost(["test"], mode=mode)
+                host.renderer = MagicMock()
+                host.renderer.bezel_px = 7
+                char_w, char_h = 9, 18
+
+                win_w = cols * char_w + 2 * host.renderer.bezel_px
+                win_h = rows * char_h + 2 * host.renderer.bezel_px
+                host.renderer.window_pos.return_value = (10, 20)
+                host.renderer.window_size.return_value = (win_w, win_h)
+
+                # Inner well rect should be indented by exactly 7px margin
+                well_x, well_y, inner_w, inner_h = host._well_rect()
+                self.assertEqual(well_x, 10 + 7)
+                self.assertEqual(well_y, 20 + 7)
+                self.assertEqual(inner_w, win_w - 14)
+                self.assertEqual(inner_h, win_h - 14)
+
+                # Bezel edge detection should trigger within 7px border
+                self.assertTrue(host._on_bezel(3, win_h // 2, win_w, win_h))
+                self.assertTrue(host._on_bezel(win_w - 3, win_h // 2, win_w, win_h))
+                self.assertTrue(host._on_bezel(win_w // 2, 3, win_w, win_h))
+                self.assertTrue(host._on_bezel(win_w // 2, win_h - 3, win_w, win_h))
+
+                # Client area (inside well) should not be considered bezel
+                self.assertFalse(host._on_bezel(win_w // 2, win_h // 2, win_w, win_h))
+
+
 if __name__ == "__main__":
     unittest.main()

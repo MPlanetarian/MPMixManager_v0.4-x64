@@ -81,9 +81,16 @@ THEMES: dict[str, tuple[str, str, str, str, str, str, str, str, str, str, str]] 
     "emerald": ("Emerald Isle", "Deep Ocean, Spring Emerald, Mint & Rose", "#10b981", "#06b6d4", "#34d399", "#047857", "#ecfdf5", "#6ee7b7", "#10b981", "#f43f5e", "#fbbf24"),
     "classic": ("Classic Monochrome", "High-Contrast Monochrome / Standard ANSI", "#ffffff", "#cccccc", "#aaaaaa", "#777777", "#ffffff", "#666666", "#ffffff", "#ffffff", "#ffffff"),
     "retro_terminal": ("Old Style Unix Terminal Retro Mode (White on Black)", "Monochrome VT100: White Text Only on Black Background", "#ffffff", "#ffffff", "#ffffff", "#777777", "#ffffff", "#888888", "#ffffff", "#ffffff", "#ffffff"),
+    "cosmic_dreamworlds_radioactive": ("Cosmic Dreamworlds Radioactive (Liquid Glass Skin)", "Cover Wrapped Liquid Glass: Crystal Clear Water, Neon Radioactive & Cosmic Glow", "#39ff14", "#00f5d4", "#a64dff", "#39ff14", "#ffffff", "#a2e6b5", "#39ff14", "#ff0055", "#00f5d4"),
 }
 
 THEME_ALIASES: dict[str, str] = {
+    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
+    "radioactive": "cosmic_dreamworlds_radioactive",
     "default": "dreamworlds", "mplanetarian": "dreamworlds", "mplanetarian_dreamworlds": "dreamworlds",
     "ultra": "dreamworlds_ultra", "dreamworlds ultra": "dreamworlds_ultra", "dreamworlds-ultra": "dreamworlds_ultra",
     "hotpurple": "dreamworlds_ultra", "trafficlight": "dreamworlds_ultra", "supernova": "cosmic_supernova",

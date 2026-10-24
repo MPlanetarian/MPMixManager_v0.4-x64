@@ -331,8 +331,8 @@ void main() {
         water = mix(water, theme, 0.22);
         water += theme * (caust * 0.16 + caustFine * 0.08);
         water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
-        vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
-        water = mix(water, panelCol, panel * 0.82);
+        vec3 panelCol = mix(vec3(0.20, 0.22, 0.28), theme, 0.25);
+        water = mix(water, panelCol, panel * 0.88);
     }
 
     float panelLip = 0.0;
@@ -407,7 +407,7 @@ void main() {
         col = mix(col, vec3(0.02, 0.02, 0.025), xmark);
     }
 
-    float alpha = 0.50 * (1.0 - panel * 0.25);
+    float alpha = mix(0.52, 0.78, panel);
     if (u.themeC.w > 0.0) {
         alpha *= u.themeC.w;
     }
@@ -429,7 +429,7 @@ SKIN_FILES = {
 class LiquidGlassRendererOpenGL:
     """A borderless X11 window rendered via OpenGL supporting AMD, Intel, NVIDIA, and legacy GPUs."""
 
-    bezel_px = 52
+    bezel_px = 7  # Reduced by 86% from 52px for sleek slim borders
     radius_px = 36
     clear_opacity = 0.70
 
@@ -679,6 +679,19 @@ class LiquidGlassRendererOpenGL:
         p1 = self.panels[1]
         GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]), float(p0[2]), float(p0[3]))
         GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]), float(p1[2]), float(p1[3]))
+
+        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+        tex_id = self._load_skin_texture(skin_key)
+        if tex_id:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            if u.get("u_skinTex", -1) != -1:
+                GL.glUniform1i(u["u_skinTex"], 0)
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 1.0)
+        else:
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 0.0)
 
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
@@ -1297,7 +1310,8 @@ class LiquidGlassRendererOpenGL:
         # Cache uniform locations
         for u_name in [
             "u_res", "u_themeA", "u_themeB", "u_themeC",
-            "u_bezel", "u_panel0", "u_panel1"
+            "u_bezel", "u_panel0", "u_panel1",
+            "u_hasSkin", "u_skinTex"
         ]:
             loc = GL.glGetUniformLocation(prog, u_name)
             self._u_locs[u_name] = loc
@@ -1325,7 +1339,42 @@ class LiquidGlassRendererOpenGL:
         GL.glVertexAttribPointer(1, 2, GL.GL_FLOAT, GL.GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))
         GL.glBindVertexArray(0)
 
+    def _load_skin_texture(self, skin_name):
+        from OpenGL import GL
+        if skin_name in self._skin_textures:
+            return self._skin_textures[skin_name]
+        skin_file = SKIN_FILES.get(skin_name) or (ROOT / "assets" / "skins" / f"{skin_name}.png")
+        if not skin_file.is_file():
+            return 0
+        try:
+            from PIL import Image
+            img = Image.open(skin_file).convert("RGBA")
+            w, h = img.size
+            data = img.tobytes("raw", "RGBA", 0, 1)
+
+            tex_id = GL.glGenTextures(1)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, w, h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+
+            self._skin_textures[skin_name] = tex_id
+            return tex_id
+        except Exception:
+            return 0
+
     def _destroy_window(self):
+        try:
+            from OpenGL import GL
+            for tex in self._skin_textures.values():
+                if tex:
+                    GL.glDeleteTextures([tex])
+            self._skin_textures.clear()
+        except Exception:
+            pass
         if self._window and getattr(self, "_glfw", None):
             self._glfw.glfwDestroyWindow(self._window)
             self._window = None

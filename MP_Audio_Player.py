@@ -1833,10 +1833,17 @@ _THEME_PALETTES = {
     "phosphor": {"highlight": "\033[38;2;57;255;20m", "active": "\033[38;2;166;255;0m", "border": "\033[38;2;57;255;20m", "accent": "\033[38;2;0;255;102m"},
     "ice_cold": {"highlight": "\033[38;2;0;229;255m", "active": "\033[38;2;136;192;208m", "border": "\033[38;2;0;229;255m", "accent": "\033[38;2;129;161;193m"},
     "retro_terminal": {"highlight": "\033[1;37m", "active": "\033[1;37m", "border": "\033[1;37m", "accent": "\033[1;37m"},
+    "cosmic_dreamworlds_radioactive": {"highlight": "\033[38;2;57;255;20m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;57;255;20m", "accent": "\033[38;2;166;77;255m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
 _THEME_ALIASES = {
+    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
+    "radioactive": "cosmic_dreamworlds_radioactive",
     "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal", "white_on_black": "retro_terminal", "old_style_unix": "retro_terminal", "terminal": "retro_terminal", "classic": "retro_terminal",
     "cosmic": "cosmic_supernova", "supernova": "cosmic_supernova",
     "cyberpunk": "cyber_neon", "cyber": "cyber_neon",
@@ -1864,7 +1871,32 @@ class EqualizerVisualizer:
         "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)", "master_spectrum": "Master Spectrum (24-Band)",
         "analog_vu": "Analog Studio VU", "oscilloscope": "Oscilloscope Waveform",
     }
-    THEMES = ["dreamworlds_ultra", "dynamic_rainbow_liquid_glass", "cosmic_supernova", "dreamworlds_liquid", "dreamworlds_neon", "retro_studio", "cyber_neon", "phosphor", "ice_cold", "retro_terminal"]
+    THEMES = [
+        "dreamworlds_ultra",
+        "dynamic_rainbow_liquid_glass",
+        "cosmic_supernova",
+        "dreamworlds_liquid",
+        "dreamworlds_neon",
+        "retro_studio",
+        "cyber_neon",
+        "phosphor",
+        "ice_cold",
+        "retro_terminal",
+        "cosmic_dreamworlds_radioactive",
+    ]
+    THEME_NAMES = {
+        "dreamworlds_ultra": "Dreamworlds Ultra",
+        "dynamic_rainbow_liquid_glass": "Dynamic Liquid Glass [Rainbow Colours] (New)",
+        "cosmic_supernova": "Cosmic Supernova",
+        "dreamworlds_liquid": "MP Dreamworlds Liquid Transparency",
+        "dreamworlds_neon": "Dreamworlds Neon",
+        "retro_studio": "Retro Studio",
+        "cyber_neon": "Cyber Neon",
+        "phosphor": "Phosphor",
+        "ice_cold": "Ice Cold",
+        "retro_terminal": "Retro Terminal",
+        "cosmic_dreamworlds_radioactive": "Cosmic Dreamworlds Radioactive (Liquid Glass Skin)",
+    }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
         _ensure_numpy()
@@ -1912,10 +1944,17 @@ class EqualizerVisualizer:
         except Exception: pass
 
     def get_style_display_name(self) -> str: return self.STYLE_NAMES.get(self.style, self.style.replace("_", " ").title())
+    def get_theme_display_name(self) -> str: return self.THEME_NAMES.get(self.theme, self.theme.replace("_", " ").title())
     def get_theme_palette(self) -> Dict[str, str]: return _THEME_PALETTES.get(self.theme, _DEFAULT_PALETTE)
 
     def _base_theme_rgb(self, c_frac: float, ultra_floor: float = 0.10) -> Tuple[float, float, float]:
         t = self.theme
+        if t in ("cosmic_dreamworlds_radioactive", "radioactive", "cosmic_radioactive"):
+            if c_frac < 0.40:
+                s = c_frac / 0.40
+                return 0.22 * (1.0 - s), 1.0 - 0.04 * s, 0.08 + 0.75 * s
+            s = (c_frac - 0.40) / 0.60
+            return 0.65 * s, 0.96 - 0.66 * s, 0.83 + 0.17 * s
         if t == "cosmic_supernova":
             if c_frac < 0.25: s = c_frac / 0.25; return 0.0, 0.96 - 0.17 * s, 0.83 + 0.11 * s
             if c_frac < 0.55: s = (c_frac - 0.25) / 0.30; return 0.30 + 0.58 * s, 0.79 - 0.45 * s, 0.94 + 0.05 * s
@@ -3362,7 +3401,7 @@ class TerminalPlayerUI:
             self._notify(f"Visualizer: {self.visualizer.get_style_display_name()}", 2.5)
         elif data in (b"c", b"C"):
             self.visualizer.cycle_theme()
-            self._notify(f"Color Theme: {self.visualizer.theme.replace('_', ' ').title()}", 2.5)
+            self._notify(f"Color Theme: {self.visualizer.get_theme_display_name()}", 2.5)
         elif data in (b"b", b"B", b"\x1b", b"\x03"): self.running = False
         elif data in (b"a", b"A"):
             if self.is_remote:
@@ -3495,7 +3534,7 @@ class TerminalPlayerUI:
         pcol = COLOR_TRAFFIC_GREEN if pval == 0 else (COLOR_TRAFFIC_AMBER if pval > 0 else COLOR_INDIGO_BLUE)
         pbadge = f"{BOLD}{pcol}{pval:+d}% ({1.0 + pval/100:.2f}x){NC}"
         eq_n = self.visualizer.get_style_display_name()
-        th_n = self.visualizer.theme.replace("_", " ").title()
+        th_n = self.visualizer.get_theme_display_name()
         eq_p = self.eq_manager.active_preset
         eq_p_col = COLOR_TRAFFIC_GREEN if eq_p != "Flat" else COLOR_ELECTRIC_CYAN
         lines.append(_fit_text_line([
@@ -3554,7 +3593,7 @@ class TerminalPlayerUI:
         lines.append(f"  \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}{NC} {bar_fill}{bar_empty} \033[1;38;2;0;229;255m{st.get('duration_fmt', '00:00')}{NC} \033[1;38;2;255;215;0m({pct:.1f}%){NC}")
         vol, pval = (f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"), int(st.get("pitch_percent", 0))
         p_str = "\033[1;38;2;0;255;127m0%\033[0m" if pval == 0 else f"\033[1;38;2;255;191;0m{pval:+d}%\033[0m"
-        lines.append(f"  🔊 \033[1;38;2;0;229;255m{vol}{NC} │ 🎚 {p_str} │ 🎛 {BOLD}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:14]}{NC}")
+        lines.append(f"  🔊 \033[1;38;2;0;229;255m{vol}{NC} │ 🎚 {p_str} │ 🎛 {BOLD}{c2}{self.visualizer.get_style_display_name()[:16]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:14]}{NC}")
         lines.extend(self.visualizer.render(st, width=iw + 4, height=(3 if h >= 14 else 2)))
         if t_now < self.notification_time and self.notification_msg:
             lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
@@ -3595,7 +3634,7 @@ class TerminalPlayerUI:
         p_txt = f"{pval:+d}%" if pval != 0 else "0%"
         vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"
         r1 = f" {badge}{rec_d} \033[1;38;2;255;255;255m{tname}{NC} │ \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[1;38;2;0;229;255m{vol_str}{NC} │ \033[1;38;2;255;215;0mPitch: {p_txt}{NC} "
-        r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.theme.replace('_', ' ').title()[:10]}{NC} │ \033[1;38;2;255;215;0m[M] Mini{NC} "
+        r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[1;38;2;255;215;0m[M] Mini{NC} "
         lines = [
             f"  {BOLD}{c1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * max(0, iw - 28)}╮{NC}",
             f"  {BOLD}{c1}│{NC}{r1}{' ' * max(0, iw - _display_width(r1))}{BOLD}{c1}│{NC}",

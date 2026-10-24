@@ -30,9 +30,16 @@ THEME_COLORS = {
     "phosphor": ((57, 255, 20), (166, 255, 0), (0, 255, 102)),
     "ice_cold": ((0, 229, 255), (136, 192, 208), (129, 161, 193)),
     "retro_terminal": ((230, 230, 230), (180, 180, 180), (255, 255, 255)),
+    "cosmic_dreamworlds_radioactive": ((57, 255, 20), (0, 245, 212), (166, 77, 255)),
 }
 
 THEME_ALIASES = {
+    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
+    "radioactive": "cosmic_dreamworlds_radioactive",
     "dreamworlds": "dreamworlds_ultra",
     "default": "dreamworlds_ultra",
     "mplanetarian": "dreamworlds_ultra",
@@ -166,7 +173,7 @@ class GlassUniformsMetal(ctypes.Structure):
 class LiquidGlassRendererMetal:
     """Apple Silicon Metal Renderer for Liquid Glass on macOS."""
 
-    bezel_px = 52
+    bezel_px = 7  # Reduced by 86% from 52px for sleek slim borders
     radius_px = 36
     clear_opacity = 0.70  # 10% core transparency reduction
 
