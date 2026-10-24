@@ -2024,12 +2024,33 @@ local b_opts=(
 )
 while true; do
 local hub_pids agent_pids
-hub_pids=$(pgrep -f "beszel.*hub" 2>/dev/null | tr '\n' ' ' || true)
-agent_pids=$(pgrep -f "beszel.*agent" 2>/dev/null | tr '\n' ' ' || true)
+if [ "$OS_TYPE" = "windows" ]; then
+if command -v tasklist.exe &>/dev/null; then
+hub_pids=$(tasklist.exe //FI "IMAGENAME eq beszel.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
+agent_pids=$(tasklist.exe //FI "IMAGENAME eq beszel-agent.exe" //FO CSV //NH 2>/dev/null | awk -F'","' '{print $2}' | tr -d '"\r ' | tr '\n' ' ')
+fi
+if [ -z "$hub_pids" ] && command -v netstat.exe &>/dev/null; then
+hub_pids=$(netstat.exe -ano 2>/dev/null | awk '$2 ~ /:8090$/ && $4 == "LISTENING" {print $5}' | sort -u | tr '\n' ' ')
+fi
+if [ -z "$agent_pids" ] && command -v netstat.exe &>/dev/null; then
+agent_pids=$(netstat.exe -ano 2>/dev/null | awk '$2 ~ /:45876$/ && $4 == "LISTENING" {print $5}' | sort -u | tr '\n' ' ')
+fi
+else
+hub_pids=$(pgrep -f "beszel.*serve" 2>/dev/null | tr '\n' ' ' || true)
+[ -z "$hub_pids" ] && hub_pids=$(pgrep -x "beszel" 2>/dev/null | tr '\n' ' ' || true)
+if [ -z "$hub_pids" ] && command -v podman &>/dev/null; then
+podman ps --filter "name=beszel" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel$" && hub_pids="Container"
+fi
+agent_pids=$(pgrep -f "beszel-agent" 2>/dev/null | tr '\n' ' ' || true)
+[ -z "$agent_pids" ] && agent_pids=$(pgrep -x "beszel-agent" 2>/dev/null | tr '\n' ' ' || true)
+if [ -z "$agent_pids" ] && command -v podman &>/dev/null; then
+podman ps --filter "name=beszel-agent" --format "{{.Names}}" 2>/dev/null | grep -q "^beszel-agent$" && agent_pids="Container"
+fi
+fi
 local h_st="${RED}○ STOPPED${NC}"
-[ -n "$hub_pids" ] && h_st="${GREEN}● RUNNING${NC} (PID: ${hub_pids% })"
+[ -n "$hub_pids" ] && h_st="${GREEN}● RUNNING${NC} (${hub_pids% })"
 local a_st="${RED}○ STOPPED${NC}"
-[ -n "$agent_pids" ] && a_st="${GREEN}● RUNNING${NC} (PID: ${agent_pids% })"
+[ -n "$agent_pids" ] && a_st="${GREEN}● RUNNING${NC} (${agent_pids% })"
 local hdr="  Beszel Hub (Port 8090):    ${h_st}\n  Beszel Agent (Port 45876): ${a_st}\n"
 run_interactive_submenu "BESZEL WORKSTATION & GPU MONITORING SUITE" "$hdr" b_opts 0
 case "$REPLY" in

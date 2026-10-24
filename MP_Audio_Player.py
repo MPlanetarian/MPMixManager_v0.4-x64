@@ -3738,7 +3738,12 @@ class TerminalPlayerUI:
         try:
             while self.running:
                 if not self.is_remote and self.engine: self.engine.check_track_end()
-                self._draw_frame()
+                try:
+                    self._draw_frame()
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except Exception as exc:
+                    mp_log_error("TerminalPlayerUI", f"Error drawing frame: {exc}", exc)
                 time.sleep(0.02)
         except (KeyboardInterrupt, SystemExit): pass
         finally:
@@ -4213,6 +4218,7 @@ class TerminalPlayerUI:
         if _display_width(tname) > avail: tname = _clip_display(tname, avail - 2) + ".."
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
         bold_s = "" if is_lg else BOLD
+        state = st.get("state", "stopped")
         badge = f"{bold_s}\033[38;2;0;255;127m▶{NC}" if state == "playing" else (f"{bold_s}\033[38;2;255;191;0m⏸{NC}" if state == "paused" else f"{bold_s}\033[38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
         if cs == "stream_of_frequency_eq":
@@ -4242,10 +4248,12 @@ class TerminalPlayerUI:
 
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
         rec_d = f" {bold_s}\033[38;2;255;64;64m●{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○{NC}" if is_rec else "")
+        pval = int(st.get("pitch_percent", 0))
         p_txt = f"{pval:+d}%" if pval != 0 else "0%"
         vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[38;2;255;64;64mMUTED\033[0m"
         r1 = f" {badge}{rec_d} \033[38;2;255;255;255m{tname}{NC} │ \033[38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[38;2;0;229;255m{vol_str}{NC} │ \033[38;2;255;215;0mPitch: {p_txt}{NC} "
-        r2 = f" 🎛 [{m_str}] │ EQ: {bold_s}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[38;2;255;215;0m[M] Mini{NC} "
+        next_mode_lbl = "Full" if is_lg else "Mini"
+        r2 = f" 🎛 [{m_str}] │ EQ: {bold_s}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[38;2;255;215;0m[M] {next_mode_lbl}{NC} "
         micro_hdr = "✦ MP MICRO AUDIO PLAYER (LIQUID GLASS) ✦" if is_lg else "✦ MP MICRO AUDIO PLAYER ✦"
         if is_lg:
             lines = [
@@ -4264,10 +4272,12 @@ class TerminalPlayerUI:
         if h >= 9: lines.extend(self.visualizer.render(st, width=iw + 4, height=(2 if h >= 12 else 1)))
         if t_now < self.notification_time and self.notification_msg: lines.append(f"  {bold_s}\033[38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
+            m_hint = "[M] Full" if is_lg else "[M] Mini"
+            m_hint_short = "M Full" if is_lg else "M Mini"
             lines.append(_fit_text_line([
-                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0mM{NC} \033[38;2;235;240;255mMini{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
+                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint_short}{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
             ], max(20, w - 1)))
         if is_lg:
             lines = [_strip_bold_ansi(l) for l in lines]
