@@ -98,6 +98,56 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual((w, h), (256, 256))
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
+    def test_preset_infinite_complexity_single_cover(self):
+        """Fourth preset (4) must be 'Infinite Complexity' inspired by Defasten's Mirrored Madness and Cover_v4.png."""
+        preset = vis.get_active_preset("Infinite Complexity")
+        self.assertEqual(preset["name"], "Infinite Complexity")
+        self.assertEqual(preset["key"], "infinite_complexity")
+        self.assertEqual(preset["id"], 3)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("infinite_complexity")["id"], 3)
+        self.assertEqual(vis.get_active_preset("infinite complexity")["id"], 3)
+        self.assertEqual(vis.get_active_preset("infinite")["id"], 3)
+        self.assertEqual(vis.get_active_preset("complexity")["id"], 3)
+        self.assertEqual(vis.get_active_preset("4")["id"], 3)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Infinite Complexity must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
+    def test_preset_sensorium_interface_single_cover(self):
+        """Fifth preset (5) must be 'Sensorium Interface' inspired by Defasten Earth Flipper and Sensorium_Interface.jpeg."""
+        preset = vis.get_active_preset("Sensorium Interface")
+        self.assertEqual(preset["name"], "Sensorium Interface")
+        self.assertEqual(preset["key"], "sensorium_interface")
+        self.assertEqual(preset["id"], 4)
+
+        # Aliases test
+        self.assertEqual(vis.get_active_preset("sensorium_interface")["id"], 4)
+        self.assertEqual(vis.get_active_preset("sensorium interface")["id"], 4)
+        self.assertEqual(vis.get_active_preset("sensorium")["id"], 4)
+        self.assertEqual(vis.get_active_preset("earth_flipper")["id"], 4)
+        self.assertEqual(vis.get_active_preset("5")["id"], 4)
+
+        existing_covers = [Path(p) for p in preset["cover_paths"] if Path(p).is_file()]
+        self.assertGreaterEqual(
+            len(existing_covers),
+            1,
+            "Cover art file for Sensorium Interface must exist",
+        )
+
+        w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
+        self.assertEqual((w, h), (256, 256))
+        self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
+
     def test_audio_telemetry_advances_only_when_playing(self):
         """3D generation must advance when music is playing and freeze in-place when paused or stopped."""
         with tempfile.TemporaryDirectory() as td:
@@ -142,11 +192,13 @@ class TestMPLiquidVisualizer(unittest.TestCase):
                 bridge.update(0.10)
             self.assertTrue(bridge.is_playing)
             self.assertGreater(bridge.accum_time, 0.0)
+            self.assertGreater(bridge.dynamic_time, 0.0)
             self.assertGreater(bridge.bass_phase, 0.0)
             self.assertGreater(bridge.mid_phase, 0.0)
             self.assertGreater(bridge.high_phase, 0.0)
 
             frozen_time = bridge.accum_time
+            frozen_dynamic_time = bridge.dynamic_time
             frozen_bass_phase = bridge.bass_phase
             frozen_mid_phase = bridge.mid_phase
             frozen_high_phase = bridge.high_phase
@@ -168,6 +220,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
                 bridge.update(0.10)
             self.assertFalse(bridge.is_playing)
             self.assertEqual(bridge.accum_time, frozen_time)
+            self.assertEqual(bridge.dynamic_time, frozen_dynamic_time)
             self.assertEqual(bridge.bass_phase, frozen_bass_phase)
             self.assertEqual(bridge.mid_phase, frozen_mid_phase)
             self.assertEqual(bridge.high_phase, frozen_high_phase)

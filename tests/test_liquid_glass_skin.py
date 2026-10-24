@@ -15,6 +15,7 @@ class TestLiquidGlassSkin(unittest.TestCase):
             "cosmic_dreamworlds_radioactive.png",
             "cosmic_dreamworlds.png",
             "orbital_void_reflux.png",
+            "sensorium_interface.png",
         ]
         for skin_file in skins:
             skin_path = ROOT / "assets" / "skins" / skin_file
@@ -29,13 +30,16 @@ class TestLiquidGlassSkin(unittest.TestCase):
         self.assertIn("cosmic_dreamworlds_radioactive", eq.THEMES)
         self.assertIn("cosmic_dreamworlds", eq.THEMES)
         self.assertIn("orbital_void_reflux", eq.THEMES)
+        self.assertIn("sensorium_interface", eq.THEMES)
         retro_idx = eq.THEMES.index("retro_terminal")
         skin1_idx = eq.THEMES.index("cosmic_dreamworlds_radioactive")
         skin2_idx = eq.THEMES.index("cosmic_dreamworlds")
         skin3_idx = eq.THEMES.index("orbital_void_reflux")
+        skin4_idx = eq.THEMES.index("sensorium_interface")
         self.assertEqual(skin1_idx, retro_idx + 1, "Skin 1 should be positioned right after retro_terminal")
         self.assertEqual(skin2_idx, skin1_idx + 1, "Skin 2 should be right after skin 1")
         self.assertEqual(skin3_idx, skin2_idx + 1, "Skin 3 (orbital_void_reflux) should be right after skin 2")
+        self.assertEqual(skin4_idx, skin3_idx + 1, "Skin 4 (sensorium_interface) should be right after skin 3")
 
     def test_cycle_theme_to_skin(self):
         import MP_Audio_Player as player
@@ -60,10 +64,16 @@ class TestLiquidGlassSkin(unittest.TestCase):
             eq.get_theme_display_name(),
             "Orbital Void Reflux (Liquid Glass Skin)",
         )
+        eq.cycle_theme()
+        self.assertEqual(eq.theme, "sensorium_interface")
+        self.assertEqual(
+            eq.get_theme_display_name(),
+            "Sensorium Interface (Liquid Glass Skin)",
+        )
 
     def test_liquid_glass_opengl_skin_registration(self):
         import liquid_glass_opengl as lgo
-        for skin in ("cosmic_dreamworlds_radioactive", "cosmic_dreamworlds", "orbital_void_reflux"):
+        for skin in ("cosmic_dreamworlds_radioactive", "cosmic_dreamworlds", "orbital_void_reflux", "sensorium_interface"):
             self.assertIn(skin, lgo.THEME_COLORS)
             self.assertEqual(lgo.THEME_ALIASES.get(skin), skin)
             self.assertIn(skin, lgo.SKIN_FILES)
@@ -77,15 +87,23 @@ class TestLiquidGlassSkin(unittest.TestCase):
             "orbital_void_reflux",
         )
         self.assertEqual(
+            lgo.THEME_ALIASES.get("sensorium"),
+            "sensorium_interface",
+        )
+        self.assertEqual(
             lgo.THEME_ALIASES.get("void_reflux"),
             "orbital_void_reflux",
         )
 
     def test_liquid_glass_vulkan_registration(self):
         import liquid_glass_vulkan as lgv
-        for skin in ("cosmic_dreamworlds_radioactive", "cosmic_dreamworlds", "orbital_void_reflux"):
+        for skin in ("cosmic_dreamworlds_radioactive", "cosmic_dreamworlds", "orbital_void_reflux", "sensorium_interface"):
             self.assertIn(skin, lgv.THEME_COLORS)
             self.assertEqual(lgv.THEME_ALIASES.get(skin), skin)
+        self.assertEqual(
+            lgv.THEME_ALIASES.get("sensorium"),
+            "sensorium_interface",
+        )
         self.assertEqual(
             lgv.THEME_ALIASES.get("orbital"),
             "orbital_void_reflux",

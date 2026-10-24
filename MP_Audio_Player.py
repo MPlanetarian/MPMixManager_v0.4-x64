@@ -577,7 +577,7 @@ class MixArchiveScanner:
             cfg = parse_env_file(ef)
             add(cfg.get("MIX_ARCHIVE_DIR"))
             parse(cfg.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("MIX_ARCHIVE_DIRS"))
-        for n in ("MIX_ARCHIVE", "FLAC_CONVERTED_OUTPUTS", "MP3_CONVERTED_OUTPUTS", "WAV_CONVERTED_OUTPUTS"): add(self.base_dir / n)
+        for n in ("MIX_ARCHIVE", "MP_SAMPLES", "FLAC_CONVERTED_OUTPUTS", "MP3_CONVERTED_OUTPUTS", "WAV_CONVERTED_OUTPUTS"): add(self.base_dir / n)
         if sys.platform == "win32":
             for d in ("B:/MIX_ARCHIVE", "B:/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS", "X:/MIX_ARCHIVE"): add(d)
             for l in "BDEFGNVXZ": add(f"{l}:/MIX_ARCHIVE")
@@ -949,6 +949,7 @@ DEFAULT_EQ_PRESETS: Dict[str, List[float]] = {
     "House": [3.5, 4.0, 3.0, -1.0, -1.0, 0.0, 1.5, 2.0, 3.0, 2.0],
     "Progressive": [3.0, 4.0, 2.5, -1.0, -1.0, 0.0, 1.5, 2.0, 2.5, 3.0],
     "Vapourwave": [-2.0, 1.0, 2.5, 3.5, 1.5, 0.0, -1.0, -2.5, -4.0, -6.0],
+    "Sensorium Interface": [4.5, 4.0, 1.5, -1.0, 0.5, 1.5, 2.5, 3.5, 4.0, 3.0],
 }
 
 EQ_PRESET_ALIASES: Dict[str, str] = {
@@ -958,6 +959,11 @@ EQ_PRESET_ALIASES: Dict[str, str] = {
     "progressive house": "Progressive",
     "prog": "Progressive",
     "default": "Flat",
+    "sensorium": "Sensorium Interface",
+    "sensorium interface": "Sensorium Interface",
+    "sensorium_interface": "Sensorium Interface",
+    "earth flipper": "Sensorium Interface",
+    "earth_flipper": "Sensorium Interface",
 }
 
 
@@ -1957,6 +1963,7 @@ def _present_frame(lines: List[str], width: int, height: int):
     sys.stdout.flush()
 
 _THEME_PALETTES = {
+    "stream_of_frequency": {"highlight": "\033[38;2;0;242;255m", "active": "\033[38;2;76;217;123m", "border": "\033[38;2;48;49;131m", "accent": "\033[38;2;245;237;106m"},
     "dynamic_rainbow_liquid_glass": {"highlight": "\033[38;2;176;88;255m", "active": "\033[38;2;255;45;142m", "border": "\033[38;2;176;88;255m", "accent": "\033[38;2;0;242;254m"},
     "dreamworlds_liquid": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;199;125;255m", "border": "\033[38;2;72;149;239m", "accent": "\033[38;2;0;245;212m"},
     "cosmic_supernova": {"highlight": "\033[38;2;224;86;253m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;224;86;253m", "accent": "\033[38;2;76;201;240m"},
@@ -1969,10 +1976,26 @@ _THEME_PALETTES = {
     "cosmic_dreamworlds_radioactive": {"highlight": "\033[38;2;57;255;20m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;57;255;20m", "accent": "\033[38;2;166;77;255m"},
     "cosmic_dreamworlds": {"highlight": "\033[38;2;232;13;104m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;232;13;104m", "accent": "\033[38;2;176;88;255m"},
     "orbital_void_reflux": {"highlight": "\033[38;2;0;240;255m", "active": "\033[38;2;255;0;127m", "border": "\033[38;2;0;240;255m", "accent": "\033[38;2;157;78;221m"},
+    "sensorium_interface": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;240;168;216m", "border": "\033[38;2;0;245;255m", "accent": "\033[38;2;184;72;196m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
 _THEME_ALIASES = {
+    "sensorium_interface": "sensorium_interface",
+    "sensorium_interface_(liquid_glass_skin)": "sensorium_interface",
+    "sensorium interface (liquid glass skin)": "sensorium_interface",
+    "sensorium interface": "sensorium_interface",
+    "sensorium": "sensorium_interface",
+    "earth_flipper": "sensorium_interface",
+    "earth flipper": "sensorium_interface",
+    "stream_of_frequency": "stream_of_frequency",
+    "stream_of_frequency_theme": "stream_of_frequency",
+    "stream of frequency": "stream_of_frequency",
+    "stream-of-frequency": "stream_of_frequency",
+    "stream": "stream_of_frequency",
+    "frequency": "stream_of_frequency",
+    "sof": "stream_of_frequency",
+    "frequency_stream": "stream_of_frequency",
     "cosmic_dreamworlds": "cosmic_dreamworlds",
     "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
     "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
@@ -2034,6 +2057,7 @@ class EqualizerVisualizer:
         "oscilloscope": "Oscilloscope Waveform",
     }
     THEMES = [
+        "stream_of_frequency",
         "dreamworlds_ultra",
         "dynamic_rainbow_liquid_glass",
         "cosmic_supernova",
@@ -2047,8 +2071,10 @@ class EqualizerVisualizer:
         "cosmic_dreamworlds_radioactive",
         "cosmic_dreamworlds",
         "orbital_void_reflux",
+        "sensorium_interface",
     ]
     THEME_NAMES = {
+        "stream_of_frequency": "Stream of Frequency [Special Edition]",
         "dreamworlds_ultra": "Dreamworlds Ultra",
         "dynamic_rainbow_liquid_glass": "Dynamic Liquid Glass [Rainbow Colours] (New)",
         "cosmic_supernova": "Cosmic Supernova",
@@ -2062,6 +2088,7 @@ class EqualizerVisualizer:
         "cosmic_dreamworlds_radioactive": "Cosmic Dreamworlds Radioactive (Liquid Glass Skin)",
         "cosmic_dreamworlds": "Cosmic Dreamworlds (Liquid Glass Skin)",
         "orbital_void_reflux": "Orbital Void Reflux (Liquid Glass Skin)",
+        "sensorium_interface": "Sensorium Interface (Liquid Glass Skin)",
     }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
@@ -2102,7 +2129,10 @@ class EqualizerVisualizer:
 
     def set_theme(self, name: str):
         c = _THEME_ALIASES.get(str(name).strip().lower(), str(name).strip().lower())
-        if c in self.THEMES: self.theme_idx = self.THEMES.index(c)
+        if c in self.THEMES:
+            self.theme_idx = self.THEMES.index(c)
+            if c == "stream_of_frequency":
+                self.style_idx = self.STYLES.index("stream_of_frequency_eq")
 
     def cycle_style(self):
         self.style_idx = (self.style_idx + 1) % len(self.STYLES)
@@ -2120,6 +2150,27 @@ class EqualizerVisualizer:
 
     def _base_theme_rgb(self, c_frac: float, ultra_floor: float = 0.10) -> Tuple[float, float, float]:
         t = self.theme
+        if t in ("stream_of_frequency", "stream", "frequency"):
+            if c_frac < 0.25:
+                s = c_frac / 0.25
+                return 0.19 * (1.0 - s), 0.19 + 0.76 * s, 0.51 + 0.49 * s
+            if c_frac < 0.50:
+                s = (c_frac - 0.25) / 0.25
+                return 0.0 + 0.30 * s, 0.95 - 0.10 * s, 1.0 - 0.52 * s
+            if c_frac < 0.75:
+                s = (c_frac - 0.50) / 0.25
+                return 0.30 + 0.66 * s, 0.85 + 0.08 * s, 0.48 - 0.07 * s
+            s = (c_frac - 0.75) / 0.25
+            return 0.96 - 0.02 * s, 0.93 - 0.80 * s, 0.41 - 0.28 * s
+        if t in ("sensorium_interface", "sensorium", "sensorium interface"):
+            if c_frac < 0.33:
+                s = c_frac / 0.33
+                return 0.0 + 0.94 * s, 0.96 - 0.30 * s, 1.0 - 0.15 * s
+            if c_frac < 0.66:
+                s = (c_frac - 0.33) / 0.33
+                return 0.94 - 0.22 * s, 0.66 - 0.38 * s, 0.85 - 0.08 * s
+            s = (c_frac - 0.66) / 0.34
+            return 0.72 - 0.26 * s, 0.28 + 0.30 * s, 0.77 - 0.33 * s
         if t in ("orbital_void_reflux", "orbital_void", "void_reflux", "orbital"):
             if c_frac < 0.50:
                 s = c_frac / 0.50
@@ -2200,26 +2251,59 @@ class EqualizerVisualizer:
         bl, br = np.interp(xo, xi, ll), np.interp(xo, xi, lr)
         return bl, br, (np.interp(xo, xi, pl) if len(pl) > 1 else bl), (np.interp(xo, xi, pr) if len(pr) > 1 else br)
 
-    def _stereo_footer(self, is_wide: bool) -> List[str]:
-        lbl = "│ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │ 30 60 125 250 500 1k 2k 4k 8k 12k 16k 18k │" if is_wide else "│  32  64  125 250 500  1k  4k  16k  │  32  64  125 250 500  1k  4k  16k  │"
-        bot = "╰───────────────────────────────────────────┴───────────────────────────────────────────╯" if is_wide else "╰────────────────────────────────────┴────────────────────────────────────╯"
+    def _format_freq_labels(self, ch_w: int) -> str:
+        freqs_wide = ["30", "60", "125", "250", "500", "1k", "2k", "4k", "8k", "12k", "16k", "18k"]
+        freqs_narrow = ["32", "64", "125", "250", "500", "1k", "4k", "16k"]
+        freqs = freqs_wide if ch_w >= 40 else freqs_narrow
+        tot = sum(len(f) for f in freqs)
+        if ch_w <= tot + len(freqs):
+            s = " ".join(freqs)
+            return f"{s:<{ch_w}s}"[:ch_w]
+        rem = ch_w - tot
+        gaps = len(freqs) + 1
+        base = rem // gaps
+        extra = rem % gaps
+        parts = []
+        for i, f in enumerate(freqs):
+            pad = base + (1 if i < extra else 0)
+            parts.append(" " * pad + f)
+        rem_end = ch_w - sum(len(p) for p in parts)
+        res = "".join(parts) + " " * rem_end
+        return f"{res:<{ch_w}s}"[:ch_w]
+
+    def _stereo_footer(self, ch_w_l: Union[int, bool] = 36, ch_w_r: Optional[int] = None) -> List[str]:
+        if isinstance(ch_w_l, bool):
+            is_wide = ch_w_l
+            ch_w_l = 43 if is_wide else 36
+            ch_w_r = 43 if is_wide else 36
+        elif ch_w_r is None:
+            ch_w_r = ch_w_l
+        lbl = f"│{self._format_freq_labels(ch_w_l)}│{self._format_freq_labels(ch_w_r)}│"
+        bot = f"╰{'─' * ch_w_l}┴{'─' * ch_w_r}╯"
         return [f"  {self.b_col}{lbl}{NC}", f"  {self.b_col}{bot}{NC}"]
 
     def render_neon_prism_eq(self, levels_l: np.ndarray, levels_r: np.ndarray, peaks_l: np.ndarray, peaks_r: np.ndarray, width: int = 80, height: int = 7, rms: float = 0.0, peak_db: float = -60.0) -> List[str]:
-        is_wide = width >= 96
-        n = 21 if is_wide else 16
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        ch_w_l = (target_iw - 1) // 2
+        ch_w_r = target_iw - 1 - ch_w_l
+        n = max(16, (ch_w_l - 2) // 2)
         bl, br, pl, pr = self._resample_bands(levels_l, levels_r, peaks_l, peaks_r, n)
         is_beat = rms > 0.13 or peak_db > -5.0
         bolt = "\033[1;38;2;255;255;255m" if is_beat else ("\033[1;38;2;255;215;0m" if rms > 0.07 else COLOR_HOT_PURPLE)
         div = "\033[1;38;2;247;37;133m" if is_beat else self.b_col
-        hdr = f"╭── {bolt}⚡{NC}{self.b_col} LEFT (21-BAND NEON PRISM) ───────────┬── {bolt}⚡{NC}{self.b_col} RIGHT (21-BAND NEON PRISM) ──────────╮" if is_wide else f"╭── {bolt}⚡{NC}{self.b_col} LEFT (16-BAND PRISM) ─────────┬── {bolt}⚡{NC}{self.b_col} RIGHT (16-BAND PRISM) ────────╮"
+        lh = f"── {bolt}⚡{NC}{self.b_col} LEFT ({n}-BAND NEON PRISM) "
+        rh = f"── {bolt}⚡{NC}{self.b_col} RIGHT ({n}-BAND NEON PRISM) "
+        hdr = f"╭{lh}{'─' * max(0, ch_w_l - _display_width(lh))}┬{rh}{'─' * max(0, ch_w_r - _display_width(rh))}╮"
         lines = [f"  {self.b_col}{hdr}{NC}"]
         for r in range(height - 1, -1, -1):
             rf = (r + 1) / float(height)
-            def _side(bands, pks):
+            def _side(bands, pks, ch_w):
+                rem = max(0, ch_w - n * 2)
+                l_pad = rem // 2
+                r_pad = rem - l_pad
                 pts = []
                 for c in range(n):
-                    frac, cf, pk = bands[c] * height - r, c / float(n - 1), pks[c] if c < len(pks) else 0.0
+                    frac, cf, pk = bands[c] * height - r, c / float(max(1, n - 1)), pks[c] if c < len(pks) else 0.0
                     if frac >= 1.0: col, ch = self._get_neon_prism_color(cf, rf, is_cap=(frac < 2.0)), "█"
                     elif frac > 0.0: col, ch = self._get_neon_prism_color(cf, rf, is_cap=True), prism_level_glyph(max(1, min(8, int(frac * 8))))
                     elif int(round(pk * height)) == r:
@@ -2227,25 +2311,32 @@ class EqualizerVisualizer:
                         ch = prism_peak_glyph(pk >= 0.90, c)
                     else: ch = " "
                     pts.append(f"{col}{ch}{NC} " if ch != " " else "  ")
-                return (" " if is_wide else "  ") + "".join(pts) + ("" if is_wide else "  ")
-            lines.append(f"  {self.b_col}│{NC}{_side(bl, pl)}{div}│{NC}{_side(br, pr)}{self.b_col}│{NC}")
-        return lines + self._stereo_footer(is_wide)
+                return (" " * l_pad) + "".join(pts) + (" " * r_pad)
+            lines.append(f"  {self.b_col}│{NC}{_side(bl, pl, ch_w_l)}{div}│{NC}{_side(br, pr, ch_w_r)}{self.b_col}│{NC}")
+        return lines + self._stereo_footer(ch_w_l, ch_w_r)
 
     def render_stardust_particles_eq(self, levels_l: np.ndarray, levels_r: np.ndarray, peaks_l: np.ndarray, peaks_r: np.ndarray, width: int = 80, height: int = 7, rms: float = 0.0, peak_db: float = -60.0) -> List[str]:
-        is_wide = width >= 96
-        n, ch_w = (21, 43) if is_wide else (16, 36)
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        ch_w_l = (target_iw - 1) // 2
+        ch_w_r = target_iw - 1 - ch_w_l
+        min_w = min(ch_w_l, ch_w_r)
+        n = max(16, (min_w - 2) // 2)
         bl, br, pl, pr = self._resample_bands(levels_l, levels_r, peaks_l, peaks_r, n)
         now, is_beat = time.time(), (rms > 0.13 or peak_db > -5.0)
         scol = "\033[1;38;2;255;255;255m" if is_beat else ("\033[1;38;2;255;215;0m" if rms > 0.07 else COLOR_HOT_PURPLE)
         div = "\033[1;38;2;247;37;133m" if is_beat else self.b_col
         spark = console_symbol("✦")
-        col_map = [(1 if is_wide else 2) + b * 2 for b in range(n)]
-        lt, rt = ("LEFT (21-BAND CHROMA STARDUST)", "RIGHT (21-BAND CHROMA STARDUST)") if is_wide else ("LEFT (16-BAND CHROMA DUST)", "RIGHT (16-BAND CHROMA DUST)")
-        lh = f"── {scol}{spark}{NC}{self.b_col} {lt} "; lh += "─" * (ch_w - _display_width(lh))
-        rh = f"── {scol}{spark}{NC}{self.b_col} {rt} "; rh += "─" * (ch_w - _display_width(rh))
+        m_l = max(0, (ch_w_l - (2 * n - 1)) // 2)
+        m_r = max(0, (ch_w_r - (2 * n - 1)) // 2)
+        col_map_l = [min(ch_w_l - 1, m_l + b * 2) for b in range(n)]
+        col_map_r = [min(ch_w_r - 1, m_r + b * 2) for b in range(n)]
+        lt = f"LEFT ({n}-BAND CHROMA STARDUST)"
+        rt = f"RIGHT ({n}-BAND CHROMA STARDUST)"
+        lh = f"── {scol}{spark}{NC}{self.b_col} {lt} "; lh += "─" * max(0, ch_w_l - _display_width(lh))
+        rh = f"── {scol}{spark}{NC}{self.b_col} {rt} "; rh += "─" * max(0, ch_w_r - _display_width(rh))
         lines = [f"  {self.b_col}╭{lh}┬{rh}╮{NC}"]
 
-        for ch_idx, (bands, pks) in enumerate(((bl, pl), (br, pr))):
+        for ch_idx, (bands, pks, ch_w, col_map) in enumerate(((bl, pl, ch_w_l, col_map_l), (br, pr, ch_w_r, col_map_r))):
             for b in range(n):
                 val, pk = float(bands[b]), float(pks[b]) if b < len(pks) else float(bands[b])
                 if val > 0.15 and self.dust_rng.random() < val * 0.40:
@@ -2262,8 +2353,10 @@ class EqualizerVisualizer:
             for _ in range(self.dust_rng.randint(2, 4)):
                 rb = self.dust_rng.randint(0, n - 1)
                 rf, cf = min(1.0, max(0.2, float(bl[rb]))), rb / float(n - 1)
+                tch = self.dust_rng.choice([0, 1])
+                tcm = col_map_l if tch == 0 else col_map_r
                 self.dust_particles.append({
-                    "ch": self.dust_rng.choice([0, 1]), "x": float(col_map[rb]) + self.dust_rng.uniform(-0.6, 0.6),
+                    "ch": tch, "x": float(tcm[rb]) + self.dust_rng.uniform(-0.6, 0.6),
                     "y": float(min(height - 1, bl[rb] * height + self.dust_rng.uniform(0.5, 1.5))), "vx": self.dust_rng.uniform(-0.8, 0.8), "vy": self.dust_rng.uniform(0.6, 1.5),
                     "symbol": self.dust_rng.choice(stardust_dust_choices("hot")),
                     "color_rgb": (255, 255, 255) if self.dust_rng.random() < 0.4 else self._get_stardust_rgb(cf, rf, is_sparkle=True),
@@ -2276,13 +2369,14 @@ class EqualizerVisualizer:
         for p in self.dust_particles:
             p["life"] -= dt
             if p["life"] > 0.0:
-                p["x"] = max(0.0, min(float(ch_w - 1), p["x"] + (p["vx"] + math.sin(now * p["sway_freq"] + p["twinkle_phase"]) * p["sway_amp"]) * dt))
+                p_cw = ch_w_l if p.get("ch", 0) == 0 else ch_w_r
+                p["x"] = max(0.0, min(float(p_cw - 1), p["x"] + (p["vx"] + math.sin(now * p["sway_freq"] + p["twinkle_phase"]) * p["sway_amp"]) * dt))
                 p["y"] -= p["vy"] * dt
                 if p["y"] >= 0.0: alive.append(p)
         self.dust_particles = alive
 
         c_grids = []
-        for ch_idx, (bands, pks) in enumerate(((bl, pl), (br, pr))):
+        for ch_idx, (bands, pks, ch_w, col_map) in enumerate(((bl, pl, ch_w_l, col_map_l), (br, pr, ch_w_r, col_map_r))):
             gc, gcol = [[" "] * ch_w for _ in range(height)], [[""] * ch_w for _ in range(height)]
             for b in range(n):
                 col, cf, val = col_map[b], b / float(n - 1), float(bands[b])
@@ -2320,13 +2414,15 @@ class EqualizerVisualizer:
 
         (gl_c, gl_col), (gr_c, gr_col) = c_grids
         for r in range(height - 1, -1, -1):
-            ls = "".join(f"{gl_col[r][c]}{gl_c[r][c]}{NC}" if gl_c[r][c] != " " else " " for c in range(ch_w))
-            rs = "".join(f"{gr_col[r][c]}{gr_c[r][c]}{NC}" if gr_c[r][c] != " " else " " for c in range(ch_w))
+            ls = "".join(f"{gl_col[r][c]}{gl_c[r][c]}{NC}" if gl_c[r][c] != " " else " " for c in range(ch_w_l))
+            rs = "".join(f"{gr_col[r][c]}{gr_c[r][c]}{NC}" if gr_c[r][c] != " " else " " for c in range(ch_w_r))
             lines.append(f"  {self.b_col}│{NC}{ls}{div}│{NC}{rs}{self.b_col}│{NC}")
-        return lines + self._stereo_footer(is_wide)
+        return lines + self._stereo_footer(ch_w_l, ch_w_r)
 
     def _get_bar_color(self, fraction: float) -> str:
         t = self.theme
+        if t in ("stream_of_frequency", "stream", "frequency"):
+            return "\033[38;2;0;242;255m" if fraction < 0.30 else ("\033[38;2;76;217;123m" if fraction < 0.60 else ("\033[38;2;245;237;106m" if fraction < 0.85 else "\033[38;2;240;32;24m"))
         if t == "cosmic_supernova":
             return "\033[38;2;0;245;212m" if fraction < 0.35 else ("\033[38;2;76;201;240m" if fraction < 0.65 else ("\033[38;2;224;86;253m" if fraction < 0.85 else "\033[38;2;255;51;102m"))
         if t in ("dreamworlds_liquid", "liquid_transparency", "mp_dreamworlds_liquid_transparency"):
@@ -2341,59 +2437,128 @@ class EqualizerVisualizer:
         return "\033[38;2;30;144;255m" if fraction < 0.5 else "\033[38;2;224;255;255m"
 
     def render_stereo_eq(self, levels_l: np.ndarray, levels_r: np.ndarray, peaks: np.ndarray, width: int = 80, height: int = 7) -> List[str]:
-        is_wide = width >= 96
-        n, widths = (12, [3, 3, 4, 4, 4, 3, 3, 3, 3, 4, 4, 4]) if is_wide else (8, [2] * 8)
-        if len(levels_l) > n:
-            xi, xo = np.linspace(0.0, 1.0, len(levels_l)), np.linspace(0.0, 1.0, n)
-            bl, br = np.interp(xo, xi, levels_l), np.interp(xo, xi, levels_r)
-        else:
-            bl = levels_l[:n] if len(levels_l) >= n else np.pad(levels_l, (0, max(0, n - len(levels_l))))
-            br = levels_r[:n] if len(levels_r) >= n else np.pad(levels_r, (0, max(0, n - len(levels_r))))
-        hdr = f"╭── LEFT CHANNEL ({n}-BAND) " + ("─────────────────┬── RIGHT CHANNEL (12-BAND) ────────────────╮" if is_wide else "───────────┬── RIGHT CHANNEL (8-BAND) ──────────╮")
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        ch_w_l = (target_iw - 1) // 2
+        ch_w_r = target_iw - 1 - ch_w_l
+        min_w = min(ch_w_l, ch_w_r)
+        if min_w >= 50: n = 16
+        elif min_w >= 38: n = 12
+        else: n = 8
+        bl, br, pl, pr = self._resample_bands(levels_l, levels_r, peaks, peaks, n)
+
+        def _calc_widths(ch_w: int) -> List[int]:
+            base_bw = ch_w // n
+            rem = ch_w % n
+            return [base_bw + (1 if i < rem else 0) for i in range(n)]
+
+        widths_l = _calc_widths(ch_w_l)
+        widths_r = _calc_widths(ch_w_r)
+
+        lt = f"LEFT CHANNEL ({n}-BAND)"
+        rt = f"RIGHT CHANNEL ({n}-BAND)"
+        lh = f"── {lt} "; lh += "─" * max(0, ch_w_l - _display_width(lh))
+        rh = f"── {rt} "; rh += "─" * max(0, ch_w_r - _display_width(rh))
+        hdr = f"╭{lh}┬{rh}╮"
         lines = [f"  {self.b_col}{hdr}{NC}"]
+
+        def _render_channel_row(bands, pks, widths, r):
+            pts = []
+            for c in range(n):
+                w_c = widths[c]
+                pk = pks[c % len(pks)] if len(pks) > 0 else 0.0
+                ch = meter_level_char(bands[c] * height - r, int(pk * height) == r)
+                if w_c <= 2:
+                    pts.append(f"{ch} " if w_c == 2 else ch)
+                elif w_c == 3:
+                    pts.append(f" {ch} ")
+                else:
+                    bar_w = 2
+                    pad_tot = w_c - bar_w
+                    pl = pad_tot // 2
+                    pr = pad_tot - pl
+                    pts.append((" " * pl) + (ch * bar_w) + (" " * pr))
+            return "".join(pts)
+
         for r in range(height - 1, -1, -1):
             col = self._get_bar_color(r / float(height))
-            def _side(bands, pk_off):
-                pts = []
-                for c in range(n):
-                    pk = peaks[(c + pk_off) % len(peaks)] if len(peaks) > 0 else 0.0
-                    ch = meter_level_char(bands[c] * height - r, int(pk * height) == r)
-                    pts.append(f" {ch} " if (widths[c] if is_wide else 2) == 3 else f" {ch*2} ")
-                return (" " if is_wide else "  ") + "".join(pts) + ("" if is_wide else "  ")
-            lines.append(f"  {self.b_col}│{NC}{col}{_side(bl, 0)}{NC}{self.b_col}│{NC}{col}{_side(br, n)}{NC}{self.b_col}│{NC}")
-        return lines + self._stereo_footer(is_wide)
+            ls = _render_channel_row(bl, pl, widths_l, r)
+            rs = _render_channel_row(br, pr, widths_r, r)
+            lines.append(f"  {self.b_col}│{NC}{col}{ls}{NC}{self.b_col}│{NC}{col}{rs}{NC}{self.b_col}│{NC}")
+        return lines + self._stereo_footer(ch_w_l, ch_w_r)
 
-    def render_master_spectrum(self, levels: np.ndarray, peaks: np.ndarray, height: int = 7) -> List[str]:
-        lines = [f"  {self.b_col}╭── HIGH-RESOLUTION MASTER FREQUENCY SPECTRUM (30Hz - 18kHz) ──────────────╮{NC}"]
+    def render_master_spectrum(self, levels: np.ndarray, peaks: np.ndarray, width: int = 80, height: int = 7) -> List[str]:
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        num_bars = max(16, (target_iw - 2) // 3)
+        hdr = "── HIGH-RESOLUTION MASTER FREQUENCY SPECTRUM (30Hz - 18kHz) "
+        top_line = f"  {self.b_col}╭{hdr}{'─' * max(0, target_iw - _display_width(hdr))}╮{NC}"
+        bot_line = f"  {self.b_col}╰{'─' * target_iw}╯{NC}"
+        lines = [top_line]
         if len(levels) > 1:
-            xo, xn = np.linspace(0, 1, len(levels)), np.linspace(0, 1, 24)
-            il, ip = np.interp(xn, xo, levels), np.interp(xn, xo, peaks) if len(peaks) > 1 else np.zeros(24)
-        else: il = ip = np.zeros(24)
+            xo, xn = np.linspace(0, 1, len(levels)), np.linspace(0, 1, num_bars)
+            il = np.interp(xn, xo, levels)
+            ip = np.interp(xn, xo, peaks) if len(peaks) > 1 else np.zeros(num_bars)
+        else:
+            il = ip = np.zeros(num_bars)
+        avail = target_iw - 2
+        bar_span = num_bars * 3
+        pad_tot = max(0, avail - bar_span)
+        pad_l = 1 + pad_tot // 2
+        pad_r = target_iw - pad_l - bar_span
+
         for r in range(height - 1, -1, -1):
             col = self._get_bar_color(r / float(height))
             rc = [f"{meter_level_char(val * height - r, int(ip[c] * height) == r)*2} " for c, val in enumerate(il)]
-            lines.append(f"  {self.b_col}│{NC} {col}{''.join(rc)}{NC} {self.b_col}│{NC}")
-        return lines + [f"  {self.b_col}│{NC}{DIM}{CYAN}  32  63  125  250  500   1k   2k   4k   8k  12k  16k  18k    PEAK HOLD {console_symbol('✦')} {NC}{self.b_col}│{NC}", f"  {self.b_col}╰──────────────────────────────────────────────────────────────────────────╯{NC}"]
+            lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{col}{''.join(rc)}{NC}{' ' * pad_r}{self.b_col}│{NC}")
 
-    def render_analog_vu(self, peak_db: float, levels_l: np.ndarray, levels_r: np.ndarray) -> List[str]:
-        lines = [f"  {self.b_col}╭── DUAL ANALOG STUDIO VU METERS (PEAK & RMS BALLISTICS) ──────────────────╮{NC}", f"  {self.b_col}│{NC}  -40   -30   -20   -10   -7   -5   -3   -1    0  +1  +2  +3 dB           {self.b_col}│{NC}"]
-        blen = 46
+        peak_str = f"PEAK HOLD {console_symbol('✦')}"
+        rem_w = max(10, target_iw - _display_width(peak_str) - 4)
+        fl = self._format_freq_labels(rem_w)
+        ftr_mid = f"  {fl}  {peak_str}"
+        ftr_pad = max(0, target_iw - _display_width(ftr_mid))
+        lines.append(f"  {self.b_col}│{NC}{DIM}{CYAN}{ftr_mid}{' ' * ftr_pad}{NC}{self.b_col}│{NC}")
+        lines.append(bot_line)
+        return lines
+
+    def render_analog_vu(self, peak_db: float, levels_l: np.ndarray, levels_r: np.ndarray, width: int = 80) -> List[str]:
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        hdr = "── DUAL ANALOG STUDIO VU METERS (PEAK & RMS BALLISTICS) "
+        top_line = f"  {self.b_col}╭{hdr}{'─' * max(0, target_iw - _display_width(hdr))}╮{NC}"
+        bot_line = f"  {self.b_col}╰{'─' * target_iw}╯{NC}"
+        lines = [top_line]
+
+        blen = max(10, target_iw - 28)
+        scale_raw = "-40   -30   -20   -10   -7   -5   -3   -1    0  +1  +2  +3 dB"
+        scale_pfx = "  "
+        scale_str = scale_pfx + scale_raw
+        if _display_width(scale_str) > target_iw:
+            scale_str = _clip_display(scale_str, target_iw)
+        scale_pad = max(0, target_iw - _display_width(scale_str))
+        lines.append(f"  {self.b_col}│{NC}{scale_str}{' ' * scale_pad}{self.b_col}│{NC}")
+
         for name, val in (("LEFT  CHANNEL", np.mean(levels_l) if len(levels_l) else 0.0), ("RIGHT CHANNEL", np.mean(levels_r) if len(levels_r) else 0.0)):
             filled = int(val * blen)
             meter = "".join(f"{self._get_bar_color(i / blen)}█{NC}" if i < filled else f"{DIM}░{NC}" for i in range(blen))
             clip_s = f"{BOLD}{RED}[CLIP]{NC}" if filled >= blen - 1 else f"{DIM}[SAFE]{NC}"
-            lines.append(f"  {self.b_col}│{NC}  {BOLD}{CYAN}{name}{NC} [{meter}] {clip_s}   {self.b_col}│{NC}")
-        return lines + [f"  {self.b_col}│{NC}  Peak Audio Level: {BOLD}{YELLOW}{peak_db:+6.1f} dBFS{NC}  │  Master Headroom: {BOLD}{GREEN}{max(0.0, -peak_db):5.1f} dB{NC}             {self.b_col}│{NC}", f"  {self.b_col}╰──────────────────────────────────────────────────────────────────────────╯{NC}"]
+            row_content = f"  {BOLD}{CYAN}{name}{NC} [{meter}] {clip_s}"
+            row_pad = max(0, target_iw - _display_width(row_content))
+            lines.append(f"  {self.b_col}│{NC}{row_content}{' ' * row_pad}{self.b_col}│{NC}")
+
+        info_str = f"  Peak Audio Level: {BOLD}{YELLOW}{peak_db:+6.1f} dBFS{NC}  │  Master Headroom: {BOLD}{GREEN}{max(0.0, -peak_db):5.1f} dB{NC}"
+        if _display_width(info_str) > target_iw:
+            info_str = _clip_display(info_str, target_iw)
+        info_pad = max(0, target_iw - _display_width(info_str))
+        lines.append(f"  {self.b_col}│{NC}{info_str}{' ' * info_pad}{self.b_col}│{NC}")
+        lines.append(bot_line)
+        return lines
 
     def render_oscilloscope(self, levels: np.ndarray, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 5) -> List[str]:
         st = status or {}
-        if width >= 80:
-            iw, top_l, bot_l = 70, f"  {self.b_col}╭── DYNAMIC OSCILLOSCOPE AUDIO WAVEFORM ───────────────────────────────────╮{NC}", f"  {self.b_col}╰──────────────────────────────────────────────────────────────────────────╯{NC}"
-        else:
-            iw = max(16, max(24, min(76, width - 4)) - 6)
-            bw, hdr = iw + 6, "── OSCILLOSCOPE WAVEFORM "
-            top_l = f"  {self.b_col}╭{hdr}{'─' * (bw - 2 - len(hdr))}╮{NC}" if bw - 2 >= len(hdr) else f"  {self.b_col}╭{'─' * (bw - 2)}╮{NC}"
-            bot_l = f"  {self.b_col}╰{'─' * (bw - 2)}╯{NC}"
+        target_iw = max(20, width - 6 if width >= 26 else width - 4)
+        iw = max(16, target_iw - 4)
+        hdr = "── DYNAMIC OSCILLOSCOPE AUDIO WAVEFORM "
+        top_l = f"  {self.b_col}╭{hdr}{'─' * max(0, target_iw - _display_width(hdr))}╮{NC}"
+        bot_l = f"  {self.b_col}╰{'─' * target_iw}╯{NC}"
+
         hh, state, rms, pm = max(1, height // 2), st.get("state", "stopped"), float(st.get("rms_level", 0.0)), max(0.5, min(2.0, 1.0 + int(st.get("pitch_percent", 0)) / 100.0))
         now, wf_arr, xd = time.time(), np.array(st.get("waveform", []), dtype=float), np.linspace(0.0, 1.0, iw)
         if state == "playing":
@@ -2411,6 +2576,8 @@ class EqualizerVisualizer:
         y_f = [float(p) * hh for p in pts]
         y_i = [max(-hh, min(hh, int(round(yf)))) for yf in y_f]
         lines, cx = [top_l], iw // 2
+        pad_l = (target_iw - iw) // 2
+        pad_r = target_iw - iw - pad_l
         for r in range(hh, -hh - 1, -1):
             rc = []
             for i in range(iw):
@@ -2423,24 +2590,20 @@ class EqualizerVisualizer:
                 else:
                     tk = (i - cx) % 10 == 0
                     rc.append(f"{DIM}{'┼' if tk else '·'}{NC}" if r == 0 else (f"{DIM}·{NC}" if tk else " "))
-            lines.append(f"  {self.b_col}│{NC}  {''.join(rc)}  {self.b_col}│{NC}")
+            lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{''.join(rc)}{' ' * pad_r}{self.b_col}│{NC}")
         return lines + [bot_l]
 
     def render_stream_of_frequency(self, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 7) -> List[str]:
         st = status or {}
-        if width >= 80:
-            bw = 76
-            inner_w = 74
-            cw = 72
-            hdr_text = "── 🌊 STREAM OF FREQUENCY (DYNAMIC SPECTROGRAM) "
+        inner_w = max(20, width - 6 if width >= 26 else width - 4)
+        cw = max(16, inner_w - 2)
+        hdr_text = "── 🌊 STREAM OF FREQUENCY (DYNAMIC SPECTROGRAM) " if inner_w >= 50 else ("── 🌊 STREAM OF FREQUENCY " if inner_w >= 32 else "── 🌊 STREAM ")
+        if inner_w >= 70:
             ftr_text = "── ◄ FLOW (RIGHT ➔ LEFT) ◄ ──── 32Hz  125Hz  500Hz  2kHz  8kHz  16kHz ────"
+        elif inner_w >= 36:
+            ftr_text = "── ◄ FLOW (R ➔ L) ◄ ────"
         else:
-            bw = max(24, min(76, width - 4))
-            if bw % 2 != 0: bw -= 1
-            inner_w = max(18, bw - 2)
-            cw = max(16, inner_w - 2)
-            hdr_text = "── 🌊 STREAM OF FREQUENCY " if inner_w >= 32 else "── 🌊 STREAM "
-            ftr_text = "── ◄ FLOW (R ➔ L) ◄ " if inner_w >= 28 else "── ◄ FLOW ◄ "
+            ftr_text = "── ◄ FLOW ◄ "
 
         top_l = f"  {self.b_col}╭{hdr_text}{'─' * max(0, inner_w - _display_width(hdr_text))}╮{NC}"
         bot_l = f"  {self.b_col}╰{ftr_text}{'─' * max(0, inner_w - _display_width(ftr_text))}╯{NC}"
@@ -2463,9 +2626,9 @@ class EqualizerVisualizer:
         mono = 0.5 * (ll + lr) if len(ll) == len(lr) and len(ll) > 0 else lv
         if len(mono) < 24: mono = np.pad(mono, (0, max(0, 24 - len(mono))))
 
-        # Buffer: 16 vertical bins x 140 time slices
-        if getattr(self, "_sof_buffer", None) is None:
-            self._sof_buffer = np.zeros((16, 140), dtype=float)
+        buf_cols = max(140, cw + 40)
+        if getattr(self, "_sof_buffer", None) is None or self._sof_buffer.shape[1] < buf_cols:
+            self._sof_buffer = np.zeros((16, buf_cols), dtype=float)
 
         if state == "playing":
             interp_x = np.linspace(0.0, 1.0, 16)
@@ -2550,7 +2713,7 @@ class EqualizerVisualizer:
         grid_c = [[" "] * cw for _ in range(H)]
         grid_col = [[""] * cw for _ in range(H)]
 
-        buf_offset = 140 - cw
+        buf_offset = self._sof_buffer.shape[1] - cw
         for r in range(H):
             buf_r = min(15, int(r * (16.0 / max(1, H))))
             for c in range(cw):
@@ -2591,9 +2754,12 @@ class EqualizerVisualizer:
 
         # Build output lines (from top row H-1 down to bottom row 0)
         lines = [top_l]
+        pad_tot = inner_w - cw
+        pad_l = pad_tot // 2
+        pad_r = inner_w - cw - pad_l
         for r in range(H - 1, -1, -1):
             row_str = "".join(f"{grid_col[r][c]}{grid_c[r][c]}{NC}" if grid_c[r][c] != " " else " " for c in range(cw))
-            lines.append(f"  {self.b_col}│{NC} {row_str} {self.b_col}│{NC}")
+            lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{row_str}{' ' * pad_r}{self.b_col}│{NC}")
         lines.append(bot_l)
         return lines
 
@@ -2644,11 +2810,12 @@ class EqualizerVisualizer:
         if s == "stream_of_frequency_eq": lines = self.render_stream_of_frequency(status, width, height)
         elif s == "neon_prism_eq": lines = self.render_neon_prism_eq(ll, lr, pl, pr, width, height, rms, pdb)
         elif s == "stardust_particles_eq": lines = self.render_stardust_particles_eq(ll, lr, pl, pr, width, height, rms, pdb)
-        elif s == "master_spectrum": lines = self.render_master_spectrum(lv, pk, height)
-        elif s == "analog_vu": lines = self.render_analog_vu(pdb, ll, lr)
+        elif s == "master_spectrum": lines = self.render_master_spectrum(lv, pk, width=width, height=height)
+        elif s == "analog_vu": lines = self.render_analog_vu(pdb, ll, lr, width=width)
         elif s == "oscilloscope": lines = self.render_oscilloscope(lv, status, width, height)
         else: lines = self.render_stereo_eq(ll, lr, pk, width, height)
-        if width >= 122:
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        if width >= 122 and not is_lg:
             faders = self.render_vertical_pitch_fader(int(status.get("pitch_percent", 0)), len(lines))
             pad_to = max(91, (width - 6) - 26)
             return [f"{el}{' ' * max(2, pad_to - _display_width(el))}{fl}" for el, fl in zip(lines, faders)]
@@ -3304,9 +3471,10 @@ class TerminalPlayerUI:
         p_badge = f"{BOLD}{COLOR_TRAFFIC_GREEN}[{cur_p}]{NC}" if cur_p != "Flat" else f"{BOLD}{COLOR_ELECTRIC_CYAN}[Flat (Default)]{NC}"
         sel_freq = EQ_BAND_LABELS[sel_idx]
         sel_gain = gains[sel_idx]
-        status_info = f" {b_col}│{NC} Active: {p_badge}  •  Selected Band: {BOLD}{COLOR_NEON_PINK}{sel_idx+1}/10 ({sel_freq}: {sel_gain:+4.1f} dB){NC}  •  Scale: -12.0 to +12.0 dB"
-        pad = max(0, iw - _display_width(status_info) + len(f" {b_col}│{NC}"))
-        lines.append(f"{status_info}{' ' * pad}{b_col}│{NC}")
+        status_info = f" Active: {p_badge}  •  Selected Band: {BOLD}{COLOR_NEON_PINK}{sel_idx+1}/10 ({sel_freq}: {sel_gain:+4.1f} dB){NC}  •  Scale: -12.0 to +12.0 dB"
+        sh_info = status_info if _display_width(status_info) <= iw else _clip_display(status_info, iw)
+        pad = max(0, iw - _display_width(sh_info))
+        lines.append(f"  {b_col}│{NC}{sh_info}{' ' * pad}{b_col}│{NC}")
 
         pill_parts = []
         for i, pname in enumerate(presets[:9]):
@@ -3315,9 +3483,10 @@ class TerminalPlayerUI:
                 pill_parts.append(f"\033[7m{BOLD}{COLOR_NEON_PINK} {pnum}{pname} \033[0m")
             else:
                 pill_parts.append(f"{COLOR_ELECTRIC_CYAN}[{pnum}{pname}]{NC}")
-        preset_row = f" {b_col}│{NC} Presets: " + " ".join(pill_parts)
-        pad = max(0, iw - _display_width(preset_row) + len(f" {b_col}│{NC}"))
-        lines.append(f"{preset_row}{' ' * pad}{b_col}│{NC}")
+        preset_row = f" Presets: " + " ".join(pill_parts)
+        sh_preset = preset_row if _display_width(preset_row) <= iw else _clip_display(preset_row, iw)
+        pad = max(0, iw - _display_width(sh_preset))
+        lines.append(f"  {b_col}│{NC}{sh_preset}{' ' * pad}{b_col}│{NC}")
         lines.append(_boxed_rule("├", "─" * 16, "┤", iw, b_col))
 
         if h >= 32:
@@ -3333,63 +3502,88 @@ class TerminalPlayerUI:
             return int(round(frac * (len(scale_dbs) - 1)))
 
         thumb_rows = [gain_to_row(g) for g in gains]
+        avail_w = max(60, iw - 10)
+        base_bw = avail_w // 10
+        rem = avail_w % 10
+        band_widths = [base_bw + (1 if i < rem else 0) for i in range(10)]
 
         for r_idx, db in enumerate(scale_dbs):
             is_zero = (db == 0)
-            prefix = f" {b_col}│{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}0 dB ├──{NC}" if is_zero else f" {b_col}│{NC} {DIM}{CYAN}{db:+3d} dB │{NC}"
+            prefix = f"  {BOLD}{COLOR_ELECTRIC_CYAN}0 dB ├─{NC}" if is_zero else f" {DIM}{CYAN}{db:+3d} dB │{NC}"
 
             cells = []
             for c_idx, tr in enumerate(thumb_rows):
                 is_sel = (c_idx == sel_idx)
+                bw = band_widths[c_idx]
                 if tr == r_idx:
                     g_val = gains[c_idx]
                     t_col = COLOR_TRAFFIC_GREEN if g_val > 0 else (COLOR_TRAFFIC_AMBER if g_val < 0 else COLOR_ELECTRIC_CYAN)
-                    if is_zero:
-                        cell = f"─\033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m──" if is_sel else f"──{BOLD}{t_col}█{NC}───"
-                    else:
-                        cell = f" \033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m  " if is_sel else f"  {BOLD}{t_col}█{NC}   "
+                    thumb = f"\033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m" if is_sel else f"{BOLD}{t_col}█{NC}"
+                    tw = 3 if is_sel else 1
+                    pad_tot = bw - tw
+                    pl = pad_tot // 2
+                    pr = pad_tot - pl
+                    cell = (("─" * pl) + thumb + ("─" * pr)) if is_zero else ((" " * pl) + thumb + (" " * pr))
                 else:
+                    pad_tot = bw - 1
+                    pl = pad_tot // 2
+                    pr = pad_tot - pl
                     if is_zero:
-                        cell = f"──{COLOR_ELECTRIC_CYAN}┼{NC}───"
+                        cell = ("─" * pl) + f"{COLOR_ELECTRIC_CYAN}┼{NC}" + ("─" * pr)
                     else:
-                        cell = f"  {COLOR_NEON_PINK}┆{NC}   " if is_sel else f"  {DIM}│{NC}   "
+                        tr_ch = f"{COLOR_NEON_PINK}┆{NC}" if is_sel else f"{DIM}│{NC}"
+                        cell = (" " * pl) + tr_ch + (" " * pr)
                 cells.append(cell)
 
             sep = f"{COLOR_ELECTRIC_CYAN}┤{NC}" if is_zero else f"{DIM}│{NC}"
             row_content = prefix + "".join(cells) + sep
-            pad = max(0, iw - _display_width(row_content) + len(f" {b_col}│{NC}"))
-            lines.append(f"{row_content}{' ' * pad}{b_col}│{NC}")
+            pad = max(0, iw - _display_width(row_content))
+            lines.append(f"  {b_col}│{NC}{row_content}{' ' * pad}{b_col}│{NC}")
 
+        f_prefix = f"  {DIM}Freq: │{NC}"
         freq_cells = []
         for i, fl in enumerate(EQ_BAND_LABELS):
-            fl_padded = f"{fl:^6s}"
+            bw = band_widths[i]
+            fl_padded = f"{fl:^{bw}s}"
             freq_cells.append(f"\033[7m{BOLD}{COLOR_NEON_PINK}{fl_padded}\033[0m" if i == sel_idx else f"{BOLD}{COLOR_LILAC}{fl_padded}{NC}")
-        f_row = f" {b_col}│{NC}        │" + "".join(freq_cells) + f"{DIM}│{NC}"
-        pad = max(0, iw - _display_width(f_row) + len(f" {b_col}│{NC}"))
-        lines.append(f"{f_row}{' ' * pad}{b_col}│{NC}")
+        f_row = f_prefix + "".join(freq_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(f_row))
+        lines.append(f"  {b_col}│{NC}{f_row}{' ' * pad}{b_col}│{NC}")
 
+        g_prefix = f"  {DIM}Gain: │{NC}"
         gain_cells = []
         for i, g in enumerate(gains):
-            g_str = f"{g:+5.1f} "
+            bw = band_widths[i]
+            g_str = f"{g:+4.1f}"
+            g_padded = f"{g_str:^{bw}s}"
             if i == sel_idx:
-                gain_cells.append(f"\033[7m{BOLD}{COLOR_ELECTRIC_CYAN}{g_str}\033[0m")
+                gain_cells.append(f"\033[7m{BOLD}{COLOR_ELECTRIC_CYAN}{g_padded}\033[0m")
             elif abs(g) > 0.05:
-                gain_cells.append(f"{COLOR_TRAFFIC_GREEN if g > 0 else COLOR_TRAFFIC_AMBER}{g_str}{NC}")
+                gain_cells.append(f"{COLOR_TRAFFIC_GREEN if g > 0 else COLOR_TRAFFIC_AMBER}{g_padded}{NC}")
             else:
-                gain_cells.append(f"{DIM}{g_str}{NC}")
-        g_row = f" {b_col}│{NC}  Gain: │" + "".join(gain_cells) + f"{DIM}│{NC}"
-        pad = max(0, iw - _display_width(g_row) + len(f" {b_col}│{NC}"))
-        lines.append(f"{g_row}{' ' * pad}{b_col}│{NC}")
+                gain_cells.append(f"{DIM}{g_padded}{NC}")
+        g_row = g_prefix + "".join(gain_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(g_row))
+        lines.append(f"  {b_col}│{NC}{g_row}{' ' * pad}{b_col}│{NC}")
 
-        cursor_cells = [f"{BOLD}{COLOR_NEON_PINK}  ▲   {NC}" if i == sel_idx else "      " for i in range(10)]
-        c_row = f" {b_col}│{NC}        │" + "".join(cursor_cells) + f"{DIM}│{NC}"
-        pad = max(0, iw - _display_width(c_row) + len(f" {b_col}│{NC}"))
-        lines.append(f"{c_row}{' ' * pad}{b_col}│{NC}")
+        c_prefix = "        │"
+        cursor_cells = []
+        for i in range(10):
+            bw = band_widths[i]
+            if i == sel_idx:
+                cur_padded = f"{'▲':^{bw}s}"
+                cursor_cells.append(f"{BOLD}{COLOR_NEON_PINK}{cur_padded}{NC}")
+            else:
+                cursor_cells.append(" " * bw)
+        c_row = c_prefix + "".join(cursor_cells) + f"{DIM}│{NC}"
+        pad = max(0, iw - _display_width(c_row))
+        lines.append(f"  {b_col}│{NC}{c_row}{' ' * pad}{b_col}│{NC}")
 
         if self.eq_naming_mode:
-            save_prompt = f" {b_col}│{NC} {BOLD}{COLOR_TRAFFIC_AMBER}💾 Name Custom Preset: [{self.eq_custom_name_input}█]  (Enter: Save, Esc: Cancel){NC}"
-            pad = max(0, iw - _display_width(save_prompt) + len(f" {b_col}│{NC}"))
-            lines.append(f"{save_prompt}{' ' * pad}{b_col}│{NC}")
+            save_prompt = f" {BOLD}{COLOR_TRAFFIC_AMBER}💾 Name Custom Preset: [{self.eq_custom_name_input}█]  (Enter: Save, Esc: Cancel){NC}"
+            sh_save = save_prompt if _display_width(save_prompt) <= iw else _clip_display(save_prompt, iw)
+            pad = max(0, iw - _display_width(sh_save))
+            lines.append(f"  {b_col}│{NC}{sh_save}{' ' * pad}{b_col}│{NC}")
         lines.append(_boxed_rule("╰", "── [←/→] Band • [↑/↓] Slider (±0.5dB) • [P/Tab] Preset • [1-7] Preset • [S] Save • [R] Flat • [E/Esc] Close ", "╯", iw, b_col))
         return lines
 
@@ -3822,12 +4016,16 @@ class TerminalPlayerUI:
         pal = self.visualizer.get_theme_palette()
         hl_col, act_col, b_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK), f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
         accent_col = pal.get("accent", COLOR_LILAC)
-        btitle = ("✦ MP AUDIO PLAYER — MUSIC MODE (TRACKS LIBRARY) ✦" if self.mode == "MUSIC" else "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦")[:max(0, iw - 1)]
-        bsub = (f"Music Library  •  {music_library_label(self.folder_name)}  •  Local Drives & SMB Shares" if self.mode == "MUSIC" else "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition")[:max(0, iw - 1)]
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        if is_lg:
+            btitle = ("✦ MP AUDIO PLAYER (LIQUID GLASS) — MUSIC LIBRARY ✦" if self.mode == "MUSIC" else "✦ MP AUDIO PLAYER (LIQUID GLASS) — LIQUID AUDIO MODE ✦")[:max(0, iw - 1)]
+            bsub = (f"Liquid Glass Music Library  •  {music_library_label(self.folder_name)}" if self.mode == "MUSIC" else "Liquid Glass Translucent Surface  •  Fluid Audio Navigation")[:max(0, iw - 1)]
+        else:
+            btitle = ("✦ MP AUDIO PLAYER — MUSIC MODE (TRACKS LIBRARY) ✦" if self.mode == "MUSIC" else "✦ MP AUDIO PLAYER — DREAMWORLDS ULTRA AUDIO MODE ✦")[:max(0, iw - 1)]
+            bsub = (f"Music Library  •  {music_library_label(self.folder_name)}  •  Local Drives & SMB Shares" if self.mode == "MUSIC" else "Dreamworlds Productions  •  Hot Purple & Traffic Light Edition")[:max(0, iw - 1)]
         lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {BOLD}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
 
-        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
-        dim_s = BOLD if is_lg else DIM
+        dim_s = DIM
         tname, maxlen = st.get("title", "Unknown Mix"), max(58, iw - 20)
         if len(tname) > maxlen: tname = tname[:maxlen - 3] + "..."
         ch_str, sr, ext = ("Stereo" if st.get("channels", 2) == 2 else "Mono"), st.get("sample_rate", 44100), os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC"
@@ -3848,7 +4046,7 @@ class TerminalPlayerUI:
         pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(max(54, iw - 42), iw - 28))
         fw = int((pct / 100.0) * bw)
         lines.extend([
-            f"  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {BOLD}{WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
+            f"  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
             self.visualizer.render_horizontal_pitch_bar(int(st.get("pitch_percent", 0)), width=bw, max_cols=max(20, w - 1)), ""
         ])
         lines.extend(self.visualizer.render(st, width=w, height=(7 if h >= 34 else (5 if h >= 28 else 3))) + [""])
@@ -3901,10 +4099,10 @@ class TerminalPlayerUI:
                     if sel: lines.append(f"  {b_col}│{NC}\033[7m{BOLD}{hl_col}{ip}\033[0m{b_col}│{NC}")
                     elif act: lines.append(f"  {b_col}│{NC}{BOLD}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{BOLD}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
-                    else: lines.append(f"  {b_col}│{NC}{BOLD}{WHITE}{ip}{NC}{b_col}│{NC}" if is_lg else f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
+                    else: lines.append(f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
             lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • Q: Queue • Space: Pause • G: Spek • I: Inspector • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  w: Export  •  F: Files  •  /: Search ", "┘", iw, b_col))
 
-        hint_col = f"{BOLD}{WHITE}" if is_lg else DIM
+        hint_col = WHITE if is_lg else DIM
         shuf = f"{BOLD}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{BOLD}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
         vol = (f"{BOLD}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{BOLD}{COLOR_TRAFFIC_RED}MUTED{NC}")
@@ -3923,21 +4121,21 @@ class TerminalPlayerUI:
         if self.mode == "MUSIC":
             lines.extend([
                 _fit_text_line([
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}[Space]{NC} {BOLD}Play/Pause{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[R]{NC} {BOLD}Record WAV{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[M]{NC} {BOLD}Mini Mode{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[L]{NC} {BOLD}Liquid Glass{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Z]{NC} {BOLD}3D Visualizer{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Q]{NC} {BOLD}Queue{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[G]{NC} {BOLD}Spek{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[I]{NC} {BOLD}Track Inspector{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[E]{NC} {BOLD}Equalizer HUD{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[/]{NC} {BOLD}Search{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {BOLD}Skip{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {BOLD}Pitch{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {BOLD}Vol{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[u]{NC} {BOLD}Mute{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {BOLD}Exit{NC}",
-                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {BOLD}[Space] Play{NC}  {BOLD}[R] Rec WAV{NC}  {BOLD}[M] Mini{NC}  {BOLD}[L] Liquid{NC}  {BOLD}[Z] 3D Vis{NC}  {BOLD}[Q] Queue{NC}  {BOLD}[G] Spek{NC}  {BOLD}[I] Inspector{NC}  {BOLD}[E] Equalizer{NC}  {BOLD}[/] Search{NC}  {BOLD}[n/p] Skip{NC}  {BOLD}[+/-] Pitch{NC}  {BOLD}[v/V] Vol{NC}  {BOLD}[u] Mute{NC}  {BOLD}[b/Esc] Exit{NC}",
-                    f"  {BOLD}Space Play  [R] Rec  [M] Mini  [L] Liquid  [Z] 3D Vis  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
+                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {BOLD}{COLOR_ELECTRIC_CYAN}[Space]{NC} {BOLD}Play/Pause{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[R]{NC} {BOLD}Record WAV{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[M]{NC} {BOLD}Mini Mode{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[L]{NC} {BOLD}Liquid Glass{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Z]{NC} {BOLD}MP Liquid Visualizer{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[Q]{NC} {BOLD}Queue{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[G]{NC} {BOLD}Spek{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[I]{NC} {BOLD}Track Inspector{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[E]{NC} {BOLD}Equalizer HUD{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[/]{NC} {BOLD}Search{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {BOLD}Skip{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {BOLD}Pitch{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {BOLD}Vol{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[u]{NC} {BOLD}Mute{NC}  {BOLD}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {BOLD}Exit{NC}",
+                    f"  {BOLD}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {BOLD}[Space] Play{NC}  {BOLD}[R] Rec WAV{NC}  {BOLD}[M] Mini{NC}  {BOLD}[L] Liquid{NC}  {BOLD}[Z] Liquid Vis{NC}  {BOLD}[Q] Queue{NC}  {BOLD}[G] Spek{NC}  {BOLD}[I] Inspector{NC}  {BOLD}[E] Equalizer{NC}  {BOLD}[/] Search{NC}  {BOLD}[n/p] Skip{NC}  {BOLD}[+/-] Pitch{NC}  {BOLD}[v/V] Vol{NC}  {BOLD}[u] Mute{NC}  {BOLD}[b/Esc] Exit{NC}",
+                    f"  {BOLD}Space Play  [R] Rec  [M] Mini  [L] Liquid  [Z] Liquid Vis  [Q] Queue  [G] Spek  [I] Inspector  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
                 ], max(20, w - 1)),
                 _fit_text_line([
-                    f"  {hint_col}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [Z] 3D Visualizer  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
-                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z 3D Vis  E Equalizer  e Vis  c Theme  a BT  O Open  F Files{NC}",
-                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z 3D Vis  E Equalizer  e Vis  c Theme  b/Esc Exit{NC}"
+                    f"  {hint_col}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [Z] MP Liquid Visualizer  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
+                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z Liquid Vis  E Equalizer  e Vis  c Theme  a BT  O Open  F Files{NC}",
+                    f"  {hint_col}0 Reset  u Mute  s Shuf  y Rep  L Glass  Z Liquid Vis  E Equalizer  e Vis  c Theme  b/Esc Exit{NC}"
                 ], max(20, w - 1))
             ])
         else:
             lines.append(_fit_text_line([
-                f"  {hint_col}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Z] 3D Visualizer  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
-                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z 3D Vis  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
-                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z 3D Vis  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
+                f"  {hint_col}[Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Z] MP Liquid Visualizer  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
+                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z Liquid Vis  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  T List  w Export  F Files  E EQ  e Vis  b/Esc Exit{NC}",
+                f"  {hint_col}Space Play  R Rec  M Mini  L Glass  Z Liquid Vis  Q Queue  G Spek  +/- Pitch  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  a BT  O Open  E EQ  e Vis  b/Esc Exit{NC}"
             ], max(20, w - 1)))
         _present_frame(lines, w, h)
 
@@ -3951,7 +4149,9 @@ class TerminalPlayerUI:
             sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
         sys.stdout.write("\033]0;MP Mini Audio Player\007")
         iw = max(24, min(w - 4, 74))
-        lines = [f"  {BOLD}{c1}╭{'─'*iw}╮{NC}", f"  {BOLD}{c1}│{BOLD}{c2}{'✦ MP MINI AUDIO PLAYER ✦'.center(iw)}{c1}│{NC}", f"  {BOLD}{c1}╰{'─'*iw}╯{NC}"]
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        header_title = '✦ MP MINI AUDIO PLAYER (LIQUID GLASS) ✦' if is_lg else '✦ MP MINI AUDIO PLAYER ✦'
+        lines = [f"  {c1}╭{'─'*iw}╮{NC}", f"  {c1}│{c2}{header_title.center(iw)}{c1}│{NC}", f"  {c1}╰{'─'*iw}╯{NC}"] if is_lg else [f"  {BOLD}{c1}╭{'─'*iw}╮{NC}", f"  {BOLD}{c1}│{BOLD}{c2}{header_title.center(iw)}{c1}│{NC}", f"  {BOLD}{c1}╰{'─'*iw}╯{NC}"]
         tname, av = st.get("title", "Unknown Track"), max(18, iw - 18)
         if _display_width(tname) > av: tname = _clip_display(tname, av - 3) + "..."
         state = st.get("state", "stopped")
@@ -4025,12 +4225,22 @@ class TerminalPlayerUI:
         vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[1;38;2;255;64;64mMUTED\033[0m"
         r1 = f" {badge}{rec_d} \033[1;38;2;255;255;255m{tname}{NC} │ \033[1;38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[1;38;2;0;229;255m{vol_str}{NC} │ \033[1;38;2;255;215;0mPitch: {p_txt}{NC} "
         r2 = f" 🎛 [{m_str}] │ EQ: {BOLD}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[1;38;2;255;215;0m[M] Mini{NC} "
-        lines = [
-            f"  {BOLD}{c1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * max(0, iw - 28)}╮{NC}",
-            f"  {BOLD}{c1}│{NC}{r1}{' ' * max(0, iw - _display_width(r1))}{BOLD}{c1}│{NC}",
-            f"  {BOLD}{c1}│{NC}{r2}{' ' * max(0, iw - _display_width(r2))}{BOLD}{c1}│{NC}",
-            f"  {BOLD}{c1}╰{'─' * iw}╯{NC}"
-        ]
+        is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
+        micro_hdr = "✦ MP MICRO AUDIO PLAYER (LIQUID GLASS) ✦" if is_lg else "✦ MP MICRO AUDIO PLAYER ✦"
+        if is_lg:
+            lines = [
+                f"  {c1}╭─ {micro_hdr} {'─' * max(0, iw - _display_width(micro_hdr) - 4)}╮{NC}",
+                f"  {c1}│{NC}{r1}{' ' * max(0, iw - _display_width(r1))}{c1}│{NC}",
+                f"  {c1}│{NC}{r2}{' ' * max(0, iw - _display_width(r2))}{c1}│{NC}",
+                f"  {c1}╰{'─' * iw}╯{NC}"
+            ]
+        else:
+            lines = [
+                f"  {BOLD}{c1}╭─ ✦ MP MICRO AUDIO PLAYER ✦ {'─' * max(0, iw - 28)}╮{NC}",
+                f"  {BOLD}{c1}│{NC}{r1}{' ' * max(0, iw - _display_width(r1))}{BOLD}{c1}│{NC}",
+                f"  {BOLD}{c1}│{NC}{r2}{' ' * max(0, iw - _display_width(r2))}{BOLD}{c1}│{NC}",
+                f"  {BOLD}{c1}╰{'─' * iw}╯{NC}"
+            ]
         if h >= 9: lines.extend(self.visualizer.render(st, width=iw + 4, height=(2 if h >= 12 else 1)))
         if t_now < self.notification_time and self.notification_msg: lines.append(f"  {BOLD}\033[1;38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
@@ -4102,9 +4312,9 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
-        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP_Liquid_Visualizer 3D Vulkan Visualizer (1400x1400 fixed borderless)")),
-        (("--visualizer-preset",), dict(type=str, default=None, help="Select MP_Liquid_Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
-        (("--list-visualizer-presets",), dict(action="store_true", help="List available MP_Liquid_Visualizer presets")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1400x1400 fixed borderless Vulkan 3D)")),
+        (("--visualizer-preset",), dict(type=str, default=None, help="Select MP Liquid Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
+        (("--list-visualizer-presets",), dict(action="store_true", help="List available MP Liquid Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
         (("--record", "--toggle-record", "-r"), dict(action="store_true")),
         (("--eq-preset",), dict(type=str, help="Set active equalizer preset (Flat, Ambient, Trance, Techno, House, Progressive, Vapourwave, or custom)")),
@@ -4202,9 +4412,9 @@ def main():
         ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
         if ok:
             p_label = args.visualizer_preset or "Active Preset"
-            print(f"✔ Launched MP_Liquid_Visualizer [{p_label}] — 1400x1400 Fixed Borderless Vulkan")
+            print(f"✔ Launched MP Liquid Visualizer [{p_label}] — 1400x1400 Fixed Borderless Vulkan")
             sys.exit(0)
-        print("✖ Failed to launch MP_Liquid_Visualizer", file=sys.stderr)
+        print("✖ Failed to launch MP Liquid Visualizer", file=sys.stderr)
         sys.exit(1)
 
     if args.liquid:
@@ -4470,6 +4680,23 @@ def main():
                                 scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
                                 mixes = scanner.get_mixes()
                 except Exception: pass
+            elif not tf and not (CONFIG_DIR / ".first_run_sample_loaded").exists():
+                sample_track = base_dir / "MP_SAMPLES" / "MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake).flac"
+                if sample_track.is_file():
+                    resume_f = str(sample_track.resolve())
+                    resume_pos = 0.0
+                    try:
+                        (CONFIG_DIR / ".first_run_sample_loaded").touch(exist_ok=True)
+                        RESUME_STATE_FILE.write_text(json.dumps({
+                            "path": resume_f,
+                            "position_sec": 0.0,
+                            "duration_sec": 1014.42,
+                            "title": "MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake)",
+                            "mode": "MIX_ARCHIVE",
+                            "player": "mp_audio_player",
+                            "timestamp": time.time()
+                        }, indent=2), encoding="utf-8")
+                    except Exception: pass
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_f = tf or resume_f or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
             init_pos = resume_pos if (not tf and resume_f) else 0.0

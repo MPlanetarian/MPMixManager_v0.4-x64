@@ -22,6 +22,13 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FLAG_FILE = CONFIG_DIR / ".liquid_glass_welcomed"
 
+SAMPLE_DIR = ROOT / "MP_SAMPLES"
+SAMPLE_TRACK_NAME = "MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake)"
+SAMPLE_TRACK_FILE = SAMPLE_DIR / f"{SAMPLE_TRACK_NAME}.flac"
+SAMPLE_COVER_FILE = SAMPLE_DIR / "Cosmic_Dreamworlds_Cover.png"
+SAMPLE_FLAG_FILE = CONFIG_DIR / ".first_run_sample_loaded"
+PREVENT_AUTOPLAY_FILE = CONFIG_DIR / ".first_run_sample_prevent_autoplay"
+
 ASSETS_DIR = ROOT / "assets"
 ICON_PNG = ASSETS_DIR / "mp_liquid_glass_icon.png"
 ICON_SVG = ASSETS_DIR / "mp_liquid_glass_icon.svg"
@@ -131,6 +138,77 @@ def set_default_player_in_config(player_name="mp_liquid_glass"):
                 pass
 
 
+def setup_first_run_sample_track(force: bool = False) -> bool:
+    """
+    Celebrate the v0.4 release by pre-loading the free exclusive sample track
+    into MP Audio Player ready for the user to press play when they are ready.
+    This only happens the very first time the program is run and never again.
+    """
+    if not force and SAMPLE_FLAG_FILE.exists():
+        return False
+    if not SAMPLE_TRACK_FILE.exists():
+        return False
+
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    res_path = str(SAMPLE_TRACK_FILE.resolve())
+    resume_file = CONFIG_DIR / "playback_resume.json"
+    state_file = CONFIG_DIR / "mp_player_state.json"
+
+    # Only set up initial playback resume if user doesn't already have one, or if forcing
+    if force or not resume_file.exists():
+        resume_data = {
+            "path": res_path,
+            "position_sec": 0.0,
+            "duration_sec": 1014.42,
+            "title": SAMPLE_TRACK_NAME,
+            "mode": "MIX_ARCHIVE",
+            "player": "mp_audio_player",
+            "timestamp": time.time(),
+        }
+        try:
+            import json
+            tmp_res = resume_file.with_suffix(".tmp")
+            tmp_res.write_text(json.dumps(resume_data, indent=2), encoding="utf-8")
+            tmp_res.replace(resume_file)
+        except Exception:
+            pass
+
+    # Ensure mp_player_state is in ready/stopped state
+    if force or not state_file.exists():
+        state_data = {
+            "running": False,
+            "state": "stopped",
+            "path": res_path,
+            "title": SAMPLE_TRACK_NAME,
+            "position_sec": 0.0,
+            "position_fmt": "00:00",
+            "duration_sec": 1014.42,
+            "duration_fmt": "16:54",
+            "progress_pct": 0.0,
+            "mode": "MIX_ARCHIVE",
+            "volume": 85,
+        }
+        try:
+            import json
+            tmp_state = state_file.with_suffix(".tmp")
+            tmp_state.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            tmp_state.replace(state_file)
+        except Exception:
+            pass
+
+    # Marker to prevent autoplay on the very first startup so it remains ready for user to press play
+    try:
+        PREVENT_AUTOPLAY_FILE.touch(exist_ok=True)
+    except Exception:
+        pass
+
+    try:
+        SAMPLE_FLAG_FILE.touch(exist_ok=True)
+    except Exception:
+        pass
+    return True
+
+
 def show_welcome_message(wait_for_input=True):
     NC = "\033[0m"
     BOLD = "\033[1m"
@@ -144,7 +222,7 @@ def show_welcome_message(wait_for_input=True):
 
     w = 78
     title = "✦ WELCOME TO MP MIX ARCHIVE MANAGER & LIQUID GLASS ✦"
-    sub = "Special First-Run Reward from MPlanetarian"
+    sub = "Special v0.4 Release Celebration & Gift from MPlanetarian"
 
     banner = [
         "",
@@ -157,13 +235,17 @@ def show_welcome_message(wait_for_input=True):
         f"  {WHITE} As a special welcome reward, I have designed and installed the new{NC}",
         f"  {BOLD}{CYAN} MP Liquid Transparent Glass Icon{NC}{WHITE} right onto your Desktop.{NC}",
         "",
-        f"  {WHITE} I wish you a wonderful and inspiring journey exploring your music archive with{NC}",
-        f"  {WHITE} the new Liquid Transparent Audio Player. Enjoy the sound, the visuals, and the vibes!\"{NC}",
+        f"  {WHITE} To celebrate the release of v0.4, I have also included a free exclusive track{NC}",
+        f"  {WHITE} and original art piece in the MP_SAMPLES folder:{NC}",
+        f"  {BOLD}{GOLD} MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake){NC}",
+        f"  {WHITE} It is ready loaded in the Liquid Transparent Audio Player for you to enjoy!\"{NC}",
         f"                                                       {BOLD}{PURPLE}— MPlanetarian ♫{NC}",
         "",
-        f"  {BOLD}{MINT}✓ Special Desktop Reward Unlocked:{NC} {WHITE}~/Desktop/MP_Liquid_Glass_Audio_Player.desktop{NC}",
+        f"  {BOLD}{MINT}✓ Special Desktop Reward Unlocked:{NC} {WHITE}~/Desktop/MP_Liquid.desktop{NC}",
         f"  {BOLD}{MINT}✓ High-Resolution Glass Icon:{NC}      {WHITE}{ICON_PNG}{NC}",
         f"  {BOLD}{MINT}✓ Default Audio Player Configured:{NC}  {BOLD}{CYAN}MP Liquid Glass Audio Player{NC}",
+        f"  {BOLD}{MINT}✓ Free v0.4 Release Track Preloaded:{NC}{WHITE} MP_SAMPLES/MPlanetarian - Ecology of the Earth.flac{NC}",
+        f"  {BOLD}{MINT}✓ Free Art Piece Included:{NC}          {WHITE} MP_SAMPLES/Cosmic_Dreamworlds_Cover.png{NC}",
         "",
         f"  {BOLD}{BLUE}{'─' * (w + 2)}{NC}",
     ]
@@ -182,6 +264,7 @@ def show_welcome_message(wait_for_input=True):
 
 
 def ensure_first_run_reward(interactive=True):
+    setup_first_run_sample_track()
     if is_welcomed():
         return False
 

@@ -49,9 +49,9 @@ class TestEqualizerPresets(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_default_presets_defined(self):
-        """Verifies that all requested presets (Flat, Ambient, Trance, Techno, House, Progressive, Vapourwave) are defined."""
+        """Verifies that all requested presets (Flat, Ambient, Trance, Techno, House, Progressive, Vapourwave, Sensorium Interface) are defined."""
         presets = MP_Audio_Player.DEFAULT_EQ_PRESETS
-        expected = ["Flat", "Ambient", "Trance", "Techno", "House", "Progressive", "Vapourwave"]
+        expected = ["Flat", "Ambient", "Trance", "Techno", "House", "Progressive", "Vapourwave", "Sensorium Interface"]
         for exp in expected:
             self.assertIn(exp, presets, f"Preset '{exp}' must be present in DEFAULT_EQ_PRESETS")
             self.assertEqual(len(presets[exp]), 10, f"Preset '{exp}' must have exactly 10 bands")
@@ -63,6 +63,8 @@ class TestEqualizerPresets(unittest.TestCase):
         self.assertGreater(presets["Techno"][0], 0.0)  # sub-bass boost in techno
         self.assertGreater(presets["Trance"][1], 0.0)  # bass punch in trance
         self.assertLess(presets["Vapourwave"][9], 0.0)  # lo-fi tape high-frequency roll-off
+        self.assertGreater(presets["Sensorium Interface"][0], 4.0)  # sub-bass in sensorium interface
+        self.assertGreater(presets["Sensorium Interface"][8], 3.0)  # sparkling crystalline highs in sensorium interface
 
     def test_equalizer_manager_initial_flat_default(self):
         """Verifies that EqualizerManager defaults to Flat preset and is_flat returns True."""
@@ -88,6 +90,14 @@ class TestEqualizerPresets(unittest.TestCase):
         # Test Progressive alias
         self.assertTrue(mgr.apply_preset("prog"))
         self.assertEqual(mgr.active_preset, "Progressive")
+
+        # Test Sensorium Interface alias
+        self.assertTrue(mgr.apply_preset("sensorium"))
+        self.assertEqual(mgr.active_preset, "Sensorium Interface")
+        self.assertEqual(mgr.get_current_bands(), MP_Audio_Player.DEFAULT_EQ_PRESETS["Sensorium Interface"])
+
+        self.assertTrue(mgr.apply_preset("earth_flipper"))
+        self.assertEqual(mgr.active_preset, "Sensorium Interface")
 
         # Reset to Flat
         self.assertTrue(mgr.apply_preset("Flat"))

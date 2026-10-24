@@ -79,7 +79,11 @@ _set_menu_box_width() {
 local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"; [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80; [[ "$_cols" -lt 1 ]] && _cols=1; local _w; if [[ "$_cols" -ge 8 ]]; then _w=$((_cols - 4)); elif [[ "$_cols" -ge 3 ]]; then _w=$((_cols - 2)); else _w=1; fi; printf -v "$_dest" '%s' "$_w"
 }
 set_theme_colors() {
-local theme_name="${1:-dreamworlds}"; NC='\033[0m' BOLD='\033[1m' DIM='\033[2m'; case "$theme_name" in dreamworlds|mplanetarian_dreamworlds|mplanetarian|default) RED='\033[38;2;237;37;78m' GREEN='\033[38;2;0;229;255m' YELLOW='\033[38;2;255;170;0m'; BLUE='\033[38;2;155;89;182m' MAGENTA='\033[38;2;247;37;133m' CYAN='\033[38;2;0;193;228m'; CURRENT_THEME="dreamworlds" ;;
+local theme_name="${1:-dreamworlds}"; NC='\033[0m' BOLD='\033[1m' DIM='\033[2m'; case "$theme_name" in stream_of_frequency|stream|frequency|sof|frequency_stream|"Stream of Frequency"|"Stream of Frequency Theme"|"Stream of Frequency [Special Edition]"|"Stream of Frequency MP Mix Manager")
+RED='\033[38;2;240;32;24m'; GREEN='\033[38;2;76;217;123m'; YELLOW='\033[38;2;245;237;106m'; BLUE='\033[38;2;48;49;131m'; MAGENTA='\033[38;2;151;79;249m'; CYAN='\033[38;2;0;242;255m'; CURRENT_THEME="stream_of_frequency" ;;
+sensorium_interface|sensorium|"Sensorium Interface"|"Sensorium Interface (Liquid Glass Skin)")
+RED='\033[38;2;240;168;216m'; GREEN='\033[38;2;0;245;255m'; YELLOW='\033[38;2;245;232;180m'; BLUE='\033[38;2;184;72;196m'; MAGENTA='\033[38;2;240;168;216m'; CYAN='\033[38;2;0;245;255m'; CURRENT_THEME="sensorium_interface" ;;
+dreamworlds|mplanetarian_dreamworlds|mplanetarian|default) RED='\033[38;2;237;37;78m' GREEN='\033[38;2;0;229;255m' YELLOW='\033[38;2;255;170;0m'; BLUE='\033[38;2;155;89;182m' MAGENTA='\033[38;2;247;37;133m' CYAN='\033[38;2;0;193;228m'; CURRENT_THEME="dreamworlds" ;;
 cosmic_dreamworlds|cosmic_dreamworld|cosmic_dream|"Cosmic Dreamworlds (Liquid Glass Skin)"|"Cosmic Dreamworlds")
 RED='\033[38;2;232;13;104m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;254;228;64m'; BLUE='\033[38;2;94;96;206m'; MAGENTA='\033[38;2;176;88;255m'; CYAN='\033[38;2;0;245;212m'; CURRENT_THEME="cosmic_dreamworlds" ;;
 cosmic_dreamworlds_radioactive|radioactive|cosmic_radioactive|"Cosmic Dreamworlds Radioactive (Liquid Glass Skin)"|"Cosmic Dreamworlds Radioactive")
@@ -367,10 +371,10 @@ if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
 fi
 }
 save_theme() {
-local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ] || [ "$new_theme" = "dreamworlds_liquid" ] || [ "$new_theme" = "dynamic_rainbow_liquid_glass" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"
+local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "stream_of_frequency" ]; then echo "stream_of_frequency_eq" > "$HOME/.config/mix-manager/eq_style" 2>/dev/null || true; elif [ "$new_theme" = "sensorium_interface" ]; then echo "sensorium_interface" > "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true; echo "Sensorium Interface" > "$HOME/.config/mix-manager/eq_preset" 2>/dev/null || true; fi; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ] || [ "$new_theme" = "dreamworlds_liquid" ] || [ "$new_theme" = "dynamic_rainbow_liquid_glass" ] || [ "$new_theme" = "stream_of_frequency" ] || [ "$new_theme" = "sensorium_interface" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"
 }
 _sync_btop_theme() {
-local th="${1:-$CURRENT_THEME}" tn="" bd="$HOME/.config/btop"; [ "$th" = "dreamworlds_ultra" ] && tn="Dreamworlds_Ultra_MP_Mix_Manager"; [ "$th" = "cosmic_supernova" ] && tn="Cosmic_Supernova_MP_Mix_Manager"; [ -z "$tn" ] || [ ! -d "$bd" ] && return 0; mkdir -p "$bd/themes" 2>/dev/null; [ -f "$SCRIPT_DIR/themes/${tn}.theme" ] && cp -p "$SCRIPT_DIR/themes/${tn}.theme" "$bd/themes/" 2>/dev/null; [ -f "$bd/btop.conf" ] && sed -i "s|^color_theme = .*|color_theme = \"${tn}\"|" "$bd/btop.conf" 2>/dev/null
+local th="${1:-$CURRENT_THEME}" tn="" bd="$HOME/.config/btop"; [ "$th" = "dreamworlds_ultra" ] && tn="Dreamworlds_Ultra_MP_Mix_Manager"; [ "$th" = "cosmic_supernova" ] && tn="Cosmic_Supernova_MP_Mix_Manager"; [ "$th" = "stream_of_frequency" ] && tn="Stream_of_Frequency_MP_Mix_Manager"; [ "$th" = "sensorium_interface" ] && tn="Sensorium_Interface_MP_Mix_Manager"; [ -z "$tn" ] || [ ! -d "$bd" ] && return 0; mkdir -p "$bd/themes" 2>/dev/null; [ -f "$SCRIPT_DIR/themes/${tn}.theme" ] && cp -p "$SCRIPT_DIR/themes/${tn}.theme" "$bd/themes/" 2>/dev/null; [ -f "$bd/btop.conf" ] && sed -i "s|^color_theme = .*|color_theme = \"${tn}\"|" "$bd/btop.conf" 2>/dev/null
 }
 load_theme; _STOP_AUDIO_ON_EXIT=0; _MP_AUDIO_DAEMON_STOPPED=0
 _mp_player_pid_alive() {
@@ -963,11 +967,15 @@ launch_mp_liquid_visualizer() {
         [ "$saved_key" = "cosmic_dreamworlds_liquid" ] && preset_label="Cosmic Dreamworlds (Liquid)"
         [ "$saved_key" = "orbital_void_reflux" ] && preset_label="Orbital Void Reflux"
         [ "$saved_key" = "dreamworlds_ultra_defasten" ] && preset_label="Dreamworlds Ultra (Defasten Biomech)"
+        [ "$saved_key" = "infinite_complexity" ] && preset_label="Infinite Complexity"
+        [ "$saved_key" = "sensorium_interface" ] && preset_label="Sensorium Interface"
     fi
     if [ -n "$preset_arg" ]; then
         case "$preset_arg" in
             orbital_void_reflux|*orbital*|*void*|*reflux*) preset_label="Orbital Void Reflux" ;;
             dreamworlds_ultra_defasten|*defasten*|*ultra*|*biomech*) preset_label="Dreamworlds Ultra (Defasten Biomech)" ;;
+            infinite_complexity|*infinite*|*complexity*) preset_label="Infinite Complexity" ;;
+            sensorium_interface|*sensorium*|*interface*|*earth*|*flipper*) preset_label="Sensorium Interface" ;;
             *) preset_label="Cosmic Dreamworlds (Liquid)" ;;
         esac
     fi
@@ -990,10 +998,16 @@ manage_mp_liquid_visualizer_presets() {
         local p1_mark="  "
         local p2_mark="  "
         local p3_mark="  "
+        local p4_mark="  "
+        local p5_mark="  "
         if [ "$active_key" = "orbital_void_reflux" ]; then
             p2_mark="★ "
         elif [ "$active_key" = "dreamworlds_ultra_defasten" ]; then
             p3_mark="★ "
+        elif [ "$active_key" = "infinite_complexity" ]; then
+            p4_mark="★ "
+        elif [ "$active_key" = "sensorium_interface" ]; then
+            p5_mark="★ "
         else
             p1_mark="★ "
         fi
@@ -1005,13 +1019,15 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "  ${BOLD}${CYAN}Window:${NC}            1400x1400 Fixed Borderless (Zero Text Overlay • Esc/q to Close)"
         echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
         echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
-        echo -e "${BOLD}Available Visualizer Presets (3 of 5 Planned):${NC}"
+        echo -e "${BOLD}Available Visualizer Presets (5 Official Presets):${NC}"
         echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC}        ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
         echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}                ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
         echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (Defasten Biomech)${NC} ${DIM}[Defasten Xinri D & Start_Menu_Icon.png]${NC}"
-        echo -e "  ${BOLD}${CYAN}4)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
+        echo -e "  ${BOLD}${CYAN}4)${NC} ${BOLD}${GREEN}${p4_mark}Infinite Complexity${NC}                 ${DIM}[Defasten Mirrored Madness & Cover_v4.png]${NC}"
+        echo -e "  ${BOLD}${CYAN}5)${NC} ${BOLD}${GREEN}${p5_mark}Sensorium Interface${NC}                 ${DIM}[Defasten Earth Flipper & Sensorium_Interface.jpeg]${NC}"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Launch MP_Liquid_Visualizer Now (1400x1400 Borderless Vulkan Window)"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
-        read -r -p "Select option [0-4]: " vp_choice
+        read -r -p "Select option [0-6]: " vp_choice
         case "$vp_choice" in
             1)
                 [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"
@@ -1028,7 +1044,17 @@ manage_mp_liquid_visualizer_presets() {
                 echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (Defasten Biomech)${NC}"
                 sleep 1
                 ;;
-            4|l|L|z|Z)
+            4)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Infinite Complexity"
+                echo -e "\n${GREEN}✔ Active Preset set to: Infinite Complexity${NC}"
+                sleep 1
+                ;;
+            5)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Sensorium Interface"
+                echo -e "\n${GREEN}✔ Active Preset set to: Sensorium Interface${NC}"
+                sleep 1
+                ;;
+            6|l|L|z|Z)
                 launch_mp_liquid_visualizer
                 sleep 1
                 return 0
@@ -2383,7 +2409,7 @@ mp_liquid_glass|liquid_glass|liquid|glass)
         local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode)
         (sleep 0.8; python3 "$mp_py" "${play_args[@]}" &>/dev/null) &
     fi ;;
-mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode); python3 "$mp_py" "${play_args[@]}" &>/dev/null; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
+mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode); python3 "$mp_py" "${play_args[@]}"; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif _has_flatpak "org.atheme.audacious"; then nohup flatpak run org.atheme.audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then open -a Audacious "$file" &>/dev/null &
 fi; if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then (for _i in {1..20}; do sleep 0.2; command -v audtool &>/dev/null && audtool playback-seek "${seek_pos%.*}" &>/dev/null && break; done) & fi; align_mix_windows_on_screen --expect-audacious; ;; cliamp) local cliamp_bin="cliamp"; command -v cliamp &>/dev/null || cliamp_bin="$SCRIPT_DIR/bin/cliamp"; [ ! -x "$cliamp_bin" ] && cliamp_bin="$HOME/.local/bin/cliamp"; if pgrep -x cliamp &>/dev/null; then "$cliamp_bin" queue "$file" 2>/dev/null || true; sleep 0.3; "$cliamp_bin" play 2>/dev/null || true; else local full_cmd="\"$cliamp_bin\" queue \"$file\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play"; launch_in_terminal "cliamp - $(basename "$file")" "$full_cmd" "window"; fi ;; strawberry) if get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ]; then if [ "$STRAWBERRY_RESOLVED_PATH" = "$file" ] || [ "$STRAWBERRY_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-strawberry; return 0; fi; fi; if command -v strawberry &>/dev/null; then nohup strawberry "$file" &>/dev/null &
@@ -2630,6 +2656,11 @@ sys.exit(1)
 PY
 }
 execute_startup_autoplay() {
+if [ -f "$HOME/.config/mix-manager/.first_run_sample_prevent_autoplay" ]; then
+    rm -f "$HOME/.config/mix-manager/.first_run_sample_prevent_autoplay" 2>/dev/null || true
+    STARTUP_AUTOPLAY_NOTICE="Celebration track ready: MPlanetarian - Ecology of the Earth (Press Space or Option 1 to play)"
+    return 0
+fi
 if [ "${AUTO_PLAY_ON_STARTUP:-true}" != "true" ]; then return 0; fi; local player="${DEFAULT_AUDIO_PLAYER:-mp_audio_player}"; local SKIP_PLAYING_ASSETS=1; local current_path=""; local current_state=""; if get_mp_audio_player_track_info 2>/dev/null && [ "$MP_PLAYER_STATE" = "playing" ] && [ -n "${MP_PLAYER_RAW_PATH:-}" ]; then STARTUP_AUTOPLAY_NOTICE="Already playing: $(basename "$MP_PLAYER_RAW_PATH") (MP Audio Player)"; return 0; fi; if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ] && [ -n "${AUDACIOUS_RESOLVED_PATH:-}" ]; then STARTUP_AUTOPLAY_NOTICE="Already playing: $(basename "$AUDACIOUS_RESOLVED_PATH") (Audacious)"; return 0; fi; if get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ] && [ -n "${STRAWBERRY_RESOLVED_PATH:-}" ]; then STARTUP_AUTOPLAY_NOTICE="Already playing: $(basename "$STRAWBERRY_RESOLVED_PATH") (Strawberry)"; return 0; fi; if get_cliamp_track_info 2>/dev/null && [ "$CLIAMP_STATE" = "playing" ] && [ -n "${CLIAMP_RESOLVED_PATH:-}" ]; then STARTUP_AUTOPLAY_NOTICE="Already playing: $(basename "$CLIAMP_RESOLVED_PATH") (cliamp)"; return 0; fi; local detected_now=""; detected_now="$(detect_currently_playing_mix 2>/dev/null || true)"; if [ -n "$detected_now" ] && [ -f "$detected_now" ]; then STARTUP_AUTOPLAY_NOTICE="Already playing: $(basename "$detected_now")"; return 0; fi; local resume_file="$HOME/.config/mix-manager/playback_resume.json"; local state_file="$HOME/.config/mix-manager/mp_player_state.json"; local resume_info=""; if [ -f "$resume_file" ]; then resume_info=$(python3 - "$resume_file" << 'PY' 2>/dev/null || true
 import sys, json, os
 try:
@@ -2696,7 +2727,7 @@ run_bash_cli() {
 local cli_choice user_cmd; echo -e "\n${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}             Interactive Bash CLI Runner            ${NC}\n${BOLD}${MAGENTA}====================================================${NC}\n${CYAN}Choose an option:${NC}\n  ${BOLD}${CYAN}1)${NC} Open an interactive Bash shell session ${DIM}(type 'exit' to return to Manager)${NC}\n  ${BOLD}${CYAN}2)${NC} Execute a single Bash command and return\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-2]: " cli_choice; case "$cli_choice" in 1) echo -e "\n${BOLD}${GREEN}Spawning interactive Bash subshell. Type 'exit' to return.${NC}\n"; export PS1="\[\033[01;32m\][MixManager-CLI] \[\033[01;34m\]\w\[\033[00m\]\$ "; bash --norc -i 2>/dev/null || bash -i; echo -e "\n${GREEN}Returned from Bash subshell.${NC}"; sleep 1 ;; 2) echo ""; read -r -p "Enter Bash command to execute: " user_cmd; if [ -n "$user_cmd" ]; then echo -e "\n${BOLD}${YELLOW}Executing:${NC} $user_cmd\n"; eval "$user_cmd"; echo ""; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
 }
 manage_themes() {
-while true; do local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13="" m14="" m15="" m16="" m17="" m18="" m19=""; case "$CURRENT_THEME" in dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;; dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;; cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;; dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;; nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;; matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;; solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;; tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;; monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;; gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;; emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;; classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;; cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;; retro_terminal)   m14=" ${GREEN}★ ACTIVE (RETRO)${NC}" ;; dreamworlds_liquid) m15=" ${GREEN}★ ACTIVE (LIQUID GLASS)${NC}" ;; dynamic_rainbow_liquid_glass) m16=" ${GREEN}★ ACTIVE (DYNAMIC RAINBOW)${NC}" ;; cosmic_dreamworlds_radioactive) m17=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; cosmic_dreamworlds) m18=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; orbital_void_reflux) m19=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; esac; local opts=("1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${m1}" "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}" "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}" "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}" "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}" "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}" "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}" "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}" "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}" "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}" "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}" "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}" "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}" "14|Old Style Unix Terminal Retro Mode (White on Black)|[Monochrome VT100: White Text Only on Black Background]${m14}" "15|MP Dreamworlds Liquid Transparency [Special Edition]|[Deep Liquid Ocean Glass, Crystalline Aqua, Seafoam Mint & Liquid Amethyst]${m15}" "16|Dynamic Liquid Glass [Rainbow Colours] (New)|[Dynamic Rainbow Liquid Glass • ±9% Breathing Transparency • 6-Second Cycle]${m16}" "17|Cosmic Dreamworlds Radioactive (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Neon Radioactive & Cosmic Glow]${m17}" "18|Cosmic Dreamworlds (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Cosmic Dreamworlds Pink & Neon Cyan]${m18}" "19|Orbital Void Reflux (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Orbital Void Violet & Reflux Cyan]${m19}" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0; local tchoice="$REPLY"; case "$tchoice" in 1|dreamworlds|default) save_theme "dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"; sleep 0.8 ;;
+while true; do local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13="" m14="" m15="" m16="" m17="" m18="" m19="" m20="" m21=""; case "$CURRENT_THEME" in dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;; dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;; cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;; dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;; nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;; matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;; solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;; tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;; monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;; gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;; emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;; classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;; cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;; retro_terminal)   m14=" ${GREEN}★ ACTIVE (RETRO)${NC}" ;; dreamworlds_liquid) m15=" ${GREEN}★ ACTIVE (LIQUID GLASS)${NC}" ;; dynamic_rainbow_liquid_glass) m16=" ${GREEN}★ ACTIVE (DYNAMIC RAINBOW)${NC}" ;; cosmic_dreamworlds_radioactive) m17=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; cosmic_dreamworlds) m18=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; orbital_void_reflux) m19=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; stream_of_frequency) m20=" ${GREEN}★ ACTIVE (STREAM OF FREQUENCY)${NC}" ;; sensorium_interface) m21=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; esac; local opts=("1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${m1}" "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}" "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}" "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}" "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}" "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}" "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}" "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}" "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}" "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}" "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}" "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}" "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}" "14|Old Style Unix Terminal Retro Mode (White on Black)|[Monochrome VT100: White Text Only on Black Background]${m14}" "15|MP Dreamworlds Liquid Transparency [Special Edition]|[Deep Liquid Ocean Glass, Crystalline Aqua, Seafoam Mint & Liquid Amethyst]${m15}" "16|Dynamic Liquid Glass [Rainbow Colours] (New)|[Dynamic Rainbow Liquid Glass • ±9% Breathing Transparency • 6-Second Cycle]${m16}" "17|Cosmic Dreamworlds Radioactive (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Neon Radioactive & Cosmic Glow]${m17}" "18|Cosmic Dreamworlds (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Cosmic Dreamworlds Pink & Neon Cyan]${m18}" "19|Orbital Void Reflux (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Orbital Void Violet & Reflux Cyan]${m19}" "20|Stream of Frequency [Special Edition]|[Electric Cyan, Frequency Mint, Solar Gold & Stream Indigo]${m20}" "21|Sensorium Interface (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Iridescent Mauve, Cyber Cyan & Earth Flipper Jade]${m21}" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0; local tchoice="$REPLY"; case "$tchoice" in 1|dreamworlds|default) save_theme "dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"; sleep 0.8 ;;
 2|ultra|dreamworlds_ultra|hotpurple|trafficlight|"dreamworlds ultra"|"Dreamworlds Ultra MP Mix Manager")
 save_theme "dreamworlds_ultra"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Dreamworlds Ultra MP Mix Manager!${NC}"; sleep 0.8 ;; 3|cyberpunk) save_theme "cyberpunk"; echo -e "\n${GREEN}✓ Theme switched to Cyberpunk!${NC}"; sleep 0.8; ;; 4|dracula) save_theme "dracula"; echo -e "\n${GREEN}✓ Theme switched to Dracula!${NC}"; sleep 0.8 ;; 5|nord) save_theme "nord"; echo -e "\n${GREEN}✓ Theme switched to Nord!${NC}"; sleep 0.8; ;; 6|matrix) save_theme "matrix"; echo -e "\n${GREEN}✓ Theme switched to The Matrix!${NC}"; sleep 0.8 ;; 7|solarized) save_theme "solarized"; echo -e "\n${GREEN}✓ Theme switched to Solarized!${NC}"; sleep 0.8; ;; 8|tokyo) save_theme "tokyo"; echo -e "\n${GREEN}✓ Theme switched to Tokyo Night!${NC}"; sleep 0.8 ;; 9|monokai) save_theme "monokai"; echo -e "\n${GREEN}✓ Theme switched to Monokai!${NC}"; sleep 0.8; ;; 10|gruvbox) save_theme "gruvbox"; echo -e "\n${GREEN}✓ Theme switched to Gruvbox!${NC}"; sleep 0.8 ;; 11|emerald) save_theme "emerald"; echo -e "\n${GREEN}✓ Theme switched to Emerald Isle!${NC}"; sleep 0.8; ;; 12|classic) save_theme "classic"; echo -e "\n${GREEN}✓ Theme switched to Classic ANSI!${NC}"; sleep 0.8 ;;
 13|cosmic|supernova|cosmic_supernova|"cosmic supernova"|"Cosmic Supernova"|"Cosmic Supernova [Special Edition]"|"Cosmic Supernova MP Mix Manager")
@@ -2712,7 +2743,11 @@ save_theme "cosmic_dreamworlds_radioactive"; echo -e "\n${BOLD}${GREEN}✓ Theme
 18|cosmic_dreamworlds|cosmic_dream|cosmic_dreamworld|"Cosmic Dreamworlds (Liquid Glass Skin)"|"Cosmic Dreamworlds")
 save_theme "cosmic_dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Cosmic Dreamworlds (Liquid Glass Skin)!${NC}"; sleep 0.8 ;;
 19|orbital_void_reflux|orbital_void|void_reflux|orbital|"Orbital Void Reflux (Liquid Glass Skin)"|"Orbital Void Reflux")
-save_theme "orbital_void_reflux"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Orbital Void Reflux (Liquid Glass Skin)!${NC}"; sleep 0.8 ;; 0|[bB]|[qQ]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
+save_theme "orbital_void_reflux"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Orbital Void Reflux (Liquid Glass Skin)!${NC}"; sleep 0.8 ;;
+20|stream_of_frequency|stream|frequency|sof|frequency_stream|"stream of frequency"|"Stream of Frequency"|"Stream of Frequency [Special Edition]"|"Stream of Frequency MP Mix Manager")
+save_theme "stream_of_frequency"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Stream of Frequency [Special Edition]!${NC}"; sleep 0.8 ;;
+21|sensorium_interface|sensorium|"Sensorium Interface"|"Sensorium Interface (Liquid Glass Skin)")
+save_theme "sensorium_interface"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Sensorium Interface (Liquid Glass Skin)!${NC}"; sleep 0.8 ;; 0|[bB]|[qQ]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
 }
 _LAST_PERF_CHECK=0; _CACHED_PERF_DISPLAY=""
 get_system_perf_stats() {
@@ -3529,6 +3564,15 @@ local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ]
 display_startup_loader_video() {
 local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ] && disp_sh="$PWD/scripts/display_loader_video.sh"; if [ -f "$disp_sh" ]; then source "$disp_sh"; display_startup_loader_video "${1:-0}"; return $?; fi; return 0
 }
+ensure_first_run_sample_track() {
+    local flag_file="$HOME/.config/mix-manager/.first_run_sample_loaded"
+    [ -f "$flag_file" ] && return 0
+    local rew_py="$SCRIPT_DIR/scripts/liquid_glass_reward.py"
+    [ ! -f "$rew_py" ] && rew_py="$PWD/scripts/liquid_glass_reward.py"
+    if [ -f "$rew_py" ]; then
+        python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); from scripts.liquid_glass_reward import setup_first_run_sample_track; setup_first_run_sample_track()" 2>/dev/null || true
+    fi
+}
 ensure_liquid_glass_first_run_reward() {
     local rew_py="$SCRIPT_DIR/scripts/liquid_glass_reward.py"
     [ ! -f "$rew_py" ] && rew_py="$PWD/scripts/liquid_glass_reward.py"
@@ -3544,6 +3588,7 @@ _cleanup_mix_manager_exit() {
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
+ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
 _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)

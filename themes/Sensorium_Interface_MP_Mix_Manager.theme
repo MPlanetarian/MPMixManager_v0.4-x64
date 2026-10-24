@@ -1,0 +1,95 @@
+#Sensorium Interface MP Mix Manager
+#MPlanetarian Sensorium Interface Theme adapted for BTOP
+#Dreamworlds Productions & Sensorium Interface
+#Official theme inspired by Sensorium_Interface.jpeg and Defasten's Yaporigami - Earth Flipper:
+#Iridescent Sensorium Pearl, Bioluminescent Cyber Cyan, Sensorium Rose Quartz, Earth Flipper Celestial Jade & Deep Obsidian Void.
+
+# Main background, empty for terminal default, need to be empty if you want transparent background
+theme[main_bg]="#0a0b12"
+
+# Main text color (Iridescent Sensorium Pearl)
+theme[main_fg]="#f2e8f5"
+
+# Title color for boxes (Bioluminescent Cyber Cyan)
+theme[title]="#00f5ff"
+
+# Highlight color for keyboard shortcuts (Sensorium Rose Quartz)
+theme[hi_fg]="#f0a8d8"
+
+# Background color of selected item in processes box (Deep Celestial Amethyst)
+theme[selected_bg]="#2b2542"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#ffffff"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#6b6882"
+
+# Color of text appearing on top of graphs (Bioluminescent Cyber Cyan)
+theme[graph_text]="#00f5ff"
+
+# Background color of the percentage meters (Deep Sensorium Trench)
+theme[meter_bg]="#161726"
+
+# Misc colors for processes box (Earth Flipper Celestial Jade)
+theme[proc_misc]="#769371"
+
+# Cpu box outline color (Bioluminescent Cyber Cyan)
+theme[cpu_box]="#00f5ff"
+
+# Memory/disks box outline color (Radiant Sensorium Orchid)
+theme[mem_box]="#b848c4"
+
+# Net up/down box outline color (Earth Flipper Celestial Jade)
+theme[net_box]="#769371"
+
+# Processes box outline color (Sensorium Rose Quartz)
+theme[proc_box]="#f0a8d8"
+
+# Box divider line and small boxes line color
+theme[div_line]="#2c2844"
+
+# Temperature graph colors (Earth Flipper Jade -> Solar Bronze -> Peak Rose-Red)
+theme[temp_start]="#769371"
+theme[temp_mid]="#d4c278"
+theme[temp_end]="#ff3366"
+
+# CPU graph colors (Bioluminescent Cyan -> Sensorium Rose Quartz -> Radiant Orchid)
+theme[cpu_start]="#00f5ff"
+theme[cpu_mid]="#f0a8d8"
+theme[cpu_end]="#b848c4"
+
+# Mem/Disk free meter
+theme[free_end]="#00f5ff"
+theme[free_mid]="#769371"
+theme[free_start]="#ff3366"
+
+# Mem/Disk cached meter
+theme[cached_start]="#2b2542"
+theme[cached_mid]="#00f5ff"
+theme[cached_end]="#769371"
+
+# Mem/Disk available meter
+theme[available_start]="#ff3366"
+theme[available_mid]="#d4c278"
+theme[available_end]="#00f5ff"
+
+# Mem/Disk used meter
+theme[used_start]="#00f5ff"
+theme[used_mid]="#f0a8d8"
+theme[used_end]="#b848c4"
+
+# Download graph colors
+theme[download_start]="#2b2542"
+theme[download_mid]="#00f5ff"
+theme[download_end]="#769371"
+
+# Upload graph colors
+theme[upload_start]="#b848c4"
+theme[upload_mid]="#f0a8d8"
+theme[upload_end]="#ff3366"
+
+# Process box color gradient for threads, mem and cpu usage
+theme[process_start]="#2b2542"
+theme[process_mid]="#00f5ff"
+theme[process_end]="#b848c4"

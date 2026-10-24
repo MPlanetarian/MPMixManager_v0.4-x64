@@ -78,6 +78,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SHADER_DIR = ROOT / "shaders"
 
 THEME_COLORS = {
+    "stream_of_frequency": ((0, 242, 255), (76, 217, 123), (245, 237, 106)),
     "dreamworlds_ultra": ((166, 77, 255), (247, 37, 133), (0, 229, 255)),
     "dynamic_rainbow_liquid_glass": ((176, 88, 255), (255, 45, 142), (0, 242, 254)),
     "dreamworlds_liquid": ((0, 245, 255), (199, 125, 255), (72, 149, 239)),
@@ -91,8 +92,24 @@ THEME_COLORS = {
     "cosmic_dreamworlds_radioactive": ((57, 255, 20), (0, 245, 212), (166, 77, 255)),
     "cosmic_dreamworlds": ((232, 13, 104), (0, 245, 212), (176, 88, 255)),
     "orbital_void_reflux": ((0, 240, 255), (157, 78, 221), (255, 0, 127)),
+    "sensorium_interface": ((0, 245, 255), (240, 168, 216), (184, 72, 196)),
 }
 THEME_ALIASES = {
+    "sensorium_interface": "sensorium_interface",
+    "sensorium_interface_(liquid_glass_skin)": "sensorium_interface",
+    "sensorium interface (liquid glass skin)": "sensorium_interface",
+    "sensorium interface": "sensorium_interface",
+    "sensorium": "sensorium_interface",
+    "earth_flipper": "sensorium_interface",
+    "earth flipper": "sensorium_interface",
+    "stream_of_frequency": "stream_of_frequency",
+    "stream_of_frequency_theme": "stream_of_frequency",
+    "stream of frequency": "stream_of_frequency",
+    "stream-of-frequency": "stream_of_frequency",
+    "stream": "stream_of_frequency",
+    "frequency": "stream_of_frequency",
+    "sof": "stream_of_frequency",
+    "frequency_stream": "stream_of_frequency",
     "cosmic_dreamworlds": "cosmic_dreamworlds",
     "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
     "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
@@ -430,6 +447,7 @@ SKIN_FILES = {
     "cosmic_dreamworlds_radioactive": ROOT / "assets" / "skins" / "cosmic_dreamworlds_radioactive.png",
     "cosmic_dreamworlds": ROOT / "assets" / "skins" / "cosmic_dreamworlds.png",
     "orbital_void_reflux": ROOT / "assets" / "skins" / "orbital_void_reflux.png",
+    "sensorium_interface": ROOT / "assets" / "skins" / "sensorium_interface.png",
 }
 
 

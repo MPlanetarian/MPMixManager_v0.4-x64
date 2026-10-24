@@ -242,8 +242,8 @@ class TestPlaylistThemeHighlight(unittest.TestCase):
             self.assertTrue(len(banner_top) > 0, "Top title banner box top line not found")
             self.assertIn(b_col, banner_top[0], f"Banner top border does not use theme b_col for theme {test_theme}")
 
-            # 2. Visualizer box top line (starts with ╭── LEFT or ╭── HIGH-RESOLUTION)
-            vis_top = [l for l in captured_lines if "╭" in l and ("LEFT" in l or "HIGH-RESOLUTION" in l or "SPECTRUM" in l)]
+            # 2. Visualizer box top line (starts with ╭── LEFT or ╭── HIGH-RESOLUTION or ╭── 🌊 STREAM)
+            vis_top = [l for l in captured_lines if "╭" in l and ("LEFT" in l or "HIGH-RESOLUTION" in l or "SPECTRUM" in l or "STREAM" in l)]
             self.assertTrue(len(vis_top) > 0, "Visualizer box top line not found")
             self.assertIn(b_col, vis_top[0], f"Visualizer box top line does not use theme b_col for theme {test_theme}")
 

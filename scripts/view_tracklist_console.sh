@@ -23,6 +23,7 @@ TARGET_FILE="${POSITIONAL_ARGS[0]:-}"
 AUDIO_FILE="${POSITIONAL_ARGS[1]:-${MP_TRACKLIST_AUDIO_FILE:-}}"
 
 TRACKLIST_THEMES=(
+    "stream_of_frequency"
     "dreamworlds"
     "dreamworlds_ultra"
     "cosmic_supernova"
@@ -31,6 +32,7 @@ TRACKLIST_THEMES=(
     "cosmic_dreamworlds_radioactive"
     "cosmic_dreamworlds"
     "orbital_void_reflux"
+    "sensorium_interface"
     "cyberpunk"
     "dracula"
     "nord"
@@ -57,6 +59,16 @@ set_theme_colors() {
     NC='\033[0m'
 
     case "$theme_name" in
+        stream_of_frequency|stream|frequency|sof|frequency_stream|"stream of frequency"|"stream-of-frequency"|"stream of frequency mp mix manager")
+            RED='\033[38;2;240;32;24m'
+            GREEN='\033[38;2;76;217;123m'
+            YELLOW='\033[38;2;245;237;106m'
+            BLUE='\033[38;2;48;49;131m'
+            MAGENTA='\033[38;2;151;79;249m'
+            CYAN='\033[38;2;0;242;255m'
+            CURRENT_THEME="stream_of_frequency"
+            THEME_DISPLAY_NAME="Stream of Frequency"
+            ;;
         dreamworlds|mplanetarian_dreamworlds|mplanetarian|default|"mplanetarian dreamworlds [default]"|"mplanetarian dreamworlds")
             RED='\033[38;2;237;37;78m'
             GREEN='\033[38;2;0;229;255m'
@@ -136,6 +148,16 @@ set_theme_colors() {
             CYAN='\033[38;2;0;240;255m'
             CURRENT_THEME="orbital_void_reflux"
             THEME_DISPLAY_NAME="Orbital Void Reflux"
+            ;;
+        sensorium_interface|sensorium|"sensorium_interface_(liquid_glass_skin)"|"sensorium interface (liquid glass skin)"|"sensorium interface")
+            RED='\033[38;2;240;168;216m'
+            GREEN='\033[38;2;0;245;255m'
+            YELLOW='\033[38;2;245;232;180m'
+            BLUE='\033[38;2;184;72;196m'
+            MAGENTA='\033[38;2;240;168;216m'
+            CYAN='\033[38;2;0;245;255m'
+            CURRENT_THEME="sensorium_interface"
+            THEME_DISPLAY_NAME="Sensorium Interface"
             ;;
         dreamworlds_neon|"dreamworlds neon")
             RED='\033[38;2;247;37;133m'

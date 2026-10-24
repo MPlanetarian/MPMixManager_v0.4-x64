@@ -5,7 +5,7 @@
 [![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2024%2C%202026-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/Version-0.4.0%20Stable-f72585.svg)](VERSION)
 [![Liquid Glass Player](https://img.shields.io/badge/Liquid%20Glass%20Player-OpenGL%20%7C%20Vulkan%20%7C%20Metal-00f0ff.svg)](MP_Audio_Player_Liquid_Glass_OpenGL.py)
-[![MP Visualizer](https://img.shields.io/badge/3D%20Visualizer-Vulkan%20Audio--Reactive%20Raymarching-ff007f.svg)](MP_Liquid_Visualizer.py)
+[![MP Liquid Visualizer](https://img.shields.io/badge/MP%20Liquid%20Visualizer-Vulkan%203D%20Audio--Reactive-ff007f.svg)](MP_Liquid_Visualizer.py)
 [![MIDI Controller](https://img.shields.io/badge/Hardware%20MIDI-Traktor%20Kontrol%20S4%20hw%3A0%2C0-00ffcc.svg)](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-00e5ff.svg)](README.md)
 [![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20%7C%20Apple%20Silicon%20M1--M4%20%26%20Intel-silver.svg)]()
@@ -27,7 +27,7 @@ An enterprise-grade workstation orchestration console and media management suite
 > ### 🌟 Welcome to MP Mix Manager v0.4.0 — The Ultimate Audio & Visual Workstation!
 > **Download & Experience v0.4.0 Now!** Step into the future of high-fidelity music listening, DJ mix management, and visual artistry with our two flagship additions:
 > - 🪟 **[MP Liquid Glass Player](MP_Audio_Player_Liquid_Glass_OpenGL.py):** A translucent, still-water glass desktop music player with dynamic light refraction and an **86% slimmer bezel border**. Powered by high-compatibility **OpenGL Core 3.3+**, **Vulkan 1.x**, and **Apple Silicon Metal (M1–M4)**, featuring Windows 10 & 11 DWM acrylic blur, double-click bezel maximize/restore, multi-monitor awareness, continuous playback across manager exit, and in-place Mini/Micro modes (`M` key).
-> - 🔮 **[MP Liquid Visualizer](MP_Liquid_Visualizer.py):** A stunning 1400x1400 borderless Vulkan 3D audio-reactive raymarching engine with **zero text overlay**. Continually animates to your music via real-time 24-band FFT telemetry, freezes instantly on pause/stop, and showcases 3 procedural Bandcamp-inspired presets (*Cosmic Dreamworlds Liquid*, *Orbital Void Reflux*, and *Dreamworlds Ultra Defasten Biomech*).
+> - 🔮 **[MP Liquid Visualizer](MP_Liquid_Visualizer.py):** A stunning 1400x1400 borderless Vulkan 3D audio-reactive raymarching engine with **zero text overlay**. Continually animates to your music via real-time 24-band FFT telemetry, freezes instantly on pause/stop, and showcases 5 procedural Bandcamp-inspired presets (*Cosmic Dreamworlds Liquid*, *Orbital Void Reflux*, *Dreamworlds Ultra Defasten Biomech*, *Infinite Complexity*, and *Sensorium Interface*).
 >
 > **👉 [Quick Start by OS](#-quick-start-by-operating-system) • [Download & Try v0.4.0 Today!](#-download--experience-v040-stable) • [Read the Full Changelog](CHANGELOG.md)**
 
@@ -95,19 +95,21 @@ An enterprise-grade workstation orchestration console and media management suite
 > **🎧 Test Drive the New Features Immediately:**
 > - Launch **MP Liquid Glass Player**: Press Option **`3`** on the Main Page, press **`L`** inside MP Audio Player, or run `mix-archive-manager --liquid`.
 > - Launch **MP Liquid Visualizer**: Press Option **`23`** ➔ **`2`**, press **`Z`** anywhere in the Manager/Player, or run `mix-archive-manager visualizer`.
-> - Switch Visualizer Presets: Press **`[1]`**, **`[2]`**, or **`[3]`** while the 3D visualizer window is open!
+> - Switch Visualizer Presets: Press **`[1]`**, **`[2]`**, **`[3]`**, **`[4]`**, or **`[5]`** while the 3D visualizer window is open!
 
 ---
 
 ## 🚀 What's New in v0.4.0 Stable
 
 > [!IMPORTANT]
-> **MP Mix Manager v0.4.0 Release (October 24, 2026):** Introduces the groundbreaking **MP Liquid Glass Audio Player** (OpenGL / Vulkan / Apple Silicon Metal) with 86% slimmer bezels and Windows DWM acrylic blur, the native Vulkan **MP Liquid Visualizer** with real-time 3D audio-reactive raymarching across 3 Bandcamp presets, native **Traktor Kontrol S4 Hardware MIDI Controller Support** (`hw:0,0` / `/dev/snd/midiC0D0`) with dual-deck real-time pitch controls (-20% to +20%), real-time **10-Band Graphic Equalizer** with tailored electronic music presets, native **64-bit Windows `.EXE` console launcher** (`MP_Mix_Manager.exe` / `manager.exe`), **Animated Startup Loader Video** (`MP_loader.mp4`), **Live Lossless WAV Recording** with 3GB auto-rollover (`R` key), **Mix Playback Queue** (`Q` key), **Dynamic Tracklist Theme Synchronization** (`T` key), native file manager audio reveal (`F` key), and responsive auto-rescaling UI.
+> **MP Mix Manager v0.4.0 Release (October 24, 2026):** Introduces the groundbreaking **MP Liquid Glass Audio Player** (OpenGL / Vulkan / Apple Silicon Metal) with 86% slimmer bezels and Windows DWM acrylic blur, the native Vulkan **MP Liquid Visualizer** with real-time 3D audio-reactive raymarching across 5 Bandcamp presets (including the new **Stream of Frequency** and **Sensorium Interface**), the global **Stream of Frequency Theme** and animated spectrogram equalizer (`stream_of_frequency_eq`), free celebratory release track & art piece in **`MP_SAMPLES/`** pre-loaded on first run, updated **`MP_loader.mp4`** startup soundtrack, native **Traktor Kontrol S4 Hardware MIDI Controller Support** (`hw:0,0` / `/dev/snd/midiC0D0`), real-time **10-Band Graphic Equalizer**, native **64-bit Windows `.EXE` console launcher** (`MP_Mix_Manager.exe` / `manager.exe`), **Live Lossless WAV Recording** with 3GB auto-rollover (`R` key), **Mix Playback Queue** (`Q` key), **Dynamic Tracklist Theme Synchronization** (`T` key), native file manager audio reveal (`F` key), and responsive auto-rescaling UI.
 
 | Feature Area | Component | New Capabilities Added in v0.4.0 |
 | :--- | :--- | :--- |
-| **🪟 Liquid Glass Player** | **[MP Audio Player (Liquid Glass Mode)](MP_Audio_Player_Liquid_Glass_OpenGL.py)** | Dedicated translucent still-water glass window hosting MP Audio Player. **86% slimmer bezel border** (reduced from 52px to 7px) across Default (1094x734), Mini (680x266), and Micro (680x140) modes. High-compatibility OpenGL (`MP_Audio_Player_Liquid_Glass_OpenGL.py`) default supporting AMD Radeon, Intel, NVIDIA, and legacy GPUs; configurable Vulkan (`MP_Audio_Player_Liquid_Glass.py`) and Apple Silicon Metal (`MP_Audio_Player_Liquid_Glass_macOS.py`). Features Windows 10 & 11 DWM acrylic blur, double-click top bezel maximize/restore, in-process Mini/Micro modes (`M` key), "Orbital Void Reflux" & "Cosmic Dreamworlds" skins, "Dynamic Liquid Glass [Rainbow Colours]" breathing transparency, and continuous audio playback across Manager exit. |
-| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Built-from-scratch native **Vulkan 1.x 3D audio-reactive raymarching visualizer** in a fixed 1400x1400 borderless window with **zero text overlay**. Continuously generates and animates 3D procedural geometry from real-time 24-band FFT telemetry while music plays; freezes instantly in-place on pause/stop. Features 3 procedural presets adhering to a strict 1-Bandcamp-cover-per-preset architecture: **Preset 1: Cosmic Dreamworlds (Liquid)**, **Preset 2: Orbital Void Reflux**, and **Preset 3: Dreamworlds Ultra (Defasten Biomech)**. Dynamic runtime hotkey switching (`[1]`, `[2]`, `[3]`), GPU texture re-upload, and Manager Option 23 integration. |
+| **🌊 Stream of Frequency Theme** | **[Global Theme & Equalizer](themes/Stream_of_Frequency_MP_Mix_Manager.theme)** | Cohesive global theme derived from the official *Stream of Frequency* cover art (`Stream_of_Frequency.jpg`) and equalizer effect (`stream_of_frequency_eq`). Selecting Option 20 in Themes globally synchronizes the MP Audio Player, animated dynamic wave spectrogram equalizer, MP Liquid Visualizer, transparent Liquid Glass player, tracklist console, and btop monitor theme. |
+| **🎁 Free Release Track & Art** | **[`MP_SAMPLES/` Folder](MP_SAMPLES/)** | Celebrates the v0.4 release with an exclusive free release track: *MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake)* (pristine 24-bit 48kHz FLAC, 16:54 duration) and original art piece *Cosmic_Dreamworlds_Cover.png*. Automatically preloaded into the player ready at 0:00 on first launch! |
+| **🪟 Liquid Glass Player** | **[MP Audio Player (Liquid Glass Mode)](MP_Audio_Player_Liquid_Glass_OpenGL.py)** | Dedicated translucent still-water glass window hosting MP Audio Player. **86% slimmer bezel border** (reduced from 52px to 7px) across Default (1094x734), Mini (680x266), and Micro (680x140) modes. High-compatibility OpenGL (`MP_Audio_Player_Liquid_Glass_OpenGL.py`) default supporting AMD Radeon, Intel, NVIDIA, and legacy GPUs; configurable Vulkan (`MP_Audio_Player_Liquid_Glass.py`) and Apple Silicon Metal (`MP_Audio_Player_Liquid_Glass_macOS.py`). Features Windows 10 & 11 DWM acrylic blur, double-click top bezel maximize/restore, in-process Mini/Micro modes (`M` key), "Orbital Void Reflux", "Cosmic Dreamworlds", and "Stream of Frequency" skins, "Dynamic Liquid Glass [Rainbow Colours]" breathing transparency, and continuous audio playback across Manager exit. |
+| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Built-from-scratch native **Vulkan 1.x 3D audio-reactive raymarching visualizer** in a fixed 1400x1400 borderless window with **zero text overlay**. Continuously generates and animates 3D procedural geometry from real-time 24-band FFT telemetry while music plays; freezes instantly in-place on pause/stop. Features 5 procedural presets adhering to a strict 1-Bandcamp-cover-per-preset architecture: **Preset 1: Cosmic Dreamworlds (Liquid)**, **Preset 2: Orbital Void Reflux**, **Preset 3: Dreamworlds Ultra (Defasten Biomech)**, **Preset 4: Infinite Complexity**, and **Preset 5: Stream of Frequency**. Dynamic runtime hotkey switching (`[1]`, `[2]`, `[3]`, `[4]`, `[5]`), GPU texture re-upload, and Manager Option 23 integration. |
 | **🎛️ 10-Band Graphic Equalizer** | **[Equalizer Presets & HUD (`E` Key)](MP_Audio_Player.py)** | Real-time 10-band DSP audio equalizer with tailored electronic music presets: **Flat (Default)**, **Ambient**, **Trance**, **Techno**, **House**, **Progressive**, and **Vapourwave**. Includes interactive in-player Equalizer HUD (`E` key) with visual decibel scale (-12 to +12 dB), band sliders, and custom user preset creation/saving (`S` key). |
 | **🎛️ Hardware MIDI Controller** | **[Traktor Kontrol S4 MIDI Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native ALSA rawmidi integration (`hw:0,0` / `/dev/snd/midiC0D0`) mapping physical controls to MP Audio Player: dual-deck ±20% pitch faders with 0.0% deadband detent snapping, pitch bend (`+`/`-`), SYNC (0% reset / shuffle toggle), PLAY/CUE/CUP transport, BROWSE encoder navigation, LOOP IN/OUT/SIZE, HOTCUES 1..4 jump, channel/master faders, cue mute, and loop recorder controls. |
 | **🤖 Traktor S4 MIDI Daemon** | **[traktor_s4_midi.py & .sh](scripts/traktor_s4_midi.py)** | Lightweight background daemon (`scripts/traktor_s4_midi.py`) with `--start`, `--stop`, `--restart`, `--status`, `--daemon`, `--guide`, and interactive `--monitor` packet analyzer, communicating via IPC to MP Audio Player. |
@@ -140,7 +142,7 @@ An enterprise-grade workstation orchestration console and media management suite
 | Feature Area | Component | Highlights & Capability Summary |
 | :--- | :--- | :--- |
 | **🪟 Liquid Glass Player** | **[MP Audio Player (Liquid Glass)](MP_Audio_Player_Liquid_Glass_OpenGL.py)** | Translucent desktop music player with still-water glass caustics, **86% slimmer bezel border**, tri-engine support (**OpenGL Core 3.3+**, **Vulkan 1.x**, and **Apple Silicon Metal MSL**), Windows 10/11 DWM acrylic blur, double-click maximize/restore, in-process Mini/Micro modes (`M`), "Orbital Void Reflux" & "Cosmic Dreamworlds" skins, dynamic rainbow breathing transparency, and continuous playback across Manager exit. |
-| **🔮 3D Vulkan Visualizer** | **[MP Liquid Visualizer](MP_Liquid_Visualizer.py)** | Built-from-scratch **1400x1400 borderless Vulkan 3D audio-reactive raymarching engine** with zero text overlay. Animates procedural 3D geometry from live 24-band FFT telemetry, freezes instantly on pause/stop, and features 3 Bandcamp presets: *Cosmic Dreamworlds (Liquid)*, *Orbital Void Reflux*, and *Dreamworlds Ultra (Defasten Biomech)* with runtime hotkey switching (`[1]`, `[2]`, `[3]`). |
+| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Built-from-scratch **1400x1400 borderless Vulkan 3D audio-reactive raymarching engine** with zero text overlay. Animates procedural 3D geometry from live 24-band FFT telemetry, freezes instantly on pause/stop, and features 4 Bandcamp presets: *Cosmic Dreamworlds (Liquid)*, *Orbital Void Reflux*, *Dreamworlds Ultra (Defasten Biomech)*, and *Infinite Complexity* with runtime hotkey switching (`[1]`, `[2]`, `[3]`, `[4]`). |
 | **🎛️ 10-Band Graphic EQ** | **[Equalizer HUD & Presets](MP_Audio_Player.py)** | Real-time zero-phase FIR audio equalizer with tailored electronic music curves: Flat, Ambient, Trance, Techno, House, Progressive, and Vapourwave. Interactive visual decibel HUD (`E` key) with custom preset saving (`S` key) to disk. |
 | **🎛️ Hardware MIDI Studio** | **[Traktor Kontrol S4 Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native dual-deck hardware MIDI console mapping via ALSA rawmidi (`hw:0,0`), dual-deck pitch controls (-20% to +20%), deadband snapping at 0.0%, pitch nudge/sync, transport/browse mapping, background daemon (`traktor_s4_midi.py`), and Option 18 integration. |
 | **🎙️ Live WAV Recording** | **[In-Player Recording (`R` Key)](MP_Audio_Player.py)** | Live 16-bit stereo PCM WAV recording directly from playback stream, featuring non-blocking queueing, flashing red dot indicator (`● REC`), and automatic **3GB file size rollover** (`*_pt01.wav`, `*_pt02.wav`) ensuring 100% standard RIFF compatibility. |
@@ -219,10 +221,12 @@ flowchart LR
     A["🎵 MP Audio Player (Playing Music)"] -->|24-Band FFT & Playback State IPC| B["🔮 MP Liquid Visualizer (Native Vulkan 1.x)"]
     B --> C["🖼️ Fixed 1400x1400 Borderless Window\nZero Text Overlay • Esc/q to Close"]
     B --> D["⏸️ Smart Pause Freeze\n3D Raymarching Freezes In-Place when Stopped"]
-    B --> E["🎨 3 Procedural Bandcamp Presets"]
+    B --> E["🎨 5 Procedural Bandcamp Presets"]
     E --> E1["🌌 Preset 1: Cosmic Dreamworlds (Liquid)\nTwin Glass Orbs, Accretion Rings & Aurora"]
     E --> E2["🌀 Preset 2: Orbital Void Reflux\nSingularity Core, Flux Jets & Gravitational Lensing"]
     E --> E3["🛸 Preset 3: Dreamworlds Ultra (Defasten Biomech)\nAerodynamic Fuselage, Origami Streamers & Reactor Rings"]
+    E --> E4["🧬 Preset 4: Infinite Complexity\nDefasten Mirrored Madness, Cyber Organisms & 3D Dynamic Cover"]
+    E --> E5["🪐 Preset 5: Sensorium Interface\nDefasten Earth Flipper, Celestial Gyroscope & Quad-Liquidstreams"]
 ```
 
 ### 🔮 MP Liquid Visualizer Highlights:
@@ -248,8 +252,23 @@ flowchart LR
     - **Helical Origami Sakura Streamers & Ribbons** that wrap around the fuselage and dynamically curl in real time.
     - **Floating Chrome Hexagon Armor Plates** (`sdHexPrism`) and origami shards revolving in dynamic 3D orbits.
     - **High-Tech Slate Cyber Studio** with laser light beams and floating nano-dust origami particles.
+  - **Preset 4: "Infinite Complexity"** (`infinite_complexity`):
+    - Inspired exclusively by **Defasten's *Neo Shibuya 2023: Mirrored Madness*** and **`Cover_v4.png`** (`/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Cover_v4.png`).
+    - **Exact Authentic Color Palette**: Faithfully matches the exact colors of `Cover_v4.png`: Deep Obsidian Space Void (`#020103`), Dark Emerald Forest Cyan-Teal (`#1c2e28`), High-Voltage Neon Mint Green (`#2ae277`), Radiant Mint Glow (`#95d6aa`), Celestial Rose Quartz / Lavender Mist (`#f8e8fc`), Ethereal Rose Quartz (`#e4b1c1`), Deep Mystic Magenta (`#813952`), Cosmic Sage Mist (`#7d9184`), and Warm Starlight Gold (`#e7e5c3`).
+    - **Entirely 3D & Dynamic Background**: The cover art is mapped into an undulating 3D ray-projected manifold with dynamic depth parallax, chromatic dispersion ray-sampling, a receding Defasten mirrored perspective lattice, and floating quantum starlight dust drifting in 3D space.
+    - **3D Effects & Cyber Organism on Top**: Renders an unfurling cybernetic organism with segmented vertebrae capsules, biomorphic rib ripples, incandescent mirrored kinetic rings & portal arcs, 4 sinuous helical tendrils, and deconstructed origami hex plates.
+    - **Fast & Strange Movements Synchronized to Music**: Executes sharp non-linear snap turns and micro-glitch saccades on audio peaks, alongside non-Euclidean space foldings and kaleidoscopic deconstructions, staying locked to the music and freezing when stopped.
+    - **Gradual Dynamic Time Frame**: Integrates a dynamic harmonic time frame modulation that gradually accelerates the tempo into hyper-complex motion and decelerates smoothly into hypnotic liquid suspension over time.
+  - **Preset 5: "Sensorium Interface"** (`sensorium_interface`):
+    - Inspired by Defasten's 2022 generative masterpiece with Yaporigami: ***Earth Flipper*** (*"A primordial liquidstream of celestial origin spins itself back into existence 🌀🌌💦"*) and **`Sensorium_Interface.jpeg`** (`/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Sensorium_Interface.jpeg`).
+    - **Extremely Complicated & Monumentally Slow Moving**: Designed with slow, hypnotic gyroscopic precession and vast dimensional rotational speed, giving it an immense sense of scale, intricate depth, and non-Euclidean complexity.
+    - **Tri-Axis Interlocking Gyroscopic Liquid Core**: Renders 3 concentric, counter-rotating liquid glass toroids with hydraulic harmonic wave distortion and an inner pulsing celestial liquid glass orb.
+    - **Braided Quad-Helical Liquidstreams**: 4 interwoven celestial liquidstreams winding along the spine, flexing with low-mid audio frequencies.
+    - **6 Articulating Biomech Flipper Wings & Origami Sensorium Shards**: Symmetrical hexagonal cyber-armor plates flanking the core that slowly flap and articulate in sync with music transients.
+    - **Relativistic Accretion Halos & Resonance Rings**: Multi-tier planetary rings with fine radial ripples glowing in bioluminescent cyber cyan, sensorium rose quartz, and radiant orchid.
+    - **3D Dynamic Celestial Environment**: Ray-projected celestial void with chromatic dispersion, undulating auroral sheets of Earth Flipper jade and iridescent mauve, and twinkling quantum starlight.
 - ⌨️ **Runtime Preset Hotkey Switching & Texture Re-Upload**:
-  - Press **`[1]`**, **`[2]`**, or **`[3]`** while the visualizer is open to switch presets instantly.
+  - Press **`[1]`**, **`[2]`**, **`[3]`**, **`[4]`**, or **`[5]`** while the visualizer is open to switch presets instantly.
   - The Vulkan texture descriptor dynamically re-uploads the corresponding cover art directly to GPU device-local memory without stuttering or reloading shaders.
   - Full CLI flag support: `--preset <name>`, `--set-preset <name>`, `--list-presets`.
 - 🎛️ **Full Suite & Manager Integration**:
@@ -296,7 +315,7 @@ flowchart LR
     B --> E["🔍 Track Audio Inspector HUD (Press I) & Local Spek Generator (Press G)"]
     B --> F["📜 Live Tracklist Window (Press T) & .m3u Exporter (Press E)"]
     B --> G["🎧 Bluetooth Auto-Routing (Press a) & DJ Pitch Fader (-20% to +20%)"]
-    B --> H["🪟 Liquid Glass Player (Press L) & 🔮 3D Vulkan Visualizer (Press Z)"]
+    B --> H["🪟 Liquid Glass Player (Press L) & 🔮 MP Liquid Visualizer (Press Z)"]
     B --> I["🎙️ Live WAV Recorder (Press R) & 📋 Mix Playback Queue (Press Q)"]
 ```
 
@@ -822,18 +841,20 @@ mix-archive-manager --help            # Display full CLI options and flag refere
 mix-archive-manager --version         # Print version and build number
 mix-archive-manager update            # Check for updates and pull latest git revisions
 
-# MP Liquid Glass Player & 3D Visualizer (NEW in v0.4!)
+# MP Liquid Glass Player & MP Liquid Visualizer (NEW in v0.4!)
 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py       # Launch Liquid Glass Player (OpenGL Core 3.3+ default)
 python3 MP_Audio_Player_Liquid_Glass.py              # Launch Liquid Glass Player (Vulkan NVIDIA/AMD/Intel)
 python3 MP_Audio_Player_Liquid_Glass_macOS.py        # Launch Liquid Glass Player (Apple Silicon Metal)
 mix-archive-manager --liquid                         # Launch configured Liquid Glass Player from CLI
 python3 MP_Liquid_Visualizer.py                      # Launch MP Liquid Visualizer (1400x1400 3D Vulkan)
-python3 MP_Liquid_Visualizer.py --preset 1           # Launch Visualizer: Preset 1 Cosmic Dreamworlds
-python3 MP_Liquid_Visualizer.py --preset 2           # Launch Visualizer: Preset 2 Orbital Void Reflux
-python3 MP_Liquid_Visualizer.py --preset 3           # Launch Visualizer: Preset 3 Dreamworlds Ultra Defasten
-python3 MP_Liquid_Visualizer.py --list-presets       # List all available 3D visualizer presets
-python3 MP_Liquid_Visualizer.py --set-preset 2       # Set default active visualizer preset
-mix-archive-manager visualizer                       # Launch Visualizer via Manager shortcut
+python3 MP_Liquid_Visualizer.py --preset 1           # Launch MP Liquid Visualizer: Preset 1 Cosmic Dreamworlds
+python3 MP_Liquid_Visualizer.py --preset 2           # Launch MP Liquid Visualizer: Preset 2 Orbital Void Reflux
+python3 MP_Liquid_Visualizer.py --preset 3           # Launch MP Liquid Visualizer: Preset 3 Dreamworlds Ultra Defasten
+python3 MP_Liquid_Visualizer.py --preset 4           # Launch MP Liquid Visualizer: Preset 4 Infinite Complexity
+python3 MP_Liquid_Visualizer.py --preset 5           # Launch MP Liquid Visualizer: Preset 5 Sensorium Interface
+python3 MP_Liquid_Visualizer.py --list-presets       # List all available MP Liquid Visualizer presets
+python3 MP_Liquid_Visualizer.py --set-preset 2       # Set default active MP Liquid Visualizer preset
+mix-archive-manager visualizer                       # Launch MP Liquid Visualizer via Manager shortcut
 
 # Audio Playback & Web Companion
 mix-archive-manager p                 # Launch MP Audio Player terminal visualizer
@@ -893,7 +914,7 @@ MP_Mix_Manager_v0.4/
 ├── MP_Audio_Player_Liquid_Glass.py        # Liquid Glass Player (Vulkan 1.x hardware-accelerated pipeline)
 ├── MP_Audio_Player_Liquid_Glass_macOS.py  # Liquid Glass Player (Apple Silicon Metal MSL pipeline for M1–M4)
 ├── launch_liquid_glass.bat                # Windows one-click Liquid Glass player launcher
-├── MP_Liquid_Visualizer.py                # 1400x1400 borderless Vulkan 3D audio-reactive raymarching visualizer
+├── MP_Liquid_Visualizer.py                # MP Liquid Visualizer (1400x1400 borderless Vulkan 3D audio-reactive raymarching engine)
 ├── MP_Audio_Player.py           # Terminal audio player (10-Band EQ, Queue Q, Rec R, File Reveal F, Spek G)
 ├── MP_Audio_Player.sh           # Shell launcher for MP Audio Player
 ├── traktor_s4_midi.py           # Traktor Kontrol S4 MIDI daemon (hw:0,0 pitch/fader/loop/hotcue engine)

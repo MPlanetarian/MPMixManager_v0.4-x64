@@ -30,6 +30,58 @@ from liquid_glass_vulkan import (  # noqa: E402
 COLS = 120
 ROWS = 40
 
+DEFAULT_FONT = "Monospace 11"
+CONFIG_DIR = Path.home() / ".config" / "mix-manager"
+FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
+
+RECOMMENDED_FONTS = [
+    ("Monospace 11", "System Default Monospace (Clean, unbolded standard)"),
+    ("Fira Code 11", "Modern Programming Font (Clean shapes, sleek proportions)"),
+    ("Hack 11", "Crisp Open-Source Terminal Monospace"),
+    ("Adwaita Mono 11", "Modern GNOME Desktop Monospace"),
+    ("Liberation Mono 11", "Classic Clean Monospace"),
+]
+
+
+def get_liquid_glass_font(cli_font=None):
+    if cli_font and str(cli_font).strip():
+        return str(cli_font).strip()
+    env_f = os.environ.get("MP_LIQUID_GLASS_FONT", "").strip() or os.environ.get("LIQUID_GLASS_FONT", "").strip()
+    if env_f:
+        return env_f
+    if FONT_CONFIG_FILE.is_file():
+        try:
+            saved = FONT_CONFIG_FILE.read_text(encoding="utf-8").strip()
+            if saved:
+                return saved
+        except Exception:
+            pass
+    return DEFAULT_FONT
+
+
+def set_liquid_glass_font(font_str: str) -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        FONT_CONFIG_FILE.write_text(str(font_str).strip() + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"Warning: could not save font to {FONT_CONFIG_FILE}: {exc}", file=sys.stderr)
+
+
+def list_liquid_glass_fonts():
+    cur = get_liquid_glass_font()
+    print("\n\033[1;38;2;0;229;255m══ MP Liquid Glass Player — Available & Recommended Fonts ══\033[0m\n")
+    for idx, (f_name, desc) in enumerate(RECOMMENDED_FONTS, 1):
+        is_cur = (f_name == cur or f_name.split()[0] == cur.split()[0])
+        star = "\033[1;38;2;0;255;127m★ ACTIVE\033[0m" if is_cur else "        "
+        print(f"  {star} \033[1;38;2;255;215;0m[{idx}]\033[0m \033[1;38;2;255;255;255m{f_name:<20s}\033[0m — {desc}")
+    print(f"\n  \033[38;2;120;215;255mActive Font:\033[0m {cur}")
+    print("\n  \033[38;2;200;200;200mTo try a font on launch:\033[0m")
+    print("    python3 MP_Audio_Player_Liquid_Glass.py --font \"Fira Code 11\"")
+    print("    python3 MP_Audio_Player_Liquid_Glass.py --font \"Hack 11\"")
+    print("    python3 MP_Audio_Player_Liquid_Glass.py --font \"Monospace 11\"")
+    print("\n  \033[38;2;200;200;200mTo set a font as your permanent default:\033[0m")
+    print("    python3 MP_Audio_Player_Liquid_Glass.py --set-font \"Fira Code 11\"\n")
+
 
 def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NORMAL"):
     """Pixel boxes for the player panels in ``_draw_frame`` across Normal, Mini, and Micro modes."""
@@ -131,11 +183,12 @@ def _child_env():
 class GlassHost:
     """Vulkan glass chrome with a solid terminal window in the centre well."""
 
-    def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):
+    def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None, font=None):
         self.argv = list(argv)
         self.embed_check = embed_check
         self.mode = mode.upper()
         self.cli_theme = cli_theme
+        self.font_name = get_liquid_glass_font(font)
         self.renderer = None
         self.gtk_window = None
         self.terminal = None
@@ -644,6 +697,12 @@ class GlassHost:
         return False
 
     def _gtk_terminal_window(self):
+        import gi
+        try:
+            gi.require_version("Gdk", "3.0")
+            gi.require_version("Gtk", "3.0")
+        except ValueError:
+            pass
         from gi.repository import Gdk, Gtk
 
         icon_path = ROOT / "assets" / "mp_liquid_glass_icon.png"
@@ -671,6 +730,12 @@ class GlassHost:
 
     def _clear_terminal_background(self, window, term):
         """Let the still-water glass show through the player cells while keeping text high-contrast."""
+        import gi
+        try:
+            gi.require_version("Gdk", "3.0")
+            gi.require_version("Gtk", "3.0")
+        except ValueError:
+            pass
         from gi.repository import Gdk, Gtk
 
         rgba = Gdk.RGBA()
@@ -683,15 +748,13 @@ class GlassHost:
         fg.alpha = 1.0
         if hasattr(term, "set_color_foreground"):
             term.set_color_foreground(fg)
-        if hasattr(term, "set_color_bold"):
-            term.set_color_bold(fg)
         if hasattr(term, "set_bold_is_bright"):
-            term.set_bold_is_bright(True)
+            term.set_bold_is_bright(False)
         try:
             import gi
             gi.require_version("Pango", "1.0")
             from gi.repository import Pango
-            font_desc = Pango.FontDescription.from_string("Monospace Bold 11")
+            font_desc = Pango.FontDescription.from_string(self.font_name)
             term.set_font(font_desc)
         except Exception:
             pass
@@ -704,7 +767,8 @@ class GlassHost:
 
             fo = cairo.FontOptions()
             fo.set_antialias(cairo.ANTIALIAS_GRAY)
-            fo.set_hint_style(cairo.HINT_STYLE_FULL)
+            fo.set_hint_style(cairo.HINT_STYLE_SLIGHT)
+            fo.set_hint_metrics(cairo.HINT_METRICS_ON)
             if window.get_screen() is not None:
                 window.get_screen().set_font_options(fo)
             if term.get_pango_context() is not None:
@@ -713,7 +777,7 @@ class GlassHost:
             pass
         provider = Gtk.CssProvider()
         provider.load_from_data(
-            b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: bold; }"
+            b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: normal; text-shadow: 0 0 3px rgba(0, 229, 255, 0.40), 0 0 7px rgba(176, 88, 255, 0.20); letter-spacing: 0.35px; }"
         )
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -744,10 +808,15 @@ def main(argv):
 
         run_self_test()
         return 0
+    if "--list-fonts" in argv:
+        list_liquid_glass_fonts()
+        return 0
+
     embed = "--embed-check" in argv
     tracklist_path = None
     audio_path = None
     theme_arg = None
+    font_arg = None
     cleaned_argv = []
     i = 0
     while i < len(argv):
@@ -776,6 +845,23 @@ def main(argv):
             theme_arg = arg.split("=", 1)[1]
             i += 1
             continue
+        elif arg in ("--font", "-f") and i + 1 < len(argv):
+            font_arg = argv[i + 1]
+            i += 2
+            continue
+        elif arg.startswith("--font="):
+            font_arg = arg.split("=", 1)[1]
+            i += 1
+            continue
+        elif arg == "--set-font" and i + 1 < len(argv):
+            set_liquid_glass_font(argv[i + 1])
+            print(f"✔ MP Liquid Glass Player default font set to: {argv[i + 1]}")
+            return 0
+        elif arg.startswith("--set-font="):
+            target = arg.split("=", 1)[1]
+            set_liquid_glass_font(target)
+            print(f"✔ MP Liquid Glass Player default font set to: {target}")
+            return 0
         cleaned_argv.append(arg)
         i += 1
 
@@ -796,7 +882,7 @@ def main(argv):
         if not Path(command[1]).is_file():
             raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
 
-    host = GlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg)
+    host = GlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg, font=font_arg)
     ok = host.run()
     if embed:
         if not ok:

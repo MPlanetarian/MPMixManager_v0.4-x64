@@ -1,0 +1,94 @@
+#Stream of Frequency MP Mix Manager
+#MPlanetarian Stream of Frequency Theme adapted for BTOP
+#Stream of Frequency Recordings & Dreamworlds Productions
+#Official theme based on Stream of Frequency cover art: Electric Stream Cyan, Frequency Emerald, Resonant Solar Gold, Deep Stream Indigo & Peak Crimson.
+
+# Main background, empty for terminal default, need to be empty if you want transparent background
+theme[main_bg]="#0c0d17"
+
+# Main text color (Frequency Mist White)
+theme[main_fg]="#e6f1f5"
+
+# Title color for boxes (Electric Stream Cyan)
+theme[title]="#00f2ff"
+
+# Highlight color for keyboard shortcuts (Solar Wave Gold)
+theme[hi_fg]="#f5ed6a"
+
+# Background color of selected item in processes box (Deep Stream Indigo)
+theme[selected_bg]="#303183"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#ffffff"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#6272a4"
+
+# Color of text appearing on top of graphs (Electric Stream Cyan)
+theme[graph_text]="#00f2ff"
+
+# Background color of the percentage meters (Deep Frequency Void)
+theme[meter_bg]="#1a1c33"
+
+# Misc colors for processes box (Frequency Emerald)
+theme[proc_misc]="#4cd97b"
+
+# Cpu box outline color (Electric Stream Cyan)
+theme[cpu_box]="#00f2ff"
+
+# Memory/disks box outline color (Deep Stream Indigo)
+theme[mem_box]="#303183"
+
+# Net up/down box outline color (Frequency Emerald)
+theme[net_box]="#4cd97b"
+
+# Processes box outline color (Electric Violet)
+theme[proc_box]="#974ff9"
+
+# Box divider line and small boxes line color
+theme[div_line]="#242848"
+
+# Temperature graph colors (Frequency Emerald -> Solar Gold -> Peak Crimson)
+theme[temp_start]="#4cd97b"
+theme[temp_mid]="#f5ed6a"
+theme[temp_end]="#f02020"
+
+# CPU graph colors (Electric Cyan -> Frequency Emerald -> Peak Crimson)
+theme[cpu_start]="#00f2ff"
+theme[cpu_mid]="#4cd97b"
+theme[cpu_end]="#f02020"
+
+# Mem/Disk free meter
+theme[free_end]="#4cd97b"
+theme[free_mid]="#00f2ff"
+theme[free_start]="#f02020"
+
+# Mem/Disk cached meter
+theme[cached_start]="#303183"
+theme[cached_mid]="#00f2ff"
+theme[cached_end]="#4cd97b"
+
+# Mem/Disk available meter
+theme[available_start]="#f02020"
+theme[available_mid]="#f5ed6a"
+theme[available_end]="#4cd97b"
+
+# Mem/Disk used meter
+theme[used_start]="#4cd97b"
+theme[used_mid]="#f5ed6a"
+theme[used_end]="#f02020"
+
+# Download graph colors
+theme[download_start]="#303183"
+theme[download_mid]="#00f2ff"
+theme[download_end]="#4cd97b"
+
+# Upload graph colors
+theme[upload_start]="#974ff9"
+theme[upload_mid]="#f5ed6a"
+theme[upload_end]="#f02020"
+
+# Process box color gradient for threads, mem and cpu usage
+theme[process_start]="#303183"
+theme[process_mid]="#4cd97b"
+theme[process_end]="#f02020"

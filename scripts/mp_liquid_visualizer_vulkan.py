@@ -62,6 +62,8 @@ WINDOW_HEIGHT = 1400
 #   Preset 0: Cosmic Dreamworlds (Liquid)
 #   Preset 1: Orbital Void Reflux
 #   Preset 2: Dreamworlds Ultra (Defasten Biomech)
+#   Preset 3: Infinite Complexity
+#   Preset 4: Sensorium Interface (Defasten Earth Flipper)
 VISUALIZER_PRESETS: List[Dict[str, Any]] = [
     {
         "id": 0,
@@ -96,6 +98,30 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
             ASSETS_DIR / "dreamworlds_ultra_defasten_cover.png",
             COVERS_DIR / "Dreamworlds_Ultra_Defasten_Preset.png",
             Path("/home/mplanetarian/Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png"),
+        ],
+    },
+    {
+        "id": 3,
+        "key": "infinite_complexity",
+        "name": "Infinite Complexity",
+        "album": "MPlanetarian - Infinite Complexity",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "infinite_complexity_cover.png",
+            COVERS_DIR / "Infinite_Complexity_Preset.png",
+            Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Cover_v4.png"),
+        ],
+    },
+    {
+        "id": 4,
+        "key": "sensorium_interface",
+        "name": "Sensorium Interface",
+        "album": "MPlanetarian - Sensorium Interface",
+        "bandcamp_url": "https://mplanetarian.bandcamp.com",
+        "cover_paths": [
+            ASSETS_DIR / "sensorium_interface_cover.png",
+            COVERS_DIR / "Sensorium_Interface_Preset.png",
+            Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Sensorium_Interface.jpeg"),
         ],
     },
 ]
@@ -155,6 +181,17 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
                 target = preset_file.read_text(encoding="utf-8").strip().lower()
             except OSError:
                 pass
+    if not target:
+        theme_file = CONFIG_DIR / "theme"
+        if theme_file.is_file():
+            try:
+                th = theme_file.read_text(encoding="utf-8").strip().lower()
+                if th in ("sensorium", "sensorium_interface", "sensorium interface", "earth_flipper", "earth flipper"):
+                    target = "sensorium_interface"
+                elif th in ("stream_of_frequency", "stream", "frequency", "sof", "frequency_stream"):
+                    target = "sensorium_interface"
+            except OSError:
+                pass
     for p in VISUALIZER_PRESETS:
         candidates = [
             str(p["id"]),
@@ -164,6 +201,8 @@ def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
             p["key"].replace("_", "-").lower(),
             p["key"].replace("_", " ").lower(),
         ]
+        if p["key"] == "sensorium_interface":
+            candidates.extend(["sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper"])
         if target in candidates:
             return p
     # Partial matching if target provided
@@ -208,6 +247,7 @@ class AudioTelemetryBridge:
 
         self.is_playing: bool = False
         self.accum_time: float = 0.0
+        self.dynamic_time: float = 0.0
         self.bass_phase: float = 0.0
         self.mid_phase: float = 0.0
         self.high_phase: float = 0.0
@@ -290,6 +330,8 @@ class AudioTelemetryBridge:
             if self.is_playing:
                 self.accum_time += dt
                 t = self.accum_time
+                synth_speed = 1.0 + 0.55 * math.sin(t * 0.09) * math.cos(t * 0.045) + 0.25 * math.sin(t * 0.18)
+                self.dynamic_time += dt * synth_speed
                 raw_bands = [
                     0.55 + 0.40 * math.sin(t * 3.2 + i * 0.45) ** 2 for i in range(16)
                 ]
@@ -314,6 +356,13 @@ class AudioTelemetryBridge:
         pitch = float(st.get("pitch_factor", 1.0) or 1.0)
         self.pitch_factor = max(0.5, min(1.5, pitch))
         self.accum_time += dt * self.pitch_factor
+
+        # Dynamic time frame: speeds up and slows down gradually over time in a smooth non-linear wave
+        wave = math.sin(self.accum_time * 0.082) * math.cos(self.accum_time * 0.041)
+        harmonic = math.sin(self.accum_time * 0.173)
+        speed_factor = 1.0 + 0.65 * wave + 0.35 * harmonic
+        speed_factor *= (0.85 + 0.30 * max(0.0, min(1.0, float(st.get("rms_level", 0.0) or 0.0) * 2.0)))
+        self.dynamic_time += dt * speed_factor * self.pitch_factor
 
         levels = st.get("levels") or []
         rms = float(st.get("rms_level", 0.0) or 0.0)
@@ -1053,7 +1102,7 @@ class LiquidVisualizerVulkanRenderer:
 
     def __init__(self, preset_name: Optional[str] = None):
         self.preset = get_active_preset(preset_name)
-        self.title = "MP_Liquid_Visualizer"
+        self.title = "MP Liquid Visualizer"
         self.device_name = ""
         self.vendor_id = 0
         self.device_type = -1
@@ -1479,7 +1528,7 @@ class LiquidVisualizerVulkanRenderer:
         self._ext_arr = arr
         app = VkApplicationInfo()
         app.sType = ST_APPLICATION_INFO
-        app.pApplicationName = b"MP_Liquid_Visualizer"
+        app.pApplicationName = b"MP Liquid Visualizer"
         app.applicationVersion = _api_version(0, 4, 0)
         app.pEngineName = b"mp-liquid-visualizer-vulkan"
         app.engineVersion = 1
@@ -2292,7 +2341,7 @@ class LiquidVisualizerVulkanRenderer:
             float(self.preset["id"]),
             float(bridge.pitch_factor),
             1.0,
-            0.0,
+            float(getattr(bridge, "dynamic_time", bridge.accum_time)),
         )
         ctypes.memmove(self._ubo_ptr, byref(ubo), ctypes.sizeof(ubo))
 
@@ -2623,7 +2672,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="MP_Liquid_Visualizer",
-        description="MP_Liquid_Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer",
+        description="MP Liquid Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer",
     )
     parser.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
     parser.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")

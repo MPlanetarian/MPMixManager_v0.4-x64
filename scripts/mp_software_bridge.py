@@ -516,6 +516,8 @@ def sync_themes(source: str = "mix-manager") -> str:
             tn = "Dreamworlds_Ultra_MP_Mix_Manager"
         elif target_theme in ("cosmic_supernova", "supernova"):
             tn = "Cosmic_Supernova_MP_Mix_Manager"
+        elif target_theme in ("stream_of_frequency", "stream", "frequency", "sof", "frequency_stream"):
+            tn = "Stream_of_Frequency_MP_Mix_Manager"
         if tn:
             btop_themes = btop_dir / "themes"
             btop_themes.mkdir(parents=True, exist_ok=True)
