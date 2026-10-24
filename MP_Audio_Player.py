@@ -65,6 +65,7 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 SOCKET_PATH, PORT_FILE = CONFIG_DIR / "mp_audio_player.sock", CONFIG_DIR / "mp_audio_player.port"
 STATE_FILE, PID_FILE, DURATION_CACHE_FILE = CONFIG_DIR / "mp_player_state.json", CONFIG_DIR / "mp_player.pid", CONFIG_DIR / "track_durations.json"
+RESUME_STATE_FILE = CONFIG_DIR / "playback_resume.json"
 
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
@@ -130,7 +131,15 @@ def format_seconds(seconds: float) -> str:
 
 def _run_bg(cmd: Union[List[str], str]) -> bool:
     try:
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(
+            cmd,
+            cwd=str(get_base_dir()),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True
+        )
         return True
     except Exception: return False
 
@@ -773,6 +782,229 @@ class AudioFeederThread(threading.Thread):
                     while self._running and self._seek_target is None:
                         with self._wake_cond: self._wake_cond.wait(timeout=0.2)
 
+EQ_BAND_FREQS: List[float] = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0]
+EQ_BAND_LABELS: List[str] = ["31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]
+EQ_PRESET_FILE = CONFIG_DIR / "eq_preset"
+EQ_CUSTOM_FILE = CONFIG_DIR / "custom_eq_presets.json"
+EQ_ACTIVE_BANDS_FILE = CONFIG_DIR / "eq_active_bands.json"
+
+DEFAULT_EQ_PRESETS: Dict[str, List[float]] = {
+    "Flat": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "Ambient": [3.0, 2.5, 1.5, 0.0, -1.0, -1.5, -0.5, 1.0, 2.0, 2.5],
+    "Trance": [4.0, 5.0, 2.0, -1.5, 0.0, 1.5, 2.5, 3.5, 4.0, 3.0],
+    "Techno": [5.0, 4.5, 2.0, -2.5, -2.0, -0.5, 1.0, 2.5, 3.0, 1.5],
+    "House": [3.5, 4.0, 3.0, -1.0, -1.0, 0.0, 1.5, 2.0, 3.0, 2.0],
+    "Progressive": [3.0, 4.0, 2.5, -1.0, -1.0, 0.0, 1.5, 2.0, 2.5, 3.0],
+    "Vapourwave": [-2.0, 1.0, 2.5, 3.5, 1.5, 0.0, -1.0, -2.5, -4.0, -6.0],
+}
+
+EQ_PRESET_ALIASES: Dict[str, str] = {
+    "vaporwave": "Vapourwave",
+    "vapor": "Vapourwave",
+    "vapour": "Vapourwave",
+    "progressive house": "Progressive",
+    "prog": "Progressive",
+    "default": "Flat",
+}
+
+
+class EqualizerFilter:
+    def __init__(self, num_bands: int = 10, filter_len: int = 256):
+        _ensure_numpy()
+        self.band_freqs = np.array(EQ_BAND_FREQS, dtype=np.float32)
+        self.filter_len = filter_len
+        self.fft_len = 1024 + filter_len
+        self.fft_n = int(2 ** np.ceil(np.log2(self.fft_len)))
+        self.overlap = np.zeros((filter_len - 1, 2), dtype=np.float32)
+        self.H = None
+        self.is_flat = True
+        self.current_sr = 44100
+        self._lock = threading.Lock()
+
+    def set_gains(self, gains_db: Sequence[float], sr: int = 44100):
+        with self._lock:
+            g = np.array(gains_db, dtype=np.float32)
+            if np.all(np.abs(g) < 0.05):
+                self.is_flat = True
+                self.H = None
+                return
+            self.is_flat = False
+            self.current_sr = int(sr if sr and sr > 0 else 44100)
+            fft_freqs = np.fft.rfftfreq(self.filter_len, 1.0 / self.current_sr)
+            log_bands = np.log10(self.band_freqs)
+            log_fft = np.log10(np.maximum(10.0, fft_freqs))
+            gains_interp_db = np.interp(log_fft, log_bands, g)
+            lin_gain = 10.0 ** (gains_interp_db / 20.0)
+            fir = np.fft.irfft(lin_gain, n=self.filter_len)
+            fir = np.fft.fftshift(fir) * np.hanning(self.filter_len)
+            fir_sum = np.sum(fir)
+            if abs(fir_sum) > 1e-4:
+                fir = fir / fir_sum
+            self.H = np.fft.rfft(fir, n=self.fft_n).astype(np.complex64)[:, None]
+
+    def process(self, chunk: np.ndarray) -> np.ndarray:
+        with self._lock:
+            if self.is_flat or self.H is None:
+                return chunk
+            n = len(chunk)
+            if n == 0:
+                return chunk
+            if len(self.overlap) != self.filter_len - 1:
+                self.overlap = np.zeros((self.filter_len - 1, 2), dtype=np.float32)
+            ext = np.vstack([self.overlap, chunk])
+            conv = np.fft.irfft(np.fft.rfft(ext, n=self.fft_n, axis=0) * self.H, n=self.fft_n, axis=0)
+            self.overlap = chunk[-(self.filter_len - 1):].copy()
+            delay = (self.filter_len - 1) // 2
+            return np.clip(conv[delay : delay + n], -1.0, 1.0)
+
+
+class EqualizerManager:
+    def __init__(self):
+        self.num_bands = 10
+        self.band_freqs = list(EQ_BAND_FREQS)
+        self.band_labels = list(EQ_BAND_LABELS)
+        self.custom_presets: Dict[str, List[float]] = {}
+        self.active_preset: str = "Flat"
+        self.current_bands: List[float] = [0.0] * 10
+        self._load()
+
+    def _load(self):
+        if EQ_CUSTOM_FILE.is_file():
+            try:
+                data = json.loads(EQ_CUSTOM_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        if isinstance(v, (list, tuple)) and len(v) == self.num_bands:
+                            self.custom_presets[str(k)] = [max(-12.0, min(12.0, float(x))) for x in v]
+            except Exception: pass
+
+        preset_name = "Flat"
+        if EQ_PRESET_FILE.is_file():
+            try:
+                saved = EQ_PRESET_FILE.read_text(encoding="utf-8").strip()
+                if saved: preset_name = saved
+            except Exception: pass
+
+        self.apply_preset(preset_name, save=False)
+        if self.active_preset == "Custom" and EQ_ACTIVE_BANDS_FILE.is_file():
+            try:
+                ab = json.loads(EQ_ACTIVE_BANDS_FILE.read_text(encoding="utf-8"))
+                if isinstance(ab, (list, tuple)) and len(ab) == self.num_bands:
+                    self.current_bands = [max(-12.0, min(12.0, float(x))) for x in ab]
+            except Exception: pass
+
+    def get_all_presets(self) -> Dict[str, List[float]]:
+        p = dict(DEFAULT_EQ_PRESETS)
+        p.update(self.custom_presets)
+        return p
+
+    def get_all_preset_names(self) -> List[str]:
+        names = [k for k in DEFAULT_EQ_PRESETS.keys()]
+        for c in sorted(self.custom_presets.keys()):
+            if c not in names:
+                names.append(c)
+        return names
+
+    def resolve_preset_name(self, name: str) -> Optional[str]:
+        if not name: return None
+        nl = name.strip().lower()
+        if nl in EQ_PRESET_ALIASES:
+            return EQ_PRESET_ALIASES[nl]
+        for k in self.get_all_presets().keys():
+            if k.lower() == nl:
+                return k
+        return None
+
+    def apply_preset(self, name: str, save: bool = True) -> bool:
+        resolved = self.resolve_preset_name(name)
+        if resolved and resolved in self.get_all_presets():
+            self.active_preset = resolved
+            self.current_bands = list(self.get_all_presets()[resolved])
+            if save:
+                try: EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+                except Exception: pass
+            return True
+        if name.strip().lower() == "custom":
+            self.active_preset = "Custom"
+            return True
+        self.active_preset = "Flat"
+        self.current_bands = list(DEFAULT_EQ_PRESETS["Flat"])
+        if save:
+            try: EQ_PRESET_FILE.write_text("Flat", encoding="utf-8")
+            except Exception: pass
+        return False
+
+    def cycle_preset(self, direction: int = 1) -> str:
+        names = self.get_all_preset_names()
+        cur = self.active_preset
+        if cur in names:
+            idx = (names.index(cur) + direction) % len(names)
+        else:
+            idx = 0
+        self.apply_preset(names[idx])
+        return self.active_preset
+
+    def set_band(self, index: int, gain_db: float, step: bool = False) -> bool:
+        if not (0 <= index < self.num_bands): return False
+        new_val = (self.current_bands[index] + gain_db) if step else gain_db
+        new_val = round(max(-12.0, min(12.0, float(new_val))), 1)
+        self.current_bands[index] = new_val
+        self._check_if_preset_matched()
+        try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+
+    def set_bands(self, gains: Sequence[float]) -> bool:
+        if len(gains) != self.num_bands: return False
+        self.current_bands = [round(max(-12.0, min(12.0, float(x))), 1) for x in gains]
+        self._check_if_preset_matched()
+        try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+
+    def _check_if_preset_matched(self):
+        for name, preset_gains in self.get_all_presets().items():
+            if all(abs(a - b) < 0.1 for a, b in zip(self.current_bands, preset_gains)):
+                self.active_preset = name
+                try: EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+                except Exception: pass
+                return
+        self.active_preset = "Custom"
+        try: EQ_PRESET_FILE.write_text("Custom", encoding="utf-8")
+        except Exception: pass
+
+    def save_custom_preset(self, name: str, gains: Optional[Sequence[float]] = None) -> bool:
+        name = str(name).strip()
+        if not name: name = "Custom 1"
+        if name.lower() in ("flat", "ambient", "trance", "techno", "house", "progressive", "vapourwave", "vaporwave"):
+            name = f"{name} (User)"
+        band_vals = [round(max(-12.0, min(12.0, float(x))), 1) for x in (gains if gains is not None else self.current_bands)]
+        self.custom_presets[name] = band_vals
+        self.active_preset = name
+        self.current_bands = list(band_vals)
+        try:
+            EQ_CUSTOM_FILE.write_text(json.dumps(self.custom_presets, indent=2), encoding="utf-8")
+            EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+            EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+
+    def delete_custom_preset(self, name: str) -> bool:
+        if name in self.custom_presets:
+            del self.custom_presets[name]
+            try: EQ_CUSTOM_FILE.write_text(json.dumps(self.custom_presets, indent=2), encoding="utf-8")
+            except Exception: pass
+            if self.active_preset == name:
+                self.apply_preset("Flat")
+            return True
+        return False
+
+    def is_flat(self) -> bool:
+        return all(abs(x) < 0.05 for x in self.current_bands)
+
+    def get_current_bands(self) -> List[float]:
+        return list(self.current_bands)
+
 class AudioEngine:
     def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE"):
         _ensure_audio_backends()
@@ -799,6 +1031,9 @@ class AudioEngine:
         self._rec_queue = self._rec_worker_thread = self._rec_dir = None
         self._rec_lock, self._rec_part_index, self._rec_base_stem, self._rec_samplerate = threading.Lock(), 1, "", 48000
         self._ensure_stream()
+        self.eq_manager = EqualizerManager()
+        self.eq_filter = EqualizerFilter()
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
         self.auto_bluetooth, self.bt_router = auto_bluetooth, None
         if BluetoothAudioRouter is not None:
             try:
@@ -933,7 +1168,7 @@ class AudioEngine:
             try: s.close()
             except Exception: pass
 
-    def load_track(self, index: int, start_playing: bool = True) -> bool:
+    def load_track(self, index: int, start_playing: bool = True, start_position: float = 0.0) -> bool:
         if not self.playlist or not (0 <= index < len(self.playlist)): return False
         self.current_index, self.current_track = index, self.playlist[index]
         self._stop_feeder()
@@ -945,11 +1180,14 @@ class AudioEngine:
             self.position_sec = 0.0
             self.resampler.reset()
             self._setup_fft_bins(self.sample_rate)
+            self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
             with self._sf_lock: old_sf, self.sf_file = self.sf_file, getattr(src, "sf", src)
             self._retire_sf(old_sf)
             self.audio_buffer = AudioPrefetchBuffer(self.sample_rate, 12.0)
             self.feeder = AudioFeederThread(self.audio_source, self.audio_buffer, self)
             self.feeder.start()
+            if start_position > 0.0:
+                self.seek(start_position)
             min_pre, t0 = int(0.5 * self.sample_rate), time.time()
             while (time.time() - t0 < 1.0) and (self.audio_buffer.available_frames < min_pre) and not self.audio_buffer.eof:
                 time.sleep(0.04)
@@ -971,6 +1209,19 @@ class AudioEngine:
             tmp = STATE_FILE.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.get_status_dict(), default=float), encoding="utf-8")
             tmp.replace(STATE_FILE)
+            if self.current_track and self.current_track.get("path") and self.duration_sec > 0:
+                pos = round(float(self.position_sec), 2)
+                res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
+                res_tmp.write_text(json.dumps({
+                    "path": str(self.current_track.get("path")),
+                    "position_sec": pos,
+                    "duration_sec": round(float(self.duration_sec), 2),
+                    "title": str(self.current_track.get("name", "")),
+                    "mode": str(self.mode),
+                    "player": "mp_audio_player",
+                    "timestamp": time.time()
+                }), encoding="utf-8")
+                res_tmp.replace(RESUME_STATE_FILE)
         except Exception: pass
 
     def _audio_callback(self, outdata, frames, time_info, status):
@@ -993,6 +1244,8 @@ class AudioEngine:
             return
         eff_vol = 0.0 if self.muted else self.volume
         sd_arr = (data if data.ndim > 1 and data.shape[1] >= 2 else np.column_stack((data, data) if data.ndim == 1 else (data[:, 0], data[:, 0])))[:, :2]
+        if not self.eq_filter.is_flat:
+            sd_arr = self.eq_filter.process(sd_arr)
         mono = (sd_arr[:, 0] + sd_arr[:, 1]) * 0.5
         if eff_vol != 1.0: sd_arr = np.ascontiguousarray(sd_arr * np.float32(eff_vol))
         ncopy = min(rf, frames, len(sd_arr))
@@ -1224,8 +1477,42 @@ class AudioEngine:
             "levels_left": np.round(self.smoothed_levels_left, 3).tolist(), "levels_right": np.round(self.smoothed_levels_right, 3).tolist(),
             "peaks_left": np.round(self.peaks_left, 3).tolist(), "peaks_right": np.round(self.peaks_right, 3).tolist(),
             "waveform": np.round(self.recent_mono_buffer[::7][:80], 3).tolist(),
-            "rms_level": round(float(self.rms_level), 4), "peak_db": round(float(self.peak_db), 1), "pid": os.getpid()
+            "rms_level": round(float(self.rms_level), 4), "peak_db": round(float(self.peak_db), 1), "pid": os.getpid(),
+            "eq_preset": str(self.eq_manager.active_preset),
+            "eq_bands": [round(float(x), 1) for x in self.eq_manager.get_current_bands()],
+            "eq_is_flat": bool(self.eq_manager.is_flat()),
+            "eq_presets": self.eq_manager.get_all_preset_names(),
         }
+
+    def set_eq_preset(self, name: str) -> bool:
+        ok = self.eq_manager.apply_preset(name)
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self._sync_state_file()
+        return ok
+
+    def set_eq_band(self, index: int, gain_db: float, step: bool = False) -> bool:
+        ok = self.eq_manager.set_band(index, gain_db, step=step)
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self._sync_state_file()
+        return ok
+
+    def set_eq_bands(self, gains: Sequence[float]) -> bool:
+        ok = self.eq_manager.set_bands(gains)
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self._sync_state_file()
+        return ok
+
+    def save_eq_preset(self, name: str, gains: Optional[Sequence[float]] = None) -> bool:
+        ok = self.eq_manager.save_custom_preset(name, gains)
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self._sync_state_file()
+        return ok
+
+    def delete_eq_preset(self, name: str) -> bool:
+        ok = self.eq_manager.delete_custom_preset(name)
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self._sync_state_file()
+        return ok
 
 class PlayerIPCServer:
     def __init__(self, engine: AudioEngine): self.engine, self.running, self.sock = engine, True, None
@@ -1261,17 +1548,36 @@ class PlayerIPCServer:
             cmd = req.get("cmd")
             if cmd == "status": res["data"] = e.get_status_dict()
             elif cmd == "play":
+                pos = float(req.get("position", 0.0) or 0.0)
                 if f := req.get("file"):
-                    def _l(tf):
+                    def _l(tf, p):
                         for i, t in enumerate(e.playlist):
-                            if t["path"] == tf or t["name"] == os.path.basename(tf): e.load_track(i, True); return
+                            if t["path"] == tf or t["name"] == os.path.basename(tf):
+                                e.load_track(i, True, start_position=p)
+                                return
                         e.playlist.insert(0, {"name": os.path.basename(tf), "path": tf, "size_mb": 0, "mtime": time.time(), "ext": os.path.splitext(tf)[1][1:].upper()})
-                        e.load_track(0, True)
-                    threading.Thread(target=_l, args=(f,), daemon=True).start()
-                else: e.play()
+                        e.load_track(0, True, start_position=p)
+                    threading.Thread(target=_l, args=(f, pos), daemon=True).start()
+                else:
+                    if pos > 0: e.seek(pos)
+                    e.play()
             elif cmd == "pause": e.pause()
             elif cmd in ("toggle", "play_pause"): e.toggle_play_pause(); res["state"] = e.state
             elif cmd in ("stop", "quit"):
+                try:
+                    if e.current_track and e.current_track.get("path"):
+                        res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
+                        res_tmp.write_text(json.dumps({
+                            "path": str(e.current_track.get("path")),
+                            "position_sec": round(float(e.position_sec), 2),
+                            "duration_sec": round(float(e.duration_sec), 2),
+                            "title": str(e.current_track.get("name", "")),
+                            "mode": str(e.mode),
+                            "player": "mp_audio_player",
+                            "timestamp": time.time()
+                        }), encoding="utf-8")
+                        res_tmp.replace(RESUME_STATE_FILE)
+                except Exception: pass
                 e.stop_playback(); self.running = False
                 for p in (STATE_FILE, SOCKET_PATH, PORT_FILE, PID_FILE): p.unlink(missing_ok=True)
                 conn.sendall(json.dumps(res).encode('utf-8')); conn.close(); os._exit(0)
@@ -1929,9 +2235,11 @@ def _setup_mini_terminal_appearance():
         if (k_dir := Path.home() / ".local" / "share" / "konsole").is_dir():
             try:
                 (k_dir / "MP_Mini_Player.colorscheme").write_text(
+                    "[General]\nDescription=MP Mini Player\nOpacity=0.30\nBlur=true\nColorRandomization=false\nWallpaperOpacity=1\n\n"
                     "[Background]\nColor=12,14,24\nOpacity=0.30\n\n"
                     "[BackgroundFaint]\nColor=14,16,28\nOpacity=0.30\n\n"
                     "[Foreground]\nColor=240,245,255\n\n"
+                    "[ForegroundFaint]\nColor=180,190,210\n\n"
                     "[ForegroundIntense]\nColor=255,255,255\n\n"
                     "[Color0]\nColor=12,14,24\n[Color1]\nColor=255,51,102\n[Color2]\nColor=0,255,180\n"
                     "[Color3]\nColor=255,200,50\n[Color4]\nColor=102,153,255\n[Color5]\nColor=190,100,255\n"
@@ -1970,17 +2278,38 @@ def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL
     title = "MP Micro Audio Player" if micro else "MP Mini Audio Player"
     t_rows = "7" if micro else "14"
     cmd = _build_window_cmd(not micro, mode, folder_name, playlist_path, theme, style, micro=micro)
+    base_dir = str(get_base_dir())
     if sys.platform.startswith(("linux", "freebsd")):
         _setup_mini_terminal_appearance()
-        if shutil.which("konsole") and _run_bg(["konsole", "--profile", "MP_Mini_Player", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title, "-p", f"tabtitle={title}", "-p", "TerminalColumns=74", "-p", f"TerminalRows={t_rows}", "-p", "ScrollBarPosition=0", "-e"] + cmd):
+        cmd_str = " ".join(f'"{c}"' for c in cmd)
+        if shutil.which("konsole") and _run_bg([
+            "konsole",
+            "--profile", "MP_Mini_Player",
+            "--hide-menubar",
+            "--hide-tabbar",
+            "--separate",
+            "--workdir", base_dir,
+            "--qwindowtitle", title,
+            "-p", f"tabtitle={title}",
+            "-p", "TerminalColumns=74",
+            "-p", f"TerminalRows={t_rows}",
+            "-p", "ScrollBarPosition=0",
+            "-e", "bash", "-c", cmd_str
+        ]):
             if shutil.which("xprop"):
                 def _set_hints():
-                    time.sleep(0.25)
+                    time.sleep(0.3)
                     subprocess.run(["xprop", "-name", title, "-f", "_NET_WM_WINDOW_OPACITY", "32c", "-set", "_NET_WM_WINDOW_OPACITY", "0x4d000000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.run(["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x1, 0x1c, 0x0, 0x0, 0x0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 threading.Thread(target=_set_hints, daemon=True).start()
             return True
-        for term, targs in [("gnome-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--"] + cmd), ("xfce4-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--hide-menubar", "--hide-borders", "-e", " ".join(f'"{a}"' for a in cmd)]), ("alacritty", ["--title", title, "-o", "window.opacity=0.30", "-o", "window.dimensions.columns=74", "-o", f"window.dimensions.lines={t_rows}", "-e"] + cmd), ("foot", ["-T", title, "-w", f"74x{t_rows}", "-a", "0.30"] + cmd), ("xterm", ["-title", title, "-geometry", f"74x{t_rows}", "-e"] + cmd), ("xdg-terminal-exec", cmd)]:
+        for term, targs in [
+            ("gnome-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--", "bash", "-c", cmd_str]),
+            ("xfce4-terminal", [f"--title={title}", f"--geometry=74x{t_rows}", "--hide-menubar", "--hide-borders", "-e", f"bash -c '{cmd_str}'"]),
+            ("alacritty", ["--title", title, "-o", "window.opacity=0.30", "-o", "window.dimensions.columns=74", "-o", f"window.dimensions.lines={t_rows}", "-e", "bash", "-c", cmd_str]),
+            ("foot", ["-T", title, "-w", f"74x{t_rows}", "-a", "0.30", "bash", "-c", cmd_str]),
+            ("xterm", ["-title", title, "-geometry", f"74x{t_rows}", "-e", "bash", "-c", cmd_str]),
+            ("xdg-terminal-exec", ["bash", "-c", cmd_str])
+        ]:
             if shutil.which(term) and _run_bg([term] + targs): return True
     elif sys.platform == "darwin":
         c_str = " ".join(f'\\"{a}\\"' for a in cmd)
@@ -2362,14 +2691,17 @@ class TerminalPlayerUI:
             self.cached_status["shuffle"] = so
             self._notify(f"Shuffle: {'ON' if so else 'OFF'}", 2.5)
         elif data in (b"m", b"M"):
-            if self.ui_size_mode in ("MINI", "MICRO"):
-                self.ui_size_mode = "MICRO" if self.ui_size_mode == "MINI" else "MINI"
-                t_rows = 7 if self.ui_size_mode == "MICRO" else 14
-                title = f"MP {'Micro' if self.ui_size_mode == 'MICRO' else 'Mini'} Audio Player"
-                sys.stdout.write(f"\033[8;{t_rows};74t\033]0;{title}\007"); sys.stdout.flush()
-            else:
-                ok = launch_mini_player_window(self.mode, self.folder_name, getattr(self.scanner, "playlist_path", ""), self.visualizer.theme, self.visualizer.style)
-                self._notify("✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window", 3.0)
+            if self.ui_size_mode == "NORMAL":
+                self.ui_size_mode = "MINI"
+                _setup_mini_terminal_appearance()
+                sys.stdout.write("\033[8;14;74t\033]0;MP Mini Audio Player\007"); sys.stdout.flush()
+            elif self.ui_size_mode == "MINI":
+                self.ui_size_mode = "MICRO"
+                _setup_mini_terminal_appearance()
+                sys.stdout.write("\033[8;7;74t\033]0;MP Micro Audio Player\007"); sys.stdout.flush()
+            elif self.ui_size_mode == "MICRO":
+                self.ui_size_mode = "NORMAL"
+                sys.stdout.write("\033[8;32;120t\033]0;MP Audio Player\007"); sys.stdout.flush()
         elif data in (b"r", b"R"): self._toggle_recording()
         elif data in (b"l", b"L"):
             self._send_cmd("repeat")
@@ -2621,13 +2953,15 @@ class TerminalPlayerUI:
             ], max(20, w - 1)))
         _present_frame(lines, w, h)
 
-def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None) -> Optional[int]:
+def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None) -> Optional[int]:
     if not is_player_daemon_running(): _cleanup_stale_daemon_files()
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"] + ([] if auto_bluetooth else ["--no-bluetooth-auto"])
     if mode == "MUSIC":
         cmd.append("--music-mode")
         if music_folder: cmd.extend(["--music-folder", str(music_folder)])
         if playlist_path: cmd.extend(["--playlist", str(playlist_path)])
+    if seek_to is not None and float(seek_to) > 0:
+        cmd.extend(["--seek-to", str(seek_to)])
     if file_path: cmd.append(os.path.abspath(file_path) if os.path.exists(file_path) else str(file_path))
     try:
         proc = subprocess.Popen(cmd, cwd=str(get_base_dir()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -2665,6 +2999,8 @@ def main():
         (("--pitch",), dict(type=int)), (("--pitch-up",), dict(type=int, nargs="?", const=1)),
         (("--pitch-down",), dict(type=int, nargs="?", const=1)), (("--pitch-reset",), dict(action="store_true")),
         (("--vol",), dict(type=str)), (("--seek",), dict(type=float)),
+        (("--seek-to", "--position"), dict(type=float, default=None)),
+        (("--resume",), dict(action="store_true")),
         (("--status",), dict(action="store_true")), (("--status-line",), dict(action="store_true")),
         (("--play-latest",), dict(action="store_true")), (("--get-latest-mix",), dict(action="store_true")),
         (("--list-mixes",), dict(action="store_true")), (("--open-file-manager", "-f"), dict(action="store_true")),
@@ -2871,7 +3207,11 @@ def main():
         try: PID_FILE.write_text(str(os.getpid()))
         except OSError: pass
         _install_windows_console_close()
-        def _sig(s, f): raise SystemExit(0)
+        def _sig(s, f):
+            try:
+                for p in (STATE_FILE, SOCKET_PATH, PORT_FILE, PID_FILE): p.unlink(missing_ok=True)
+            except Exception: pass
+            os._exit(0)
         for sig in (signal.SIGTERM, signal.SIGINT, getattr(signal, "SIGHUP", None)):
             if sig:
                 try: signal.signal(sig, _sig)

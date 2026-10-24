@@ -79,6 +79,20 @@ class TestMiniMicroPlayerFeatures(unittest.TestCase):
             self.assertIn("maximizehoriz = false", content)
             self.assertIn("maximizevert = false", content)
 
+    def test_mode_toggle_cycle_in_terminal_ui(self):
+        """Verifies that pressing 'm' or 'M' cycles NORMAL -> MINI -> MICRO -> NORMAL."""
+        ui = MP_Audio_Player.TerminalPlayerUI(None, None, is_remote=True, ui_size_mode="NORMAL")
+        self.assertEqual(ui.ui_size_mode, "NORMAL")
+        
+        ui._process_key(b"m")
+        self.assertEqual(ui.ui_size_mode, "MINI")
+        
+        ui._process_key(b"M")
+        self.assertEqual(ui.ui_size_mode, "MICRO")
+        
+        ui._process_key(b"m")
+        self.assertEqual(ui.ui_size_mode, "NORMAL")
+
 
 if __name__ == "__main__":
     unittest.main()

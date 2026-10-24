@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; _TERM_LINES=""; _TERM_COLS=""; _TERM_RESIZED=1; _on_winch() { _TERM_RESIZED=1; }; trap '_on_winch' WINCH; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.0 Stable"; fi; fi; export VERSION
+if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; export MANAGER_START_EPOCH; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; _TERM_LINES=""; _TERM_COLS=""; _TERM_RESIZED=1; _on_winch() { _TERM_RESIZED=1; }; trap '_on_winch' WINCH; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.0 Stable"; fi; fi; export VERSION
 _has_flatpak() { [[ -d "/var/lib/flatpak/app/$1" || -d "$HOME/.local/share/flatpak/app/$1" ]] && return 0; command -v flatpak &>/dev/null || return 1; [[ -z "${_FP_LIST_CACHE+x}" ]] && _FP_LIST_CACHE="$(flatpak list --columns=application 2>/dev/null)"; [[ "$_FP_LIST_CACHE" == *"$1"* ]]; }
 _fmt_sec() { local t=${1:-0}; ((t<0)) && t=0; ((t>=3600)) && printf "%02d:%02d:%02d" $((t/3600)) $(((t%3600)/60)) $((t%60)) || printf "%02d:%02d" $(((t%3600)/60)) $((t%60)); }
 format_seconds_aud() { _fmt_sec "$1"; }
@@ -358,15 +358,39 @@ _mp_player_pid_alive() {
 local pid="$1"; local comm=""; if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then comm=$(ps -W 2>/dev/null | awk -v pid="$pid" '$4 == pid {print $NF; found=1; exit} END {exit !found}') || return 1; else kill -0 "$pid" 2>/dev/null || return 1; return 0; fi; case "$comm" in *[Pp]ython*) return 0 ;; *) return 1 ;; esac
 }
 _stop_mp_audio_daemon() {
-[ "${_MP_AUDIO_DAEMON_STOPPED:-0}" -eq 1 ] && return 0; _MP_AUDIO_DAEMON_STOPPED=1; if [ -n "${_AUTOPLAY_PID:-}" ]; then if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then local _ap_win=""; _ap_win=$(ps -W 2>/dev/null | awk -v pid="$_AUTOPLAY_PID" '$1 == pid {print $4; exit}'); if [[ "$_ap_win" =~ ^[0-9]+$ ]]; then MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_ap_win" /T /F &>/dev/null || true; else kill "$_AUTOPLAY_PID" 2>/dev/null || true; fi; else kill "$_AUTOPLAY_PID" 2>/dev/null || true; fi; _AUTOPLAY_PID=""; fi; local pid_file="${HOME}/.config/mix-manager/mp_player.pid"; local port_file="${HOME}/.config/mix-manager/mp_audio_player.port"; local sock_file="${HOME}/.config/mix-manager/mp_audio_player.sock"; local state_file="${HOME}/.config/mix-manager/mp_player_state.json"; [ -f "$pid_file" ] || return 0; local pid=""; IFS= read -r pid < "$pid_file" 2>/dev/null || true; [[ "$pid" =~ ^[0-9]+$ ]] || return 0; if ! _mp_player_pid_alive "$pid"; then rm -f "$pid_file" "$port_file" "$sock_file" 2>/dev/null || true; printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true; return 0; fi; local port=""; [ -f "$port_file" ] && IFS= read -r port < "$port_file" 2>/dev/null || true; local py=""; if command -v python3 &>/dev/null; then py="python3"; elif command -v python &>/dev/null; then py="python"; fi; if [ -n "$py" ]; then
-MP_STOP_PORT="$port" MP_STOP_SOCK="$sock_file" "$py" - &>/dev/null << 'PY' || true
+    if [ -n "${_AUTOPLAY_PID:-}" ]; then
+        if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+            local _ap_win=""
+            _ap_win=$(ps -W 2>/dev/null | awk -v pid="$_AUTOPLAY_PID" '$1 == pid {print $4; exit}')
+            if [[ "$_ap_win" =~ ^[0-9]+$ ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$_ap_win" /T /F &>/dev/null || true
+            else
+                kill "$_AUTOPLAY_PID" 2>/dev/null || true
+            fi
+        else
+            kill -TERM "$_AUTOPLAY_PID" 2>/dev/null || true
+            kill -KILL "$_AUTOPLAY_PID" 2>/dev/null || true
+        fi
+        _AUTOPLAY_PID=""
+    fi
+    local pid_file="${HOME}/.config/mix-manager/mp_player.pid"
+    local port_file="${HOME}/.config/mix-manager/mp_audio_player.port"
+    local sock_file="${HOME}/.config/mix-manager/mp_audio_player.sock"
+    local state_file="${HOME}/.config/mix-manager/mp_player_state.json"
+    local port=""
+    [ -f "$port_file" ] && IFS= read -r port < "$port_file" 2>/dev/null || true
+    local py=""
+    if command -v python3 &>/dev/null; then py="python3"
+    elif command -v python &>/dev/null; then py="python"; fi
+    if [ -n "$py" ]; then
+        MP_STOP_PORT="$port" MP_STOP_SOCK="$sock_file" "$py" - &>/dev/null << 'PY' || true
 import os, socket
 sent = False
 sock_path = os.environ.get("MP_STOP_SOCK", "")
 if sock_path and os.path.exists(sock_path) and hasattr(socket, "AF_UNIX"):
     try:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        s.settimeout(0.8)
+        s.settimeout(0.5)
         s.connect(sock_path)
         s.sendall(b'{"cmd":"stop"}')
         try:
@@ -381,8 +405,8 @@ if not sent:
     try:
         port = int(os.environ.get("MP_STOP_PORT", "0"))
         if port > 0:
-            sock = socket.create_connection(("127.0.0.1", port), 0.8)
-            sock.settimeout(0.8)
+            sock = socket.create_connection(("127.0.0.1", port), 0.5)
+            sock.settimeout(0.5)
             sock.sendall(b'{"cmd":"stop"}')
             try:
                 sock.recv(1024)
@@ -392,7 +416,27 @@ if not sent:
     except Exception:
         pass
 PY
-fi; if _mp_player_pid_alive "$pid"; then sleep 0.2; fi; if _mp_player_pid_alive "$pid"; then if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then MSYS_NO_PATHCONV=1 taskkill.exe /PID "$pid" /F &>/dev/null || true; else kill "$pid" 2>/dev/null || true; fi; fi; if ! _mp_player_pid_alive "$pid"; then rm -f "$pid_file" "$port_file" "$sock_file" 2>/dev/null || true; printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true; fi
+    fi
+    if [ -f "$pid_file" ]; then
+        local pid=""
+        IFS= read -r pid < "$pid_file" 2>/dev/null || true
+        if [[ "$pid" =~ ^[0-9]+$ ]]; then
+            if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                MSYS_NO_PATHCONV=1 taskkill.exe /PID "$pid" /F &>/dev/null || true
+            else
+                kill -TERM "$pid" 2>/dev/null || true
+                kill -KILL "$pid" 2>/dev/null || true
+            fi
+        fi
+    fi
+    if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+        powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*MP_Audio_Player*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null || true
+    else
+        pkill -f "MP_Audio_Player" 2>/dev/null || true
+        pkill -f "pactl subscribe" 2>/dev/null || true
+    fi
+    rm -f "$pid_file" "$port_file" "$sock_file" 2>/dev/null || true
+    printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
 }
 update_mp_bridge_menu() {
 local cur_m="${1:-Main Console / Workstation Menu}" is_r="${2:-true}" br_sh="$SCRIPT_DIR/mp_software_bridge.sh" br_py="$SCRIPT_DIR/scripts/mp_software_bridge.py"
@@ -406,7 +450,11 @@ if [ -x "$br_sh" ]; then "$br_sh" update-action --action "$act" --category "$cat
 elif [ -f "$br_py" ]; then (python3 "$br_py" update-action --action "$act" --category "$cat" &>/dev/null &)
 fi
 }
+_IN_EXIT_MIX_MANAGER=0
 exit_mix_manager() {
+    [ "${_IN_EXIT_MIX_MANAGER:-0}" -eq 1 ] && return 0
+    _IN_EXIT_MIX_MANAGER=1
+    trap - EXIT INT TERM HUP
     update_mp_bridge_menu "Stopped / Inactive" "false"
     _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true
     # Switch back from alternate screen buffer and restore cursor/wrap
@@ -678,11 +726,11 @@ else wt.exe -w new --title "$title" bash -c "$cmd" >/dev/null 2>&1 &
 fi; return 0; elif command -v start >/dev/null 2>&1; then start "$title" bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v cmd.exe &>/dev/null; then cmd.exe /c start "$title" bash -c "$cmd" >/dev/null 2>&1 &
 return 0; fi; elif [ "$OS_TYPE" = "wsl" ]; then if command -v wt.exe &>/dev/null; then wt.exe -w 0 nt --title "$title" wsl.exe -e bash -c "$cmd" >/dev/null 2>&1 &
-return 0; fi; fi; if [ "$mode" = "window" ]; then if command -v konsole >/dev/null 2>&1; then nohup konsole --separate --workdir "$PWD" -p tabtitle="$title" -e bash -c "$cmd" >/dev/null 2>&1 &
+return 0; fi; fi; if [ "$mode" = "window" ]; then local _k_extra=(); if [[ "$title" == *"Mini"* || "$title" == *"Micro"* ]]; then _k_extra=(--profile MP_Mini_Player --hide-menubar --hide-tabbar); fi; if command -v konsole >/dev/null 2>&1; then nohup konsole "${_k_extra[@]}" --separate --workdir "$PWD" -p tabtitle="$title" -e bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v xdg-terminal-exec &>/dev/null; then nohup xdg-terminal-exec bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v gnome-terminal &>/dev/null; then nohup gnome-terminal --title="$title" -- bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v xterm &>/dev/null; then nohup xterm -T "$title" -e bash -c "$cmd" >/dev/null 2>&1 &
-return 0; fi; else local qdbus_bin=""; if command -v qdbus-qt6 &>/dev/null; then qdbus_bin="qdbus-qt6"; elif command -v qdbus &>/dev/null; then qdbus_bin="qdbus"; fi; if [ -n "$qdbus_bin" ]; then local k_svc="${KONSOLE_DBUS_SERVICE:-}"; local k_win="${KONSOLE_DBUS_WINDOW:-}"; if [ -z "$k_svc" ]; then k_svc=$("$qdbus_bin" 2>/dev/null | grep -m1 -E "org\.kde\.konsole-[0-9]+" || true); fi; k_svc=$(echo "$k_svc" | xargs); if [ -n "$k_svc" ]; then if [ -z "$k_win" ] || ! "$qdbus_bin" "$k_svc" "$k_win" org.kde.konsole.Window.sessionCount &>/dev/null; then for candidate_win in "/Windows/1" "/Windows/2" "/Windows/3"; do if "$qdbus_bin" "$k_svc" "$candidate_win" org.kde.konsole.Window.sessionCount &>/dev/null; then k_win="$candidate_win"; break; fi; done; fi; if [ -n "$k_win" ]; then local session_id; session_id=$("$qdbus_bin" "$k_svc" "$k_win" org.kde.konsole.Window.newSession "" "$PWD" 2>/dev/null || true); session_id=$(echo "$session_id" | xargs); if [ -n "$session_id" ] && [ "$session_id" -gt 0 ] 2>/dev/null; then "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.setTitle 1 "$title" 2>/dev/null || true; for ((_w=0; _w<25; _w++)); do local disp; disp=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.getAllDisplayedText 2>/dev/null || true); if [[ "$disp" =~ (\$) || "$disp" =~ (\#) || "$disp" =~ (@) ]]; then break; fi; sleep 0.08; done; if "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.runCommand "$cmd" &>/dev/null; then sleep 0.25; local check_disp; check_disp=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.getAllDisplayedText 2>/dev/null || true); if [[ "$check_disp" =~ \$\ $ ]] || [[ "$check_disp" =~ @.*:\~.*\$ ]]; then "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.runCommand "$cmd" &>/dev/null || true; fi; return 0; else local child_pid; child_pid=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.processId 2>/dev/null || true); [ -n "$child_pid" ] && [ "$child_pid" -gt 0 ] 2>/dev/null && kill -9 "$child_pid" 2>/dev/null || true; fi; fi; fi; fi; fi; if command -v konsole >/dev/null 2>&1; then nohup konsole --separate --workdir "$PWD" -p tabtitle="$title" -e bash -c "$cmd" >/dev/null 2>&1 &
+return 0; fi; else local qdbus_bin=""; if command -v qdbus-qt6 &>/dev/null; then qdbus_bin="qdbus-qt6"; elif command -v qdbus &>/dev/null; then qdbus_bin="qdbus"; fi; if [ -n "$qdbus_bin" ]; then local k_svc="${KONSOLE_DBUS_SERVICE:-}"; local k_win="${KONSOLE_DBUS_WINDOW:-}"; if [ -z "$k_svc" ]; then k_svc=$("$qdbus_bin" 2>/dev/null | grep -m1 -E "org\.kde\.konsole-[0-9]+" || true); fi; k_svc=$(echo "$k_svc" | xargs); if [ -n "$k_svc" ]; then if [ -z "$k_win" ] || ! "$qdbus_bin" "$k_svc" "$k_win" org.kde.konsole.Window.sessionCount &>/dev/null; then for candidate_win in "/Windows/1" "/Windows/2" "/Windows/3"; do if "$qdbus_bin" "$k_svc" "$candidate_win" org.kde.konsole.Window.sessionCount &>/dev/null; then k_win="$candidate_win"; break; fi; done; fi; if [ -n "$k_win" ]; then local session_id; session_id=$("$qdbus_bin" "$k_svc" "$k_win" org.kde.konsole.Window.newSession "" "$PWD" 2>/dev/null || true); session_id=$(echo "$session_id" | xargs); if [ -n "$session_id" ] && [ "$session_id" -gt 0 ] 2>/dev/null; then "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.setTitle 1 "$title" 2>/dev/null || true; for ((_w=0; _w<25; _w++)); do local disp; disp=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.getAllDisplayedText 2>/dev/null || true); if [[ "$disp" =~ (\$) || "$disp" =~ (\#) || "$disp" =~ (@) ]]; then break; fi; sleep 0.08; done; if "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.runCommand "$cmd" &>/dev/null; then sleep 0.25; local check_disp; check_disp=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.getAllDisplayedText 2>/dev/null || true); if [[ "$check_disp" =~ \$\ $ ]] || [[ "$check_disp" =~ @.*:\~.*\$ ]]; then "$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.runCommand "$cmd" &>/dev/null || true; fi; return 0; else local child_pid; child_pid=$("$qdbus_bin" "$k_svc" "/Sessions/$session_id" org.kde.konsole.Session.processId 2>/dev/null || true); [ -n "$child_pid" ] && [ "$child_pid" -gt 0 ] 2>/dev/null && kill -9 "$child_pid" 2>/dev/null || true; fi; fi; fi; fi; fi; if command -v konsole >/dev/null 2>&1; then local _k_extra_f=(); if [[ "$title" == *"Mini"* || "$title" == *"Micro"* ]]; then _k_extra_f=(--profile MP_Mini_Player --hide-menubar --hide-tabbar); fi; nohup konsole "${_k_extra_f[@]}" --separate --workdir "$PWD" -p tabtitle="$title" -e bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v xdg-terminal-exec &>/dev/null; then nohup xdg-terminal-exec bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v gnome-terminal &>/dev/null; then nohup gnome-terminal --tab --title="$title" --working-directory="$PWD" -- bash -c "$cmd" >/dev/null 2>&1 &
 return 0; elif command -v xfce4-terminal &>/dev/null; then local xfce_cmd; xfce_cmd="$(printf '%q' "$cmd")"; nohup xfce4-terminal --tab --title="$title" --working-directory="$PWD" -e "bash -lc ${xfce_cmd}" &>/dev/null &
@@ -2996,6 +3044,12 @@ display_startup_loader_video() {
 local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ] && disp_sh="$PWD/scripts/display_loader_video.sh"; if [ -f "$disp_sh" ]; then source "$disp_sh"; display_startup_loader_video "${1:-0}"; return $?; fi; return 0
 }
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+MANAGER_MAIN_PID=$BASHPID
+_cleanup_mix_manager_exit() {
+    [ "${BASHPID:-$$}" -ne "${MANAGER_MAIN_PID:-$$}" ] && return 0
+    exit_mix_manager
+}
+trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
 _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "2|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "3|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "4|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "5|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "6|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "7|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "8|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "9|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "10|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "11|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "12|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "13|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "14|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "15|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "16|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "17|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "18|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "19|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "20|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "21|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "22|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "23|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "24|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "25|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "26|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "27|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "28|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "29|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "30|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "31|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "32|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "33|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "36|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 1; choice="$REPLY"; fi; case $choice in 1|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
 manage_music_folders_menu ;; 2|convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)

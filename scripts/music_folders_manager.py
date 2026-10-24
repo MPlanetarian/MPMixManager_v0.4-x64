@@ -20,6 +20,7 @@ import re
 import time
 import json
 import shutil
+import atexit
 import argparse
 import threading
 import subprocess
@@ -900,6 +901,17 @@ def _player_py() -> Optional[Path]:
         if p.is_file():
             return p
     return None
+
+def _stop_player_on_exit():
+    if not os.environ.get("MANAGER_START_EPOCH"):
+        pp = _player_py()
+        if pp:
+            try:
+                subprocess.run([sys.executable, str(pp), "--stop"], capture_output=True, timeout=1.5)
+            except Exception:
+                pass
+
+atexit.register(_stop_player_on_exit)
 
 def run_music_folders_menu():
     """Interactive TUI menu for managing MUSIC folders."""

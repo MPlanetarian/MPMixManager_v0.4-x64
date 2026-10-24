@@ -25,8 +25,8 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ## 📑 Table of Contents
 
-- [🚀 New Features Added in the Last 3 Days (October 14–17, 2026)](#-new-features-added-in-the-last-3-days-october-1417-2026)
-- [🔥 Core v0.3.5 / v0.3.6 Architecture Highlights](#-core-v035--v036-architecture-highlights)
+- [🚀 What's New in v0.4.0 Stable](#-whats-new-in-v040-stable)
+- [🔥 Core v0.4 Architecture Highlights](#-core-v04-architecture-highlights)
 - [🌌 MPlanetarian Dreamworlds & TUI Navigation](#-spotlight-mplanetarian-dreamworlds--tui-navigation)
 - [🎧 MP Audio Player (Terminal Audio Suite)](#-spotlight-mp-audio-player-terminal-audio-suite)
 - [📱 DJ Booth & Studio Mobile Web Companion](#-spotlight-dj-booth--studio-mobile-web-companion)
@@ -51,20 +51,25 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ---
 
-## 🚀 New Features Added in the Last 3 Days (October 14–17, 2026)
+## 🚀 What's New in v0.4.0 Stable
 
 > [!IMPORTANT]
-> **72-Hour Velocity Sprint (`v0.3.6 Beta` — Oct 14–17, 2026):** Over the last 3 days, MP Mix Manager received major upgrades across **MP Audio Player**, **SMB Network Track Streaming**, **Zero-Fork Low-Spec Bash Optimization**, **Matrix & Stephen Hawking AI Voice Cloning**, **WAN2GP Infinite Talker AI Video**, and the **MP Reporter Intelligence & Email Suite**.
+> **MP Mix Manager v0.4.0 Release (October 24, 2026):** Introduces native **Traktor Kontrol S4 Hardware MIDI Controller Support** (`hw:0,0` / `/dev/snd/midiC0D0`) with dual-deck real-time pitch controls (-20% to +20%), deadband snapping, pitch nudge/sync, loop controls, transport mapping, ALSA rawmidi background daemon (`scripts/traktor_s4_midi.py`), native file manager audio reveal (`F` key in MP Audio Player), responsive auto-rescaling UI on window resize and font zoom, WAN2GP LTX video batch LoRA directory mirroring, and streamlined archive status rescan.
 
-| Feature Area | Component | New Capabilities Added (Oct 14–17, 2026) |
+| Feature Area | Component | New Capabilities Added in v0.4.0 |
 | :--- | :--- | :--- |
+| **🎛️ Hardware MIDI Controller** | **[Traktor Kontrol S4 MIDI Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native ALSA rawmidi integration (`hw:0,0` / `/dev/snd/midiC0D0`) mapping physical controls to MP Audio Player: dual-deck ±20% pitch faders with 0.0% deadband detent snapping, pitch bend (`+`/`-`), SYNC (0% reset / shuffle toggle), PLAY/CUE/CUP transport, BROWSE encoder navigation, LOOP IN/OUT/SIZE, HOTCUES 1..4 jump, channel/master faders, cue mute, and loop recorder controls. |
+| **🤖 Traktor S4 MIDI Daemon** | **[traktor_s4_midi.py & .sh](scripts/traktor_s4_midi.py)** | Lightweight background daemon (`scripts/traktor_s4_midi.py`) with `--start`, `--stop`, `--restart`, `--status`, `--daemon`, `--guide`, and interactive `--monitor` packet analyzer, communicating via IPC to MP Audio Player. |
+| **🎛️ Studio Hardware Integration** | **[Option 18: Studio Hardware & MIDI](scripts/inspect_audio_studio.py)** | Option 3 in Option 18 submenu for Traktor Kontrol S4 management, configuration, status badges, manual launcher, and live packet inspection. Main Page hardware detection notification automatically alerts when S4 is plugged in. |
+| **📂 Native File Reveal (`F` Key)** | **[MP Audio Player (`F` Key)](MP_Audio_Player.py)** | Press **`F`** during playback or browsing to immediately open the parent directory and highlight/select the playing audio file in the system file manager (Dolphin, Nautilus, Nemo, Caja on Linux; Explorer on Windows; Finder on macOS). |
+| **📐 Responsive UI Auto-Rescale** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh)** | Dynamic responsive TUI engine automatically rescales and redraws menus on terminal window resize (`SIGWINCH`) and font zoom (`Ctrl+` / `Ctrl-`), maintaining clean layout geometry. |
+| **🎬 WAN2GP LTX LoRA Sync** | **[wan2gp_ltx_batch.py](wan2gp_ltx_batch.py)** | Synchronizes and mirrors LoRA models between `ltx2` and `ltxv` directories, supports configurable `WAN2GP_LTX_LORA` environment variable with `bfs_head_swap` default, and `--no-lora` clean base execution. |
 | **🪟 MP Mini & Micro Player** | **[MP Audio Player (`M` Key)](MP_Audio_Player.py)** | Press **`M`** in `MP_Audio_Player.py` to launch an independent compact transparent console window with **dynamic quasi-periodic color gradients** shifting via irrational phase modulation (`OSC 11`), real-time mini equalizer, volume/pitch controls, and full track metadata without the playlist. Press **`M`** again inside Mini Mode to toggle the ultra-compact hidden **MICRO Mode**. Mute moved to **`u` / `U`**, plus a new **Old Style Unix Terminal Retro Mode (White on Black)** theme. |
 | **📊 In-Player Spek Generator** | **[Local Spek in Player (`G` Key)](MP_Audio_Player.py)** | Press **`G`** during playback, playlist browsing, or inside the **`[I]` Track Inspector HUD** to asynchronously generate and save a local **1080p logarithmic Spek spectrogram** (`.png`) for any playing/selected track or mix directly into `SPEK_OUTPUTS`. |
 | **🌐 SMB DJ Music Streaming** | **[Option 1: MUSIC Folders Mode](MP_Audio_Player.py)** | Streams **31,271+ DJ tracks** from remote SMB network shares (`/MUSIC001` & `/MUSIC002` at `192.168.1.138`) with `rclone` VFS full caching (`--vfs-cache-mode full`), pre-cached `.m3u8` playlists, asynchronous background **Track Duration (`00:00`)** column in the playlist browser, and the modal **Track Audio Inspector HUD (`I` key)** displaying codec, sample rate, volume/pitch, output engine, and SMB path. |
 | **✨ Equalizers & Cosmic Theme** | **[Stardust Chroma & Cosmic Supernova](themes/Cosmic_Supernova_MP_Mix_Manager.theme)** | Added the **Stardust Chroma** equalizer (ultra-thin vertical bars with falling cosmic dust particle physics), **Neon Chroma Prism** EQ visualizer, and the **Cosmic Supernova [Special Edition]** 24-bit TrueColor theme across `Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `Congen`, `mix_web_companion.py`, and `btop`. |
 | **🎧 Bluetooth Auto-Routing** | **[Live Sink Switcher (`[a]` Key)](monitor_bluetooth_audio.py)** | Real-time `pactl subscribe` event listener + 1.2s heartbeat monitor for Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose). Auto-switches the default PipeWire/PulseAudio sink and live-migrates active audio streams (`pactl move-sink-input`) while respecting manual sink overrides. |
-| **🔍 Interactive `/` Menu Search** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh)** | Press **`/`** on the Main Page or any submenu to filter menu options in real time by number, title, or description (`_find_menu_search_match`). Navigate matches with `↑`/`↓`, press `Enter` to launch, or `Esc` to clear. |
-| **⚡ Zero-Fork Low-Spec Engine** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh) & [.probe_mgr.sh](.probe_mgr.sh)** | Massive performance rewrite for slow/low-spec hardware: reduced `Mix_Archive_Manager.sh` from 13,572 → **1,978 lines** (-85%) and `.probe_mgr.sh` from 14,583 → **264 lines** (-98% line count) by eliminating subshell forks (`$(...)`), external `awk`/`sed`/`grep`/`wc` calls, and redundant DOM/IPC overhead across `Make_SOF_FLAC_CONVERSION.sh`, `convert_audio_format.sh`, `traktor_monitor.py`, and `align_mix_windows.py` (KDE KWin DBus + X11 fallback). |
+| **⚡ Zero-Fork Low-Spec Engine** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh) & [.probe_mgr.sh](.probe_mgr.sh)** | Massive performance rewrite for slow/low-spec hardware: reduced `Mix_Archive_Manager.sh` from 13,572 → **1,978 lines** (-85%) and `.probe_mgr.sh` from 14,583 → **264 lines** (-98% line count) by eliminating subshell forks (`$(...)`), external `awk`/`sed`/`grep`/`wc` calls, and redundant DOM/IPC overhead. |
 | **📊 MP Reporter & AI Brain Logs** | **[Option 27: MP Reporter Suite](mp_report_generator.py)** | Automated **Daily, Weekly, Monthly, and Yearly** intelligence reports (`mp_report_generator.py`, `mp_scheduled_reporter.sh`, `manage_mp_reporter.sh`) with consolidated PDF/HTML rendering, `REPORTS/{DAILY,WEEKLY,MONTHLY,YEARLY}` hierarchy, interactive 12-month calendar dashboard, **Daily AI Brain Logs reporter** (scanning Gemini, Grok & local models), **Stephen Hawking AI Voice TTS audio briefings**, and automated **SMTP daily email delivery** (`mp_email_manager.sh`). |
 | **🕶️ Matrix & Hawking Voice Lab** | **[Ollama & WAN2GP Voice Suite](scripts/wan2gp_tts_batch.py)** | Expanded local XTTS-v2 neural voice cloning and Edge-TTS with **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)**, plus automatic voice chat recording to the **MP Harmony Agent Audio Speech Archive**. |
 | **🎬 WAN2GP Infinite Talker & Monitors** | **[Infinite Talker & Output Monitors](scripts/wan2gp.sh)** | Integrated **WAN2GP Infinite Talker** in Option 33 and MP Reporter to generate talking-head AI videos (including Stephen Hawking video briefings) with custom duration and auto-venv detection; added **WAN2GP Video Output Monitor (`--wan2gp-monitor`)**, **Audio/Video File Output Monitor (`--audio-monitor`)**, and one-click WAN2GP upstream Git updater. |
@@ -73,16 +78,17 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ---
 
-## 🔥 Core v0.3.5 / v0.3.6 Architecture Highlights
+## 🔥 Core v0.4 Architecture Highlights
 
 | Feature Area | Component | Highlights & Capability Summary |
 | :--- | :--- | :--- |
+| **🎛️ Hardware MIDI Studio** | **[Traktor Kontrol S4 Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native dual-deck hardware MIDI console mapping via ALSA rawmidi (`hw:0,0`), dual-deck pitch controls (-20% to +20%), deadband snapping at 0.0%, pitch nudge/sync, transport/browse mapping, background daemon (`traktor_s4_midi.py`), and Option 18 integration. |
 | **📱 Mobile Remote Suite** | **[Congen v1.1](Congen/README.md)** | Full-featured KDE Connect interactive CLI manager with **11 menus**, **18 TrueColor palettes**, desktop shortcut runner/binder (`kioclient` & `kwriteconfig6`), algorithmic 2-tone synthetic chime sound daemon (`.congen_alert.wav`), multi-format manual generator (Plain Text, dark HTML5, PDF fallback cascade), mobile keyboard simulation (Wayland/X11), and 30+ bundled `.congen` profiles with multi-device deduplication. |
 | **🎥 YouTube Video Suite** | **[Screencast NVENC Generator](scripts/generate_screencast_youtube_video.py)** | Generates 1080p/4K YouTube videos with NVIDIA NVENC hardware acceleration (`h264_nvenc`), 5-second intro/outro fade effects, periodic 5-second image transition cycles every 5 minutes (cycling artwork), source-matched or 320kbps looped studio AAC audio, and uniform 90000 timescale stream architecture. |
 | **🗣️ AI Video & Audio** | **[WAN2GP TTS & Infinite Talker](scripts/wan2gp_tts_batch.py)** | Integrated Text-to-Speech batch converter and XTTS-v2 voice cloner transforming `.txt` scripts into uncompressed `.wav` audio and **Infinite Talker** talking-head AI videos alongside Flux Klein 9B and LTX Video 2B/13B video generators. |
 | **🎙️ AI Voice Autonomy** | **[MP Harmony AI Voice Agent](scripts/manage_harmony_agent.sh)** | Autonomous engineering agent running on port 11435 with background setsid detachment, zero-lag port readiness wait, model tag sanitization, automatic speech archiving, and interactive **Voice Chat CLIs** (`local-voice-talk` for MP Harmony Bridge and local Ollama models with Matrix & Stephen Hawking voice cloning). |
 | **🎛️ Audio Mastering & Storage** | **Multi-Archive Routing** | Ingest and batch-convert across multiple physical drives (`MIX_ARCHIVE_DIR` & `EXTRA_MIX_ARCHIVE_DIRS`), with origin-aware output routing that deposits converted FLACs and spectrograms back to their respective origin drives. |
-| **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded 118-column panoramic layout, **MP Mini & Micro Modes (`M` key)**, **In-Player Spek Generator (`G` key)**, **Track Audio Inspector HUD (`I` key)**, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files. |
+| **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded layout, **Native File Reveal (`F` key)**, **MP Mini & Micro Modes (`M` key)**, **In-Player Spek Generator (`G` key)**, **Track Audio Inspector HUD (`I` key)**, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files. |
 | **📱 Social Media Outreach** | **[YouTube Shorts Generator](generate_youtube_short_promo.py)** | 1080x1920 60fps vertical promo videos with animated waveform overlays for TikTok, Instagram Reels, and YouTube Shorts. |
 | **📑 Master Tracklists** | **HTML Auto-Open & Paths** | Generates master tracklists with rich file path metadata and auto-opens in default web browser. |
 
@@ -474,7 +480,7 @@ flowchart TD
 For a fresh, step-by-step installation guide from a clean Bazzite Linux setup, see **[INSTALL_BAZZITE.md](INSTALL_BAZZITE.md)**.
 
 ```bash
-cd ~/MP_Mix_Manager_v0.3
+cd ~/MP_Mix_Manager_v0.4
 chmod +x install.sh
 ./install.sh
 ```
@@ -510,7 +516,7 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
 #### Running on macOS
 1. Run the installer:
    ```bash
-   cd ~/MP_Mix_Manager_v0.3
+   cd ~/MP_Mix_Manager_v0.4
    chmod +x install.sh
    ./install.sh
    ```
@@ -554,7 +560,7 @@ pkg install -y bash python3 ffmpeg sox flac rclone jq btop git py311-mutagen py3
 
 #### Running on FreeBSD
 ```bash
-cd ~/MP_Mix_Manager_v0.3
+cd ~/MP_Mix_Manager_v0.4
 chmod +x manager_freebsd.sh install.sh
 ./manager_freebsd.sh
 ```
@@ -669,7 +675,7 @@ mix-archive-manager --backup          # Run automated multi-cloud backup to Goog
 ## 📂 Repository & Codebase Layout
 
 ```
-MP_Mix_Manager_v0.3/
+MP_Mix_Manager_v0.4/
 ├── Mix_Archive_Manager.sh       # Master zero-fork interactive console (37 operations, 1,978 lines)
 ├── .probe_mgr.sh                # Ultra-compact zero-fork telemetry & probe engine (264 lines)
 ├── manager.sh                   # Linux Bash execution wrapper
@@ -678,8 +684,10 @@ MP_Mix_Manager_v0.3/
 ├── manager.bat                  # Windows native Command Prompt / Batch launcher
 ├── manager.ps1                  # Windows native PowerShell launcher
 │
-├── MP_Audio_Player.py           # Terminal audio player (Mini/Micro modes, Spek G, Inspector I, 31K SMB tracks)
+├── MP_Audio_Player.py           # Terminal audio player (Mini/Micro modes, F key file reveal, Spek G, 31K SMB tracks)
 ├── MP_Audio_Player.sh           # Shell launcher for MP Audio Player
+├── traktor_s4_midi.py           # Traktor Kontrol S4 MIDI daemon (hw:0,0 pitch/fader/loop/hotcue engine)
+├── traktor_s4_midi.sh           # Shell launcher for Traktor Kontrol S4 MIDI service
 ├── monitor_bluetooth_audio.py   # Real-time PipeWire/PulseAudio Bluetooth headphone auto-router
 ├── mix_web_companion.py         # Zero-dependency DJ Booth Mobile Web Companion server (port 8888)
 ├── mix_web_companion.sh         # Shell launcher for Mobile Web Companion
