@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MP_Mix_Manager_v0.3 - Local Launcher (Optimized)
+# MP_Mix_Manager_v0.4 - Local Launcher (Optimized)
 
 shopt -s checkwinsize 2>/dev/null
 export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
@@ -24,6 +24,13 @@ if [[ -z "$_RAW" || "$_RAW" == "bash" || "$_RAW" == "-bash" ]]; then
     _RAW="$PWD/manager.sh"
 fi
 
+# Resolve symlinks so DIR is accurate regardless of invocation path (e.g. ~/.local/bin/manager)
+while [[ -h "$_RAW" ]]; do
+    _RESOLVED_DIR="$(cd -P "$(dirname "$_RAW")" >/dev/null 2>&1 && pwd)"
+    _RAW="$(readlink "$_RAW")"
+    [[ $_RAW != /* ]] && _RAW="$_RESOLVED_DIR/$_RAW"
+done
+
 if command -v cygpath &>/dev/null; then
     _RAW=$(cygpath -u "$_RAW" 2>/dev/null || echo "$_RAW")
 fi
@@ -33,7 +40,7 @@ DIR=$(cd -P -- "$(dirname -- "$_RAW")" 2>/dev/null && pwd)
 
 # Safety fallback if resolved to system32 or empty
 if [[ "$DIR" == "/c/WINDOWS/system32" || -z "$DIR" ]]; then
-    for _fb in "$PWD" "/x/MP_Mix_Manager_v0.3" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3"; do
+    for _fb in "$PWD" "/var/home/mplanetarian/MP_Mix_Manager_v0.4" "/x/MP_Mix_Manager_v0.4" "$HOME/MP_Mix_Manager_v0.4" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.4" "/x/MP_Mix_Manager_v0.3" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3"; do
         if [[ -f "$_fb/Mix_Archive_Manager.sh" ]]; then
             DIR="$_fb"
             break

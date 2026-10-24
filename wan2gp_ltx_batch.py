@@ -189,6 +189,7 @@ AVAILABLE_LORAS = {
         "name": "EditAnything v2 (LTX-2.5)",
         "files": ["edit_anything_v2_ltx2.5.safetensors"],
         "multipliers": "1.0",
+        "subfolder": "ltx2",
     },
     "editanything_v1": {
         "id": "editanything_v1",
@@ -250,17 +251,45 @@ SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
 
+def sync_ltx_lora_directories(wan_app_root: Path):
+    """Ensure LTX LoRA files are mirrored between ltx2 and ltxv directories for cross-model compatibility."""
+    ltx2_dir = wan_app_root / "loras" / "ltx2"
+    ltxv_dir = wan_app_root / "loras" / "ltxv"
+    if ltx2_dir.is_dir():
+        ltxv_dir.mkdir(parents=True, exist_ok=True)
+        for f in ltx2_dir.glob("*.safetensors"):
+            dest = ltxv_dir / f.name
+            if not dest.exists():
+                try:
+                    dest.symlink_to(f)
+                except Exception:
+                    pass
+    if ltxv_dir.is_dir():
+        ltx2_dir.mkdir(parents=True, exist_ok=True)
+        for f in ltxv_dir.glob("*.safetensors"):
+            dest = ltx2_dir / f.name
+            if not dest.exists():
+                try:
+                    dest.symlink_to(f)
+                except Exception:
+                    pass
+
+
 def ensure_ltx_loras_available(lora_info: dict, wan_app_root: Path) -> dict:
     """Validate all LoRA files for an LTX configuration exist; auto-download known ones or fall back to clean base."""
     files = lora_info.get("files", [])
     if not files:
         return lora_info
 
+    sync_ltx_lora_directories(wan_app_root)
+
     subfolder = lora_info.get("subfolder", "ltx2")
     missing_files = []
     for f in files:
         paths = [
             wan_app_root / "loras" / subfolder / f,
+            wan_app_root / "loras" / "ltx2" / f,
+            wan_app_root / "loras" / "ltxv" / f,
             wan_app_root / "loras" / f,
             Path(f),
         ]
@@ -772,7 +801,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="WAN2GP LTX Video Batch Image-to-Video Processor (2B, 13B & 22B)")
     parser.add_argument("--model", "-m", type=str, default=default_model_key, choices=list(AVAILABLE_MODELS.keys()), help=f"LTX Video model variant to use ({', '.join(AVAILABLE_MODELS.keys())}; default: {default_model_key})")
-    parser.add_argument("--lora", type=str, default="none", choices=list(AVAILABLE_LORAS.keys()), help=f"LoRA enhancement to apply ({', '.join(AVAILABLE_LORAS.keys())}; default: none)")
+    default_lora_key = os.environ.get("WAN2GP_LTX_LORA", "bfs_head_swap").strip() or "bfs_head_swap"
+    parser.add_argument("--lora", type=str, default=default_lora_key, choices=list(AVAILABLE_LORAS.keys()), help=f"LoRA enhancement to apply ({', '.join(AVAILABLE_LORAS.keys())}; default: {default_lora_key})")
+    parser.add_argument("--no-lora", action="store_true", help="Run clean base model without any LoRA")
     parser.add_argument("--prompt", "-p", type=str, default=None, help="Generation prompt")
     parser.add_argument("--length", "-l", type=str, default=None, choices=["short", "medium", "long"], help="Video duration preset (short, medium, long)")
     parser.add_argument("--control-video", "-c", type=str, default=None, help="Path to single control video (or filename in CTRL_VIDEO)")
@@ -788,7 +819,7 @@ def main():
     model_type = model_info["id"]
     model_name = model_info["name"]
 
-    lora_key = (args.lora or "none").lower()
+    lora_key = "none" if args.no_lora else (args.lora or default_lora_key).lower()
     lora_info = AVAILABLE_LORAS.get(lora_key, AVAILABLE_LORAS["none"])
     lora_info = ensure_ltx_loras_available(lora_info, WAN_APP_ROOT)
 

@@ -172,7 +172,7 @@ mkdir -p "$HOME/.local/bin"
 
 ln -sf "$SCRIPT_DIR/bin/cliamp" "$HOME/.local/bin/cliamp" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/bin/mix-archive-manager" "$HOME/.local/bin/mix-archive-manager" 2>/dev/null || true
-ln -sf "$SCRIPT_DIR/bin/mix-archive-manager" "$HOME/.local/bin/manager" 2>/dev/null || true
+ln -sf "$SCRIPT_DIR/manager.sh" "$HOME/.local/bin/manager" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/bin/launch-manager-fullscreen" "$HOME/.local/bin/launch-manager-fullscreen" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/bin/transfer-monitor" "$HOME/.local/bin/transfer-monitor" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/bin/chrome-upload-monitor" "$HOME/.local/bin/chrome-upload-monitor" 2>/dev/null || true
@@ -196,7 +196,7 @@ ln -sf "$SCRIPT_DIR/scripts/beszel.sh" "$HOME/.local/bin/beszel" 2>/dev/null || 
 ln -sf "$SCRIPT_DIR/scripts/dsh_mobile.sh" "$HOME/.local/bin/dsh-mobile" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/scripts/dsh_mobile.sh" "$HOME/.local/bin/manage-dsh-mobile" 2>/dev/null || true
 ln -sf "$SCRIPT_DIR/scripts/kc_run_aider_qwen.sh" "$HOME/.local/bin/aider-qwen" 2>/dev/null || true
-ln -sf "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$HOME/manager.sh" 2>/dev/null || true
+ln -sf "$SCRIPT_DIR/manager.sh" "$HOME/manager.sh" 2>/dev/null || true
 
 echo -e "${GREEN}      ✓ Installed symlinks into ~/.local/bin and ~/manager.sh.${NC}"
 

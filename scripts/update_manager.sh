@@ -235,9 +235,9 @@ chmod +x "$CODEBASE_DIR/scripts/"*.sh "$CODEBASE_DIR/scripts/"*.py 2>/dev/null |
 # Refresh user symlinks in ~/.local/bin and ~/manager.sh
 mkdir -p "$HOME/.local/bin" 2>/dev/null || true
 ln -sf "$CODEBASE_DIR/bin/mix-archive-manager" "$HOME/.local/bin/mix-archive-manager" 2>/dev/null || true
-ln -sf "$CODEBASE_DIR/bin/mix-archive-manager" "$HOME/.local/bin/manager" 2>/dev/null || true
+ln -sf "$CODEBASE_DIR/manager.sh" "$HOME/.local/bin/manager" 2>/dev/null || true
 ln -sf "$CODEBASE_DIR/bin/launch-manager-fullscreen" "$HOME/.local/bin/launch-manager-fullscreen" 2>/dev/null || true
-ln -sf "$CODEBASE_DIR/Mix_Archive_Manager.sh" "$HOME/manager.sh" 2>/dev/null || true
+ln -sf "$CODEBASE_DIR/manager.sh" "$HOME/manager.sh" 2>/dev/null || true
 
 # Refresh dynamic MOTD banner
 if [ -x "$CODEBASE_DIR/scripts/update_system_motd.sh" ]; then

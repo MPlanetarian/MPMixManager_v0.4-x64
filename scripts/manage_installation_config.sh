@@ -172,7 +172,7 @@ migrate_installation_path() {
     
     [ -f "$target_dir/bin/cliamp" ] && ln -sf "$target_dir/bin/cliamp" "$HOME/.local/bin/cliamp" 2>/dev/null || true
     ln -sf "$target_dir/bin/mix-archive-manager" "$HOME/.local/bin/mix-archive-manager" 2>/dev/null || true
-    ln -sf "$target_dir/bin/mix-archive-manager" "$HOME/.local/bin/manager" 2>/dev/null || true
+    ln -sf "$target_dir/manager.sh" "$HOME/.local/bin/manager" 2>/dev/null || true
     ln -sf "$target_dir/bin/launch-manager-fullscreen" "$HOME/.local/bin/launch-manager-fullscreen" 2>/dev/null || true
     ln -sf "$target_dir/bin/transfer-monitor" "$HOME/.local/bin/transfer-monitor" 2>/dev/null || true
     ln -sf "$target_dir/bin/chrome-upload-monitor" "$HOME/.local/bin/chrome-upload-monitor" 2>/dev/null || true
