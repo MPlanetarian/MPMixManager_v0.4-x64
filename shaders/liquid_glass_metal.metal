@@ -63,15 +63,12 @@ fragment float4 liquid_glass_fragment(
     float panelLip = smoothstep(1.5, -0.5, abs(panelDist) - 0.7);
 
     // Bezel slopes and light-catching rims
-    float rimSlope = smoothstep(0.0, -u.bezel.x, outer);
-    float large = smoothstep(0.5, -3.5, outer);
-    float shoulder = smoothstep(-1.0, -8.0, outer) - smoothstep(-8.0, -18.0, outer);
-    float echo = smoothstep(-7.0, -14.0, outer) - smoothstep(-14.0, -26.0, outer);
-    float echoFar = smoothstep(-18.0, -28.0, outer) - smoothstep(-28.0, -42.0, outer);
-    float toe = smoothstep(-u.bezel.x + 10.0, -u.bezel.x, outer);
-    float hair = smoothstep(0.3, -0.4, abs(outer + 0.3));
-    float bead = smoothstep(1.2, -0.2, abs(outer + 2.4));
-    float glint = smoothstep(1.5, -0.5, abs(outer + 4.8)) * (1.0 - uv.y * 0.6);
+    // Clear liquid glass effect: smooth specular reflections with no frosty snow stipple or speckles.
+    float edge = max(-outer, 0.0);
+    float bz = max(u.bezel.x, 2.0);
+    float large = exp(-pow((edge - bz * 0.5) / max(bz * 0.45, 1.0), 2.0));
+    float shoulder = exp(-pow((edge - bz * 0.85) / max(bz * 0.35, 0.8), 2.0));
+    float hair = 1.0 - smoothstep(0.15, min(1.2, bz * 0.35), edge);
 
     // Refractive theme mixing (Highlight, Accent, Reflection)
     float3 hi = u.themeA.rgb;
@@ -96,12 +93,7 @@ fragment float4 liquid_glass_fragment(
     float3 col = water;
     col = mix(col, mix(float3(1.0), theme, 0.28), large * 0.80);
     col = mix(col, mix(theme, float3(1.0), 0.25), shoulder * 0.55);
-    col += mix(theme, float3(1.0), 0.35) * echo * 0.16;
-    col += theme * echoFar * 0.08;
-    col = mix(col, col * float3(0.72, 0.76, 0.84), toe * 0.65);
     col = mix(col, float3(1.0), hair);
-    col = mix(col, mix(float3(1.0), theme, 0.15), bead * 0.9);
-    col += float3(1.0) * glint * 0.75;
 
     // Specular highlight from mouse cursor position
     float2 m = float2(u.themeA.w, u.themeB.w);

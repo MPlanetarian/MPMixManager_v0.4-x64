@@ -297,5 +297,54 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertTrue(out_png.is_file() and out_png.stat().st_size > 50000)
 
 
+    def test_fullscreen_no_auto_iconify_across_desktops(self):
+        """Fullscreen window must disable GLFW_AUTO_ICONIFY and enable GLFW_FLOATING so it stays visible when clicking away."""
+        renderer = vis.LiquidVisualizerVulkanRenderer()
+        try:
+            renderer.open()
+            g = renderer._glfw
+            if hasattr(g, "glfwGetWindowAttrib"):
+                # Window must have auto-iconify disabled so focusing another desktop does not hide it
+                auto_iconify = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_AUTO_ICONIFY)
+                self.assertEqual(auto_iconify, 0)
+
+            # Toggle fullscreen (press Z)
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertTrue(renderer.is_fullscreen)
+
+            if hasattr(g, "glfwGetWindowAttrib"):
+                auto_iconify = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_AUTO_ICONIFY)
+                self.assertEqual(auto_iconify, 0)
+                floating = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_FLOATING)
+                self.assertEqual(floating, 1)
+
+            # Polling while fullscreen must never iconify / disappear
+            for _ in range(5):
+                renderer.poll()
+
+            if hasattr(g, "glfwGetWindowAttrib"):
+                iconified = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_ICONIFIED)
+                self.assertEqual(iconified, 0)
+
+            # Press Z again -> returns to normal 1400x1400 windowed mode
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_size(), (1400, 1400))
+            if hasattr(g, "glfwGetWindowAttrib"):
+                floating = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_FLOATING)
+                self.assertEqual(floating, 0)
+        finally:
+            renderer.close()
+
+    def test_two_visualizer_processes_can_run_simultaneously(self):
+        """Two separate visualizer processes can run simultaneously without conflicts."""
+        p1 = subprocess.Popen([sys.executable, str(ROOT / "MP_Liquid_Visualizer.py"), "--max-seconds", "1"])
+        p2 = subprocess.Popen([sys.executable, str(ROOT / "MP_Liquid_Visualizer.py"), "--max-seconds", "1"])
+        ret1 = p1.wait(timeout=10)
+        ret2 = p2.wait(timeout=10)
+        self.assertEqual(ret1, 0)
+        self.assertEqual(ret2, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -707,6 +707,9 @@ GLFW_VISIBLE = 0x00020004
 GLFW_DECORATED = 0x00020005
 GLFW_FOCUSED = 0x00020001
 GLFW_FOCUS_ON_SHOW = 0x0002000C
+GLFW_AUTO_ICONIFY = 0x00020006
+GLFW_FLOATING = 0x00020007
+GLFW_ICONIFIED = 0x00020002
 GLFW_PLATFORM = 0x00050003
 GLFW_PLATFORM_X11 = 0x00060004
 GLFW_TRUE = 1
@@ -1435,6 +1438,24 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwSetFramebufferSizeCallback.restype = c_void_p
         g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetWindowPosCallback.restype = c_void_p
+        if hasattr(g, "glfwSetWindowAttrib"):
+            g.glfwSetWindowAttrib.argtypes = [c_void_p, c_int, c_int]
+            g.glfwSetWindowAttrib.restype = None
+        if hasattr(g, "glfwGetWindowAttrib"):
+            g.glfwGetWindowAttrib.argtypes = [c_void_p, c_int]
+            g.glfwGetWindowAttrib.restype = c_int
+        if hasattr(g, "glfwRestoreWindow"):
+            g.glfwRestoreWindow.argtypes = [c_void_p]
+            g.glfwRestoreWindow.restype = None
+        if hasattr(g, "glfwFocusWindow"):
+            g.glfwFocusWindow.argtypes = [c_void_p]
+            g.glfwFocusWindow.restype = None
+        if hasattr(g, "glfwSetWindowIconifyCallback"):
+            g.glfwSetWindowIconifyCallback.argtypes = [c_void_p, c_void_p]
+            g.glfwSetWindowIconifyCallback.restype = c_void_p
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString.argtypes = [c_int, c_char_p]
+            g.glfwWindowHintString.restype = None
         if is_windows() and hasattr(g, "glfwGetWin32Window"):
             g.glfwGetWin32Window.argtypes = [c_void_p]
             g.glfwGetWin32Window.restype = c_void_p
@@ -1493,11 +1514,25 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_TRUE)
         g.glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE)
         g.glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE)
+        # Do not auto-iconify/minimize when losing focus across desktops/monitors
+        g.glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE)
+        if hasattr(g, "glfwWindowHintString"):
+            try:
+                g.glfwWindowHintString(0x00024001, b"MP_Visualizer")
+                g.glfwWindowHintString(0x00024002, b"mp_visualizer")
+            except Exception:
+                pass
 
         title = self.title.encode("utf-8")
         window = g.glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, title, None, None)
         if not window:
             raise RuntimeError("GLFW could not open a 1400x1400 borderless window for Vulkan")
+
+        if hasattr(g, "glfwSetWindowAttrib"):
+            try:
+                g.glfwSetWindowAttrib(window, GLFW_AUTO_ICONIFY, GLFW_FALSE)
+            except Exception:
+                pass
 
         # Enforce strict 1400x1400 size limits
         try:
@@ -1514,18 +1549,31 @@ class LiquidVisualizerVulkanRenderer:
         CURSOR_CB = CFUNCTYPE(None, c_void_p, c_double, c_double)
         FB_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
         POS_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
+        ICONIFY_CB = CFUNCTYPE(None, c_void_p, c_int)
 
         self._on_key_cb = KEY_CB(self._on_key)
         self._on_mouse_cb = MOUSE_CB(self._on_mouse)
         self._on_cursor_cb = CURSOR_CB(self._on_cursor)
         self._on_fb_cb = FB_CB(self._on_fb)
         self._on_pos_cb = POS_CB(self._on_pos)
+        self._on_iconify_cb = ICONIFY_CB(self._on_iconify)
 
         self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_cb, c_void_p))
         self._glfw.glfwSetMouseButtonCallback(self._window, ctypes.cast(self._on_mouse_cb, c_void_p))
         self._glfw.glfwSetCursorPosCallback(self._window, ctypes.cast(self._on_cursor_cb, c_void_p))
         self._glfw.glfwSetFramebufferSizeCallback(self._window, ctypes.cast(self._on_fb_cb, c_void_p))
         self._glfw.glfwSetWindowPosCallback(self._window, ctypes.cast(self._on_pos_cb, c_void_p))
+        if hasattr(self._glfw, "glfwSetWindowIconifyCallback"):
+            self._glfw.glfwSetWindowIconifyCallback(self._window, ctypes.cast(self._on_iconify_cb, c_void_p))
+
+    def _on_iconify(self, _window, iconified):
+        # Prevent visualizer from staying minimized if accidentally iconified during fullscreen
+        if iconified and self.is_fullscreen:
+            if hasattr(self._glfw, "glfwRestoreWindow"):
+                try:
+                    self._glfw.glfwRestoreWindow(self._window)
+                except Exception:
+                    pass
 
     def _on_key(self, _window, key, _scancode, action, _mods):
         if action != GLFW_PRESS:
@@ -1557,11 +1605,11 @@ class LiquidVisualizerVulkanRenderer:
         try:
             wx, wy = self.window_pos()
             ww, wh = self.window_size()
-            cx = wx + ww // 2
-            cy = wy + wh // 2
             count = c_int()
             mons = g.glfwGetMonitors(byref(count))
             if mons and count.value > 0:
+                best_area = -1
+                best_mon = None
                 for i in range(count.value):
                     m = mons[i]
                     mx, my = c_int(), c_int()
@@ -1569,11 +1617,16 @@ class LiquidVisualizerVulkanRenderer:
                     mode_ptr = g.glfwGetVideoMode(m)
                     if mode_ptr:
                         mode = mode_ptr.contents
-                        if (
-                            mx.value <= cx < mx.value + mode.width
-                            and my.value <= cy < my.value + mode.height
-                        ):
-                            return m
+                        mw = mode.width
+                        mh = mode.height
+                        ix = max(0, min(wx + ww, mx.value + mw) - max(wx, mx.value))
+                        iy = max(0, min(wy + wh, my.value + mh) - max(wy, my.value))
+                        area = ix * iy
+                        if area > best_area:
+                            best_area = area
+                            best_mon = m
+                if best_mon and best_area > 0:
+                    return best_mon
         except Exception:
             pass
         return mon
@@ -1616,12 +1669,23 @@ class LiquidVisualizerVulkanRenderer:
             else:
                 g.glfwSetWindowPos(self._window, 0, 0)
                 g.glfwSetWindowSize(self._window, full_w, full_h)
+            if hasattr(g, "glfwSetWindowAttrib"):
+                try:
+                    g.glfwSetWindowAttrib(self._window, GLFW_AUTO_ICONIFY, GLFW_FALSE)
+                    g.glfwSetWindowAttrib(self._window, GLFW_FLOATING, GLFW_TRUE)
+                except Exception:
+                    pass
             self._resize = True
         else:
             rx, ry = getattr(self, "_saved_window_pos", (160, 80))
             self.is_fullscreen = False
             self.width = WINDOW_WIDTH
             self.height = WINDOW_HEIGHT
+            if hasattr(g, "glfwSetWindowAttrib"):
+                try:
+                    g.glfwSetWindowAttrib(self._window, GLFW_FLOATING, GLFW_FALSE)
+                except Exception:
+                    pass
             g.glfwSetWindowMonitor(
                 self._window, None, int(rx), int(ry), WINDOW_WIDTH, WINDOW_HEIGHT, 0
             )
@@ -1715,6 +1779,13 @@ class LiquidVisualizerVulkanRenderer:
         return max(1, int(w.value)), max(1, int(h.value))
 
     def window_pos(self) -> Tuple[int, int]:
+        if getattr(self, "_window", None) and getattr(self, "_glfw", None):
+            try:
+                x, y = c_int(), c_int()
+                self._glfw.glfwGetWindowPos(self._window, byref(x), byref(y))
+                self._cur_pos = (int(x.value), int(y.value))
+            except Exception:
+                pass
         return self._cur_pos
 
     def set_window_pos(self, x: int, y: int):
@@ -1738,6 +1809,12 @@ class LiquidVisualizerVulkanRenderer:
                 self._resize = True
             self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
         else:
+            if hasattr(self._glfw, "glfwGetWindowAttrib") and hasattr(self._glfw, "glfwRestoreWindow"):
+                try:
+                    if self._glfw.glfwGetWindowAttrib(self._window, GLFW_ICONIFIED):
+                        self._glfw.glfwRestoreWindow(self._window)
+                except Exception:
+                    pass
             w, h = self.window_size()
             if w > 0 and h > 0:
                 self.width, self.height = w, h

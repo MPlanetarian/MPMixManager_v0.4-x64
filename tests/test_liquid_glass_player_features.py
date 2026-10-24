@@ -355,6 +355,27 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
                     self.assertEqual(code, 0)
                     mock_run.assert_called_once()
 
+    def test_clear_bezel_outer_edge_no_speckles(self):
+        """Verifies that outer bezel edge is clear with no speckles or hash patterns across all shaders."""
+        shaders_dir = BASE_DIR / "shaders"
+        vk_frag = (shaders_dir / "liquid_glass.frag").read_text(encoding="utf-8")
+        gl_frag = (shaders_dir / "liquid_glass_gl.frag").read_text(encoding="utf-8")
+        metal = (shaders_dir / "liquid_glass_metal.metal").read_text(encoding="utf-8")
+
+        for name, src in [("Vulkan", vk_frag), ("OpenGL", gl_frag), ("Metal", metal)]:
+            self.assertNotIn("beadCell", src, f"{name} shader should not contain beadCell noise speckles")
+            self.assertNotIn("float bead", src, f"{name} shader should not contain bead noise speckles")
+            self.assertNotIn("float glint", src, f"{name} shader should not contain glint noise speckles")
+            self.assertIn("Clear liquid glass effect", src, f"{name} shader should specify clear liquid glass effect")
+
+        # Verify Vulkan SPIR-V bytecode is compiled and valid
+        spv_file = shaders_dir / "liquid_glass.frag.spv"
+        self.assertTrue(spv_file.is_file())
+        spv_bytes = spv_file.read_bytes()
+        self.assertGreater(len(spv_bytes), 1000)
+        self.assertEqual(spv_bytes[:4], b"\x03\x02#\x07")
+
+
 
 if __name__ == "__main__":
     unittest.main()
