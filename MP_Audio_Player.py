@@ -309,6 +309,18 @@ def open_image_viewer(image_path: Union[str, Path]) -> bool:
         except Exception: pass
     return False
 
+def notify_desktop(title: str, message: str) -> None:
+    title, message = str(title or "MP Audio Player"), str(message or "")
+    if not message: return
+    try:
+        if sys.platform.startswith(("linux", "freebsd")) and shutil.which("notify-send"):
+            _run_bg(["notify-send", "-a", "MP Audio Player", title, message])
+        elif sys.platform == "darwin":
+            esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
+            _run_bg(["osascript", "-e", f'display notification "{esc(message)}" with title "{esc(title)}"'])
+    except Exception:
+        pass
+
 def _resolve_sub_dir(sub_name: str, base_dir: Optional[Path] = None) -> Path:
     base = base_dir or get_base_dir()
     mix_arc = os.environ.get("MIX_ARCHIVE_DIR")
@@ -361,8 +373,16 @@ def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: 
     clean_stem = re.sub(r'[\\/:\*\?"<>\|]', '_', Path(audio_path).stem)
     spek_file = out_dir / f"{clean_stem}_spectrogram.png"
     try:
-        subprocess.run(["ffmpeg", "-y", "-i", str(audio_path), "-lavfi", "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log", "-update", "1", "-frames:v", "1", str(spek_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return (True, str(spek_file.resolve())) if spek_file.is_file() and spek_file.stat().st_size > 0 else (False, "FFmpeg failed to produce spectrogram image")
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(audio_path),
+             "-lavfi", "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log:legend=1:saturation=1.2",
+             "-frames:v", "1", str(spek_file)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        if proc.returncode == 0 and spek_file.is_file() and spek_file.stat().st_size > 0:
+            return True, str(spek_file.resolve())
+        err = (proc.stderr or "").strip().splitlines()
+        return False, (err[-1][:180] if err else "FFmpeg failed to produce spectrogram image")
     except Exception as exc: return False, f"Spectrogram generation error: {exc}"
 
 def choose_export_m3u_gui() -> Optional[str]:
@@ -1211,6 +1231,14 @@ class AudioEngine:
             tmp.replace(STATE_FILE)
             if self.current_track and self.current_track.get("path") and self.duration_sec > 0:
                 pos = round(float(self.position_sec), 2)
+                if pos <= 0.0 and RESUME_STATE_FILE.is_file():
+                    try:
+                        prev = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+                        if prev.get("path") == str(self.current_track.get("path")):
+                            prev_pos = float(prev.get("position_sec", 0.0))
+                            if prev_pos > 0.0:
+                                pos = prev_pos
+                    except Exception: pass
                 res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
                 res_tmp.write_text(json.dumps({
                     "path": str(self.current_track.get("path")),
@@ -1295,7 +1323,7 @@ class AudioEngine:
             self.track_ended = False
             if self.repeat_mode == "one": self.seek(0)
             elif self.repeat_mode == "all" or bool(self.play_queue) or self.current_index < len(self.playlist) - 1: self.next_track()
-            else: self.stop_playback()
+            else: self.stop_playback(reset_position=True)
 
     def play(self):
         if self.audio_source is None or self.feeder is None or self.state == "stopped": self.load_track(self.current_index, True)
@@ -1309,8 +1337,9 @@ class AudioEngine:
     def pause(self): self.state = "paused"; self._sync_state_file()
     def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
 
-    def stop_playback(self):
-        self.state, self.position_sec = "stopped", 0.0
+    def stop_playback(self, reset_position: bool = False):
+        self.state = "stopped"
+        if reset_position: self.position_sec = 0.0
         self._stop_feeder()
         with self._sf_lock: old_sf, self.sf_file = self.sf_file, None
         self._retire_sf(old_sf)
@@ -1566,10 +1595,19 @@ class PlayerIPCServer:
             elif cmd in ("stop", "quit"):
                 try:
                     if e.current_track and e.current_track.get("path"):
+                        saved_pos = round(float(e.position_sec), 2)
+                        if saved_pos <= 0.0 and RESUME_STATE_FILE.is_file():
+                            try:
+                                prev = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+                                if prev.get("path") == str(e.current_track.get("path")):
+                                    prev_pos = float(prev.get("position_sec", 0.0))
+                                    if prev_pos > 0.0:
+                                        saved_pos = prev_pos
+                            except Exception: pass
                         res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
                         res_tmp.write_text(json.dumps({
                             "path": str(e.current_track.get("path")),
-                            "position_sec": round(float(e.position_sec), 2),
+                            "position_sec": saved_pos,
                             "duration_sec": round(float(e.duration_sec), 2),
                             "title": str(e.current_track.get("name", "")),
                             "mode": str(e.mode),
@@ -1578,7 +1616,7 @@ class PlayerIPCServer:
                         }), encoding="utf-8")
                         res_tmp.replace(RESUME_STATE_FILE)
                 except Exception: pass
-                e.stop_playback(); self.running = False
+                e.stop_playback(reset_position=False); self.running = False
                 for p in (STATE_FILE, SOCKET_PATH, PORT_FILE, PID_FILE): p.unlink(missing_ok=True)
                 conn.sendall(json.dumps(res).encode('utf-8')); conn.close(); os._exit(0)
             elif cmd == "next": threading.Thread(target=e.next_track, daemon=True).start()
@@ -2294,6 +2332,85 @@ def _build_window_cmd(mini: bool, mode: str, folder_name: str, playlist_path: st
     if style: cmd.extend(["--style", str(style)])
     return cmd
 
+def _konsole_bus_call(args: List[str]) -> str:
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=1.0, stdin=subprocess.DEVNULL)
+        return proc.stdout or ""
+    except Exception:
+        return ""
+
+def _konsole_main_window(service: str) -> str:
+    for line in _konsole_bus_call(["qdbus", service]).splitlines():
+        line = line.strip()
+        if line.endswith("MainWindow_1") or (line.count("/") == 2 and "MainWindow" in line):
+            return line
+    return "/konsole/MainWindow_1"
+
+def _konsole_pixel_size(service: str, window: str) -> Optional[Tuple[int, int]]:
+    out = _konsole_bus_call(["busctl", "--user", "get-property", service, window, "org.qtproject.Qt.QWidget", "size"])
+    if m := re.search(r"\(ii\)\s+(\d+)\s+(\d+)", out):
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+def _set_konsole_pixel_size(service: str, window: str, width: int, height: int) -> None:
+    subprocess.run(
+        ["busctl", "--user", "set-property", service, window, "org.qtproject.Qt.QWidget", "size", "(ii)", str(int(width)), str(int(height))],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=1.0,
+    )
+
+def resize_host_terminal(columns: int, rows: int, title: str) -> None:
+    """Resize the current terminal to columns by rows and set its title.
+
+    Wayland Konsole reports the CSI 8 size without changing the window, so the
+    Micro Player was drawn in the Mini Player's 14-row frame. Measure the real
+    size first, resize the Konsole window over DBus, then emit CSI 8 for other terminals.
+    """
+    try:
+        term_c, term_r = (int(n) for n in shutil.get_terminal_size((80, 24)))
+    except Exception:
+        term_c, term_r = 80, 24
+    service = os.environ.get("KONSOLE_DBUS_SERVICE", "")
+    if service and shutil.which("qdbus") and shutil.which("busctl") and not (term_c == columns and term_r == rows):
+        try:
+            session = os.environ.get("KONSOLE_DBUS_SESSION", "")
+            if session:
+                for role in ("0", "1"):
+                    subprocess.run(["qdbus", service, session, "org.kde.konsole.Session.setTitle", role, title], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=1.0)
+            window = _konsole_main_window(service)
+            subprocess.run(["qdbus", service, window, "org.qtproject.Qt.QWidget.setWindowTitle", title], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=1.0)
+            size = _konsole_pixel_size(service, window)
+            if size:
+                pix_w, pix_h = size
+                probe_h = max(80, pix_h + (36 if rows > term_r else -36))
+                _set_konsole_pixel_size(service, window, pix_w, probe_h)
+                time.sleep(0.06)
+                probed = _konsole_pixel_size(service, window) or (pix_w, probe_h)
+                probed_r = int(shutil.get_terminal_size((80, 24)).lines)
+                if probed_r != term_r and probed[1] != pix_h:
+                    cell_h = max(8, int(round((probed[1] - pix_h) / (probed_r - term_r))))
+                else:
+                    cell_h = 19
+                chrome_h = pix_h - cell_h * term_r
+                _set_konsole_pixel_size(service, window, pix_w, max(80, chrome_h + cell_h * rows))
+                time.sleep(0.06)
+                now_c, now_r = (int(n) for n in shutil.get_terminal_size((80, 24)))
+                if now_r != rows or now_c != columns:
+                    cur = _konsole_pixel_size(service, window)
+                    if cur:
+                        fix_h = cur[1] + (rows - now_r) * cell_h
+                        fix_w = cur[0] if now_c == columns else cur[0] + (columns - now_c) * max(6, int(round(cur[0] / max(now_c, 1))))
+                        _set_konsole_pixel_size(service, window, max(120, fix_w), max(80, fix_h))
+        except Exception:
+            pass
+    try:
+        if os.environ.get("KONSOLE_DBUS_SERVICE"):
+            sys.stdout.write(f"\033]0;{title}\007")
+        else:
+            sys.stdout.write(f"\033[8;{int(rows)};{int(columns)}t\033]0;{title}\007")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
 def launch_mini_player_window(mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", playlist_path: str = "", theme: Optional[str] = None, style: Optional[str] = None, micro: bool = False) -> bool:
     title = "MP Micro Audio Player" if micro else "MP Mini Audio Player"
     t_rows = "7" if micro else "14"
@@ -2370,6 +2487,7 @@ class TerminalPlayerUI:
         self.running, self.inspector_hud_active = True, False
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
+        self._spek_job_running = False
         self._last_seen_bt_device = self._last_seen_bt_state = self._duration_queue = None
         self._duration_cache: Dict[str, str] = {}
         if DURATION_CACHE_FILE.exists():
@@ -2633,18 +2751,31 @@ class TerminalPlayerUI:
 
     def _generate_selected_spek(self):
         tp, tn = self._get_target_path()
+        label = tn or (os.path.basename(tp) if tp else "this track")
         if not tp or not os.path.isfile(tp): return self._notify("No audio track available for Spek generation.", 3.0)
-        if (ex := find_existing_spek(tp, mode=self.mode)) and os.path.isfile(ex):
-            self._notify(f"✔ Spek exists — Opening: {os.path.basename(ex)} ({os.path.getsize(ex) // 1024} KB)", 4.0)
-            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"): open_image_viewer(ex)
+        if (ex := find_existing_spek(tp, mode=self.mode)) and os.path.isfile(ex) and os.path.getsize(ex) > 0:
+            self._notify(f"Opening Spek: {os.path.basename(ex)}", 4.0)
+            if not open_image_viewer(ex):
+                self._notify(f"Spek found but the image viewer did not open: {os.path.basename(ex)}", 5.0)
             return
-        self._notify(f"⚡ Generating Spek: {(tn or os.path.basename(tp))[:30]}...", 60.0)
+        if self._spek_job_running:
+            return self._notify("MP Audio Player is already generating a Spek.", 4.0)
+        out_dir = get_default_spek_dir(mode=self.mode, audio_path=tp)
+        self._spek_job_running = True
+        self._notify(f"MP Audio Player is generating a Spek for {label}. It will open when finished.", 86400.0)
+        notify_desktop("MP Audio Player", f"MP Audio Player is generating a Spek for {label}")
         def _w():
-            ok, res = generate_track_spek(tp, mode=self.mode)
-            if ok:
-                self._notify(f"✔ Spek saved: {os.path.basename(res)} ({os.path.getsize(res) // 1024} KB)", 5.0)
-                if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"): open_image_viewer(res)
-            else: self._notify(f"✖ Spek failed: {res[:35]}", 4.0)
+            try:
+                ok, res = generate_track_spek(tp, mode=self.mode, output_dir=out_dir)
+                if ok and res and os.path.isfile(res):
+                    self._notify(f"MP Audio Player finished the Spek. Opening {os.path.basename(res)}", 6.0)
+                    notify_desktop("MP Audio Player", f"Spek ready: {os.path.basename(res)}")
+                    if not open_image_viewer(res):
+                        self._notify(f"Spek saved to {out_dir.name} but the image viewer did not open.", 6.0)
+                else:
+                    self._notify(f"Spek generation failed: {str(res)[:80]}", 6.0)
+            finally:
+                self._spek_job_running = False
         threading.Thread(target=_w, daemon=True).start()
 
     def _open_selected_in_file_manager(self):
@@ -2718,7 +2849,11 @@ class TerminalPlayerUI:
         if self.ui_size_mode in ("MINI", "MICRO"):
             _setup_mini_terminal_appearance()
             t_rows = 7 if self.ui_size_mode == "MICRO" else 14
-            sys.stdout.write(f"\033[8;{t_rows};74t\033]0;MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player\007")
+            # Konsole on Wayland applies CSI 8 to the reported size only. The real
+            # window size is set at launch (-p TerminalRows) or by resize_host_terminal.
+            if not os.environ.get("KONSOLE_DBUS_SERVICE"):
+                sys.stdout.write(f"\033[8;{t_rows};74t")
+            sys.stdout.write(f"\033]0;MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player\007")
         else: sys.stdout.write("\033]0;MP Audio Player\007")
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[2J\033[H"); sys.stdout.flush()
         threading.Thread(target=self._input_loop, daemon=True).start()
@@ -2919,17 +3054,20 @@ class TerminalPlayerUI:
             self.cached_status["shuffle"] = so
             self._notify(f"Shuffle: {'ON' if so else 'OFF'}", 2.5)
         elif data in (b"m", b"M"):
-            if self.ui_size_mode == "NORMAL":
-                self.ui_size_mode = "MINI"
-                _setup_mini_terminal_appearance()
-                sys.stdout.write("\033[8;14;74t\033]0;MP Mini Audio Player\007"); sys.stdout.flush()
-            elif self.ui_size_mode == "MINI":
-                self.ui_size_mode = "MICRO"
-                _setup_mini_terminal_appearance()
-                sys.stdout.write("\033[8;7;74t\033]0;MP Micro Audio Player\007"); sys.stdout.flush()
-            elif self.ui_size_mode == "MICRO":
-                self.ui_size_mode = "NORMAL"
-                sys.stdout.write("\033[8;32;120t\033]0;MP Audio Player\007"); sys.stdout.flush()
+            if self.ui_size_mode in ("MINI", "MICRO"):
+                self.ui_size_mode = "MICRO" if self.ui_size_mode == "MINI" else "MINI"
+                t_rows = 7 if self.ui_size_mode == "MICRO" else 14
+                title = f"MP {'Micro' if self.ui_size_mode == 'MICRO' else 'Mini'} Audio Player"
+                resize_host_terminal(74, t_rows, title)
+            else:
+                ok = launch_mini_player_window(
+                    self.mode,
+                    self.folder_name,
+                    getattr(self.scanner, "playlist_path", "") or "",
+                    self.visualizer.theme,
+                    self.visualizer.style,
+                )
+                self._notify("✦ Launched MP Mini Audio Player in new window" if ok else "Failed to open Mini Player window", 3.0)
         elif data in (b"r", b"R"): self._toggle_recording()
         elif data in (b"l", b"L"):
             self._send_cmd("repeat")
@@ -3104,7 +3242,7 @@ class TerminalPlayerUI:
         g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
         target_rows, target_cols = 14, 74
-        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")):
+        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")) and not os.environ.get("KONSOLE_DBUS_SERVICE"):
             sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
         sys.stdout.write("\033]0;MP Mini Audio Player\007")
         iw = max(24, min(w - 4, 74))
@@ -3142,7 +3280,7 @@ class TerminalPlayerUI:
         g1, g2, _ = _get_dynamic_gradient(t_now)
         c1, c2 = f"\033[38;2;{g1[0]};{g1[1]};{g1[2]}m", f"\033[38;2;{g2[0]};{g2[1]};{g2[2]}m"
         target_rows, target_cols = 7, 74
-        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")):
+        if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")) and not os.environ.get("KONSOLE_DBUS_SERVICE"):
             sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
         sys.stdout.write("\033]0;MP Micro Audio Player\007")
         iw, tname = max(24, min(w - 4, 70)), st.get("title", "Unknown Track")
@@ -3316,13 +3454,14 @@ def main():
         if not tp or not os.path.isfile(tp): print("✖ No audio file available for Spek generation", file=sys.stderr); sys.exit(1)
         if (ex := find_existing_spek(tp, mode=current_mode)) and os.path.isfile(ex):
             print(f"✔ Spek already exists ({os.path.getsize(ex) // 1024} KB): {ex}")
-            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"): open_image_viewer(ex)
+            open_image_viewer(ex)
             sys.exit(0)
-        print(f"⚡ Generating Spek spectrogram for: {os.path.basename(tp)}...")
+        print(f"MP Audio Player is generating a Spek for {os.path.basename(tp)}. It will open when finished.")
+        notify_desktop("MP Audio Player", f"MP Audio Player is generating a Spek for {os.path.basename(tp)}")
         ok, res = generate_track_spek(tp, mode=current_mode)
         if ok:
             print(f"✔ Spek generated successfully ({os.path.getsize(res) // 1024} KB): {res}")
-            if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"): open_image_viewer(res)
+            open_image_viewer(res)
             sys.exit(0)
         print(f"✖ Spek generation failed: {res}", file=sys.stderr); sys.exit(1)
 
@@ -3354,6 +3493,18 @@ def main():
 
     if args.toggle:
         if daemon_running and send_ipc_command("toggle"): sys.exit(0)
+        res_data = None
+        if RESUME_STATE_FILE.is_file():
+            try: res_data = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+            except Exception: pass
+        if res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
+            target_file = res_data["path"]
+            target_pos = float(res_data.get("position_sec", 0.0) or 0.0)
+            if daemon_running and send_ipc_command("play", file=target_file, position=target_pos):
+                sys.exit(0)
+            if not args.only_if_running:
+                _spawn_player_daemon(target_file, auto_bluetooth=auto_bt, mode=res_data.get("mode", current_mode), seek_to=target_pos)
+                sys.exit(0)
         if not args.only_if_running and (latest := MixArchiveScanner(base_dir).get_latest_mix()):
             _spawn_player_daemon(latest["path"], auto_bluetooth=auto_bt, mode=current_mode)
         sys.exit(0)
@@ -3401,7 +3552,22 @@ def main():
 
     if args.play is not None:
         ftp = os.path.abspath(args.play or (args.file or "")) if (args.play or args.file) else ""
-        pos = float(args.seek_to) if args.seek_to is not None else 0.0
+        pos = float(args.seek_to) if args.seek_to is not None else None
+        res_data = None
+        if RESUME_STATE_FILE.is_file():
+            try: res_data = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+            except Exception: pass
+        if not ftp and res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
+            ftp = res_data["path"]
+            if pos is None:
+                pos = float(res_data.get("position_sec", 0.0) or 0.0)
+            if not args.music_mode and not args.mix_archive_mode:
+                if res_data.get("mode") == "MUSIC":
+                    current_mode = "MUSIC"
+        elif ftp and pos is None and res_data and res_data.get("path") == ftp:
+            pos = float(res_data.get("position_sec", 0.0) or 0.0)
+        if pos is None:
+            pos = 0.0
         if not (daemon_running and send_ipc_command("play", file=ftp or None, position=pos)):
             if not ftp and (l := MixArchiveScanner(base_dir).get_latest_mix()): ftp = l["path"]
             if ftp: _spawn_player_daemon(ftp, auto_bluetooth=auto_bt, mode=current_mode, seek_to=pos)
@@ -3539,6 +3705,12 @@ def main():
                     if res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
                         resume_f = res_data["path"]
                         resume_pos = float(res_data.get("position_sec", 0.0) or 0.0)
+                        if not args.music_mode and not args.mix_archive_mode:
+                            if res_data.get("mode") == "MUSIC":
+                                current_mode = "MUSIC"
+                                is_music = True
+                                scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist)
+                                mixes = scanner.get_mixes()
                 except Exception: pass
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_f = tf or resume_f or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
@@ -3553,12 +3725,32 @@ def main():
             if tf:
                 send_ipc_command("play", file=tf)
             elif d_state == "stopped" or not d_data.get("path"):
-                if is_music:
+                resume_f, resume_pos = None, 0.0
+                if RESUME_STATE_FILE.is_file():
+                    try:
+                        res_data = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+                        if res_data and res_data.get("path") and os.path.isfile(res_data["path"]):
+                            resume_f = res_data["path"]
+                            resume_pos = float(res_data.get("position_sec", 0.0) or 0.0)
+                    except Exception: pass
+                if resume_f:
+                    send_ipc_command("play", file=resume_f, position=resume_pos)
+                elif is_music:
                     send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
                 elif latest := scanner.get_latest_mix():
                     send_ipc_command("play", file=latest["path"])
 
         ui_mode = "MICRO" if args.micro else ("MINI" if args.mini else "NORMAL")
+        def _term_sig(s, f):
+            try:
+                sys.stdout.write("\033[?25h\033[?1049l\033[0m")
+                sys.stdout.flush()
+            except Exception: pass
+            os._exit(0)
+        for sig in (signal.SIGTERM, signal.SIGINT, getattr(signal, "SIGHUP", None)):
+            if sig:
+                try: signal.signal(sig, _term_sig)
+                except Exception: pass
         TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme, mode=current_mode, folder_name=folder_target, ui_size_mode=ui_mode).run()
         sys.exit(0)
 
@@ -3601,10 +3793,19 @@ def main():
     finally:
         try:
             if engine.current_track and engine.current_track.get("path"):
+                saved_pos = round(float(engine.position_sec), 2)
+                if saved_pos <= 0.0 and RESUME_STATE_FILE.is_file():
+                    try:
+                        prev = json.loads(RESUME_STATE_FILE.read_text(encoding="utf-8"))
+                        if prev.get("path") == str(engine.current_track.get("path")):
+                            prev_pos = float(prev.get("position_sec", 0.0))
+                            if prev_pos > 0.0:
+                                saved_pos = prev_pos
+                    except Exception: pass
                 res_tmp = RESUME_STATE_FILE.with_suffix(".tmp")
                 res_tmp.write_text(json.dumps({
                     "path": str(engine.current_track.get("path")),
-                    "position_sec": round(float(engine.position_sec), 2),
+                    "position_sec": saved_pos,
                     "duration_sec": round(float(engine.duration_sec), 2),
                     "title": str(engine.current_track.get("name", "")),
                     "mode": str(engine.mode),
@@ -3613,7 +3814,7 @@ def main():
                 }), encoding="utf-8")
                 res_tmp.replace(RESUME_STATE_FILE)
         except Exception: pass
-        engine.stop_playback()
+        engine.stop_playback(reset_position=False)
         for p in (PID_FILE, SOCKET_PATH, PORT_FILE): p.unlink(missing_ok=True)
         try: STATE_FILE.write_text(json.dumps({"running": False, "state": "stopped"}), encoding="utf-8")
         except OSError: pass

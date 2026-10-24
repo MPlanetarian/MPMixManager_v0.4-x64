@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **MP Audio Player (Liquid Glass Mode)** (`MP_Audio_Player_Liquid_Glass.py`, `scripts/liquid_glass_vulkan.py`):
+  - Main-menu option 3 opens a separate window beside the manager. The glass is drawn with the NVIDIA Vulkan API as one clear pane of still water. The water holds the player theme colour, the sloped rim reflects it, and the player's boxed panels are a darker glass on top.
+  - The unmodified `MP_Audio_Player.py --interactive` runs inside the glass bezel. Later main-menu entries move up by one, so Exit is option 37. `q` / `exit` still quit.
+- **Automatic & Comprehensive Process Termination of All MP Audio Players on Manager Exit** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_manager_exit_stops_audio_player.py`):
+  - **Fail-Safe Cleanup on Exit & Signal Traps**: Updated `exit_mix_manager()`, `_cleanup_mix_manager_exit()`, and `_stop_mp_audio_daemon()` to unconditionally terminate all running MP Audio Player instances (daemon, interactive window, mini/micro player, shell launchers, and Liquid Glass Mode) whenever the Manager exits via menu Option 37 (`q`/`exit`) or receives signals (`SIGINT`, `SIGTERM`, `SIGHUP`, `EXIT`).
+  - **Graceful Followed by Force-Kill (`SIGTERM` -> `SIGKILL`)**: First delivers IPC `stop` command and `SIGTERM` to allow active audio streams to flush state and release sound cards cleanly, followed by a guaranteed `SIGKILL` (`kill -9` / `pkill -9`) for any surviving or hung processes.
+  - **Traktor S4 MIDI Service & Window Cleanup**: Automatically terminates the Traktor Kontrol S4 MIDI controller background service daemon (`traktor_s4_midi.pid`), cleans up all socket/PID runtime files, and closes lingering player terminal windows via `wmctrl` / `taskkill`.
+  - **Dedicated Helper Function**: Added `kill_all_mp_audio_players()` as an exportable bash function for explicit shutdown.
+  - **Interactive Terminal Signal Handling**: Added clean `SIGTERM`/`SIGINT`/`SIGHUP` handlers to `TerminalPlayerUI` in `MP_Audio_Player.py` to restore terminal cursor modes and exit immediately upon manager shutdown.
+  - **Expanded Automated Unit Tests**: Extended `tests/test_manager_exit_stops_audio_player.py` with multi-instance mock process termination and Traktor S4 PID cleanup tests.
 - **10-Band Graphic Equalizer & Electronic Music Presets (`MP_Audio_Player.py`)**:
   - **Genre-Specific Presets**: Curated electronic music equalizer curves designed around standard 10-band ISO center frequencies (31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz):
     - **Flat (Default)**: Neutral bit-perfect passthrough (0.0 dB across all bands).

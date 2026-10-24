@@ -103,6 +103,72 @@ class TestManagerExitStopsAudioPlayer(unittest.TestCase):
 
         self.assertIn("trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP", content)
         self.assertIn("MANAGER_MAIN_PID=$BASHPID", content)
+        self.assertIn("kill_all_mp_audio_players", content)
+
+    def test_kill_all_mp_audio_players_terminates_multiple_instances(self):
+        """Verify _stop_mp_audio_daemon / kill_all_mp_audio_players terminates all active player instances."""
+        dummy_pids = []
+        try:
+            # Spawn two mock processes matching MP_Audio_Player pattern
+            for _ in range(2):
+                p = subprocess.Popen(
+                    ["python3", "-c", "import sys, time; time.sleep(60)", "MP_Audio_Player_mock_test"],
+                    cwd=str(BASE_DIR),
+                )
+                dummy_pids.append(p)
+
+            # Ensure they are running
+            for p in dummy_pids:
+                self.assertIsNone(p.poll(), "Mock process should be running")
+
+            script = f"""
+            HOME="{self.test_dir}"
+            UNAME_S="$(uname -s)"
+            _AUTOPLAY_PID=""
+            eval "$(sed -n '/^_stop_mp_audio_daemon() {{/,/^}}/p' Mix_Archive_Manager.sh)"
+            _stop_mp_audio_daemon
+            """
+            res = subprocess.run(
+                [BASH_BIN, "-c", script],
+                cwd=str(BASE_DIR),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0, f"Script failed: {res.stderr}")
+
+            # Verify mock processes have been terminated
+            for p in dummy_pids:
+                try:
+                    p.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    self.fail("Mock MP_Audio_Player process was not killed on exit")
+        finally:
+            for p in dummy_pids:
+                if p.poll() is None:
+                    p.kill()
+
+    def test_stop_mp_audio_daemon_cleans_traktor_s4_midi_service(self):
+        """Verify traktor_s4_midi.pid is cleaned up upon manager exit."""
+        s4_pid_file = os.path.join(self.config_dir, "traktor_s4_midi.pid")
+        with open(s4_pid_file, "w") as f:
+            f.write("9999998\n")
+
+        script = f"""
+        HOME="{self.test_dir}"
+        UNAME_S="$(uname -s)"
+        _AUTOPLAY_PID=""
+        eval "$(sed -n '/^_stop_mp_audio_daemon() {{/,/^}}/p' Mix_Archive_Manager.sh)"
+        _stop_mp_audio_daemon
+        """
+        res = subprocess.run(
+            [BASH_BIN, "-c", script],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0, f"Script failed: {res.stderr}")
+        self.assertFalse(os.path.exists(s4_pid_file), "traktor_s4_midi.pid should be removed on exit")
 
 
 if __name__ == "__main__":

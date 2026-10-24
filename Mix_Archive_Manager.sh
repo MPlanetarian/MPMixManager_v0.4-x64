@@ -385,6 +385,7 @@ _stop_mp_audio_daemon() {
     local port_file="${HOME}/.config/mix-manager/mp_audio_player.port"
     local sock_file="${HOME}/.config/mix-manager/mp_audio_player.sock"
     local state_file="${HOME}/.config/mix-manager/mp_player_state.json"
+    local s4_pid_file="${HOME}/.config/mix-manager/traktor_s4_midi.pid"
     local port=""
     [ -f "$port_file" ] && IFS= read -r port < "$port_file" 2>/dev/null || true
     local py=""
@@ -437,14 +438,79 @@ PY
             fi
         fi
     fi
+    if [ -f "$s4_pid_file" ]; then
+        local s4_pid=""
+        IFS= read -r s4_pid < "$s4_pid_file" 2>/dev/null || true
+        if [[ "$s4_pid" =~ ^[0-9]+$ ]]; then
+            kill -TERM "$s4_pid" 2>/dev/null || true
+            kill -KILL "$s4_pid" 2>/dev/null || true
+        fi
+        rm -f "$s4_pid_file" 2>/dev/null || true
+    fi
     if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
-        powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*MP_Audio_Player*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null || true
+        powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*MP_Audio_Player*' -or \$_.CommandLine -like '*mp_audio_player*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" &>/dev/null || true
+        taskkill.exe /F /FI "WINDOWTITLE eq MP Audio Player*" &>/dev/null || true
+        taskkill.exe /F /FI "WINDOWTITLE eq MP Mini Audio Player*" &>/dev/null || true
+        taskkill.exe /F /FI "WINDOWTITLE eq MP Micro Audio Player*" &>/dev/null || true
     else
-        pkill -f "MP_Audio_Player" 2>/dev/null || true
+        local cur_pid="$$" cur_bpid="${BASHPID:-$$}" mgr_pid="${MANAGER_MAIN_PID:-0}"
+        local _pids_to_kill=()
+        local _raw_pids=""
+        _raw_pids="$(pgrep -i -f "MP_Audio_Player" 2>/dev/null; pgrep -i -f "mp_audio_player" 2>/dev/null; ps -eo pid,command 2>/dev/null | grep -iE '(MP_Audio_Player|mp_audio_player)' | grep -v grep | awk '{print $1}')"
+        if [ -n "$_raw_pids" ]; then
+            local _uniq_pids
+            _uniq_pids=$(printf '%s\n' "$_raw_pids" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
+            for p in $_uniq_pids; do
+                [ "$p" -le 1 ] && continue
+                [ "$p" -eq "$cur_pid" ] && continue
+                [ "$p" -eq "$cur_bpid" ] && continue
+                [ "$p" -eq "$mgr_pid" ] && continue
+                _pids_to_kill+=("$p")
+            done
+        fi
+        for p in "${_pids_to_kill[@]}"; do
+            kill -TERM "$p" 2>/dev/null || true
+        done
+        pkill -i -f "MP_Audio_Player" 2>/dev/null || true
+        pkill -i -f "mp_audio_player" 2>/dev/null || true
         pkill -f "pactl subscribe" 2>/dev/null || true
+        sleep 0.1
+        for p in "${_pids_to_kill[@]}"; do
+            if kill -0 "$p" 2>/dev/null; then
+                kill -KILL "$p" 2>/dev/null || true
+            fi
+        done
+        pkill -9 -i -f "MP_Audio_Player" 2>/dev/null || true
+        pkill -9 -i -f "mp_audio_player" 2>/dev/null || true
+        pkill -9 -f "pactl subscribe" 2>/dev/null || true
+        if command -v wmctrl >/dev/null 2>&1; then
+            wmctrl -lp 2>/dev/null | while read -r win_id desktop_num win_pid host win_title; do
+                if [[ "$win_title" == *"MP Audio Player"* || "$win_title" == *"MP Mini Audio Player"* || "$win_title" == *"MP Micro Audio Player"* ]]; then
+                    wmctrl -c "$win_id" 2>/dev/null || true
+                fi
+            done
+        fi
     fi
     rm -f "$pid_file" "$port_file" "$sock_file" 2>/dev/null || true
-    printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
+    if [ -f "$state_file" ] && [ -n "$py" ]; then
+        "$py" -c '
+import json, sys
+sf = sys.argv[1]
+try:
+    with open(sf, "r", encoding="utf-8") as f: d = json.load(f)
+    if isinstance(d, dict):
+        d["running"] = False
+        d["state"] = "stopped"
+        with open(sf, "w", encoding="utf-8") as f: json.dump(d, f)
+except Exception:
+    with open(sf, "w", encoding="utf-8") as f: f.write("{\"running\": false, \"state\": \"stopped\"}\n")
+' "$state_file" 2>/dev/null || printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
+    else
+        printf '%s\n' '{"running": false, "state": "stopped"}' > "$state_file" 2>/dev/null || true
+    fi
+}
+kill_all_mp_audio_players() {
+    _stop_mp_audio_daemon "$@"
 }
 update_mp_bridge_menu() {
 local cur_m="${1:-Main Console / Workstation Menu}" is_r="${2:-true}" br_sh="$SCRIPT_DIR/mp_software_bridge.sh" br_py="$SCRIPT_DIR/scripts/mp_software_bridge.py"
@@ -465,7 +531,7 @@ exit_mix_manager() {
     trap - EXIT INT TERM HUP
     update_mp_bridge_menu "Stopped / Inactive" "false"
     save_playback_resume_state 2>/dev/null || true
-    _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill $(jobs -p) 2>/dev/null || true
+    _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _stop_mp_audio_daemon; kill_all_mp_audio_players 2>/dev/null || true; kill $(jobs -p) 2>/dev/null || true
     # Switch back from alternate screen buffer and restore cursor/wrap
     printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""
@@ -753,6 +819,27 @@ local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIP
 if python3 "$mp_py" --mini --new-window &>/dev/null; then return 0; fi; if python3 "$mp_py" --new-window &>/dev/null; then return 0; fi; launch_in_terminal "MP Mini Audio Player" "python3 \"$mp_py\" --interactive --mini" "window"
 fi
 }
+launch_mp_audio_player_liquid_glass() {
+local py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
+[ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+if [ ! -f "$py" ]; then
+echo -e "\n${RED}Liquid Glass player script was not found. Opening the standard MP Audio Player.${NC}\n"
+manage_mp_audio_player
+return
+fi
+case "$(uname -s)" in
+Linux) ;;
+*)
+echo -e "\n${YELLOW}Liquid Glass Mode requires Linux and the NVIDIA Vulkan API. Opening the standard MP Audio Player.${NC}\n"
+manage_mp_audio_player
+return
+;;
+esac
+mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+echo -e "\n${BOLD}${CYAN}Opening MP Audio Player (Liquid Glass Mode) in its own window.${NC}\n"
+nohup python3 "$py" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
+disown
+}
 if [ -f "$SCRIPT_DIR/config.env" ]; then source "$SCRIPT_DIR/config.env"; elif [ -f "$HOME/.config/mix-manager/config.env" ]; then source "$HOME/.config/mix-manager/config.env"; fi; OUTPUT_DIR="${OUTPUT_DIR:-FLAC_CONVERTED_OUTPUTS}"; ARCHIVE_DIR="${ARCHIVE_DIR:-CONVERTED_WAV_FILES}"; MP3_OUTPUT_DIR="${MP3_OUTPUT_DIR:-MP3_CONVERTED_OUTPUTS}"; WAV_OUTPUT_DIR="${WAV_OUTPUT_DIR:-WAV_CONVERTED_OUTPUTS}"; MP4_OUTPUT_DIR="${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}"; EXTRA_MIX_ARCHIVE_DIRS="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"; export OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR EXTRA_MIX_ARCHIVE_DIRS
 is_mix_archive_configured() {
 if [ "${MIX_ARCHIVE_CONFIGURED:-false}" = "true" ] && [ -n "${MIX_ARCHIVE_DIR:-}" ]; then return 0; fi; return 1
@@ -989,6 +1076,16 @@ try: pos = float(pos)
 except Exception: pos = 0.0
 try: dur = float(dur)
 except Exception: dur = 0.0
+if pos <= 0.0 and os.path.exists(dst):
+    try:
+        with open(dst, "r", encoding="utf-8") as f_prev:
+            prev_data = json.load(f_prev)
+        if isinstance(prev_data, dict) and prev_data.get("path") == path:
+            prev_pos = float(prev_data.get("position_sec", 0.0))
+            if prev_pos > 0.0:
+                pos = prev_pos
+    except Exception:
+        pass
 data = dict(
     path=path,
     position_sec=round(pos, 2),
@@ -2006,7 +2103,7 @@ garage_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/Native Ins
 ;; 10) launch_traktor ;; 11) launch_traktor_monitor_window; ;; 12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;; 13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
 }
 play_audio_file() {
-local player="${1:-${DEFAULT_AUDIO_PLAYER:-audacious}}"; local file="$2"; local seek_pos="${3:-}"; [ -z "$file" ] && return 1; file="$(realpath "$file" 2>/dev/null || echo "$file")"; case "$player" in mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then python3 "$mp_py" --play "$file" --seek-to "$seek_pos" &>/dev/null; else python3 "$mp_py" --play "$file" &>/dev/null; fi; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
+local player="${1:-${DEFAULT_AUDIO_PLAYER:-audacious}}"; local file="$2"; local seek_pos="${3:-}"; local mode="${4:-MIX_ARCHIVE}"; [ -z "$file" ] && return 1; file="$(realpath "$file" 2>/dev/null || echo "$file")"; case "$player" in mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode); python3 "$mp_py" "${play_args[@]}" &>/dev/null; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif _has_flatpak "org.atheme.audacious"; then nohup flatpak run org.atheme.audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then open -a Audacious "$file" &>/dev/null &
 fi; if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then (for _i in {1..20}; do sleep 0.2; command -v audtool &>/dev/null && audtool playback-seek "${seek_pos%.*}" &>/dev/null && break; done) & fi; align_mix_windows_on_screen --expect-audacious; ;; cliamp) local cliamp_bin="cliamp"; command -v cliamp &>/dev/null || cliamp_bin="$SCRIPT_DIR/bin/cliamp"; [ ! -x "$cliamp_bin" ] && cliamp_bin="$HOME/.local/bin/cliamp"; if pgrep -x cliamp &>/dev/null; then "$cliamp_bin" queue "$file" 2>/dev/null || true; sleep 0.3; "$cliamp_bin" play 2>/dev/null || true; else local full_cmd="\"$cliamp_bin\" queue \"$file\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play"; launch_in_terminal "cliamp - $(basename "$file")" "$full_cmd" "window"; fi ;; strawberry) if get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ]; then if [ "$STRAWBERRY_RESOLVED_PATH" = "$file" ] || [ "$STRAWBERRY_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-strawberry; return 0; fi; fi; if command -v strawberry &>/dev/null; then nohup strawberry "$file" &>/dev/null &
@@ -2263,7 +2360,8 @@ try:
         pos = d.get("position_sec", 0.0) or 0.0
         dur = d.get("duration_sec", 0.0) or 0.0
         plr = d.get("player", "") or ""
-        print(f"{p}\t{pos}\t{dur}\t{plr}")
+        mode = d.get("mode", "MIX_ARCHIVE") or "MIX_ARCHIVE"
+        print(f"{p}\t{pos}\t{dur}\t{plr}\t{mode}")
 except Exception: pass
 PY
 ); fi; if [ -z "$resume_info" ] && [ -f "$state_file" ]; then resume_info=$(python3 - "$state_file" << 'PY' 2>/dev/null || true
@@ -2275,10 +2373,11 @@ try:
     if p and os.path.isfile(p):
         pos = d.get("position_sec", 0.0) or 0.0
         dur = d.get("duration_sec", 0.0) or 0.0
-        print(f"{p}\t{pos}\t{dur}\tmp_audio_player")
+        mode = d.get("mode", "MIX_ARCHIVE") or "MIX_ARCHIVE"
+        print(f"{p}\t{pos}\t{dur}\tmp_audio_player\t{mode}")
 except Exception: pass
 PY
-); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player=""; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_audio_player}}"; local player_display="$player"; case "$player" in mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
+); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_audio_player}}"; local player_display="$player"; case "$player" in mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
 fi; return 0
 }
 configure_audio_player_and_startup() {
@@ -3084,7 +3183,7 @@ local rb="systemctl reboot with confirmation"; case "$OS_TYPE" in macos) rb="mac
 render_main_header() {
 local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1;
 local inner_w=$(( cur_box_w - 2 )) text_w=$(( cur_box_w - 4 ))
-local h_border h_dash; printf -v h_border '%*s' "$inner_w" ''; h_dash="${h_border// /-}"; h_border="${h_border// /─}";
+local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}";
 local title="MP Mix Archive Manager (v${VERSION#v})";
 local pad_left=$(( (text_w - ${#title}) / 2 ))
 (( pad_left < 0 )) && pad_left=0
@@ -3102,20 +3201,20 @@ local hdr="  ${b_mag}╭${h_border}╮${NC}
   ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
   ${b_mag}╰${h_border}╯${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
-[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; if ! is_mix_archive_configured; then
-hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 15 or 12 to Configure this now.${NC}
+[[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; if ! is_mix_archive_configured; then
+hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder, Please use Option 16 or 13 to Configure this now.${NC}
   ${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
 fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json"; [ -f "$_mf_f" ] && _mf_cnt=$(grep -c '"id":' "$_mf_f" 2>/dev/null || echo 0); if [ "${_mf_cnt:-0}" -eq 0 ]; then
 hdr+=$'\n\n  '"${BOLD}${YELLOW}⚠️  Please be advised you have 0 MUSIC Folders configured. Please use Option 2 to configure your music library folders now.${NC}
   ${DIM}${YELLOW}(Support for local music libraries, external drives & network SMB shares)${NC}"
 fi; local _s4_conn=0; if amidi -l 2>/dev/null | grep -qi "Traktor"; then _s4_conn=1; elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then _s4_conn=1; fi; if [ "$_s4_conn" -eq 1 ] && [ "${TRAKTOR_S4_NOTIFIED:-false}" != "true" ] && [ ! -f "$HOME/.config/mix-manager/traktor_s4_notified.flag" ]; then
 hdr+=$'\n\n  '"${BOLD}${GREEN}🎛️  Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]!${NC}
-  ${BOLD}${CYAN}Please navigate to Option 18 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
+  ${BOLD}${CYAN}Please navigate to Option 19 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
   ${DIM}${GREEN}(Control player transport, mixer, and pitch sliders directly from your S4 hardware)${NC}"
 fi; if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then load_header_cache 2>/dev/null || true
 [[ -z "${_CACHED_STATS_CORE:-}" ]] && _CACHED_STATS_CORE="${b_blue}=== CURRENT STATUS & STATISTICS ===${NC}
   ${DIM}⚡ Loading archive statistics in background...${NC}"
-fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; else hdr+=$'\n  '"${b_mag}${h_dash}${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
+fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 run_deferred_startup() {
 [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
@@ -3147,9 +3246,9 @@ _cleanup_mix_manager_exit() {
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "4|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "5|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "6|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "7|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "8|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "9|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "10|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "11|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "12|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "13|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "14|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "15|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "16|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "17|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "18|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "19|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "20|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "21|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "22|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "23|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "24|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "25|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "26|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "27|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "28|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "29|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "30|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "31|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "32|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "33|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "36|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(NVIDIA Vulkan clear glass • same MP Audio Player • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
-manage_music_folders_menu ;; 3|convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
-manage_mix_conversion ;; 4) manage_audio_conversion ;; 5) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 6) manage_mix_search_and_import ;; 7) rename_mix; press_enter ;; 8) find_duplicate_audio_mixes; ;; 9) export_mixes_to_path ;; 10) manage_integrity_and_verification; ;; 11|backup|cloud-backup) manage_cloud_backup_suite ;; 12) play_sound_effect "storage"; manage_storage_and_archive_config ;;
-13) manage_tracklist_suite; ;; 14|manage-audio-players|players) manage_audio_players ;; 15|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 16) manage_playlists_and_history ;; 17) manage_daws_suite; ;; 18|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 19) manage_spek_generation; ;; 20) manage_mix_scheduler ;; 21) generate_youtube_video; ;; 22|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 23|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 24|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 25|manage-live-monitors|live-monitors) manage_live_monitors ;; 26|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 27|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 28) manage_promo_and_syndication ;; 29) manage_network_and_internet; ;; 30) manage_desktop_and_display ;; 31) manage_system_maintenance; ;; 32|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 33|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; ESC) ;; 36|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 36, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*) launch_mp_audio_player_liquid_glass ;; 4|convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
+manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;
+14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 34|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 35) manage_motd_and_tools ;; 36) manage_settings_and_system; ;; ESC) ;; 37|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 37, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
 fi

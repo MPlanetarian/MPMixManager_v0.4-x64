@@ -80,19 +80,35 @@ class TestMiniMicroPlayerFeatures(unittest.TestCase):
             self.assertIn("maximizehoriz = false", content)
             self.assertIn("maximizevert = false", content)
 
-    def test_mode_toggle_cycle_in_terminal_ui(self):
-        """Verifies that pressing 'm' or 'M' cycles NORMAL -> MINI -> MICRO -> NORMAL."""
+    def test_m_from_normal_opens_mini_player_in_new_window(self):
+        """Pressing m or M in the full player opens the Mini Player in a new console window."""
         ui = MP_Audio_Player.TerminalPlayerUI(None, None, is_remote=True, ui_size_mode="NORMAL")
         self.assertEqual(ui.ui_size_mode, "NORMAL")
-        
-        ui._process_key(b"m")
-        self.assertEqual(ui.ui_size_mode, "MINI")
-        
-        ui._process_key(b"M")
-        self.assertEqual(ui.ui_size_mode, "MICRO")
-        
-        ui._process_key(b"m")
-        self.assertEqual(ui.ui_size_mode, "NORMAL")
+        with mock.patch("MP_Audio_Player.launch_mini_player_window", return_value=True) as launch:
+            ui._process_key(b"m")
+            launch.assert_called_once()
+            self.assertEqual(ui.ui_size_mode, "NORMAL")
+            args = launch.call_args[0]
+            self.assertEqual(args[0], "MIX_ARCHIVE")
+            self.assertFalse(launch.call_args.kwargs.get("micro", False))
+            ui._process_key(b"M")
+            self.assertEqual(launch.call_count, 2)
+            self.assertEqual(ui.ui_size_mode, "NORMAL")
+            self.assertIn("new window", ui.notification_msg)
+
+    def test_m_toggles_mini_and_micro_inside_compact_window(self):
+        """Inside an already-open Mini or Micro window, M switches between those sizes and resizes the terminal."""
+        ui = MP_Audio_Player.TerminalPlayerUI(None, None, is_remote=True, ui_size_mode="MINI")
+        with mock.patch("MP_Audio_Player.launch_mini_player_window") as launch, \
+             mock.patch("MP_Audio_Player.resize_host_terminal") as resize:
+            ui._process_key(b"m")
+            launch.assert_not_called()
+            self.assertEqual(ui.ui_size_mode, "MICRO")
+            resize.assert_called_with(74, 7, "MP Micro Audio Player")
+            ui._process_key(b"M")
+            launch.assert_not_called()
+            self.assertEqual(ui.ui_size_mode, "MINI")
+            resize.assert_called_with(74, 14, "MP Mini Audio Player")
 
     @mock.patch.object(sys, "argv", ["MP_Audio_Player.py", "--mini"])
     @mock.patch("MP_Audio_Player.is_player_daemon_running", return_value=True)
