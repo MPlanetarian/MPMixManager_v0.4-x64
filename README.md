@@ -1,7 +1,5 @@
 # MP Mix Manager 0.4.0 Stable (Liquid) by Dreamworlds Productions (MPlanetarian)
 
-![MP Mix Manager 0.4.0 Screenshot (MP Liquid Player) ](002.png)
-
 > 📅 **Last Updated:** October 24, 2026 • **Latest Release:** `v0.4.0 Stable`
 
 [![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2024%2C%202026-brightgreen.svg)]()
@@ -25,6 +23,8 @@
 
 An enterprise-grade workstation orchestration console and media management suite designed for high-resolution audio production, multi-hour DJ mix archiving, automated 32-bit FLAC mastering, 31,000+ track SMB network streaming, Traktor Pro playlist extraction, live tracklist tracking, YouTube & AI Talking-Head video synthesis, automated multi-period intelligence reporting, system maintenance, and AI workflow control across **Linux (Bazzite / SteamOS / Fedora / Ubuntu)**, **macOS (Latest Sequoia / Sonoma, Apple Silicon M1–M4 & Intel)**, **Microsoft Windows 10 & 11**, and **FreeBSD (14.x / 15-CURRENT)**.
 
+![MP Mix Manager 0.4.0 Screenshot (MP Liquid Player) ](002.png)
+
 > [!TIP]
 > ### 🌟 Welcome to MP Mix Manager v0.4.0 — The Ultimate Audio & Visual Workstation!
 > **Download & Experience v0.4.0 Now!** Step into the future of high-fidelity music listening, DJ mix management, and visual artistry with our two flagship additions:
@@ -36,6 +36,8 @@ An enterprise-grade workstation orchestration console and media management suite
 ---
 
 ## 📑 Table of Contents
+
+![MP Mix Manager 0.4.0 Screenshot (MP Audio CLI Player) ](003.png)
 
 - [🎉 Download & Experience v0.4.0 Stable](#-download--experience-v040-stable)
 - [🚀 What's New in v0.4.0 Stable](#-whats-new-in-v040-stable)
