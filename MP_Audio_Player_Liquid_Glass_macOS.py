@@ -279,6 +279,7 @@ class MetalGlassHost:
         theme = read_player_theme()
         theme_at = 0.0
 
+        print("DEBUG: Entering clean event loop...", flush=True)
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
@@ -286,7 +287,7 @@ class MetalGlassHost:
                     theme = read_player_theme()
                     theme_at = now
 
-                # Poll window events to keep the macOS WindowServer responsive
+                # Poll window events
                 self.renderer.poll()
 
                 self._sync_panels()
@@ -295,18 +296,25 @@ class MetalGlassHost:
                 # Check if child process has exited
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
+                    print("DEBUG: Child process exited.", flush=True)
                     break
 
-                # Non-blocking poll of terminal I/O
+                # Non-blocking poll of terminal I/O from the player process
                 r, _, _ = select.select([master_fd], [], [], 0.016)
                 if master_fd in r:
                     try:
                         data = os.read(master_fd, 4096)
-                        if not data:
+                        if data:
+                            # Print whatever the child player is outputting to its terminal
+                            print(f"CHILD OUTPUT: {data.decode('utf-8', errors='ignore')}", flush=True)
+                        else:
+                            print("DEBUG: EOF on master_fd.", flush=True)
                             break
-                    except OSError:
+                    except OSError as e:
+                        print(f"DEBUG: OSError on read: {e}", flush=True)
                         break
         finally:
+            print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
 
         return True
