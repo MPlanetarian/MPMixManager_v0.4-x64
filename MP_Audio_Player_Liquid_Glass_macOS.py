@@ -237,26 +237,7 @@ class MetalGlassHost:
             self.renderer.draw(theme)
             return True
 
-        master_fd, slave_fd = pty.openpty()
-        
-        pid = os.fork()
-        if pid == 0:
-            # Child process: attach to slave PTY and run player
-            os.close(master_fd)
-            os.setsid()
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
-            env = _child_env()
-            os.execvpe(self.argv[0], self.argv, env)
-            sys.exit(1)
-
-        os.close(slave_fd)
-        self.child_pid = pid
-
-        # Initialize the Metal GUI renderer in the parent process
+        # 1. Initialize the Metal GUI renderer FIRST (before forking)
         char_w, char_h = 9, 18
         margin = LiquidGlassRendererMetal.bezel_px
         init_w = self._target_cols * char_w + 2 * margin
@@ -276,6 +257,26 @@ class MetalGlassHost:
         self.renderer.open()
         self._sync_panels()
 
+        # 2. Now open PTY and fork the child player process
+        master_fd, slave_fd = pty.openpty()
+        
+        pid = os.fork()
+        if pid == 0:
+            # Child process: attach to slave PTY and run player
+            os.close(master_fd)
+            os.setsid()
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
+            env = _child_env()
+            os.execvpe(self.argv[0], self.argv, env)
+            sys.exit(1)
+
+        os.close(slave_fd)
+        self.child_pid = pid
+
         theme = read_player_theme()
         theme_at = 0.0
 
@@ -289,38 +290,29 @@ class MetalGlassHost:
                     theme = read_player_theme()
                     theme_at = now
 
-                # 1. Test window poll
-                # print("DEBUG: polling...", flush=True)
+                # Poll window events
                 self.renderer.poll()
 
-                # 2. Test panel sync & draw
-                # print("DEBUG: drawing...", flush=True)
                 self._sync_panels()
                 self.renderer.draw(theme)
 
-                # 3. Check child exit
+                # Check if child process has exited
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
-                    print("DEBUG: Child exited.", flush=True)
                     break
 
-                # 4. Terminal I/O select
+                # Non-blocking poll of terminal I/O from the player process
                 r, _, _ = select.select([master_fd], [], [], 0.016)
                 if master_fd in r:
                     try:
                         data = os.read(master_fd, 4096)
                         if not data:
-                            print("DEBUG: EOF on PTY.", flush=True)
                             break
-                    except OSError as e:
-                        print(f"DEBUG: PTY read error: {e}", flush=True)
+                    except OSError:
                         break
 
                 time.sleep(0.015)
-        except Exception as e:
-            print(f"DEBUG: Exception in event loop: {e}", flush=True)
         finally:
-            print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
 
         return True
