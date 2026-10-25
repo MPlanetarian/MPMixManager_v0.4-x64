@@ -220,11 +220,9 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-    def run(self):
-        """Execute the Metal Liquid Glass player session with loop diagnostics."""
-        print("DEBUG: check_apple_silicon_support() starting...", flush=True)
+   def run(self):
+        """Execute the Metal Liquid Glass player session."""
         check_apple_silicon_support()
-        print("DEBUG: Apple Silicon check passed.", flush=True)
 
         if self.embed_check:
             char_w, char_h = 9, 18
@@ -239,13 +237,11 @@ class MetalGlassHost:
             self.renderer.draw(theme)
             return True
 
-        print("DEBUG: Opening PTY...", flush=True)
         master_fd, slave_fd = pty.openpty()
         
-        print(f"DEBUG: Forking process (argv: {self.argv})...", flush=True)
         pid = os.fork()
         if pid == 0:
-            # Child process
+            # Child process: attach to slave PTY and run player
             os.close(master_fd)
             os.setsid()
             os.dup2(slave_fd, 0)
@@ -259,7 +255,6 @@ class MetalGlassHost:
 
         os.close(slave_fd)
         self.child_pid = pid
-        print(f"DEBUG: Child process spawned with PID {pid}. Initializing Metal Renderer...", flush=True)
 
         # Initialize the Metal GUI renderer in the parent process
         char_w, char_h = 9, 18
@@ -278,55 +273,40 @@ class MetalGlassHost:
             height=init_h,
             title=title,
         )
-        print("DEBUG: Calling renderer.open()...", flush=True)
         self.renderer.open()
-        print("DEBUG: Renderer opened successfully. Syncing panels...", flush=True)
         self._sync_panels()
 
         theme = read_player_theme()
         theme_at = 0.0
 
-        print("DEBUG: Entering main event loop...", flush=True)
         try:
-            loop_count = 0
             while not self.renderer.should_close:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
                     theme_at = now
 
-                if loop_count < 3:
-                    print(f"DEBUG: Loop iteration {loop_count}: syncing panels...", flush=True)
-                self._sync_panels()
+                # 🔑 CRITICAL: Poll window events to keep the macOS WindowServer responsive
+                self.renderer.poll()
 
-                if loop_count < 3:
-                    print(f"DEBUG: Loop iteration {loop_count}: calling renderer.draw()...", flush=True)
+                self._sync_panels()
                 self.renderer.draw(theme)
 
                 # Check if child process has exited
-                if loop_count < 3:
-                    print(f"DEBUG: Loop iteration {loop_count}: checking waitpid...", flush=True)
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
-                    print("DEBUG: Child process exited.", flush=True)
                     break
 
                 # Non-blocking poll of terminal I/O
-                if loop_count < 3:
-                    print(f"DEBUG: Loop iteration {loop_count}: polling select()...", flush=True)
                 r, _, _ = select.select([master_fd], [], [], 0.016)
                 if master_fd in r:
                     try:
                         data = os.read(master_fd, 4096)
                         if not data:
-                            print("DEBUG: EOF on master_fd.", flush=True)
                             break
                     except OSError:
                         break
-                
-                loop_count += 1
         finally:
-            print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
 
         return True
