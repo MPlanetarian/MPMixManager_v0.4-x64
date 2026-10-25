@@ -13,8 +13,11 @@ SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
 unset _RESOLVED_SRC _RESOLVED_DIR
 cd "$SCRIPT_DIR" || exit 1
 
-# Ensure Homebrew and local tools are available in PATH
-export PATH="/opt/homebrew/bin:/usr/local/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$PATH"
+# Ensure Virtual Environment, Homebrew, and local tools are available in PATH
+if [ -d "$SCRIPT_DIR/venv" ] && [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/venv/bin/activate"
+fi
+export PATH="${SCRIPT_DIR}/venv/bin:/opt/homebrew/bin:/usr/local/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$PATH"
 export OS_TYPE="macos"
 
 if [ -x "/opt/homebrew/bin/bash" ]; then

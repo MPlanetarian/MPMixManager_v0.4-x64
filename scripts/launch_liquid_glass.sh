@@ -39,14 +39,18 @@ CONFIG_FILE="$HOME/.config/mix-manager/config.env"
 
 TARGET_PY=""
 
-# macOS Apple Silicon check
+# macOS check
 if [ "$(uname -s)" = "Darwin" ]; then
-    if [ "$(uname -m)" != "arm64" ]; then
-        echo "Error: MP Audio Player Liquid Glass Metal requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported." >&2
-        exit 1
+    TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+    [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+    if [ ! -f "$TARGET_PY" ]; then
+        if [ "$(uname -m)" != "arm64" ]; then
+            echo "Error: MP Audio Player Liquid Glass Metal requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported." >&2
+            exit 1
+        fi
+        TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
+        [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
     fi
-    TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
-    [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
 fi
 
 if [ -z "$TARGET_PY" ]; then

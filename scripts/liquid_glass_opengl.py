@@ -31,16 +31,22 @@ from ctypes import (
 )
 from pathlib import Path
 
-# Ensure PyOpenGL uses the GLX platform when running on X11, or WGL on Windows
+# Ensure PyOpenGL uses the correct platform backend
 if sys.platform == "win32":
     os.environ.setdefault("PYOPENGL_PLATFORM", "wgl")
-else:
+elif sys.platform != "darwin":
+    # GLX for Linux / X11; macOS uses CGL which PyOpenGL picks up automatically
     os.environ.setdefault("PYOPENGL_PLATFORM", "glx")
 
 
 def is_windows() -> bool:
     """Check if running on Windows."""
     return sys.platform == "win32" or platform.system().lower() == "windows"
+
+
+def is_macos() -> bool:
+    """Check if running on macOS."""
+    return sys.platform == "darwin"
 
 
 def is_windows_10_or_11() -> bool:
@@ -55,7 +61,7 @@ def is_windows_10_or_11() -> bool:
 
 
 def load_glfw_dll():
-    """Load the GLFW shared library across Windows and Linux."""
+    """Load the GLFW shared library across Windows, macOS, and Linux."""
     if is_windows():
         candidates = ["glfw3.dll", "glfw.dll"]
         try:
@@ -72,6 +78,29 @@ def load_glfw_dll():
             except OSError:
                 continue
         raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+    if is_macos():
+        candidates = ["libglfw.3.dylib", "libglfw.dylib"]
+        try:
+            from ctypes.util import find_library
+            f = find_library("glfw")
+            if f and f not in candidates:
+                candidates.insert(0, f)
+        except Exception:
+            pass
+        # Also check Homebrew paths
+        for prefix in ("/opt/homebrew/lib", "/usr/local/lib"):
+            for name in ("libglfw.3.dylib", "libglfw.dylib"):
+                full = os.path.join(prefix, name)
+                if os.path.isfile(full) and full not in candidates:
+                    candidates.insert(0, full)
+        for cand in candidates:
+            try:
+                return ctypes.CDLL(cand)
+            except OSError:
+                continue
+        raise RuntimeError(
+            "Could not load GLFW on macOS. Install via: brew install glfw"
+        )
     return ctypes.CDLL("libglfw.so.3")
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -495,6 +524,12 @@ class LiquidGlassRendererOpenGL:
             self._bind_glfw()
             self._x11 = None
             self._xext = None
+        elif is_macos():
+            self._step = "glfw"
+            self._glfw = load_glfw_dll()
+            self._bind_glfw()
+            self._x11 = None
+            self._xext = None
         else:
             self._step = "x11 threads"
             self._x11 = ctypes.CDLL("libX11.so.6")
@@ -509,7 +544,8 @@ class LiquidGlassRendererOpenGL:
             self._bind_glfw()
             self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
 
-        if not self._glfw.glfwInit():
+        result = self._glfw.glfwInit()
+        if not result:
             raise RuntimeError("glfwInit failed")
 
         self._step = "window"
@@ -649,12 +685,12 @@ class LiquidGlassRendererOpenGL:
         return None
 
     def x11_window(self):
-        if is_windows() or not hasattr(self._glfw, "glfwGetX11Window"):
+        if is_windows() or is_macos() or not hasattr(self._glfw, "glfwGetX11Window"):
             return 0
         return int(self._glfw.glfwGetX11Window(self._window))
 
     def x11_display(self):
-        if is_windows() or not hasattr(self._glfw, "glfwGetX11Display"):
+        if is_windows() or is_macos() or not hasattr(self._glfw, "glfwGetX11Display"):
             return None
         return self._glfw.glfwGetX11Display(self._window)
 
@@ -882,6 +918,11 @@ class LiquidGlassRendererOpenGL:
                 except Exception:
                     pass
             return
+        if is_macos():
+            # macOS doesn't support X11 shape extensions; the rounded corners
+            # are achieved via the transparent framebuffer and the shader.
+            self.shaped = True
+            return
         if not getattr(self, "_xext", None):
             return
         display = self.x11_display()
@@ -1028,6 +1069,12 @@ class LiquidGlassRendererOpenGL:
                 pass
 
     def _set_opacity(self, window, opacity):
+        if is_macos():
+            # macOS handles transparency via GLFW_TRANSPARENT framebuffer hint
+            # and glfwSetWindowOpacity if needed
+            if hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
+                self._glfw.glfwSetWindowOpacity(self._window, c_float(max(0.0, min(1.0, float(opacity)))))
+            return
         value = int(max(0.0, min(1.0, float(opacity))) * 0xFFFFFFFF)
         self._change_cardinal(window, self._x_atom("_NET_WM_WINDOW_OPACITY"), [value])
 
@@ -1051,6 +1098,12 @@ class LiquidGlassRendererOpenGL:
                 dwmapi.DwmSetWindowAttribute(hwnd, 33, byref(corner_pref), ctypes.sizeof(corner_pref))
             except Exception:
                 pass
+            return
+        if is_macos():
+            # macOS transparency is handled via the GLFW_TRANSPARENT framebuffer hint
+            # and optional glfwSetWindowOpacity
+            if hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
+                self._glfw.glfwSetWindowOpacity(self._window, c_float(max(0.0, min(1.0, float(self.clear_opacity)))))
             return
         window = self.x11_window()
         if not self.x11_display() or not window or not getattr(self, "_x11", None):
@@ -1208,12 +1261,12 @@ class LiquidGlassRendererOpenGL:
         g.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
         g.glfwSetWindowPos.argtypes = [c_void_p, c_int, c_int]
         g.glfwSetWindowSize.argtypes = [c_void_p, c_int, c_int]
-        if not is_windows():
+        if not is_windows() and not is_macos():
             g.glfwGetX11Window.argtypes = [c_void_p]
             g.glfwGetX11Window.restype = c_uint64
             g.glfwGetX11Display.argtypes = [c_void_p]
             g.glfwGetX11Display.restype = c_void_p
-        else:
+        elif is_windows():
             if hasattr(g, "glfwGetWin32Window"):
                 g.glfwGetWin32Window.argtypes = [c_void_p]
                 g.glfwGetWin32Window.restype = c_void_p
@@ -1225,6 +1278,8 @@ class LiquidGlassRendererOpenGL:
         g.glfwSetFramebufferSizeCallback.restype = c_void_p
         g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
         g.glfwSetWindowPosCallback.restype = c_void_p
+        if hasattr(g, "glfwSetWindowOpacity"):
+            g.glfwSetWindowOpacity.argtypes = [c_void_p, c_float]
 
     def _create_window(self):
         g = self._glfw
@@ -1233,6 +1288,8 @@ class LiquidGlassRendererOpenGL:
         g.glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3)
         g.glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3)
         g.glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE)
+        if is_macos():
+            g.glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, 1)
         g.glfwWindowHint(GLFW_RESIZABLE, 1)
         g.glfwWindowHint(GLFW_DECORATED, 0)
         g.glfwWindowHint(GLFW_FOCUS_ON_SHOW, 1)

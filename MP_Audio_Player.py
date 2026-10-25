@@ -281,10 +281,10 @@ def launch_liquid_glass_tracklist(
     base = base_dir or get_base_dir()
 
     if sys.platform == "darwin":
-        import platform as _plat
-        if _plat.machine().lower() not in ("arm64", "aarch64"):
-            return False
         candidates = [
+            base / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
             base / "MP_Audio_Player_Liquid_Glass_macOS.py",
             base / "scripts" / "MP_Audio_Player_Liquid_Glass_macOS.py",
             Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_macOS.py",
@@ -3097,10 +3097,10 @@ def launch_liquid_glass_player(
     base = base_dir or get_base_dir()
 
     if sys.platform == "darwin":
-        import platform as _plat
-        if _plat.machine().lower() not in ("arm64", "aarch64"):
-            return False
         candidates = [
+            base / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
             base / "MP_Audio_Player_Liquid_Glass_macOS.py",
             base / "scripts" / "MP_Audio_Player_Liquid_Glass_macOS.py",
             Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_macOS.py",
