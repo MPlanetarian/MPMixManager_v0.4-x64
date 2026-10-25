@@ -416,23 +416,23 @@ class MetalGlassHost:  # 0 spaces (touching the left edge)
         return True
 
         def close(self, master_fd=None):
-        if master_fd is not None:
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
-        pid = self.child_pid
-        self.child_pid = 0
-        if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.05)
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-        if self.renderer:
-            self.renderer.close()
-            self.renderer = None
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+            pid = self.child_pid
+            self.child_pid = 0
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(0.05)
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if self.renderer:
+                self.renderer.close()
+                self.renderer = None
 
 def ensure_random_visualizer_started() -> bool:
     """Automatically start MP Liquid Visualizer with a random preset if not already running."""
