@@ -1,6 +1,6 @@
 # MP Mix Manager 0.4.0 Stable (Liquid) by Dreamworlds Productions (MPlanetarian)
 
-![Alt text for imag](001.png)
+![MP Mix Manager 0.4.0 Screenshot (MP Liquid Player) ](002.png)
 
 > 📅 **Last Updated:** October 24, 2026 • **Latest Release:** `v0.4.0 Stable`
 
