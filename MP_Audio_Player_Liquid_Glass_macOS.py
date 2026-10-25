@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import os
 import platform
-import pty
+import subprocess
 import select
 import shutil
 import signal
 import sys
-import termios
 import time
 from pathlib import Path
 
@@ -126,6 +125,7 @@ class MetalGlassHost:
         self.mode = mode.upper()
         self.cli_theme = cli_theme
         self.renderer = None
+        self.proc = None
         self.child_pid = 0
         self.child_done = False
         self.is_maximized = False
@@ -174,6 +174,7 @@ class MetalGlassHost:
             wx, wy, ww, wh = self.renderer.get_workarea()
             max_cols = max(40, int((ww - 2 * margin) // char_w))
             max_rows = max(10, int((wh - 2 * margin) // char_h))
+
             self._target_cols = max_cols
             self._target_rows = max_rows
             self.renderer.set_window_pos(wx, wy)
@@ -192,6 +193,7 @@ class MetalGlassHost:
             self._target_rows = rows
             win_w = cols * char_w + 2 * margin
             win_h = rows * char_h + 2 * margin
+
             self.renderer.set_window_pos(pos[0], pos[1])
             self.renderer.set_window_size(win_w, win_h)
             self._sync_panels()
@@ -214,12 +216,13 @@ class MetalGlassHost:
 
         ww = self._target_cols * char_w + 2 * margin
         wh = self._target_rows * char_h + 2 * margin
+
         if self.renderer:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
     def run(self):
-        """Execute the Metal Liquid Glass player session."""
+        """Execute the Metal Liquid Glass player session session safely using subprocess."""
         check_apple_silicon_support()
 
         char_w, char_h = 9, 18
@@ -241,29 +244,21 @@ class MetalGlassHost:
         self._sync_panels()
 
         if self.embed_check:
-            # Headless / self-test validation
             theme = read_player_theme()
             self.renderer.draw(theme)
             return True
 
-        # Spawn player in pseudoterminal on macOS
-        master_fd, slave_fd = pty.openpty()
-        pid = os.fork()
-        if pid == 0:
-            # Child process: attach to slave PTY and run player
-            os.close(master_fd)
-            os.setsid()
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
-            env = _child_env()
-            os.execvpe(self.argv[0], self.argv, env)
-            sys.exit(1)
-
-        os.close(slave_fd)
-        self.child_pid = pid
+        # Spawn player safely using subprocess.Popen (avoids multi-threaded fork deadlocks)
+        self.proc = subprocess.Popen(
+            self.argv,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=_child_env(),
+            cwd=str(ROOT),
+        )
+        self.child_pid = self.proc.pid
+        out_fd = self.proc.stdout.fileno()
 
         theme = read_player_theme()
         theme_at = 0.0
@@ -279,40 +274,35 @@ class MetalGlassHost:
                 self.renderer.draw(theme)
 
                 # Check if child process has exited
-                pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
-                if pid_res == self.child_pid:
+                if self.proc.poll() is not None:
                     break
 
-                # Non-blocking poll of terminal I/O
-                r, _, _ = select.select([master_fd], [], [], 0.016)
-                if master_fd in r:
+                # Non-blocking poll of process output I/O
+                r, _, _ = select.select([out_fd], [], [], 0.016)
+                if out_fd in r:
                     try:
-                        data = os.read(master_fd, 4096)
+                        data = os.read(out_fd, 4096)
                         if not data:
                             break
-                        # Handle in-process 'M' key or commands if applicable
                     except OSError:
                         break
         finally:
-            self.close(master_fd)
+            self.close()
 
         return True
 
-    def close(self, master_fd=None):
-        if master_fd is not None:
+    def close(self):
+        if self.proc:
             try:
-                os.close(master_fd)
-            except OSError:
-                pass
-        pid = self.child_pid
+                self.proc.terminate()
+                self.proc.wait(timeout=0.2)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            self.proc = None
         self.child_pid = 0
-        if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.05)
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
         if self.renderer:
             self.renderer.close()
             self.renderer = None
@@ -359,7 +349,6 @@ def ensure_random_visualizer_started() -> bool:
 
 
 def main(argv):
-    # 1. Check Apple Silicon hardware requirement first
     if "--help" not in argv and "-h" not in argv:
         if not is_macos():
             print(
