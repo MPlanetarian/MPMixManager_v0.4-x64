@@ -223,7 +223,7 @@ class MetalGlassHost:
 class MetalGlassHost:
         """Apple Silicon Metal liquid-glass host for MP Audio Player."""
 
-    def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):
+        def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):
         self.argv = list(argv)
         self.embed_check = embed_check
         self.mode = mode.upper()
@@ -239,22 +239,22 @@ class MetalGlassHost:
         self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
         self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
 
-    def _on_bezel(self, x, y, width, height):
+        def _on_bezel(self, x, y, width, height):
         margin = self.renderer.bezel_px
         return x < margin or y < margin or x >= width - margin or y >= height - margin
 
-    def _on_top_bezel(self, x, y, width, height):
+        def _on_top_bezel(self, x, y, width, height):
         margin = self.renderer.bezel_px
         return y < margin + 40 and not self._on_close(x, y, width, height)
 
-    def _on_close(self, x, y, width, height):
+        def _on_close(self, x, y, width, height):
         margin = max(float(self.renderer.bezel_px), 8.0)
         cx = width - margin * 0.72
         cy = margin * 0.62
         radius = max(margin * 0.30, 4.0)
         return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
 
-    def _sync_panels(self):
+        def _sync_panels(self):
         if self.renderer is None:
             return
         char_w, char_h = 9, 18
@@ -265,8 +265,8 @@ class MetalGlassHost:
             player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
         )
 
-    def toggle_maximize(self):
-        """Toggle fullscreen maximize across active display workarea."""
+        def toggle_maximize(self):
+            """Toggle fullscreen maximize across active display workarea."""
         if self.renderer is None:
             return
         char_w, char_h = 9, 18
@@ -302,8 +302,8 @@ class MetalGlassHost:
             self._sync_panels()
             self.is_maximized = False
 
-    def cycle_mode(self):
-        """Cycle between Normal, Mini, and Micro modes in-place."""
+        def cycle_mode(self):
+            """Cycle between Normal, Mini, and Micro modes in-place."""
         char_w, char_h = 9, 18
         margin = self.renderer.bezel_px
 
@@ -324,8 +324,8 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-    def run(self):
-        """Execute the Metal Liquid Glass player session."""
+        def run(self):
+            """Execute the Metal Liquid Glass player session."""
         check_apple_silicon_support()
 
         if self.embed_check:
@@ -415,7 +415,7 @@ class MetalGlassHost:
 
         return True
 
-    def close(self, master_fd=None):
+        def close(self, master_fd=None):
         if master_fd is not None:
             try:
                 os.close(master_fd)
