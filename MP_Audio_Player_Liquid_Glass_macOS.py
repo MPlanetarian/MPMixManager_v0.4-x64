@@ -309,6 +309,9 @@ class MetalGlassHost:
                         data = os.read(master_fd, 4096)
                         if not data:
                             break
+                        # Write the child's terminal output directly to parent stdout
+                        sys.stdout.buffer.write(data)
+                        sys.stdout.buffer.flush()
                     except OSError:
                         break
 
