@@ -220,126 +220,22 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-class MetalGlassHost:  # 0 spaces (touching the left edge)
-    """Apple Silicon Metal liquid-glass host for MP Audio Player."""
+    def run(self):
+        """Execute the Metal Liquid Glass player session."""
+        check_apple_silicon_support()
 
-    def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):  # 4 spaces
-        self.argv = list(argv)  # 8 spaces
-        self.embed_check = embed_check
-        self.mode = mode.upper()
-        self.cli_theme = cli_theme
-        self.renderer = None
-        self.child_pid = 0
-        self.child_done = False
-        self.is_maximized = False
-        self._saved_rect = None
-        self._last_top_click = 0.0
-        self._last_top_click_x = 0
-        self._last_top_click_y = 0
-        self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
-        self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
-
-        def _sync_panels(self):
-            if self.renderer is None:
-                return
+        if self.embed_check:
             char_w, char_h = 9, 18
-            margin = self.renderer.bezel_px
-            cols = getattr(self, "_target_cols", COLS)
-            rows = getattr(self, "_target_rows", ROWS)
-            self.renderer.set_panels(
-                player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
-            )
-
-        def _on_bezel(self, x, y, width, height):
-            margin = self.renderer.bezel_px
-            return x < margin or y < margin or x >= width - margin or y >= height - margin
-
-        def _on_top_bezel(self, x, y, width, height):
-            margin = self.renderer.bezel_px
-            return y < margin + 40 and not self._on_close(x, y, width, height)
-
-        def _on_close(self, x, y, width, height):
-            margin = max(float(self.renderer.bezel_px), 8.0)
-            cx = width - margin * 0.72
-            cy = margin * 0.62
-            radius = max(margin * 0.30, 4.0)
-            return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
-
-        def toggle_maximize(self):
-            """Toggle fullscreen maximize across active display workarea."""
-            if self.renderer is None:
-                return
-            char_w, char_h = 9, 18
-            margin = self.renderer.bezel_px
-
-            if not self.is_maximized:
-                self._saved_rect = (self.renderer.window_pos(), self.renderer.window_size())
-                wx, wy, ww, wh = self.renderer.get_workarea()
-                max_cols = max(40, int((ww - 2 * margin) // char_w))
-                max_rows = max(10, int((wh - 2 * margin) // char_h))
-
-                self._target_cols = max_cols
-                self._target_rows = max_rows
-                self.renderer.set_window_pos(wx, wy)
-                self.renderer.set_window_size(ww, wh)
-                self._sync_panels()
-                self.is_maximized = True
-            else:
-                pos, size = getattr(self, "_saved_rect", ((72, 64), (1280, 820)))
-                if self.mode == "MINI":
-                    cols, rows = 74, 14
-                elif self.mode == "MICRO":
-                    cols, rows = 74, 7
-                else:
-                    cols, rows = COLS, ROWS
-                self._target_cols = cols
-                self._target_rows = rows
-                win_w = cols * char_w + 2 * margin
-                win_h = rows * char_h + 2 * margin
-
-                self.renderer.set_window_pos(pos[0], pos[1])
-                self.renderer.set_window_size(win_w, win_h)
-                self._sync_panels()
-                self.is_maximized = False
-
-        def cycle_mode(self):
-            """Cycle between Normal, Mini, and Micro modes in-place."""
-            char_w, char_h = 9, 18
-            margin = self.renderer.bezel_px
-
-            if self.mode == "NORMAL":
-                self.mode = "MINI"
-                self._target_cols, self._target_rows = 74, 14
-            elif self.mode == "MINI":
-                self.mode = "MICRO"
-                self._target_cols, self._target_rows = 74, 7
-            else:
-                self.mode = "NORMAL"
-                self._target_cols, self._target_rows = COLS, ROWS
-
-            ww = self._target_cols * char_w + 2 * margin
-            wh = self._target_rows * char_h + 2 * margin
-
-            if self.renderer:
-                self.renderer.set_window_size(ww, wh)
-                self._sync_panels()
-
-        def run(self):
-            """Execute the Metal Liquid Glass player session."""
-            check_apple_silicon_support()
-
-            if self.embed_check:
-                char_w, char_h = 9, 18
-                margin = LiquidGlassRendererMetal.bezel_px
-                init_w = self._target_cols * char_w + 2 * margin
-                init_h = self._target_rows * char_h + 2 * margin
-                title = "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
-                self.renderer = LiquidGlassRendererMetal(width=init_w, height=init_h, title=title)
-                self.renderer.open()
-                self._sync_panels()
-                theme = read_player_theme()
-                self.renderer.draw(theme)
-                return True
+            margin = LiquidGlassRendererMetal.bezel_px
+            init_w = self._target_cols * char_w + 2 * margin
+            init_h = self._target_rows * char_h + 2 * margin
+            title = "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
+            self.renderer = LiquidGlassRendererMetal(width=init_w, height=init_h, title=title)
+            self.renderer.open()
+            self._sync_panels()
+            theme = read_player_theme()
+            self.renderer.draw(theme)
+            return True
 
         master_fd, slave_fd = pty.openpty()
         
@@ -415,24 +311,25 @@ class MetalGlassHost:  # 0 spaces (touching the left edge)
 
         return True
 
-        def close(self, master_fd=None):
-            if master_fd is not None:
-                try:
-                    os.close(master_fd)
-                except OSError:
-                    pass
-            pid = self.child_pid
-            self.child_pid = 0
-            if pid:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    time.sleep(0.05)
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            if self.renderer:
-                self.renderer.close()
-                self.renderer = None
+    def close(self, master_fd=None):
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        pid = self.child_pid
+        self.child_pid = 0
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(0.05)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        if self.renderer:
+            self.renderer.close()
+            self.renderer = None
+
 
 def ensure_random_visualizer_started() -> bool:
     """Automatically start MP Liquid Visualizer with a random preset if not already running."""
@@ -575,6 +472,7 @@ def main(argv):
     if embed and ok:
         print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)
     return 0
+
 
 if __name__ == "__main__":
     try:
