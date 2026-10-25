@@ -280,6 +280,9 @@ class MetalGlassHost:
         theme_at = 0.0
 
         print("DEBUG: Entering clean event loop...", flush=True)
+        # Give the Metal window context a brief moment to settle on Apple Silicon
+        time.sleep(0.1)
+
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
@@ -296,7 +299,6 @@ class MetalGlassHost:
                 # Check if child process has exited
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
-                    print("DEBUG: Child process exited.", flush=True)
                     break
 
                 # Non-blocking poll of terminal I/O from the player process
@@ -308,8 +310,10 @@ class MetalGlassHost:
                             break
                     except OSError:
                         break
+                
+                # Prevent CPU spinning and allow smooth Cocoa window event dispatching
+                time.sleep(0.015)
         finally:
-            print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
 
         return True
