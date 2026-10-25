@@ -237,7 +237,23 @@ class MetalGlassHost:
             self.renderer.draw(theme)
             return True
 
-        # 1. Initialize the Metal GUI renderer FIRST (before forking)
+        # 1. Set up PTY and launch subprocess BEFORE touching Metal/AppKit
+        master_fd, slave_fd = pty.openpty()
+        env = _child_env()
+        
+        import subprocess
+        self.child_process = subprocess.Popen(
+            self.argv,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=env,
+            preexec_fn=os.setsid
+        )
+        os.close(slave_fd)
+        self.child_pid = self.child_process.pid
+
+        # 2. NOW safely initialize the Metal GUI renderer in the single-threaded parent
         char_w, char_h = 9, 18
         margin = LiquidGlassRendererMetal.bezel_px
         init_w = self._target_cols * char_w + 2 * margin
@@ -257,26 +273,6 @@ class MetalGlassHost:
         self.renderer.open()
         self._sync_panels()
 
-        # 2. Now open PTY and fork the child player process
-        master_fd, slave_fd = pty.openpty()
-        
-        pid = os.fork()
-        if pid == 0:
-            # Child process: attach to slave PTY and run player
-            os.close(master_fd)
-            os.setsid()
-            os.dup2(slave_fd, 0)
-            os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
-            if slave_fd > 2:
-                os.close(slave_fd)
-            env = _child_env()
-            os.execvpe(self.argv[0], self.argv, env)
-            sys.exit(1)
-
-        os.close(slave_fd)
-        self.child_pid = pid
-
         theme = read_player_theme()
         theme_at = 0.0
 
@@ -290,15 +286,14 @@ class MetalGlassHost:
                     theme = read_player_theme()
                     theme_at = now
 
-                # Poll window events
+                # Poll window events to keep macOS WindowServer responsive
                 self.renderer.poll()
 
                 self._sync_panels()
                 self.renderer.draw(theme)
 
                 # Check if child process has exited
-                pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
-                if pid_res == self.child_pid:
+                if self.child_process.poll() is not None:
                     break
 
                 # Non-blocking poll of terminal I/O from the player process
