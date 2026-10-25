@@ -239,6 +239,17 @@ class MetalGlassHost:  # 0 spaces (touching the left edge)
         self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
         self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
 
+        def _sync_panels(self):
+            if self.renderer is None:
+                return
+            char_w, char_h = 9, 18
+            margin = self.renderer.bezel_px
+            cols = getattr(self, "_target_cols", COLS)
+            rows = getattr(self, "_target_rows", ROWS)
+            self.renderer.set_panels(
+                player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
+            )
+
         def _on_bezel(self, x, y, width, height):
             margin = self.renderer.bezel_px
             return x < margin or y < margin or x >= width - margin or y >= height - margin
@@ -253,17 +264,6 @@ class MetalGlassHost:  # 0 spaces (touching the left edge)
             cy = margin * 0.62
             radius = max(margin * 0.30, 4.0)
             return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
-
-        def _sync_panels(self):
-            if self.renderer is None:
-                return
-            char_w, char_h = 9, 18
-            margin = self.renderer.bezel_px
-            cols = getattr(self, "_target_cols", COLS)
-            rows = getattr(self, "_target_rows", ROWS)
-            self.renderer.set_panels(
-                player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
-            )
 
         def toggle_maximize(self):
             """Toggle fullscreen maximize across active display workarea."""
