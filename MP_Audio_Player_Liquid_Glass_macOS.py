@@ -237,23 +237,27 @@ class MetalGlassHost:
             self.renderer.draw(theme)
             return True
 
-        # 1. Set up PTY and launch subprocess BEFORE touching Metal/AppKit
+        # 1. Set up PTY and fork BEFORE touching Metal/AppKit (single-threaded)
         master_fd, slave_fd = pty.openpty()
-        env = _child_env()
         
-        import subprocess
-        self.child_process = subprocess.Popen(
-            self.argv,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            env=env,
-            preexec_fn=os.setsid
-        )
-        os.close(slave_fd)
-        self.child_pid = self.child_process.pid
+        pid = os.fork()
+        if pid == 0:
+            # Child process: attach to slave PTY and run player
+            os.close(master_fd)
+            os.setsid()
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
+            env = _child_env()
+            os.execvpe(self.argv[0], self.argv, env)
+            sys.exit(1)
 
-        # 2. NOW safely initialize the Metal GUI renderer in the single-threaded parent
+        os.close(slave_fd)
+        self.child_pid = pid
+
+        # 2. Initialize the Metal GUI renderer in the parent process
         char_w, char_h = 9, 18
         margin = LiquidGlassRendererMetal.bezel_px
         init_w = self._target_cols * char_w + 2 * margin
@@ -277,7 +281,8 @@ class MetalGlassHost:
         theme_at = 0.0
 
         print("DEBUG: Entering clean event loop...", flush=True)
-        time.sleep(0.1)
+        # Give the Metal window server a brief moment to settle
+        time.sleep(0.05)
 
         try:
             while not self.renderer.should_close:
@@ -293,7 +298,8 @@ class MetalGlassHost:
                 self.renderer.draw(theme)
 
                 # Check if child process has exited
-                if self.child_process.poll() is not None:
+                pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
+                if pid_res == self.child_pid:
                     break
 
                 # Non-blocking poll of terminal I/O from the player process
