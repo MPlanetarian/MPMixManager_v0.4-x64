@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
-import subprocess
+import pty
 import select
 import shutil
 import signal
