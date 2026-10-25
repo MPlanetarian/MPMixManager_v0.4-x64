@@ -1,5 +1,7 @@
 # MP Mix Manager 0.4.0 Stable (Liquid) by Dreamworlds Productions (MPlanetarian)
 
+![Alt text for imag](001.png)
+
 > 📅 **Last Updated:** October 24, 2026 • **Latest Release:** `v0.4.0 Stable`
 
 [![Last Updated](https://img.shields.io/badge/Last%20Updated-October%2024%2C%202026-brightgreen.svg)]()
