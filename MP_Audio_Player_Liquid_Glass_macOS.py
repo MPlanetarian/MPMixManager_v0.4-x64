@@ -304,14 +304,9 @@ class MetalGlassHost:
                 if master_fd in r:
                     try:
                         data = os.read(master_fd, 4096)
-                        if data:
-                            # Print whatever the child player is outputting to its terminal
-                            print(f"CHILD OUTPUT: {data.decode('utf-8', errors='ignore')}", flush=True)
-                        else:
-                            print("DEBUG: EOF on master_fd.", flush=True)
+                        if not data:
                             break
-                    except OSError as e:
-                        print(f"DEBUG: OSError on read: {e}", flush=True)
+                    except OSError:
                         break
         finally:
             print("DEBUG: Closing session...", flush=True)
