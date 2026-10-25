@@ -220,7 +220,7 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-   class MetalGlassHost:
+class MetalGlassHost:
         """Apple Silicon Metal liquid-glass host for MP Audio Player."""
 
     def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None):
