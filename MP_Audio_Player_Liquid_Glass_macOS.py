@@ -221,9 +221,11 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-    def run(self):
-        """Execute the Metal Liquid Glass player session."""
+def run(self):
+        """Execute the Metal Liquid Glass player session with diagnostics."""
+        print("DEBUG: check_apple_silicon_support() starting...", flush=True)
         check_apple_silicon_support()
+        print("DEBUG: Apple Silicon check passed.", flush=True)
 
         if self.embed_check:
             char_w, char_h = 9, 18
@@ -238,12 +240,13 @@ class MetalGlassHost:
             self.renderer.draw(theme)
             return True
 
-        # 1. Spawn player in a pseudoterminal BEFORE initializing Metal GUI 
-        # (This keeps the parent single-threaded, avoiding fork deadlocks!)
+        print("DEBUG: Opening PTY...", flush=True)
         master_fd, slave_fd = pty.openpty()
+        
+        print(f"DEBUG: Forking process (argv: {self.argv})...", flush=True)
         pid = os.fork()
         if pid == 0:
-            # Child process: attach to slave PTY and run player
+            # Child process
             os.close(master_fd)
             os.setsid()
             os.dup2(slave_fd, 0)
@@ -257,8 +260,9 @@ class MetalGlassHost:
 
         os.close(slave_fd)
         self.child_pid = pid
+        print(f"DEBUG: Child process spawned with PID {pid}. Initializing Metal Renderer...", flush=True)
 
-        # 2. NOW initialize the Metal GUI renderer safely in the parent process
+        # Initialize the Metal GUI renderer in the parent process
         char_w, char_h = 9, 18
         margin = LiquidGlassRendererMetal.bezel_px
         init_w = self._target_cols * char_w + 2 * margin
@@ -269,17 +273,21 @@ class MetalGlassHost:
             if self.mode == "TRACKLIST"
             else "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
         )
+        
         self.renderer = LiquidGlassRendererMetal(
             width=init_w,
             height=init_h,
             title=title,
         )
+        print("DEBUG: Calling renderer.open()...", flush=True)
         self.renderer.open()
+        print("DEBUG: Renderer opened successfully. Syncing panels...", flush=True)
         self._sync_panels()
 
         theme = read_player_theme()
         theme_at = 0.0
 
+        print("DEBUG: Entering main event loop...", flush=True)
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
@@ -293,6 +301,7 @@ class MetalGlassHost:
                 # Check if child process has exited
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
+                    print("DEBUG: Child process exited.", flush=True)
                     break
 
                 # Non-blocking poll of terminal I/O
@@ -301,26 +310,50 @@ class MetalGlassHost:
                     try:
                         data = os.read(master_fd, 4096)
                         if not data:
+                            print("DEBUG: EOF on master_fd.", flush=True)
                             break
                     except OSError:
                         break
         finally:
+            print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
 
         return True
 
-    def close(self):
-        if self.proc:
+    def close(self, master_fd=None):
+        if master_fd is not None:
             try:
-                self.proc.terminate()
-                self.proc.wait(timeout=0.2)
-            except Exception:
-                try:
-                    self.proc.kill()
-                except Exception:
-                    pass
-            self.proc = None
+                os.close(master_fd)
+            except OSError:
+                pass
+        pid = self.child_pid
         self.child_pid = 0
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(0.05)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        if self.renderer:
+            self.renderer.close()
+            self.renderer = None
+
+def close(self, master_fd=None):
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        pid = self.child_pid
+        self.child_pid = 0
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(0.05)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
         if self.renderer:
             self.renderer.close()
             self.renderer = None
@@ -467,7 +500,6 @@ def main(argv):
     if embed and ok:
         print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)
     return 0
-
 
 if __name__ == "__main__":
     try:
