@@ -125,7 +125,6 @@ class MetalGlassHost:
         self.mode = mode.upper()
         self.cli_theme = cli_theme
         self.renderer = None
-        self.proc = None
         self.child_pid = 0
         self.child_done = False
         self.is_maximized = False
@@ -221,7 +220,7 @@ class MetalGlassHost:
             self.renderer.set_window_size(ww, wh)
             self._sync_panels()
 
-def run(self):
+    def run(self):
         """Execute the Metal Liquid Glass player session with diagnostics."""
         print("DEBUG: check_apple_silicon_support() starting...", flush=True)
         check_apple_silicon_support()
