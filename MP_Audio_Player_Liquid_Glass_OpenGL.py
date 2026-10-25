@@ -1,41 +1,19 @@
 #!/usr/bin/env python3
-"""OpenGL liquid-glass window hosting the unmodified MP Audio Player.
-
-The player script is started as-is inside a VTE terminal. The whole window
-is clear still-water glass. The terminal background is clear, so that glass
-shows through, and the player's boxed panels are a darker glass underneath.
-Supports wider GPU cards like AMD Radeon, Intel, NVIDIA, and older OpenGL hardware.
-"""
+"""OpenGL liquid-glass window hosting the unmodified MP Audio Player."""
 
 from __future__ import annotations
-
-import ctypes
-import os
-import shutil
-import signal
-import subprocess
-import sys
-import time
+import ctypes, os, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
-# Ensure PyOpenGL uses the GLX platform when running on X11, or WGL on Windows
-if sys.platform == "win32":
-    os.environ.setdefault("PYOPENGL_PLATFORM", "wgl")
-else:
-    os.environ.setdefault("PYOPENGL_PLATFORM", "glx")
+os.environ.setdefault("PYOPENGL_PLATFORM", "wgl" if sys.platform == "win32" else "glx")
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from liquid_glass_opengl import (  # noqa: E402
-    LiquidGlassRendererOpenGL,
-    read_player_theme,
-)
+from liquid_glass_opengl import LiquidGlassRendererOpenGL, read_player_theme  # noqa: E402
 
-COLS = 120
-ROWS = 40
-
+COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
@@ -48,126 +26,100 @@ RECOMMENDED_FONTS = [
     ("Liberation Mono 11", "Classic Clean Monospace"),
 ]
 
+Gdk = Gtk = GLib = Vte = None
+
 
 def get_liquid_glass_font(cli_font=None):
     if cli_font and str(cli_font).strip():
         return str(cli_font).strip()
-    env_f = os.environ.get("MP_LIQUID_GLASS_FONT", "").strip() or os.environ.get("LIQUID_GLASS_FONT", "").strip()
+    env_f = (os.environ.get("MP_LIQUID_GLASS_FONT") or os.environ.get("LIQUID_GLASS_FONT") or "").strip()
     if env_f:
         return env_f
-    if FONT_CONFIG_FILE.is_file():
-        try:
-            saved = FONT_CONFIG_FILE.read_text(encoding="utf-8").strip()
-            if saved:
-                return saved
-        except Exception:
-            pass
+    try:
+        if FONT_CONFIG_FILE.is_file():
+            return FONT_CONFIG_FILE.read_text(encoding="utf-8").strip() or DEFAULT_FONT
+    except Exception:
+        pass
     return DEFAULT_FONT
 
 
 def set_liquid_glass_font(font_str: str) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        FONT_CONFIG_FILE.write_text(str(font_str).strip() + "\n", encoding="utf-8")
+        FONT_CONFIG_FILE.write_text(f"{str(font_str).strip()}\n", encoding="utf-8")
     except Exception as exc:
         print(f"Warning: could not save font to {FONT_CONFIG_FILE}: {exc}", file=sys.stderr)
 
 
 def list_liquid_glass_fonts():
     cur = get_liquid_glass_font()
+    cur_prefix = cur.split()[0] if cur else ""
     print("\n\033[1;38;2;0;229;255m══ MP Liquid Glass Player — Available & Recommended Fonts ══\033[0m\n")
     for idx, (f_name, desc) in enumerate(RECOMMENDED_FONTS, 1):
-        is_cur = (f_name == cur or f_name.split()[0] == cur.split()[0])
-        star = "\033[1;38;2;0;255;127m★ ACTIVE\033[0m" if is_cur else "        "
+        star = "\033[1;38;2;0;255;127m★ ACTIVE\033[0m" if (f_name == cur or f_name.split()[0] == cur_prefix) else "        "
         print(f"  {star} \033[1;38;2;255;215;0m[{idx}]\033[0m \033[1;38;2;255;255;255m{f_name:<20s}\033[0m — {desc}")
-    print(f"\n  \033[38;2;120;215;255mActive Font:\033[0m {cur}")
-    print("\n  \033[38;2;200;200;200mTo try a font on launch:\033[0m")
-    print("    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font \"Fira Code 11\"")
-    print("    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font \"Hack 11\"")
-    print("    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font \"Monospace 11\"")
-    print("\n  \033[38;2;200;200;200mTo set a font as your permanent default:\033[0m")
-    print("    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --set-font \"Fira Code 11\"\n")
+    print(
+        f"\n  \033[38;2;120;215;255mActive Font:\033[0m {cur}\n\n"
+        "  \033[38;2;200;200;200mTo try a font on launch:\033[0m\n"
+        '    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font "Fira Code 11"\n'
+        '    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font "Hack 11"\n'
+        '    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --font "Monospace 11"\n\n'
+        "  \033[38;2;200;200;200mTo set a font as your permanent default:\033[0m\n"
+        '    python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --set-font "Fira Code 11"\n'
+    )
 
 
 def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NORMAL"):
-    """Pixel boxes for the player panels in ``_draw_frame`` across Normal, Mini, and Micro modes."""
-    def box(col, row, box_cols, box_rows):
-        return (
-            origin_x + col * char_w,
-            origin_y + row * char_h,
-            box_cols * char_w,
-            box_rows * char_h,
-        )
+    def box(c, r, bc, br):
+        return (origin_x + c * char_w, origin_y + r * char_h, bc * char_w, br * char_h)
 
+    iw = max(20, cols - 4)
     if mode == "MICRO":
-        return (
-            box(2, 0, max(20, cols - 4), rows),
-            (0.0, 0.0, 0.0, 0.0),
-        )
-    elif mode == "MINI":
-        return (
-            box(2, 0, max(20, cols - 4), 3),
-            box(2, 3, max(20, cols - 4), max(1, rows - 3)),
-        )
-    elif mode == "TRACKLIST":
-        iw = max(20, cols - 4)
-        if rows <= 7:
-            return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0))
-        return (
-            box(2, 0, iw, 7),
-            box(2, 7, iw, max(1, rows - 7)),
-        )
-    else:
-        iw = max(20, cols - 6)
-        viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
-        body_rows = max(1, rows - (before + 1) - 4)
-        return (
-            box(2, 0, iw + 2, 4),
-            box(2, before, iw + 2, body_rows + 2),
-        )
+        return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0))
+    if mode == "MINI":
+        return (box(2, 0, iw, 3), box(2, 3, iw, max(1, rows - 3)))
+    if mode == "TRACKLIST":
+        return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0)) if rows <= 7 else (box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7)))
+    iw = max(20, cols - 6)
+    before = 12 + (7 if rows >= 34 else (5 if rows >= 28 else 3))
+    return (box(2, 0, iw + 2, 4), box(2, before, iw + 2, max(1, rows - before - 5) + 2))
 
 
 def _import_gtk():
+    global Gdk, Gtk, GLib, Vte
     if sys.platform == "win32":
         return None, None, None
+    if Gtk is not None:
+        return GLib, Gtk, Vte
     os.environ["GDK_BACKEND"] = "x11"
     import gi
-
-    gi.require_version("Gdk", "3.0")
-    gi.require_version("Gtk", "3.0")
-    gi.require_version("GdkX11", "3.0")
-    gi.require_version("Vte", "2.91")
-    from gi.repository import GdkX11, GLib, Gtk, Vte
-
+    for mod, ver in (("Gdk", "3.0"), ("Gtk", "3.0"), ("GdkX11", "3.0"), ("Vte", "2.91")):
+        gi.require_version(mod, ver)
+    from gi.repository import Gdk as _Gdk, GdkX11, GLib as _GLib, Gtk as _Gtk, Vte as _Vte
     if not hasattr(GdkX11, "X11Display"):
         raise RuntimeError("GDK X11 backend is required for the liquid-glass window")
+    Gdk, Gtk, GLib, Vte = _Gdk, _Gtk, _GLib, _Vte
     return GLib, Gtk, Vte
 
 
 def player_argv(mode="NORMAL", extra_args=None):
     cmd = [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
-    if mode == "MINI":
-        cmd.append("--mini")
-    elif mode == "MICRO":
-        cmd.append("--micro")
+    if mode in ("MINI", "MICRO"):
+        cmd.append(f"--{mode.lower()}")
     if extra_args:
         cmd.extend(extra_args)
     return cmd
 
 
 def embed_check_argv():
-    code = "import time; print('LIQUID_GLASS_CHILD', flush=True); time.sleep(30)"
-    return [sys.executable, "-c", code]
+    return [sys.executable, "-c", "import time; print('LIQUID_GLASS_CHILD', flush=True); time.sleep(30)"]
 
 
 def tracklist_argv(tracklist_path, audio_path=None, theme=None):
-    base = ROOT
-    v_sh = base / "scripts" / "view_tracklist_console.sh"
+    v_sh = ROOT / "scripts" / "view_tracklist_console.sh"
     if not v_sh.is_file():
-        v_sh = base / "view_tracklist_console.sh"
-    bash_bin = shutil.which("bash") or "bash"
-    cmd = [bash_bin, str(v_sh)]
+        v_sh = ROOT / "view_tracklist_console.sh"
+    cmd = [shutil.which("bash") or "bash", str(v_sh)]
     if theme:
         cmd.extend(["--theme", str(theme)])
     cmd.append(str(tracklist_path))
@@ -176,213 +128,158 @@ def tracklist_argv(tracklist_path, audio_path=None, theme=None):
     return cmd
 
 
-def _child_env():
-    env = {key: value for key, value in os.environ.items() if key != "GDK_BACKEND"}
-    env["TERM"] = "xterm-256color"
-    env["COLORTERM"] = "truecolor"
-    env["MP_LIQUID_GLASS"] = "1"
-    env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
-    env["MP_LIQUID_GLASS_PLATFORM"] = "win32" if sys.platform == "win32" else "linux"
-    return [f"{key}={value}" for key, value in env.items()]
+def _child_env(as_dict=False):
+    env = {k: v for k, v in os.environ.items() if k != "GDK_BACKEND"}
+    env.update({
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "MP_LIQUID_GLASS": "1",
+        "MP_LIQUID_GLASS_BACKEND": "opengl",
+        "MP_LIQUID_GLASS_PLATFORM": "win32" if sys.platform == "win32" else "linux",
+    })
+    return env if as_dict else [f"{k}={v}" for k, v in env.items()]
+
+
+def _mode_grid(mode):
+    if mode == "TRACKLIST":
+        return 100, 35
+    if mode == "MINI":
+        return 74, 14
+    if mode == "MICRO":
+        return 74, 7
+    return COLS, ROWS
 
 
 class GlassHost:
-    """OpenGL glass chrome with a solid terminal window in the centre well."""
-
     def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None, font=None):
         self.argv = list(argv)
         self.embed_check = embed_check
         self.mode = mode.upper()
         self.cli_theme = cli_theme
         self.font_name = get_liquid_glass_font(font)
-        self.renderer = None
-        self.gtk_window = None
-        self.terminal = None
-        self.child_xid = 0
-        self.child_pid = 0
-        self.spawn_error = None
-        self.child_done = False
-        self.is_maximized = False
-        self._saved_rect = None
+        self.renderer = self.gtk_window = self.terminal = self.glib = self.spawn_error = self._saved_rect = None
+        self.child_xid = self.child_pid = self._last_top_click_x = self._last_top_click_y = 0
+        self.child_done = self.is_maximized = self._term_dragging = False
         self._last_top_click = 0.0
-        self._last_top_click_x = 0
-        self._last_top_click_y = 0
-        self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
-        self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
+        self._target_cols, self._target_rows = _mode_grid(self.mode)
+        self._last_well = self._last_panel_state = None
 
-    def _on_bezel(self, x, y, width, height):
-        margin = max(float(self.renderer.bezel_px), 24.0)
-        return x < margin or y < margin or x >= width - margin or y >= height - margin
+    def _dims(self):
+        if self.terminal is not None:
+            cw, ch = int(self.terminal.get_char_width() or 0), int(self.terminal.get_char_height() or 0)
+            if cw >= 4 and ch >= 8:
+                return cw, ch
+        return 9, 18
 
-    def _on_top_bezel(self, x, y, width, height):
-        margin = max(float(self.renderer.bezel_px), 24.0)
-        return y < margin + 48 and not self._on_close(x, y, width, height)
+    def _on_bezel(self, x, y, w, h):
+        m = max(float(self.renderer.bezel_px), 24.0)
+        return x < m or y < m or x >= w - m or y >= h - m
 
-    def _on_close(self, x, y, width, height):
-        margin = max(float(self.renderer.bezel_px), 8.0)
-        cx = width - margin * 0.72
-        cy = margin * 0.62
-        radius = max(margin * 0.30, 4.0)
-        return (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius
+    def _on_top_bezel(self, x, y, w, h):
+        return y < max(float(self.renderer.bezel_px), 24.0) + 48 and not self._on_close(x, y, w, h)
+
+    def _on_close(self, x, y, w, _h):
+        m = max(float(self.renderer.bezel_px), 8.0)
+        return (x - (w - m * 0.72)) ** 2 + (y - m * 0.62) ** 2 <= max(m * 0.30, 4.0) ** 2
 
     def _well_rect(self):
         gx, gy = self.renderer.window_pos()
-        width, height = self.renderer.window_size()
-        margin = self.renderer.bezel_px
-        return (
-            gx + margin,
-            gy + margin,
-            max(32, width - 2 * margin),
-            max(32, height - 2 * margin),
-        )
+        w, h = self.renderer.window_size()
+        m = self.renderer.bezel_px
+        return gx + m, gy + m, max(32, w - 2 * m), max(32, h - 2 * m)
 
-    def _place_terminal(self):
-        x, y, inner_w, inner_h = self._well_rect()
+    def _place_terminal(self, force=False):
+        rect = self._well_rect()
+        if not force and rect == self._last_well:
+            self._sync_panels()
+            return
+        self._last_well = rect
+        x, y, iw, ih = rect
         if self.gtk_window is not None:
             self.gtk_window.move(int(x), int(y))
-            cur_size = getattr(self, "_last_term_size", None)
-            if cur_size != (int(inner_w), int(inner_h)):
-                self.gtk_window.resize(int(inner_w), int(inner_h))
-                self._last_term_size = (int(inner_w), int(inner_h))
-        self.renderer.place_terminal(self.child_xid, x, y, inner_w, inner_h)
+            if getattr(self, "_last_term_size", None) != (int(iw), int(ih)):
+                self.gtk_window.resize(int(iw), int(ih))
+                self._last_term_size = (int(iw), int(ih))
+        self.renderer.place_terminal(self.child_xid, x, y, iw, ih)
         self._sync_panels()
 
     def _sync_panels(self):
         if self.renderer is None:
             return
-        char_w, char_h = 9, 18
+        cw, ch = self._dims()
+        m = self.renderer.bezel_px
+        cols, rows = self._target_cols, self._target_rows
         if self.terminal is not None:
-            cw = int(self.terminal.get_char_width() or 0)
-            ch = int(self.terminal.get_char_height() or 0)
-            if cw >= 4 and ch >= 8:
-                char_w, char_h = cw, ch
-        margin = self.renderer.bezel_px
-        cols = getattr(self, "_target_cols", COLS)
-        rows = getattr(self, "_target_rows", ROWS)
-        if self.terminal is not None:
-            tc = int(self.terminal.get_column_count() or 0)
-            tr = int(self.terminal.get_row_count() or 0)
+            tc, tr = int(self.terminal.get_column_count() or 0), int(self.terminal.get_row_count() or 0)
             if tc >= 20:
                 cols = tc
             if tr >= 5:
                 rows = tr
-        self.renderer.set_panels(player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode))
+        state = (cols, rows, cw, ch, m, self.mode)
+        if state != self._last_panel_state:
+            self._last_panel_state = state
+            self.renderer.set_panels(player_panel_rects(cols, rows, cw, ch, m, m, mode=self.mode))
+
+    def _apply_grid(self, cols, rows, pos=None, size=None):
+        cw, ch = self._dims()
+        m = self.renderer.bezel_px
+        self._target_cols, self._target_rows = cols, rows
+        if pos:
+            self.renderer.set_window_pos(pos[0], pos[1])
+        self.renderer.set_window_size(*(size or (cols * cw + 2 * m, rows * ch + 2 * m)))
+        self.renderer.poll()
+        if self.terminal is not None:
+            self.terminal.set_size(cols, rows)
+        self._place_terminal(force=True)
 
     def toggle_maximize(self):
         if self.renderer is None:
             return
-        char_w, char_h = 9, 18
-        if self.terminal is not None:
-            cw = int(self.terminal.get_char_width() or 0)
-            ch = int(self.terminal.get_char_height() or 0)
-            if cw >= 4 and ch >= 8:
-                char_w, char_h = cw, ch
-        margin = self.renderer.bezel_px
-
+        cw, ch = self._dims()
+        m = self.renderer.bezel_px
         if not self.is_maximized:
-            # Save current window position and size
             self._saved_rect = (self.renderer.window_pos(), self.renderer.window_size())
             wx, wy, ww, wh = self.renderer.get_workarea()
-            max_cols = max(40, int((ww - 2 * margin) // char_w))
-            max_rows = max(10, int((wh - 2 * margin) // char_h))
-            self._target_cols = max_cols
-            self._target_rows = max_rows
-            self.renderer.set_window_pos(wx, wy)
-            self.renderer.set_window_size(ww, wh)
-            self.renderer.poll()
-            if self.terminal is not None:
-                self.terminal.set_size(max_cols, max_rows)
-            self._place_terminal()
+            self._apply_grid(max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m) // ch)), (wx, wy), (ww, wh))
             self.is_maximized = True
         else:
-            # Restore to fixed default / previous size
-            pos, size = getattr(self, "_saved_rect", ((72, 64), (1280, 820)))
-            if self.mode == "MINI":
-                cols, rows = 74, 14
-            elif self.mode == "MICRO":
-                cols, rows = 74, 7
-            else:
-                cols, rows = COLS, ROWS
-            self._target_cols = cols
-            self._target_rows = rows
-            win_w = cols * char_w + 2 * margin
-            win_h = rows * char_h + 2 * margin
-            self.renderer.set_window_pos(pos[0], pos[1])
-            self.renderer.set_window_size(win_w, win_h)
-            self.renderer.poll()
-            if self.terminal is not None:
-                self.terminal.set_size(cols, rows)
-            self._place_terminal()
+            pos, _ = self._saved_rect or ((72, 64), (1280, 820))
+            cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
+            self._apply_grid(cols, rows, pos)
             self.is_maximized = False
 
     def set_mode(self, mode: str):
         self.mode = mode.upper()
         if self.renderer is None:
             return
-        if self.is_maximized:
-            self.is_maximized = False
-        if self.mode == "MINI":
-            cols, rows = 74, 14
-        elif self.mode == "MICRO":
-            cols, rows = 74, 7
-        else:
-            cols, rows = COLS, ROWS
-        self._target_cols = cols
-        self._target_rows = rows
-        char_w, char_h = 9, 18
-        if self.terminal is not None:
-            cw = int(self.terminal.get_char_width() or 0)
-            ch = int(self.terminal.get_char_height() or 0)
-            if cw >= 4 and ch >= 8:
-                char_w, char_h = cw, ch
-        margin = self.renderer.bezel_px
-        win_w = cols * char_w + 2 * margin
-        win_h = rows * char_h + 2 * margin
-        self.renderer.set_window_size(win_w, win_h)
-        if self.terminal is not None:
-            self.terminal.set_size(cols, rows)
-        self._place_terminal()
+        self.is_maximized = False
+        cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
+        self._apply_grid(cols, rows)
 
     def _on_key_press(self, _term, event):
-        from gi.repository import Gdk
-        keyval = getattr(event, "keyval", 0)
-        state = getattr(event, "state", 0)
-        if keyval in (Gdk.KEY_m, Gdk.KEY_M):
-            if self.mode == "NORMAL":
-                self.set_mode("MINI")
-            elif self.mode == "MINI":
-                self.set_mode("MICRO")
-            else:
-                self.set_mode("NORMAL")
+        kv = getattr(event, "keyval", 0)
+        if kv in (Gdk.KEY_m, Gdk.KEY_M):
+            self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
             return False
-        if keyval == Gdk.KEY_K or (keyval in (Gdk.KEY_k, Gdk.KEY_K) and bool(state & Gdk.ModifierType.SHIFT_MASK)):
-            import subprocess
+        if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
             return True
         return False
 
     def _terminal_in_well(self):
-        """The player must be a solid window over the well, not a faded child of the glass."""
-        if not self.child_xid or self.renderer is None:
+        if not self.child_xid or self.renderer is None or self.renderer.window_parent(self.child_xid) == self.renderer.x11_window():
             return False
-        if self.renderer.window_parent(self.child_xid) == self.renderer.x11_window():
-            return False
-        ox, oy, width, height = self.renderer.window_rect(self.child_xid)
-        x, y, inner_w, inner_h = self._well_rect()
-        return (
-            abs(ox - x) <= 8
-            and abs(oy - y) <= 8
-            and abs(width - inner_w) <= 8
-            and abs(height - inner_h) <= 8
-        )
+        ox, oy, w, h = self.renderer.window_rect(self.child_xid)
+        x, y, iw, ih = self._well_rect()
+        return abs(ox - x) <= 8 and abs(oy - y) <= 8 and abs(w - iw) <= 8 and abs(h - ih) <= 8
 
     def _on_spawn(self, _terminal, pid, error, *_rest):
         if error:
             self.spawn_error = str(error)
             if self.renderer is not None:
                 self.renderer.request_close()
-            return
-        self.child_pid = int(pid or 0)
+        else:
+            self.child_pid = int(pid or 0)
 
     def _on_child_exit(self, _terminal, _status):
         self.child_done = True
@@ -390,22 +287,18 @@ class GlassHost:
             self.renderer.request_close()
 
     def _pump_gtk(self, glib):
-        context = glib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
+        ctx = glib.MainContext.default()
+        while ctx.pending():
+            ctx.iteration(False)
 
     def _on_term_button_press(self, _term, event):
-        from gi.repository import Gdk
-        double_click_type = getattr(Gdk.EventType, "_2BUTTON_PRESS", 5)
         if event.button == 1:
-            if event.type == double_click_type and event.y <= 90:
+            if event.type == getattr(Gdk.EventType, "_2BUTTON_PRESS", 5) and event.y <= 90:
                 self.toggle_maximize()
                 self._term_dragging = False
                 return True
-            mod1 = getattr(Gdk.ModifierType, "MOD1_MASK", 8)
-            super_mod = getattr(Gdk.ModifierType, "SUPER_MASK", 0x4000000)
-            is_modifier_drag = bool(getattr(event, "state", 0) & (mod1 | super_mod))
-            if (event.y <= 90 or is_modifier_drag) and not self.is_maximized:
+            mods = getattr(Gdk.ModifierType, "MOD1_MASK", 8) | getattr(Gdk.ModifierType, "SUPER_MASK", 0x4000000)
+            if (event.y <= 90 or bool(getattr(event, "state", 0) & mods)) and not self.is_maximized:
                 self._term_dragging = True
                 self._term_drag_origin = self.renderer.window_pos()
                 rx, ry = self.renderer.root_pointer()
@@ -414,16 +307,14 @@ class GlassHost:
         return False
 
     def _on_term_motion_notify(self, _term, event):
-        if getattr(self, "_term_dragging", False) and not self.is_maximized:
+        if self._term_dragging and not self.is_maximized:
             rx, ry = self.renderer.root_pointer()
-            cur_x = rx if (rx or ry) else int(event.x_root)
-            cur_y = ry if (rx or ry) else int(event.y_root)
-            dx = cur_x - self._term_drag_press[0]
-            dy = cur_y - self._term_drag_press[1]
-            new_x = int(self._term_drag_origin[0] + dx)
-            new_y = int(self._term_drag_origin[1] + dy)
-            self.renderer.set_window_pos(new_x, new_y)
-            self._place_terminal()
+            cx, cy = (rx, ry) if (rx or ry) else (int(event.x_root), int(event.y_root))
+            self.renderer.set_window_pos(
+                int(self._term_drag_origin[0] + cx - self._term_drag_press[0]),
+                int(self._term_drag_origin[1] + cy - self._term_drag_press[1]),
+            )
+            self._place_terminal(force=True)
             return True
         return False
 
@@ -434,68 +325,48 @@ class GlassHost:
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
         x, y = self.renderer.cursor
-        width, height = self.renderer.window_size()
+        w, h = self.renderer.window_size()
         down = self.renderer.mouse_down
         if down and not was_down:
-            if self._on_close(x, y, width, height):
+            if self._on_close(x, y, w, h):
                 self.renderer.request_close()
                 dragging = False
-            elif self._on_top_bezel(x, y, width, height):
+            elif self._on_top_bezel(x, y, w, h):
                 now = time.monotonic()
-                if (now - getattr(self, "_last_top_click", 0.0) < 0.45
-                    and abs(x - getattr(self, "_last_top_click_x", 0)) < 35
-                    and abs(y - getattr(self, "_last_top_click_y", 0)) < 35):
+                if now - self._last_top_click < 0.45 and abs(x - self._last_top_click_x) < 35 and abs(y - self._last_top_click_y) < 35:
                     self.toggle_maximize()
-                    dragging = False
-                    self._last_top_click = 0.0
+                    dragging, self._last_top_click = False, 0.0
                 else:
-                    self._last_top_click = now
-                    self._last_top_click_x = x
-                    self._last_top_click_y = y
+                    self._last_top_click, self._last_top_click_x, self._last_top_click_y = now, x, y
                     if not self.is_maximized:
-                        dragging = True
-                        origin = self.renderer.window_pos()
+                        dragging, origin = True, self.renderer.window_pos()
                         rx, ry = self.renderer.root_pointer()
                         press_screen = (rx, ry) if (rx or ry) else (origin[0] + x, origin[1] + y)
-            elif self._on_bezel(x, y, width, height) and not self.is_maximized:
-                dragging = True
-                origin = self.renderer.window_pos()
+            elif self._on_bezel(x, y, w, h) and not self.is_maximized:
+                dragging, origin = True, self.renderer.window_pos()
                 rx, ry = self.renderer.root_pointer()
                 press_screen = (rx, ry) if (rx or ry) else (origin[0] + x, origin[1] + y)
         elif down and dragging:
             rx, ry = self.renderer.root_pointer()
-            if rx or ry:
-                new_x = int(origin[0] + (rx - press_screen[0]))
-                new_y = int(origin[1] + (ry - press_screen[1]))
-            else:
-                new_x = int(origin[0] + (x - (press_screen[0] - origin[0])))
-                new_y = int(origin[1] + (y - (press_screen[1] - origin[1])))
-            self.renderer.set_window_pos(new_x, new_y)
+            nx = origin[0] + (rx - press_screen[0] if (rx or ry) else x - (press_screen[0] - origin[0]))
+            ny = origin[1] + (ry - press_screen[1] if (rx or ry) else y - (press_screen[1] - origin[1]))
+            self.renderer.set_window_pos(int(nx), int(ny))
         else:
             dragging = False
         return down, dragging, origin, press_screen
 
     def _fit_to_terminal(self, term):
-        char_w = int(term.get_char_width() or 0)
-        char_h = int(term.get_char_height() or 0)
-        if char_w < 4 or char_h < 8:
-            char_w, char_h = 9, 18
-        margin = self.renderer.bezel_px
-        cols = getattr(self, "_target_cols", COLS)
-        rows = getattr(self, "_target_rows", ROWS)
-        self.renderer.set_window_size(cols * char_w + 2 * margin, rows * char_h + 2 * margin)
-        term.set_size(cols, rows)
+        cw, ch = self._dims()
+        m = self.renderer.bezel_px
+        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m)
+        term.set_size(self._target_cols, self._target_rows)
 
     def run(self):
-        char_w, char_h = 9, 18
-        margin = LiquidGlassRendererOpenGL.bezel_px
-        cols = getattr(self, "_target_cols", COLS)
-        rows = getattr(self, "_target_rows", ROWS)
-        init_w = cols * char_w + 2 * margin
-        init_h = rows * char_h + 2 * margin
+        m = LiquidGlassRendererOpenGL.bezel_px
+        iw, ih = self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m
         title = "Mix Tracklist Viewer (Liquid Glass - OpenGL)" if self.mode == "TRACKLIST" else "MP Audio Player (Liquid Glass - OpenGL)"
         if sys.platform == "win32":
-            self.renderer = LiquidGlassRendererOpenGL(init_w, init_h, title)
+            self.renderer = LiquidGlassRendererOpenGL(iw, ih, title)
             try:
                 return self._run_windows()
             finally:
@@ -503,7 +374,7 @@ class GlassHost:
         glib, gtk, vte = _import_gtk()
         self.glib = glib
         gtk.init([])
-        self.renderer = LiquidGlassRendererOpenGL(init_w, init_h, title)
+        self.renderer = LiquidGlassRendererOpenGL(iw, ih, title)
         try:
             return self._run_window(vte, glib)
         finally:
@@ -511,36 +382,15 @@ class GlassHost:
 
     def _run_windows(self):
         self.renderer.open()
-        char_w, char_h = 9, 18
-        margin = self.renderer.bezel_px
-        cols = getattr(self, "_target_cols", COLS)
-        rows = getattr(self, "_target_rows", ROWS)
-        win_w = cols * char_w + 2 * margin
-        win_h = rows * char_h + 2 * margin
-        self.renderer.set_window_size(win_w, win_h)
+        m = self.renderer.bezel_px
+        self.renderer.set_window_size(self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m)
         self._sync_panels()
-
         if self.embed_check:
-            theme = read_player_theme()
-            self.renderer.draw(theme)
+            self.renderer.draw(read_player_theme())
             return True
 
-        env = dict(os.environ)
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        env["MP_LIQUID_GLASS"] = "1"
-        env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
-        env["MP_LIQUID_GLASS_PLATFORM"] = "win32"
-
-        proc = subprocess.Popen(
-            self.argv,
-            cwd=str(ROOT),
-            env=env,
-            creationflags=0x00000010,  # CREATE_NEW_CONSOLE
-        )
+        proc = subprocess.Popen(self.argv, cwd=str(ROOT), env=_child_env(as_dict=True), creationflags=0x00000010)
         self.child_pid = proc.pid
-
-        # Attempt to locate console HWND
         child_hwnd = None
         try:
             user32 = ctypes.windll.user32
@@ -554,10 +404,11 @@ class GlassHost:
                     found.append(hwnd)
                 return True
 
+            cb = ENUM_PROC(_enum_win)
             for _ in range(50):
                 if proc.poll() is not None:
                     break
-                user32.EnumWindows(ENUM_PROC(_enum_win), 0)
+                user32.EnumWindows(cb, 0)
                 if found:
                     child_hwnd = found[0]
                     break
@@ -566,46 +417,29 @@ class GlassHost:
             pass
 
         self.child_xid = child_hwnd or 0
-
         if child_hwnd:
             try:
-                style = user32.GetWindowLongPtrW(child_hwnd, -16)
-                style &= ~(0x00C00000 | 0x00040000)
-                style |= 0x80000000
+                style = (user32.GetWindowLongPtrW(child_hwnd, -16) & ~(0x00C00000 | 0x00040000)) | 0x80000000
                 user32.SetWindowLongPtrW(child_hwnd, -16, style)
                 glass_hwnd = self.renderer.win32_window()
                 if glass_hwnd:
                     user32.SetParent(child_hwnd, glass_hwnd)
             except Exception:
                 pass
-            self._place_terminal()
+            self._place_terminal(force=True)
 
-        down = False
-        dragging = False
-        origin = self.renderer.window_pos()
-        press_screen = (0, 0)
-        theme = read_player_theme()
-        theme_at = 0.0
-
+        down = dragging = False
+        origin, press_screen, theme, theme_at = self.renderer.window_pos(), (0, 0), read_player_theme(), 0.0
         try:
-            while not self.renderer.should_close:
-                if proc.poll() is not None:
-                    break
-
+            while not self.renderer.should_close and proc.poll() is None:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
-                    theme = read_player_theme()
-                    theme_at = now
-
+                    theme, theme_at = read_player_theme(), now
                 self._sync_panels()
                 self.renderer.draw(theme)
-
-                down, dragging, origin, press_screen = self._track_drag(
-                    down, dragging, origin, press_screen
-                )
+                down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
                 if dragging:
-                    self._place_terminal()
-
+                    self._place_terminal(force=True)
                 if not self.renderer.poll():
                     break
                 time.sleep(0.008)
@@ -616,12 +450,10 @@ class GlassHost:
             except Exception:
                 pass
             self.close()
-
         return True
 
     def _run_window(self, vte, glib):
         self.renderer.open()
-
         window = self._gtk_terminal_window()
         term = vte.Terminal()
         term.set_audible_bell(False)
@@ -632,17 +464,15 @@ class GlassHost:
         window.show_all()
         term.realize()
         self._pump_gtk(glib)
-        self.gtk_window = window
-        self.terminal = term
+        self.gtk_window, self.terminal = window, term
         self._fit_to_terminal(term)
         self.renderer.poll()
-        gdk_window = window.get_window()
-        self.child_xid = int(gdk_window.get_xid()) if gdk_window is not None else 0
+        gdk_win = window.get_window()
+        self.child_xid = int(gdk_win.get_xid()) if gdk_win is not None else 0
         if self.child_xid <= 0:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
-        self._place_terminal()
+        self._place_terminal(force=True)
         self.renderer.focus_window(self.child_xid)
-        from gi.repository import Gdk
         term.add_events(
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
@@ -655,69 +485,40 @@ class GlassHost:
         term.connect("key-press-event", self._on_key_press)
         term.connect("child-exited", self._on_child_exit)
         term.spawn_async(
-            vte.PtyFlags.DEFAULT,
-            str(ROOT),
-            self.argv,
-            _child_env(),
-            glib.SpawnFlags.DEFAULT,
-            None,
-            None,
-            -1,
-            None,
-            self._on_spawn,
+            vte.PtyFlags.DEFAULT, str(ROOT), self.argv, _child_env(),
+            glib.SpawnFlags.DEFAULT, None, None, -1, None, self._on_spawn,
         )
         term.grab_focus()
-        theme = read_player_theme()
-        theme_at = 0.0
-        was_down = False
-        dragging = False
-        origin = (0, 0)
-        press_screen = (0.0, 0.0)
-        started = time.monotonic()
+        theme, theme_at, was_down, dragging = read_player_theme(), 0.0, False, False
+        origin, press_screen, started = (0, 0), (0.0, 0.0), time.monotonic()
         while not self.renderer.should_close:
             now = time.monotonic()
             if now - theme_at > 0.4:
-                theme = read_player_theme()
-                theme_at = now
+                theme, theme_at = read_player_theme(), now
             self._sync_panels()
             self.renderer.draw(theme)
-            was_down, dragging, origin, press_screen = self._track_drag(
-                was_down, dragging, origin, press_screen
-            )
+            was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
             self._place_terminal()
             self._pump_gtk(glib)
             if self.spawn_error:
                 raise RuntimeError(self.spawn_error)
-            if self.embed_check and self.child_pid and self._terminal_in_well():
-                return True
-            if self.embed_check and now - started > 8:
-                parent = self.renderer.window_parent(self.child_xid) if self.renderer else 0
-                glass = self.renderer.x11_window() if self.renderer else 0
-                rect = self.renderer.window_rect(self.child_xid) if self.renderer else ()
-                raise RuntimeError(
-                    f"VTE window was not placed in the glass well "
-                    f"(parent={parent} glass={glass} rect={rect} pid={self.child_pid})"
-                )
+            if self.embed_check:
+                if self.child_pid and self._terminal_in_well():
+                    return True
+                if now - started > 8:
+                    raise RuntimeError(
+                        f"VTE window was not placed in the glass well "
+                        f"(parent={self.renderer.window_parent(self.child_xid)} "
+                        f"glass={self.renderer.x11_window()} rect={self.renderer.window_rect(self.child_xid)} pid={self.child_pid})"
+                    )
         return False
 
     def _gtk_terminal_window(self):
-        import gi
-        try:
-            gi.require_version("Gdk", "3.0")
-            gi.require_version("Gtk", "3.0")
-        except ValueError:
-            pass
-        from gi.repository import Gdk, Gtk
-
         icon_path = ROOT / "assets" / "mp_liquid_glass_icon.png"
-        if icon_path.is_file():
-            try:
-                Gtk.Window.set_default_icon_from_file(str(icon_path))
-            except Exception:
-                pass
         window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
         if icon_path.is_file():
             try:
+                Gtk.Window.set_default_icon_from_file(str(icon_path))
                 window.set_icon_from_file(str(icon_path))
             except Exception:
                 pass
@@ -733,25 +534,10 @@ class GlassHost:
         return window
 
     def _clear_terminal_background(self, window, term):
-        """Let the still-water glass show through the player cells while keeping text high-contrast."""
-        import gi
-        try:
-            gi.require_version("Gdk", "3.0")
-            gi.require_version("Gtk", "3.0")
-        except ValueError:
-            pass
-        from gi.repository import Gdk, Gtk
-
-        rgba = Gdk.RGBA()
-        rgba.red = rgba.green = rgba.blue = 0
-        rgba.alpha = 0
         if hasattr(term, "set_color_background"):
-            term.set_color_background(rgba)
-        fg = Gdk.RGBA()
-        fg.red = fg.green = fg.blue = 1.0
-        fg.alpha = 1.0
+            term.set_color_background(Gdk.RGBA(0, 0, 0, 0))
         if hasattr(term, "set_color_foreground"):
-            term.set_color_foreground(fg)
+            term.set_color_foreground(Gdk.RGBA(1.0, 1.0, 1.0, 1.0))
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
         if hasattr(term, "set_allow_bold"):
@@ -766,12 +552,9 @@ class GlassHost:
         except Exception:
             pass
         try:
-            import cairo
-            import gi
-
+            import cairo, gi
             gi.require_version("PangoCairo", "1.0")
             from gi.repository import PangoCairo
-
             fo = cairo.FontOptions()
             fo.set_antialias(cairo.ANTIALIAS_GRAY)
             fo.set_hint_style(cairo.HINT_STYLE_SLIGHT)
@@ -784,83 +567,54 @@ class GlassHost:
             pass
         provider = Gtk.CssProvider()
         provider.load_from_data(
-            b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: normal; text-shadow: 0 0 3px rgba(0, 229, 255, 0.40), 0 0 7px rgba(176, 88, 255, 0.20); letter-spacing: 0.35px; }"
+            b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: normal; "
+            b"text-shadow: 0 0 3px rgba(0, 229, 255, 0.40), 0 0 7px rgba(176, 88, 255, 0.20); letter-spacing: 0.35px; }"
         )
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def close(self):
-        pid = self.child_pid
-        self.child_pid = 0
+        pid, self.child_pid = self.child_pid, 0
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass
-        window = self.gtk_window
-        self.gtk_window = None
-        self.terminal = None
+        window, self.gtk_window, self.terminal = self.gtk_window, None, None
         if window is not None:
             window.destroy()
-            self._pump_gtk(self.glib)
-        renderer = self.renderer
-        self.renderer = None
+            if self.glib:
+                self._pump_gtk(self.glib)
+        renderer, self.renderer = self.renderer, None
         if renderer is not None:
             renderer.close()
 
 
 def ensure_random_visualizer_started() -> bool:
-    """Automatically start MP Liquid Visualizer with a random preset if not already running."""
     try:
-        import shutil, subprocess
         if sys.platform == "win32":
             try:
                 out = subprocess.check_output(
-                    ['powershell.exe', '-NoProfile', '-Command',
+                    ["powershell.exe", "-NoProfile", "-Command",
                      'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*MP_Liquid_Visualizer*" -or $_.CommandLine -like "*mp_liquid_visualizer_vulkan*" } | Select-Object -ExpandProperty ProcessId'],
-                    stderr=subprocess.DEVNULL, text=True
+                    stderr=subprocess.DEVNULL, text=True,
                 ).strip()
                 if out:
                     return False
             except Exception:
                 pass
         elif shutil.which("pgrep"):
-            res = subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if res.returncode == 0:
+            if subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
                 return False
 
-        root = Path(__file__).resolve().parent
-        vis_candidates = [
-            root / "MP_Liquid_Visualizer.py",
-            root / "scripts" / "mp_liquid_visualizer_vulkan.py",
-        ]
-        vis_script = None
-        for cand in vis_candidates:
-            if cand.is_file():
-                vis_script = cand
-                break
+        vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
         if not vis_script:
             return False
 
-        log_dir = Path.home() / ".config" / "mix-manager"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "liquid_visualizer.log"
-
-        extra_kw = {}
-        if sys.platform == "win32":
-            extra_kw["creationflags"] = 0x00000008 | 0x00000200
-        else:
-            extra_kw["start_new_session"] = True
-
-        with open(log_file, "a") as f:
-            subprocess.Popen(
-                [sys.executable, str(vis_script), "--preset", "random"],
-                cwd=str(root),
-                stdin=subprocess.DEVNULL,
-                stdout=f,
-                stderr=f,
-                **extra_kw,
-            )
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
+        with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True
     except Exception:
         return False
@@ -869,7 +623,6 @@ def ensure_random_visualizer_started() -> bool:
 def main(argv):
     if "--self-test" in argv:
         from liquid_glass_opengl import run_self_test
-
         run_self_test()
         return 0
     if "--list-fonts" in argv:
@@ -877,74 +630,59 @@ def main(argv):
         return 0
 
     embed = "--embed-check" in argv
-    tracklist_path = None
-    audio_path = None
-    theme_arg = None
-    font_arg = None
+    tracklist_path = audio_path = theme_arg = font_arg = None
     cleaned_argv = []
     i = 0
     while i < len(argv):
         arg = argv[i]
         if arg == "--no-visualizer":
             i += 1
-            continue
-        elif arg == "--tracklist" and i + 1 < len(argv):
-            tracklist_path = argv[i + 1]
+        elif arg in ("--tracklist", "--audio", "--theme", "-t", "--font", "-f", "--set-font") and i + 1 < len(argv):
+            val = argv[i + 1]
+            if arg == "--set-font":
+                set_liquid_glass_font(val)
+                print(f"✔ MP Liquid Glass Player default font set to: {val}")
+                return 0
+            if arg == "--tracklist":
+                tracklist_path = val
+            elif arg == "--audio":
+                audio_path = val
+            elif arg in ("--theme", "-t"):
+                theme_arg = val
+            else:
+                font_arg = val
             i += 2
-            continue
-        elif arg.startswith("--tracklist="):
-            tracklist_path = arg.split("=", 1)[1]
+        elif arg.startswith(("--tracklist=", "--audio=", "--theme=", "--font=", "--set-font=")):
+            k, val = arg.split("=", 1)
+            if k == "--set-font":
+                set_liquid_glass_font(val)
+                print(f"✔ MP Liquid Glass Player default font set to: {val}")
+                return 0
+            if k == "--tracklist":
+                tracklist_path = val
+            elif k == "--audio":
+                audio_path = val
+            elif k == "--theme":
+                theme_arg = val
+            else:
+                font_arg = val
             i += 1
-            continue
-        elif arg == "--audio" and i + 1 < len(argv):
-            audio_path = argv[i + 1]
-            i += 2
-            continue
-        elif arg.startswith("--audio="):
-            audio_path = arg.split("=", 1)[1]
+        else:
+            cleaned_argv.append(arg)
             i += 1
-            continue
-        elif arg in ("--theme", "-t") and i + 1 < len(argv):
-            theme_arg = argv[i + 1]
-            i += 2
-            continue
-        elif arg.startswith("--theme="):
-            theme_arg = arg.split("=", 1)[1]
-            i += 1
-            continue
-        elif arg in ("--font", "-f") and i + 1 < len(argv):
-            font_arg = argv[i + 1]
-            i += 2
-            continue
-        elif arg.startswith("--font="):
-            font_arg = arg.split("=", 1)[1]
-            i += 1
-            continue
-        elif arg == "--set-font" and i + 1 < len(argv):
-            set_liquid_glass_font(argv[i + 1])
-            print(f"✔ MP Liquid Glass Player default font set to: {argv[i + 1]}")
-            return 0
-        elif arg.startswith("--set-font="):
-            target = arg.split("=", 1)[1]
-            set_liquid_glass_font(target)
-            print(f"✔ MP Liquid Glass Player default font set to: {target}")
-            return 0
-        cleaned_argv.append(arg)
-        i += 1
 
-    if not embed and not tracklist_path and "--self-test" not in argv and "--no-visualizer" not in argv:
+    if not embed and not tracklist_path and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 
+    mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
     if tracklist_path and not embed:
         mode = "TRACKLIST"
         command = tracklist_argv(tracklist_path, audio_path=audio_path, theme=theme_arg)
         if not Path(command[1]).is_file():
             raise RuntimeError(f"Tracklist viewer script was not found at {command[1]}")
     elif embed:
-        mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
         command = embed_check_argv()
     else:
-        mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
         extra = [a for a in cleaned_argv if a not in ("--self-test", "--embed-check", "--mini", "--micro")]
         if theme_arg and not any(a == "--theme" or a.startswith("--theme=") for a in extra):
             extra.extend(["--theme", theme_arg])
@@ -952,8 +690,7 @@ def main(argv):
         if not Path(command[1]).is_file():
             raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
 
-    host = GlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg, font=font_arg)
-    ok = host.run()
+    ok = GlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg, font=font_arg).run()
     if embed:
         if not ok:
             raise RuntimeError("VTE window was not placed in the glass well")

@@ -1,47 +1,10 @@
 #!/usr/bin/env python3
-"""MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer Engine.
-
-Built from the ground up in Vulkan for MP Mix Manager & MP Liquid Glass Audio Player.
-First Preset: "Cosmic Dreamworlds (Liquid)"
-Exclusively inspired by MPlanetarian - Cosmic Dreamworlds [Deluxe Edition] cover art
-(https://mplanetarian.bandcamp.com/album/mplanetarian-cosmic-dreamworlds-deluxe-edition)
-and procedural 3D architectural / liquid motion principles.
-
-Window specifications:
-- Fixed 1400x1400 dimensions by default (press 'z' / 'Z' to toggle fullscreen and back to normal size)
-- Borderless, no scrollbars
-- Pure visualizer: zero text overlay ever displayed
-- Continually generates 3D that connects and moves to currently playing music
-- When music is paused or stopped, 3D generation freezes in-place and waits for Play
-- User cannot alter how the visualizer looks; only preset selection is supported
-- Pressing Escape or 'q' / 'Q' closes the window immediately
-"""
-
+"""MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer Engine."""
 from __future__ import annotations
-
-import ctypes
-import json
-import math
-import os
-import platform
-import socket
-import sys
-import time
-from ctypes import (
-    CFUNCTYPE,
-    POINTER,
-    byref,
-    c_char_p,
-    c_double,
-    c_float,
-    c_int,
-    c_int32,
-    c_size_t,
-    c_uint8,
-    c_uint32,
-    c_uint64,
-    c_void_p,
-)
+import argparse, ctypes, json, math, os, platform, random, socket, subprocess, sys, time
+from ctypes import (CFUNCTYPE, POINTER, Structure, addressof, byref, c_char, c_char_p, c_double,
+                    c_float, c_int, c_int32, c_size_t, c_uint8, c_uint32, c_uint64, c_void_p, cast, memmove, sizeof, string_at)
+from ctypes.util import find_library
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -49,401 +12,155 @@ ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
     ROOT = Path(__file__).resolve().parent
 
-SHADER_DIR = ROOT / "shaders"
-ASSETS_DIR = ROOT / "assets"
-COVERS_DIR = ROOT / "COVERS"
+SHADER_DIR, ASSETS_DIR, COVERS_DIR = ROOT / "shaders", ROOT / "assets", ROOT / "COVERS"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
+WINDOW_WIDTH = WINDOW_HEIGHT = 1400
+RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT = 1920, 1080
+FOUR_K_MIN_WIDTH, FOUR_K_MIN_HEIGHT = 3840, 2160
 
-WINDOW_WIDTH = 1400
-WINDOW_HEIGHT = 1400
+_BC = "https://mplanetarian.bandcamp.com"
+_DEF = Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten")
+_GAMES = Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers")
+_WDB = Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers")
 
-# 4K & Fullscreen Rendering Resolution (4K will not be supported until a later date)
-RENDER_1080P_WIDTH = 1920
-RENDER_1080P_HEIGHT = 1080
-FOUR_K_MIN_WIDTH = 3840
-FOUR_K_MIN_HEIGHT = 2160
+def _mk_preset(pid: int, key: str, name: str, album: str, c_asset: str, c_cov: str, extra: Optional[Path] = None,
+               vid: Optional[str] = None, url: str = _BC, aliases: Tuple[str, ...] = ()) -> Dict[str, Any]:
+    p: Dict[str, Any] = {
+        "id": pid, "key": key, "name": name, "album": album, "bandcamp_url": url,
+        "cover_paths": [ASSETS_DIR / c_asset, COVERS_DIR / c_cov] + ([extra] if extra else []),
+        "_aliases": aliases,
+    }
+    if vid:
+        p["video_path"] = _DEF / vid
+        p["defasten_video"] = vid
+    return p
 
-# Preset Registry (Each preset uses strictly ONE Bandcamp cover)
-# Visualizer Presets:
-#   Preset 0: Cosmic Dreamworlds (Liquid)
-#   Preset 1: Orbital Void Reflux
-#   Preset 2: Dreamworlds Ultra (Defasten Biomech)
-#   Preset 3: Infinite Complexity
-#   Preset 4: Sensorium Interface (Defasten Earth Flipper)
 VISUALIZER_PRESETS: List[Dict[str, Any]] = [
-    {
-        "id": 0,
-        "key": "cosmic_dreamworlds_liquid",
-        "name": "Cosmic Dreamworlds (Liquid)",
-        "album": "MPlanetarian - Cosmic Dreamworlds [Deluxe Edition]",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com/album/mplanetarian-cosmic-dreamworlds-deluxe-edition",
-        "cover_paths": [
-            ASSETS_DIR / "cosmic_dreamworlds_cover.jpg",
-            COVERS_DIR / "Cosmic_Dreamworlds_Liquid_Preset.png",
-        ],
-    },
-    {
-        "id": 1,
-        "key": "orbital_void_reflux",
-        "name": "Orbital Void Reflux",
-        "album": "MPlanetarian - Orbital Void Reflux",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "orbital_void_reflux_cover.png",
-            COVERS_DIR / "Orbital_Void_Reflux_Preset.png",
-            Path("/home/mplanetarian/Desktop/Cover_WMI_V2.png"),
-        ],
-    },
-    {
-        "id": 2,
-        "key": "dreamworlds_ultra_defasten",
-        "name": "Dreamworlds Ultra (Defasten Biomech)",
-        "album": "MPlanetarian - Dreamworlds Ultra (Defasten Edition)",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "dreamworlds_ultra_defasten_cover.png",
-            COVERS_DIR / "Dreamworlds_Ultra_Defasten_Preset.png",
-            Path("/home/mplanetarian/Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png"),
-        ],
-    },
-    {
-        "id": 3,
-        "key": "infinite_complexity",
-        "name": "Infinite Complexity",
-        "album": "MPlanetarian - Infinite Complexity",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "infinite_complexity_cover.png",
-            COVERS_DIR / "Infinite_Complexity_Preset.png",
-            Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Cover_v4.png"),
-        ],
-    },
-    {
-        "id": 4,
-        "key": "sensorium_interface",
-        "name": "Sensorium Interface",
-        "album": "MPlanetarian - Sensorium Interface",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "sensorium_interface_cover.png",
-            COVERS_DIR / "Sensorium_Interface_Preset.png",
-            Path("/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Sensorium_Interface.jpeg"),
-        ],
-    },
-    {
-        "id": 5,
-        "key": "stream_of_frequency",
-        "name": "Stream of Frequency",
-        "album": "MPlanetarian - Stream of Frequency",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "stream_of_frequency_cover.jpg",
-            COVERS_DIR / "Stream_of_Frequency_Preset.png",
-            Path("/home/mplanetarian/Documents/Stream_of_Frequency.jpg"),
-        ],
-        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv"),
-        "defasten_video": "20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv",
-    },
-    {
-        "id": 6,
-        "key": "beyond_dimensions",
-        "name": "Beyond Dimensions",
-        "album": "MPlanetarian - Beyond Dimensions",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "beyond_dimensions_cover.png",
-            COVERS_DIR / "Beyond_Dimensions_Preset.png",
-            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/Cotangent Dimensions (In Progress) [album].png"),
-        ],
-        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv"),
-        "defasten_video": "20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv",
-    },
-    {
-        "id": 7,
-        "key": "particle_accelerator",
-        "name": "Particle Accelerator",
-        "album": "MPlanetarian - Particle Accelerator",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "particle_accelerator_cover.png",
-            COVERS_DIR / "Particle_Accelerator_Preset.png",
-            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/Vortex Sync (Mateh's Version) [track].png"),
-        ],
-        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20191112 - TOROID (feat. Yaporigami) [_2vtEhBzPsE].mkv"),
-        "defasten_video": "20191112 - TOROID (feat. Yaporigami) [_2vtEhBzPsE].mkv",
-    },
-    {
-        "id": 8,
-        "key": "cosmic_universe",
-        "name": "Cosmic Universe",
-        "album": "MPlanetarian - Cosmic Universe",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "cosmic_universe_cover.png",
-            COVERS_DIR / "Cosmic_Universe_Preset.png",
-            Path("/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/The Cosmological Horizon (2026 Remaster) [track].png"),
-        ],
-        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20120811 - Constellation (2012) [ISIu20AePHw].mkv"),
-        "defasten_video": "20120811 - Constellation (2012) [ISIu20AePHw].mkv",
-    },
-    {
-        "id": 9,
-        "key": "resonant_fluid_dynamics",
-        "name": "Resonant Fluid Dynamics",
-        "album": "MPlanetarian - Resonant Fluid Dynamics",
-        "bandcamp_url": "https://mplanetarian.bandcamp.com",
-        "cover_paths": [
-            ASSETS_DIR / "resonant_fluid_dynamics_cover.png",
-            COVERS_DIR / "Resonant_Fluid_Dynamics_Preset.png",
-            Path("/home/mplanetarian/Documents/Resonant Fluid Dynamics.png"),
-        ],
-        "video_path": Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten/20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv"),
-        "defasten_video": "20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv",
-    },
+    _mk_preset(0, "cosmic_dreamworlds_liquid", "Cosmic Dreamworlds (Liquid)", "MPlanetarian - Cosmic Dreamworlds [Deluxe Edition]",
+               "cosmic_dreamworlds_cover.jpg", "Cosmic_Dreamworlds_Liquid_Preset.png",
+               url=f"{_BC}/album/mplanetarian-cosmic-dreamworlds-deluxe-edition"),
+    _mk_preset(1, "orbital_void_reflux", "Orbital Void Reflux", "MPlanetarian - Orbital Void Reflux",
+               "orbital_void_reflux_cover.png", "Orbital_Void_Reflux_Preset.png", Path("/home/mplanetarian/Desktop/Cover_WMI_V2.png")),
+    _mk_preset(2, "dreamworlds_ultra_defasten", "Dreamworlds Ultra (Defasten Biomech)", "MPlanetarian - Dreamworlds Ultra (Defasten Edition)",
+               "dreamworlds_ultra_defasten_cover.png", "Dreamworlds_Ultra_Defasten_Preset.png", Path("/home/mplanetarian/Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png")),
+    _mk_preset(3, "infinite_complexity", "Infinite Complexity", "MPlanetarian - Infinite Complexity",
+               "infinite_complexity_cover.png", "Infinite_Complexity_Preset.png", _GAMES / "Cover_v4.png"),
+    _mk_preset(4, "sensorium_interface", "Sensorium Interface", "MPlanetarian - Sensorium Interface",
+               "sensorium_interface_cover.png", "Sensorium_Interface_Preset.png", _GAMES / "Sensorium_Interface.jpeg",
+               aliases=("sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper")),
+    _mk_preset(5, "stream_of_frequency", "Stream of Frequency", "MPlanetarian - Stream of Frequency",
+               "stream_of_frequency_cover.jpg", "Stream_of_Frequency_Preset.png", Path("/home/mplanetarian/Documents/Stream_of_Frequency.jpg"),
+               vid="20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv",
+               aliases=("stream of frequency", "stream_of_frequency", "stream", "frequency", "sof", "stream of frequency preset")),
+    _mk_preset(6, "beyond_dimensions", "Beyond Dimensions", "MPlanetarian - Beyond Dimensions",
+               "beyond_dimensions_cover.png", "Beyond_Dimensions_Preset.png", _WDB / "Cotangent Dimensions (In Progress) [album].png",
+               vid="20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv",
+               aliases=("beyond dimensions", "beyond_dimensions", "beyond", "dimensions", "cotangent", "cotangent dimensions", "beyond basel", "beyond_basel")),
+    _mk_preset(7, "particle_accelerator", "Particle Accelerator", "MPlanetarian - Particle Accelerator",
+               "particle_accelerator_cover.png", "Particle_Accelerator_Preset.png", _WDB / "Vortex Sync (Mateh's Version) [track].png",
+               vid="20191112 - TOROID (feat. Yaporigami) [_2vtEhBzPsE].mkv",
+               aliases=("particle accelerator", "particle_accelerator", "particle", "accelerator", "toroid", "vortex sync", "vortex_sync", "collider")),
+    _mk_preset(8, "cosmic_universe", "Cosmic Universe", "MPlanetarian - Cosmic Universe",
+               "cosmic_universe_cover.png", "Cosmic_Universe_Preset.png", _WDB / "The Cosmological Horizon (2026 Remaster) [track].png",
+               vid="20120811 - Constellation (2012) [ISIu20AePHw].mkv",
+               aliases=("cosmic universe", "cosmic_universe", "cosmic", "universe", "constellation", "the cosmological horizon", "cosmological horizon", "horizon")),
+    _mk_preset(9, "resonant_fluid_dynamics", "Resonant Fluid Dynamics", "MPlanetarian - Resonant Fluid Dynamics",
+               "resonant_fluid_dynamics_cover.png", "Resonant_Fluid_Dynamics_Preset.png", Path("/home/mplanetarian/Documents/Resonant Fluid Dynamics.png"),
+               vid="20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv",
+               aliases=("resonant fluid dynamics", "resonant_fluid_dynamics", "resonant", "fluid dynamics", "fluid_dynamics", "earth flipper", "earth_flipper", "10", "yaporigami", "defasten earth flipper")),
 ]
 
-
-def is_windows() -> bool:
-    """Check if running on Windows."""
-    return sys.platform == "win32" or platform.system().lower() == "windows"
-
-
+_SYS = platform.system().lower()
+def is_windows() -> bool: return sys.platform == "win32" or _SYS == "windows"
 def is_windows_10_or_11() -> bool:
-    """Check if running on Windows 10 or Windows 11."""
-    if not is_windows():
-        return False
+    return is_windows() and getattr(sys.getwindowsversion(), "major", 10) >= 10 if hasattr(sys, "getwindowsversion") else is_windows()
+def is_macos() -> bool: return sys.platform == "darwin" or _SYS == "darwin"
+def is_apple_silicon() -> bool: return is_macos() and platform.machine().lower() in ("arm64", "aarch64")
+
+def _load_cdll(candidates: List[str], names: Tuple[str, ...], bad_exts: Tuple[str, ...], err_msg: str, fallback: Optional[str] = None):
     try:
-        ver = sys.getwindowsversion()
-        return ver.major >= 10
+        for name in names:
+            f = find_library(name)
+            if f and not any(x in f for x in bad_exts) and f not in candidates:
+                candidates.insert(0, f)
     except Exception:
-        return True
-
-
-def is_macos() -> bool:
-    """Check if running on macOS (Darwin)."""
-    return sys.platform == "darwin" or platform.system().lower() == "darwin"
-
-
-def is_apple_silicon() -> bool:
-    """Check if running natively on Apple Silicon (arm64/aarch64)."""
-    if not is_macos():
-        return False
-    arch = platform.machine().lower()
-    return arch in ("arm64", "aarch64")
-
+        pass
+    for cand in candidates:
+        try: return ctypes.CDLL(cand)
+        except OSError: continue
+    if fallback:
+        return ctypes.CDLL(fallback)
+    raise RuntimeError(err_msg)
 
 def load_glfw_dll():
-    """Load the GLFW shared library across Windows (10/11), macOS, and Linux."""
     if is_windows():
-        candidates = [
-            "glfw3.dll",
-            "glfw.dll",
+        return _load_cdll([
+            "glfw3.dll", "glfw.dll",
             os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "glfw", "lib", "glfw3.dll"),
             os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "glfw", "glfw3.dll"),
-        ]
-        try:
-            from ctypes.util import find_library
-            for name in ("glfw3", "glfw"):
-                f = find_library(name)
-                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dylib") and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                return ctypes.CDLL(cand)
-            except OSError:
-                continue
-        raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
-    elif is_macos():
-        candidates = [
-            "/opt/homebrew/lib/libglfw.3.dylib",
-            "/opt/homebrew/lib/libglfw.dylib",
-            "/usr/local/lib/libglfw.3.dylib",
-            "/usr/local/lib/libglfw.dylib",
-            "libglfw.3.dylib",
-            "libglfw.dylib",
-        ]
-        try:
-            from ctypes.util import find_library
-            for name in ("glfw3", "glfw"):
-                f = find_library(name)
-                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dll") and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                return ctypes.CDLL(cand)
-            except OSError:
-                continue
-        raise RuntimeError(
-            "Could not load GLFW on macOS. Please install GLFW (e.g. 'brew install glfw') or ensure libglfw is available."
-        )
-
-    # Linux / FreeBSD / other UNIX
-    candidates = [
-        "libglfw.so.3",
-        "libglfw.so",
-        "/usr/lib64/libglfw.so.3",
-        "/usr/lib/x86_64-linux-gnu/libglfw.so.3",
-    ]
-    try:
-        from ctypes.util import find_library
-        for name in ("glfw3", "glfw"):
-            f = find_library(name)
-            if f and not f.endswith(".dll") and not f.endswith(".dylib") and f not in candidates:
-                candidates.insert(0, f)
-    except Exception:
-        pass
-    for cand in candidates:
-        try:
-            return ctypes.CDLL(cand)
-        except OSError:
-            continue
-    return ctypes.CDLL("libglfw.so.3")
-
+        ], ("glfw3", "glfw"), (".so", ".dylib"), "Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+    if is_macos():
+        return _load_cdll([
+            "/opt/homebrew/lib/libglfw.3.dylib", "/opt/homebrew/lib/libglfw.dylib",
+            "/usr/local/lib/libglfw.3.dylib", "/usr/local/lib/libglfw.dylib", "libglfw.3.dylib", "libglfw.dylib",
+        ], ("glfw3", "glfw"), (".so", ".dll"), "Could not load GLFW on macOS. Please install GLFW (e.g. 'brew install glfw') or ensure libglfw is available.")
+    return _load_cdll(["libglfw.so.3", "libglfw.so", "/usr/lib64/libglfw.so.3", "/usr/lib/x86_64-linux-gnu/libglfw.so.3"],
+                      ("glfw3", "glfw"), (".dll", ".dylib"), "", fallback="libglfw.so.3")
 
 def load_vulkan_dll():
-    """Load the Vulkan loader shared library across Windows (10/11), macOS (MoltenVK), and Linux."""
+    vksdk = os.environ.get("VULKAN_SDK")
     if is_windows():
-        candidates = [
-            "vulkan-1.dll",
-            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", "vulkan-1.dll"),
-            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "SysWOW64", "vulkan-1.dll"),
+        sr = os.environ.get("SystemRoot", "C:\\Windows")
+        cands = (
+            [os.path.join(vksdk, "Bin", "vulkan-1.dll")] if vksdk else []
+        ) + ["vulkan-1.dll", os.path.join(sr, "System32", "vulkan-1.dll"), os.path.join(sr, "SysWOW64", "vulkan-1.dll")]
+        return _load_cdll(cands, ("vulkan-1", "vulkan"), (".so", ".dylib"), "Could not load Vulkan loader on Windows. Ensure vulkan-1.dll is installed.")
+    if is_macos():
+        cands = ([os.path.join(vksdk, "lib", x) for x in ("libMoltenVK.dylib", "libvulkan.1.dylib", "libvulkan.dylib")] if vksdk else []) + [
+            "/opt/homebrew/lib/libvulkan.1.dylib", "/opt/homebrew/lib/libvulkan.dylib", "/opt/homebrew/lib/libMoltenVK.dylib",
+            "/usr/local/lib/libvulkan.1.dylib", "/usr/local/lib/libvulkan.dylib", "/usr/local/lib/libMoltenVK.dylib",
+            "libvulkan.1.dylib", "libvulkan.dylib", "libMoltenVK.dylib",
         ]
-        vksdk = os.environ.get("VULKAN_SDK")
-        if vksdk:
-            candidates.insert(0, os.path.join(vksdk, "Bin", "vulkan-1.dll"))
-        try:
-            from ctypes.util import find_library
-            for name in ("vulkan-1", "vulkan"):
-                f = find_library(name)
-                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dylib") and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                return ctypes.CDLL(cand)
-            except OSError:
-                continue
-        raise RuntimeError("Could not load Vulkan loader on Windows. Ensure vulkan-1.dll is installed.")
-    elif is_macos():
-        candidates = [
-            "/opt/homebrew/lib/libvulkan.1.dylib",
-            "/opt/homebrew/lib/libvulkan.dylib",
-            "/opt/homebrew/lib/libMoltenVK.dylib",
-            "/usr/local/lib/libvulkan.1.dylib",
-            "/usr/local/lib/libvulkan.dylib",
-            "/usr/local/lib/libMoltenVK.dylib",
-            "libvulkan.1.dylib",
-            "libvulkan.dylib",
-            "libMoltenVK.dylib",
-        ]
-        vksdk = os.environ.get("VULKAN_SDK")
-        if vksdk:
-            candidates.insert(0, os.path.join(vksdk, "lib", "libvulkan.dylib"))
-            candidates.insert(0, os.path.join(vksdk, "lib", "libvulkan.1.dylib"))
-            candidates.insert(0, os.path.join(vksdk, "lib", "libMoltenVK.dylib"))
-        try:
-            from ctypes.util import find_library
-            for name in ("vulkan", "MoltenVK"):
-                f = find_library(name)
-                if f and not f.endswith(".so") and ".so." not in f and not f.endswith(".dll") and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                return ctypes.CDLL(cand)
-            except OSError:
-                continue
-        raise RuntimeError(
-            "Could not load Vulkan loader or MoltenVK on macOS. "
-            "Please install MoltenVK or the Vulkan SDK (e.g. 'brew install molten-vk' or LunarG Vulkan SDK)."
-        )
+        return _load_cdll(cands, ("vulkan", "MoltenVK"), (".so", ".dll"),
+                          "Could not load Vulkan loader or MoltenVK on macOS. Please install MoltenVK or the Vulkan SDK (e.g. 'brew install molten-vk' or LunarG Vulkan SDK).")
+    return _load_cdll(["libvulkan.so.1", "libvulkan.so", "/usr/lib64/libvulkan.so.1", "/usr/lib/x86_64-linux-gnu/libvulkan.so.1"],
+                      ("vulkan-1", "vulkan"), (".dll", ".dylib"), "", fallback="libvulkan.so.1")
 
-    # Linux / FreeBSD
-    candidates = [
-        "libvulkan.so.1",
-        "libvulkan.so",
-        "/usr/lib64/libvulkan.so.1",
-        "/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
-    ]
-    try:
-        from ctypes.util import find_library
-        for name in ("vulkan-1", "vulkan"):
-            f = find_library(name)
-            if f and not f.endswith(".dll") and not f.endswith(".dylib") and f not in candidates:
-                candidates.insert(0, f)
-    except Exception:
-        pass
-    for cand in candidates:
-        try:
-            return ctypes.CDLL(cand)
-        except OSError:
-            continue
-    return ctypes.CDLL("libvulkan.so.1")
-
+_RAND_KEYS = {"random", "rand", "rnd", "-1", "any", "shuffle"}
 
 def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
-    """Return the active visualizer preset dictionary."""
     target = str(preset_arg or "").strip().lower()
-    if target in ("random", "rand", "rnd", "-1", "any", "shuffle"):
-        import random
+    if target in _RAND_KEYS:
         return random.choice(VISUALIZER_PRESETS)
     if not target:
-        preset_file = CONFIG_DIR / "visualizer_preset"
-        if preset_file.is_file():
+        pf = CONFIG_DIR / "visualizer_preset"
+        if pf.is_file():
             try:
-                target = preset_file.read_text(encoding="utf-8").strip().lower()
-                if target in ("random", "rand", "rnd", "-1", "any", "shuffle"):
-                    import random
+                target = pf.read_text(encoding="utf-8").strip().lower()
+                if target in _RAND_KEYS:
                     return random.choice(VISUALIZER_PRESETS)
             except OSError:
                 pass
     if not target:
-        theme_file = CONFIG_DIR / "theme"
-        if theme_file.is_file():
+        tf = CONFIG_DIR / "theme"
+        if tf.is_file():
             try:
-                th = theme_file.read_text(encoding="utf-8").strip().lower()
+                th = tf.read_text(encoding="utf-8").strip().lower()
                 if th in ("sensorium", "sensorium_interface", "sensorium interface", "earth_flipper", "earth flipper"):
                     target = "sensorium_interface"
                 elif th in ("stream_of_frequency", "stream", "frequency", "sof", "frequency_stream"):
                     target = "stream_of_frequency"
             except OSError:
                 pass
-    for p in VISUALIZER_PRESETS:
-        candidates = [
-            str(p["id"] + 1),  # 1-based indexing (1..6)
-            str(p["id"]),      # 0-based indexing (0..5)
-            p["key"].lower(),
-            p["name"].lower(),
-            p["key"].replace("_", "-").lower(),
-            p["key"].replace("_", " ").lower(),
-        ]
-        if p["key"] == "sensorium_interface":
-            candidates.extend(["sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper"])
-        elif p["key"] == "stream_of_frequency":
-            candidates.extend(["stream of frequency", "stream_of_frequency", "stream", "frequency", "sof", "stream of frequency preset"])
-        elif p["key"] == "beyond_dimensions":
-            candidates.extend(["beyond dimensions", "beyond_dimensions", "beyond", "dimensions", "cotangent", "cotangent dimensions", "beyond basel", "beyond_basel"])
-        elif p["key"] == "particle_accelerator":
-            candidates.extend(["particle accelerator", "particle_accelerator", "particle", "accelerator", "toroid", "vortex sync", "vortex_sync", "collider"])
-        elif p["key"] == "cosmic_universe":
-            candidates.extend(["cosmic universe", "cosmic_universe", "cosmic", "universe", "constellation", "the cosmological horizon", "cosmological horizon", "horizon"])
-        elif p["key"] == "resonant_fluid_dynamics":
-            candidates.extend(["resonant fluid dynamics", "resonant_fluid_dynamics", "resonant", "fluid dynamics", "fluid_dynamics", "earth flipper", "earth_flipper", "10", "yaporigami", "defasten earth flipper"])
-        if target in candidates:
-            return p
-    # Partial matching if target provided
     if target:
+        for p in VISUALIZER_PRESETS:
+            kl = p["key"].lower()
+            if target in (str(p["id"] + 1), str(p["id"]), kl, p["name"].lower(), kl.replace("_", "-"), kl.replace("_", " ")) or target in p.get("_aliases", ()):
+                return p
         for p in VISUALIZER_PRESETS:
             if target in p["key"].lower() or target in p["name"].lower():
                 return p
     return VISUALIZER_PRESETS[0]
-
 
 def save_active_preset(preset_key_or_name: str) -> Dict[str, Any]:
     preset = get_active_preset(preset_key_or_name)
@@ -454,94 +171,69 @@ def save_active_preset(preset_key_or_name: str) -> Dict[str, Any]:
         pass
     return preset
 
-
 def load_preset_cover_rgba(preset: Dict[str, Any], tex_size: int = 1024) -> Tuple[int, int, bytes]:
-    """Load the single Bandcamp cover image for the preset as RGBA8 bytes."""
     from PIL import Image
-
     for cpath in preset.get("cover_paths", []):
         p = Path(cpath)
         if p.is_file():
             with Image.open(p) as im:
-                rgba = im.convert("RGBA").resize((tex_size, tex_size), Image.Resampling.LANCZOS)
-                return tex_size, tex_size, rgba.tobytes()
+                return tex_size, tex_size, im.convert("RGBA").resize((tex_size, tex_size), Image.Resampling.LANCZOS).tobytes()
     raise FileNotFoundError(f"Cover art file not found for preset '{preset.get('name')}'")
 
 
 class AudioTelemetryBridge:
-    """Real-time audio telemetry reader connected to MP Audio Player & Liquid Glass Player."""
+    __slots__ = (
+        "config_dir", "state_file", "socket_path", "port_file", "is_playing", "accum_time", "dynamic_time",
+        "bass_phase", "mid_phase", "high_phase", "beat_pulse", "_prev_bass", "_last_poll", "_last_state_mtime_ns",
+        "_cached_status", "bands16", "sub_bass", "bass", "low_mid", "mid", "high_mid", "treble", "air", "rms_energy", "pitch_factor"
+    )
 
     def __init__(self, config_dir: Optional[Path] = None):
         self.config_dir = Path(config_dir) if config_dir else CONFIG_DIR
         self.state_file = self.config_dir / "mp_player_state.json"
         self.socket_path = self.config_dir / "mp_audio_player.sock"
         self.port_file = self.config_dir / "mp_audio_player.port"
-
-        self.is_playing: bool = False
-        self.accum_time: float = 0.0
-        self.dynamic_time: float = 0.0
-        self.bass_phase: float = 0.0
-        self.mid_phase: float = 0.0
-        self.high_phase: float = 0.0
-        self.beat_pulse: float = 0.0
-        self._prev_bass: float = 0.0
-        self._last_poll: float = 0.0
-        self._last_state_mtime_ns: int = 0
+        self.is_playing = False
+        self.accum_time = self.dynamic_time = self.bass_phase = self.mid_phase = self.high_phase = self.beat_pulse = self._prev_bass = self._last_poll = 0.0
+        self._last_state_mtime_ns = 0
         self._cached_status: Dict[str, Any] = {}
-
-        # Smoothed 16 spectrum bands
         self.bands16: List[float] = [0.0] * 16
-        self.sub_bass: float = 0.0
-        self.bass: float = 0.0
-        self.low_mid: float = 0.0
-        self.mid: float = 0.0
-        self.high_mid: float = 0.0
-        self.treble: float = 0.0
-        self.air: float = 0.0
-        self.rms_energy: float = 0.0
-        self.pitch_factor: float = 1.0
+        self.sub_bass = self.bass = self.low_mid = self.mid = self.high_mid = self.treble = self.air = self.rms_energy = 0.0
+        self.pitch_factor = 1.0
 
     def _query_player_state(self) -> Dict[str, Any]:
         now = time.monotonic()
         state_changed = False
-        if self.state_file.is_file():
-            try:
-                st_stat = self.state_file.stat()
-                if st_stat.st_mtime_ns != self._last_state_mtime_ns:
-                    state_changed = True
-                    self._last_state_mtime_ns = st_stat.st_mtime_ns
-            except OSError:
-                pass
+        st_stat = None
+        try:
+            st_stat = self.state_file.stat()
+            if st_stat.st_mtime_ns != self._last_state_mtime_ns:
+                state_changed = True
+                self._last_state_mtime_ns = st_stat.st_mtime_ns
+        except OSError:
+            pass
 
         if not state_changed and (now - self._last_poll < 0.025) and self._cached_status:
             return self._cached_status
         self._last_poll = now
 
-        # Fast path: read atomic state file updated at 25Hz+ by MP_Audio_Player daemon
-        if self.state_file.is_file():
+        if st_stat is not None and (time.time() - st_stat.st_mtime < 3.0):
             try:
-                mtime = self.state_file.stat().st_mtime
-                if time.time() - mtime < 3.0:
-                    data = json.loads(self.state_file.read_text(encoding="utf-8"))
-                    if isinstance(data, dict):
-                        self._cached_status = data
-                        return data
+                data = json.loads(self.state_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self._cached_status = data
+                    return data
             except Exception:
                 pass
 
-        # Fallback: direct non-blocking IPC socket query
         use_unix = hasattr(socket, "AF_UNIX") and self.socket_path.exists()
         if use_unix or self.port_file.exists():
             try:
-                s = socket.socket(socket.AF_UNIX if use_unix else socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(0.05)
-                if use_unix:
-                    s.connect(str(self.socket_path))
-                else:
-                    s.connect(("127.0.0.1", int(self.port_file.read_text().strip())))
-                s.sendall(b'{"cmd": "status"}')
-                raw = s.recv(16384).decode("utf-8")
-                s.close()
+                with socket.socket(socket.AF_UNIX if use_unix else socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.05)
+                    s.connect(str(self.socket_path) if use_unix else ("127.0.0.1", int(self.port_file.read_text().strip())))
+                    s.sendall(b'{"cmd": "status"}')
+                    raw = s.recv(16384).decode("utf-8")
                 if raw:
                     resp = json.loads(raw)
                     if isinstance(resp.get("data"), dict):
@@ -554,880 +246,257 @@ class AudioTelemetryBridge:
         return self._cached_status
 
     def update(self, dt: float, force_playing: Optional[bool] = None, synthetic_audio: bool = False):
-        """Advance audio-reactive state. Freezes completely if music is not playing."""
-        dt = max(0.0, min(dt, 0.1))
-
+        dt = 0.0 if dt < 0.0 else (0.1 if dt > 0.1 else dt)
+        sin, cos = math.sin, math.cos
         if synthetic_audio:
             self.is_playing = True if force_playing is None else bool(force_playing)
             if self.is_playing:
                 self.accum_time += dt
                 t = self.accum_time
-                synth_speed = 1.0 + 0.55 * math.sin(t * 0.09) * math.cos(t * 0.045) + 0.25 * math.sin(t * 0.18)
-                self.dynamic_time += dt * synth_speed
-                raw_bands = [
-                    0.55 + 0.40 * math.sin(t * 3.2 + i * 0.45) ** 2 for i in range(16)
-                ]
-                self._apply_bands(raw_bands, rms=0.62, pitch=1.0, dt=dt)
+                self.dynamic_time += dt * (1.0 + 0.55 * sin(t * 0.09) * cos(t * 0.045) + 0.25 * sin(t * 0.18))
+                self._apply_bands([0.55 + 0.40 * sin(t * 3.2 + i * 0.45) ** 2 for i in range(16)], 0.62, 1.0, dt)
             return
 
         st = self._query_player_state()
-        playing = (
-            bool(st.get("running", True))
-            and str(st.get("state", "stopped")).lower() == "playing"
-            and not bool(st.get("muted", False))
-        )
-        if force_playing is not None:
-            playing = bool(force_playing)
-
-        self.is_playing = playing
+        playing = bool(st.get("running", True)) and str(st.get("state", "stopped")).lower() == "playing" and not bool(st.get("muted", False))
+        self.is_playing = playing if force_playing is None else bool(force_playing)
         if not self.is_playing:
-            # Music is paused or stopped: freeze 3D generation in-place and wait for Play
             return
 
-        # Music is actively playing: advance 3D generation clock and audio phases
         pitch = float(st.get("pitch_factor", 1.0) or 1.0)
-        self.pitch_factor = max(0.5, min(1.5, pitch))
-        self.accum_time += dt * self.pitch_factor
-
-        # Dynamic time frame: speeds up and slows down gradually over time in a smooth non-linear wave
-        wave = math.sin(self.accum_time * 0.082) * math.cos(self.accum_time * 0.041)
-        harmonic = math.sin(self.accum_time * 0.173)
-        speed_factor = 1.0 + 0.65 * wave + 0.35 * harmonic
-        speed_factor *= (0.85 + 0.30 * max(0.0, min(1.0, float(st.get("rms_level", 0.0) or 0.0) * 2.0)))
-        self.dynamic_time += dt * speed_factor * self.pitch_factor
-
-        levels = st.get("levels") or []
+        self.pitch_factor = pitch = 0.5 if pitch < 0.5 else (1.5 if pitch > 1.5 else pitch)
+        self.accum_time += dt * pitch
+        t = self.accum_time
         rms = float(st.get("rms_level", 0.0) or 0.0)
+        rms_clamped = 0.0 if rms < 0.0 else (1.0 if rms * 2.0 > 1.0 else rms * 2.0)
+        speed_factor = (1.0 + 0.65 * sin(t * 0.082) * cos(t * 0.041) + 0.35 * sin(t * 0.173)) * (0.85 + 0.30 * rms_clamped)
+        self.dynamic_time += dt * speed_factor * pitch
 
-        # Convert 24 player bands (or fallback waveform) into 16 normalized visualizer bands
-        raw16 = [0.0] * 16
+        levels = st.get("levels")
         if isinstance(levels, list) and len(levels) >= 8:
-            n_lv = len(levels)
+            n_lv = len(levels) - 1
+            raw16 = [0.0] * 16
             for i in range(16):
-                idx_f = (i / 15.0) * (n_lv - 1)
-                i0 = int(math.floor(idx_f))
-                i1 = min(n_lv - 1, i0 + 1)
+                idx_f = (i / 15.0) * n_lv
+                i0 = int(idx_f)
+                i1 = i0 + 1 if i0 < n_lv else n_lv
                 frac = idx_f - i0
-                val = float(levels[i0]) * (1.0 - frac) + float(levels[i1]) * frac
-                raw16[i] = max(0.0, min(1.0, val))
+                v = float(levels[i0]) * (1.0 - frac) + float(levels[i1]) * frac
+                raw16[i] = 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
         else:
-            # If track is playing but FFT array is momentarily flat, derive gentle groove from position
-            pos = float(st.get("position_sec", self.accum_time) or self.accum_time)
-            for i in range(16):
-                raw16[i] = 0.25 + 0.20 * math.sin(pos * (2.5 + i * 0.3) + i) ** 2
-            rms = max(rms, 0.28)
-
-        self._apply_bands(raw16, rms=rms, pitch=self.pitch_factor, dt=dt)
+            pos = float(st.get("position_sec", t) or t)
+            raw16 = [0.25 + 0.20 * sin(pos * (2.5 + i * 0.3) + i) ** 2 for i in range(16)]
+            if rms < 0.28:
+                rms = 0.28
+        self._apply_bands(raw16, rms, pitch, dt)
 
     def _apply_bands(self, raw16: List[float], rms: float, pitch: float, dt: float):
-        # Smooth attack / release per band
+        b = self.bands16
         for i in range(16):
             target = raw16[i]
-            cur = self.bands16[i]
-            coeff = 0.68 if target > cur else 0.22
-            self.bands16[i] = cur + (target - cur) * coeff
+            cur = b[i]
+            b[i] = cur + (target - cur) * (0.68 if target > cur else 0.22)
 
-        self.sub_bass = (self.bands16[0] + self.bands16[1]) * 0.5
-        self.bass = (self.bands16[1] + self.bands16[2] + self.bands16[3]) / 3.0
-        self.low_mid = (self.bands16[4] + self.bands16[5] + self.bands16[6]) / 3.0
-        self.mid = (self.bands16[6] + self.bands16[7] + self.bands16[8] + self.bands16[9]) * 0.25
-        self.high_mid = (self.bands16[10] + self.bands16[11] + self.bands16[12]) / 3.0
-        self.treble = (self.bands16[12] + self.bands16[13] + self.bands16[14]) / 3.0
-        self.air = self.bands16[15]
-        self.rms_energy = max(0.0, min(1.0, rms * 2.2 + self.bass * 0.35))
+        self.sub_bass = (b[0] + b[1]) * 0.5
+        self.bass = (b[1] + b[2] + b[3]) / 3.0
+        self.low_mid = (b[4] + b[5] + b[6]) / 3.0
+        self.mid = (b[6] + b[7] + b[8] + b[9]) * 0.25
+        self.high_mid = (b[10] + b[11] + b[12]) / 3.0
+        self.treble = (b[12] + b[13] + b[14]) / 3.0
+        self.air = b[15]
+        e = rms * 2.2 + self.bass * 0.35
+        self.rms_energy = 0.0 if e < 0.0 else (1.0 if e > 1.0 else e)
 
-        # Beat onset detection on bass derivative
-        bass_delta = max(0.0, self.bass - self._prev_bass)
+        bass_delta = self.bass - self._prev_bass
         self._prev_bass = self.bass
         if bass_delta > 0.065:
-            self.beat_pulse = min(1.0, self.beat_pulse + bass_delta * 3.2)
+            bp = self.beat_pulse + bass_delta * 3.2
+            self.beat_pulse = 1.0 if bp > 1.0 else bp
         else:
-            self.beat_pulse = max(0.0, self.beat_pulse - dt * 2.8)
+            bp = self.beat_pulse - dt * 2.8
+            self.beat_pulse = 0.0 if bp < 0.0 else bp
 
-        # Continuous phase accumulators that drive 3D structural articulation
         self.bass_phase += dt * (1.2 + self.sub_bass * 4.2 + self.beat_pulse * 2.0) * pitch
         self.mid_phase += dt * (1.0 + self.mid * 3.6) * pitch
         self.high_phase += dt * (0.9 + self.treble * 4.0) * pitch
 
 
 # ==============================================================================
-# Vulkan Constants & Ctypes Structures
+# Vulkan & GLFW Constants & Compact Table-Driven Ctypes Structures
 # ==============================================================================
-NVIDIA_VENDOR_ID = 0x10DE
-DISCRETE_GPU = 2
-
-ST_APPLICATION_INFO = 0
-ST_INSTANCE_CREATE_INFO = 1
-ST_DEVICE_QUEUE_CREATE_INFO = 2
-ST_DEVICE_CREATE_INFO = 3
-ST_SUBMIT_INFO = 4
-ST_MEMORY_ALLOCATE_INFO = 5
-ST_FENCE_CREATE_INFO = 8
-ST_SEMAPHORE_CREATE_INFO = 9
-ST_BUFFER_CREATE_INFO = 12
-ST_IMAGE_CREATE_INFO = 14
-ST_IMAGE_VIEW_CREATE_INFO = 15
-ST_SHADER_MODULE_CREATE_INFO = 16
-ST_PIPELINE_SHADER_STAGE = 18
-ST_PIPELINE_VERTEX_INPUT = 19
-ST_PIPELINE_INPUT_ASSEMBLY = 20
-ST_PIPELINE_VIEWPORT = 22
-ST_PIPELINE_RASTER = 23
-ST_PIPELINE_MULTISAMPLE = 24
-ST_PIPELINE_COLOR_BLEND = 26
-ST_PIPELINE_DYNAMIC = 27
-ST_GRAPHICS_PIPELINE = 28
-ST_PIPELINE_LAYOUT = 30
-ST_SAMPLER_CREATE_INFO = 31
-ST_DESCRIPTOR_SET_LAYOUT = 32
-ST_DESCRIPTOR_POOL = 33
-ST_DESCRIPTOR_SET_ALLOCATE = 34
-ST_WRITE_DESCRIPTOR_SET = 35
-ST_FRAMEBUFFER = 37
-ST_RENDER_PASS = 38
-ST_COMMAND_POOL = 39
-ST_COMMAND_BUFFER_ALLOCATE = 40
-ST_COMMAND_BUFFER_BEGIN = 42
-ST_RENDER_PASS_BEGIN = 43
-ST_BUFFER_MEMORY_BARRIER = 44
-ST_IMAGE_MEMORY_BARRIER = 45
-ST_SWAPCHAIN_CREATE = 1000001000
-ST_PRESENT_INFO = 1000001001
-
-QUEUE_GRAPHICS = 0x1
-IMAGE_USAGE_TRANSFER_SRC = 0x1
-IMAGE_USAGE_TRANSFER_DST = 0x2
-IMAGE_USAGE_SAMPLED = 0x4
-IMAGE_USAGE_COLOR = 0x10
-BUFFER_USAGE_TRANSFER_SRC = 0x1
-BUFFER_USAGE_TRANSFER_DST = 0x2
-BUFFER_USAGE_UNIFORM = 0x10
-
-SHARING_EXCLUSIVE = 0
-COMPOSITE_OPAQUE = 0x1
-COMPOSITE_PRE_MULTIPLIED = 0x2
-COMPOSITE_POST_MULTIPLIED = 0x4
-COMPOSITE_INHERIT = 0x8
-VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR = 0x00000001
-PRESENT_FIFO = 2
-TRANSFORM_IDENTITY = 0x1
-FORMAT_R8G8B8A8_UNORM = 37
-FORMAT_B8G8R8A8_UNORM = 44
-FORMAT_B8G8R8A8_SRGB = 50
-IMAGE_TYPE_2D = 1
-IMAGE_VIEW_2D = 1
-IMAGE_ASPECT_COLOR = 0x1
-SAMPLE_1 = 0x1
-TILING_OPTIMAL = 0
-LOAD_CLEAR = 1
-STORE_STORE = 0
-STORE_DONT = 1
-LOAD_DONT = 2
-
-LAYOUT_UNDEFINED = 0
-LAYOUT_COLOR = 2
-LAYOUT_SHADER_READ_ONLY = 5
-LAYOUT_TRANSFER_SRC = 6
-LAYOUT_TRANSFER_DST = 7
-LAYOUT_PRESENT = 1000001002
-
-SUBPASS_EXTERNAL = 0xFFFFFFFF
-STAGE_TOP = 0x1
-STAGE_VERTEX_BIT = 0x00000001
-STAGE_FRAGMENT_BIT = 0x00000010
-STAGE_FRAGMENT = 0x80
-STAGE_COLOR_OUT = 0x400
-STAGE_TRANSFER = 0x1000
-STAGE_BOTTOM = 0x2000
-STAGE_HOST = 0x4000
-
-ACCESS_UNIFORM = 0x8
-ACCESS_SHADER_READ = 0x20
-ACCESS_COLOR_WRITE = 0x100
-ACCESS_TRANSFER_READ = 0x800
-ACCESS_TRANSFER_WRITE = 0x1000
-ACCESS_HOST_WRITE = 0x4000
-ACCESS_MEMORY_READ = 0x8000
-
-CMD_POOL_RESET = 0x2
-CMD_ONE_TIME = 0x1
-FENCE_SIGNALED = 0x1
-TOPOLOGY_TRIANGLE_LIST = 3
-COLOR_WRITE_ALL = 0xF
-DYNAMIC_VIEWPORT = 0
-DYNAMIC_SCISSOR = 1
-DESCRIPTOR_COMBINED_IMAGE_SAMPLER = 1
-DESCRIPTOR_UNIFORM = 6
-SHADER_VERTEX = 0x1
-SHADER_FRAGMENT = 0x10
-MEMORY_DEVICE_LOCAL = 0x1
-MEMORY_HOST_VISIBLE = 0x2
-MEMORY_HOST_COHERENT = 0x4
-QUEUE_FAMILY_IGNORED = 0xFFFFFFFF
-SUBOPTIMAL = 1000001003
-OUT_OF_DATE = -1000001004
-SUCCESS = 0
-
-FILTER_LINEAR = 1
-SAMPLER_MIPMAP_LINEAR = 1
-SAMPLER_ADDRESS_REPEAT = 0
-
-GLFW_CLIENT_API = 0x00022001
-GLFW_NO_API = 0
-GLFW_RESIZABLE = 0x00020003
-GLFW_VISIBLE = 0x00020004
-GLFW_DECORATED = 0x00020005
-GLFW_FOCUSED = 0x00020001
-GLFW_FOCUS_ON_SHOW = 0x0002000C
-GLFW_AUTO_ICONIFY = 0x00020006
-GLFW_FLOATING = 0x00020007
-GLFW_ICONIFIED = 0x00020002
-GLFW_PLATFORM = 0x00050003
-GLFW_PLATFORM_X11 = 0x00060004
-GLFW_TRUE = 1
-GLFW_FALSE = 0
-GLFW_DONT_CARE = -1
-GLFW_PRESS = 1
-GLFW_KEY_ESCAPE = 256
-GLFW_KEY_Q = 81
-GLFW_KEY_Z = 90
-GLFW_KEY_SPACE = 32
-GLFW_KEY_1 = 49
-GLFW_KEY_2 = 50
-GLFW_KEY_3 = 51
-GLFW_KEY_4 = 52
-GLFW_KEY_5 = 53
-GLFW_KEY_6 = 54
-GLFW_KEY_7 = 55
-GLFW_KEY_8 = 56
-GLFW_KEY_9 = 57
-
-
-class GLFWvidmode(ctypes.Structure):
-    _fields_ = [
-        ("width", c_int),
-        ("height", c_int),
-        ("redBits", c_int),
-        ("greenBits", c_int),
-        ("blueBits", c_int),
-        ("refreshRate", c_int),
-    ]
-
-
-class VkApplicationInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("pApplicationName", c_char_p),
-        ("applicationVersion", c_uint32), ("pEngineName", c_char_p),
-        ("engineVersion", c_uint32), ("apiVersion", c_uint32),
-    ]
-
-
-class VkInstanceCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("pApplicationInfo", c_void_p), ("enabledLayerCount", c_uint32),
-        ("ppEnabledLayerNames", c_void_p), ("enabledExtensionCount", c_uint32),
-        ("ppEnabledExtensionNames", c_void_p),
-    ]
-
-
-class VkDeviceQueueCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("queueFamilyIndex", c_uint32), ("queueCount", c_uint32),
-        ("pQueuePriorities", c_void_p),
-    ]
-
-
-class VkDeviceCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("queueCreateInfoCount", c_uint32), ("pQueueCreateInfos", c_void_p),
-        ("enabledLayerCount", c_uint32), ("ppEnabledLayerNames", c_void_p),
-        ("enabledExtensionCount", c_uint32), ("ppEnabledExtensionNames", c_void_p),
-        ("pEnabledFeatures", c_void_p),
-    ]
-
-
-class VkExtent2D(ctypes.Structure):
-    _fields_ = [("width", c_uint32), ("height", c_uint32)]
-
-
-class VkExtent3D(ctypes.Structure):
-    _fields_ = [("width", c_uint32), ("height", c_uint32), ("depth", c_uint32)]
-
-
-class VkOffset2D(ctypes.Structure):
-    _fields_ = [("x", c_int32), ("y", c_int32)]
-
-
-class VkOffset3D(ctypes.Structure):
-    _fields_ = [("x", c_int32), ("y", c_int32), ("z", c_int32)]
-
-
-class VkRect2D(ctypes.Structure):
-    _fields_ = [("offset", VkOffset2D), ("extent", VkExtent2D)]
-
-
-class VkSurfaceCapabilitiesKHR(ctypes.Structure):
-    _fields_ = [
-        ("minImageCount", c_uint32), ("maxImageCount", c_uint32),
-        ("currentExtent", VkExtent2D), ("minImageExtent", VkExtent2D),
-        ("maxImageExtent", VkExtent2D), ("maxImageArrayLayers", c_uint32),
-        ("supportedTransforms", c_uint32), ("currentTransform", c_uint32),
-        ("supportedCompositeAlpha", c_uint32), ("supportedUsageFlags", c_uint32),
-    ]
-
-
-class VkSurfaceFormatKHR(ctypes.Structure):
-    _fields_ = [("format", c_uint32), ("colorSpace", c_uint32)]
-
-
-class VkSwapchainCreateInfoKHR(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("surface", c_uint64), ("minImageCount", c_uint32), ("imageFormat", c_uint32),
-        ("imageColorSpace", c_uint32), ("imageExtent", VkExtent2D),
-        ("imageArrayLayers", c_uint32), ("imageUsage", c_uint32),
-        ("imageSharingMode", c_uint32), ("queueFamilyIndexCount", c_uint32),
-        ("pQueueFamilyIndices", c_void_p), ("preTransform", c_uint32),
-        ("compositeAlpha", c_uint32), ("presentMode", c_uint32),
-        ("clipped", c_uint32), ("oldSwapchain", c_uint64),
-    ]
-
-
-class VkImageCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("imageType", c_uint32), ("format", c_uint32), ("extent", VkExtent3D),
-        ("mipLevels", c_uint32), ("arrayLayers", c_uint32), ("samples", c_uint32),
-        ("tiling", c_uint32), ("usage", c_uint32), ("sharingMode", c_uint32),
-        ("queueFamilyIndexCount", c_uint32), ("pQueueFamilyIndices", c_void_p),
-        ("initialLayout", c_uint32),
-    ]
-
-
-class VkImageViewCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("image", c_uint64), ("viewType", c_uint32), ("format", c_uint32),
-        ("r", c_uint32), ("g", c_uint32), ("b", c_uint32), ("a", c_uint32),
-        ("aspectMask", c_uint32), ("baseMipLevel", c_uint32), ("levelCount", c_uint32),
-        ("baseArrayLayer", c_uint32), ("layerCount", c_uint32),
-    ]
-
-
-class VkSamplerCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("magFilter", c_uint32), ("minFilter", c_uint32), ("mipmapMode", c_uint32),
-        ("addressModeU", c_uint32), ("addressModeV", c_uint32), ("addressModeW", c_uint32),
-        ("mipLodBias", c_float), ("anisotropyEnable", c_uint32), ("maxAnisotropy", c_float),
-        ("compareEnable", c_uint32), ("compareOp", c_uint32),
-        ("minLod", c_float), ("maxLod", c_float), ("borderColor", c_uint32),
-        ("unnormalizedCoordinates", c_uint32),
-    ]
-
-
-class VkAttachmentDescription(ctypes.Structure):
-    _fields_ = [
-        ("flags", c_uint32), ("format", c_uint32), ("samples", c_uint32),
-        ("loadOp", c_uint32), ("storeOp", c_uint32),
-        ("stencilLoadOp", c_uint32), ("stencilStoreOp", c_uint32),
-        ("initialLayout", c_uint32), ("finalLayout", c_uint32),
-    ]
-
-
-class VkAttachmentReference(ctypes.Structure):
-    _fields_ = [("attachment", c_uint32), ("layout", c_uint32)]
-
-
-class VkSubpassDescription(ctypes.Structure):
-    _fields_ = [
-        ("flags", c_uint32), ("pipelineBindPoint", c_uint32),
-        ("inputAttachmentCount", c_uint32), ("pInputAttachments", c_void_p),
-        ("colorAttachmentCount", c_uint32), ("pColorAttachments", c_void_p),
-        ("pResolveAttachments", c_void_p), ("pDepthStencilAttachment", c_void_p),
-        ("preserveAttachmentCount", c_uint32), ("pPreserveAttachments", c_void_p),
-    ]
-
-
-class VkSubpassDependency(ctypes.Structure):
-    _fields_ = [
-        ("srcSubpass", c_uint32), ("dstSubpass", c_uint32),
-        ("srcStageMask", c_uint32), ("dstStageMask", c_uint32),
-        ("srcAccessMask", c_uint32), ("dstAccessMask", c_uint32),
-        ("dependencyFlags", c_uint32),
-    ]
-
-
-class VkRenderPassCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("attachmentCount", c_uint32), ("pAttachments", c_void_p),
-        ("subpassCount", c_uint32), ("pSubpasses", c_void_p),
-        ("dependencyCount", c_uint32), ("pDependencies", c_void_p),
-    ]
-
-
-class VkFramebufferCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("renderPass", c_uint64), ("attachmentCount", c_uint32),
-        ("pAttachments", c_void_p), ("width", c_uint32), ("height", c_uint32),
-        ("layers", c_uint32),
-    ]
-
-
-class VkShaderModuleCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("codeSize", c_size_t), ("pCode", c_void_p),
-    ]
-
-
-class VkPipelineShaderStageCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("stage", c_uint32), ("module", c_uint64), ("pName", c_char_p),
-        ("pSpecializationInfo", c_void_p),
-    ]
-
-
-class VkPipelineVertexInputStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("vertexBindingDescriptionCount", c_uint32), ("pVertexBindingDescriptions", c_void_p),
-        ("vertexAttributeDescriptionCount", c_uint32), ("pVertexAttributeDescriptions", c_void_p),
-    ]
-
-
-class VkPipelineInputAssemblyStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("topology", c_uint32), ("primitiveRestartEnable", c_uint32),
-    ]
-
-
-class VkPipelineViewportStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("viewportCount", c_uint32), ("pViewports", c_void_p),
-        ("scissorCount", c_uint32), ("pScissors", c_void_p),
-    ]
-
-
-class VkPipelineRasterizationStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("depthClampEnable", c_uint32), ("rasterizerDiscardEnable", c_uint32),
-        ("polygonMode", c_uint32), ("cullMode", c_uint32), ("frontFace", c_uint32),
-        ("depthBiasEnable", c_uint32), ("depthBiasConstantFactor", c_float),
-        ("depthBiasClamp", c_float), ("depthBiasSlopeFactor", c_float),
-        ("lineWidth", c_float),
-    ]
-
-
-class VkPipelineMultisampleStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("rasterizationSamples", c_uint32), ("sampleShadingEnable", c_uint32),
-        ("minSampleShading", c_float), ("pSampleMask", c_void_p),
-        ("alphaToCoverageEnable", c_uint32), ("alphaToOneEnable", c_uint32),
-    ]
-
-
-class VkPipelineColorBlendAttachmentState(ctypes.Structure):
-    _fields_ = [
-        ("blendEnable", c_uint32), ("srcColorBlendFactor", c_uint32),
-        ("dstColorBlendFactor", c_uint32), ("colorBlendOp", c_uint32),
-        ("srcAlphaBlendFactor", c_uint32), ("dstAlphaBlendFactor", c_uint32),
-        ("alphaBlendOp", c_uint32), ("colorWriteMask", c_uint32),
-    ]
-
-
-class VkPipelineColorBlendStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("logicOpEnable", c_uint32), ("logicOp", c_uint32),
-        ("attachmentCount", c_uint32), ("pAttachments", c_void_p),
-        ("blendConstants", c_float * 4),
-    ]
-
-
-class VkPipelineDynamicStateCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("dynamicStateCount", c_uint32), ("pDynamicStates", c_void_p),
-    ]
-
-
-class VkPipelineLayoutCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("setLayoutCount", c_uint32), ("pSetLayouts", c_void_p),
-        ("pushConstantRangeCount", c_uint32), ("pPushConstantRanges", c_void_p),
-    ]
-
-
-class VkGraphicsPipelineCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("stageCount", c_uint32), ("pStages", c_void_p),
-        ("pVertexInputState", c_void_p), ("pInputAssemblyState", c_void_p),
-        ("pTessellationState", c_void_p), ("pViewportState", c_void_p),
-        ("pRasterizationState", c_void_p), ("pMultisampleState", c_void_p),
-        ("pDepthStencilState", c_void_p), ("pColorBlendState", c_void_p),
-        ("pDynamicState", c_void_p), ("layout", c_uint64), ("renderPass", c_uint64),
-        ("subpass", c_uint32), ("basePipelineHandle", c_uint64),
-        ("basePipelineIndex", c_int32),
-    ]
-
-
-class VkDescriptorSetLayoutBinding(ctypes.Structure):
-    _fields_ = [
-        ("binding", c_uint32), ("descriptorType", c_uint32),
-        ("descriptorCount", c_uint32), ("stageFlags", c_uint32),
-        ("pImmutableSamplers", c_void_p),
-    ]
-
-
-class VkDescriptorSetLayoutCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("bindingCount", c_uint32), ("pBindings", c_void_p),
-    ]
-
-
-class VkDescriptorPoolSize(ctypes.Structure):
-    _fields_ = [("type", c_uint32), ("descriptorCount", c_uint32)]
-
-
-class VkDescriptorPoolCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("maxSets", c_uint32), ("poolSizeCount", c_uint32), ("pPoolSizes", c_void_p),
-    ]
-
-
-class VkDescriptorSetAllocateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("descriptorPool", c_uint64),
-        ("descriptorSetCount", c_uint32), ("pSetLayouts", c_void_p),
-    ]
-
-
-class VkDescriptorBufferInfo(ctypes.Structure):
-    _fields_ = [("buffer", c_uint64), ("offset", c_uint64), ("range", c_uint64)]
-
-
-class VkDescriptorImageInfo(ctypes.Structure):
-    _fields_ = [("sampler", c_uint64), ("imageView", c_uint64), ("imageLayout", c_uint32)]
-
-
-class VkWriteDescriptorSet(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("dstSet", c_uint64),
-        ("dstBinding", c_uint32), ("dstArrayElement", c_uint32),
-        ("descriptorCount", c_uint32), ("descriptorType", c_uint32),
-        ("pImageInfo", c_void_p), ("pBufferInfo", c_void_p),
-        ("pTexelBufferView", c_void_p),
-    ]
-
-
-class VkBufferCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("size", c_uint64), ("usage", c_uint32), ("sharingMode", c_uint32),
-        ("queueFamilyIndexCount", c_uint32), ("pQueueFamilyIndices", c_void_p),
-    ]
-
-
-class VkMemoryAllocateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p),
-        ("allocationSize", c_uint64), ("memoryTypeIndex", c_uint32),
-    ]
-
-
-class VkMemoryRequirements(ctypes.Structure):
-    _fields_ = [
-        ("size", c_uint64), ("alignment", c_uint64), ("memoryTypeBits", c_uint32),
-    ]
-
-
-class VkMemoryType(ctypes.Structure):
-    _fields_ = [("propertyFlags", c_uint32), ("heapIndex", c_uint32)]
-
-
-class VkMemoryHeap(ctypes.Structure):
-    _fields_ = [("size", c_uint64), ("flags", c_uint32), ("_pad", c_uint32)]
-
-
-class VkPhysicalDeviceMemoryProperties(ctypes.Structure):
-    _fields_ = [
-        ("memoryTypeCount", c_uint32),
-        ("memoryTypes", VkMemoryType * 32),
-        ("memoryHeapCount", c_uint32),
-        ("memoryHeaps", VkMemoryHeap * 16),
-    ]
-
-
-class VkQueueFamilyProperties(ctypes.Structure):
-    _fields_ = [
-        ("queueFlags", c_uint32), ("queueCount", c_uint32),
-        ("timestampValidBits", c_uint32), ("minImageTransferGranularity", VkExtent3D),
-    ]
-
-
-class VkCommandPoolCreateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("queueFamilyIndex", c_uint32),
-    ]
-
-
-class VkCommandBufferAllocateInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("commandPool", c_uint64),
-        ("level", c_uint32), ("commandBufferCount", c_uint32),
-    ]
-
-
-class VkCommandBufferBeginInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
-        ("pInheritanceInfo", c_void_p),
-    ]
-
-
-class VkClearValue(ctypes.Structure):
-    _fields_ = [("color", c_float * 4)]
-
-
-class VkRenderPassBeginInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p), ("renderPass", c_uint64),
-        ("framebuffer", c_uint64), ("renderArea", VkRect2D),
-        ("clearValueCount", c_uint32), ("pClearValues", c_void_p),
-    ]
-
-
-class VkViewport(ctypes.Structure):
-    _fields_ = [
-        ("x", c_float), ("y", c_float), ("width", c_float), ("height", c_float),
-        ("minDepth", c_float), ("maxDepth", c_float),
-    ]
-
-
-class VkSubmitInfo(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p),
-        ("waitSemaphoreCount", c_uint32), ("pWaitSemaphores", c_void_p),
-        ("pWaitDstStageMask", c_void_p), ("commandBufferCount", c_uint32),
-        ("pCommandBuffers", c_void_p), ("signalSemaphoreCount", c_uint32),
-        ("pSignalSemaphores", c_void_p),
-    ]
-
-
-class VkPresentInfoKHR(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p),
-        ("waitSemaphoreCount", c_uint32), ("pWaitSemaphores", c_void_p),
-        ("swapchainCount", c_uint32), ("pSwapchains", c_void_p),
-        ("pImageIndices", c_void_p), ("pResults", c_void_p),
-    ]
-
-
-class VkBufferMemoryBarrier(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p),
-        ("srcAccessMask", c_uint32), ("dstAccessMask", c_uint32),
-        ("srcQueueFamilyIndex", c_uint32), ("dstQueueFamilyIndex", c_uint32),
-        ("buffer", c_uint64), ("offset", c_uint64), ("size", c_uint64),
-    ]
-
-
-class VkImageSubresourceRange(ctypes.Structure):
-    _fields_ = [
-        ("aspectMask", c_uint32), ("baseMipLevel", c_uint32), ("levelCount", c_uint32),
-        ("baseArrayLayer", c_uint32), ("layerCount", c_uint32),
-    ]
-
-
-class VkImageMemoryBarrier(ctypes.Structure):
-    _fields_ = [
-        ("sType", c_uint32), ("pNext", c_void_p),
-        ("srcAccessMask", c_uint32), ("dstAccessMask", c_uint32),
-        ("oldLayout", c_uint32), ("newLayout", c_uint32),
-        ("srcQueueFamilyIndex", c_uint32), ("dstQueueFamilyIndex", c_uint32),
-        ("image", c_uint64), ("subresourceRange", VkImageSubresourceRange),
-    ]
-
-
-class VkImageSubresourceLayers(ctypes.Structure):
-    _fields_ = [
-        ("aspectMask", c_uint32), ("mipLevel", c_uint32),
-        ("baseArrayLayer", c_uint32), ("layerCount", c_uint32),
-    ]
-
-
-class VkBufferImageCopy(ctypes.Structure):
-    _fields_ = [
-        ("bufferOffset", c_uint64), ("bufferRowLength", c_uint32),
-        ("bufferImageHeight", c_uint32), ("imageSubresource", VkImageSubresourceLayers),
-        ("imageOffset", VkOffset3D), ("imageExtent", VkExtent3D),
-    ]
-
-
-class VkFenceCreateInfo(ctypes.Structure):
-    _fields_ = [("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32)]
-
-
-class VkSemaphoreCreateInfo(ctypes.Structure):
-    _fields_ = [("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32)]
-
-
-class VisualizerUBO(ctypes.Structure):
-    _fields_ = [
-        ("res", c_float * 4),     # width, height, accum_time, is_playing
-        ("audio0", c_float * 4),  # sub_bass, bass, low_mid, mid
-        ("audio1", c_float * 4),  # high_mid, treble, air, rms_energy
-        ("audio2", c_float * 4),  # beat_pulse, bass_phase, mid_phase, high_phase
-        ("bands0", c_float * 4),  # spectrum bands 0..3
-        ("bands1", c_float * 4),  # spectrum bands 4..7
-        ("bands2", c_float * 4),  # spectrum bands 8..11
-        ("bands3", c_float * 4),  # spectrum bands 12..15
-        ("preset", c_float * 4),  # preset_id, pitch_factor, dyn_range, seed
-    ]
-
-
-def _api_version(major, minor, patch=0):
-    return (major << 22) | (minor << 12) | patch
-
-
+NVIDIA_VENDOR_ID, DISCRETE_GPU = 0x10DE, 2
+(ST_APPLICATION_INFO, ST_INSTANCE_CREATE_INFO, ST_DEVICE_QUEUE_CREATE_INFO, ST_DEVICE_CREATE_INFO, ST_SUBMIT_INFO,
+ ST_MEMORY_ALLOCATE_INFO, ST_FENCE_CREATE_INFO, ST_SEMAPHORE_CREATE_INFO, ST_BUFFER_CREATE_INFO, ST_IMAGE_CREATE_INFO,
+ ST_IMAGE_VIEW_CREATE_INFO, ST_SHADER_MODULE_CREATE_INFO, ST_PIPELINE_SHADER_STAGE, ST_PIPELINE_VERTEX_INPUT,
+ ST_PIPELINE_INPUT_ASSEMBLY, ST_PIPELINE_VIEWPORT, ST_PIPELINE_RASTER, ST_PIPELINE_MULTISAMPLE, ST_PIPELINE_COLOR_BLEND,
+ ST_PIPELINE_DYNAMIC, ST_GRAPHICS_PIPELINE, ST_PIPELINE_LAYOUT, ST_SAMPLER_CREATE_INFO, ST_DESCRIPTOR_SET_LAYOUT,
+ ST_DESCRIPTOR_POOL, ST_DESCRIPTOR_SET_ALLOCATE, ST_WRITE_DESCRIPTOR_SET, ST_FRAMEBUFFER, ST_RENDER_PASS,
+ ST_COMMAND_POOL, ST_COMMAND_BUFFER_ALLOCATE, ST_COMMAND_BUFFER_BEGIN, ST_RENDER_PASS_BEGIN, ST_BUFFER_MEMORY_BARRIER,
+ ST_IMAGE_MEMORY_BARRIER, ST_SWAPCHAIN_CREATE, ST_PRESENT_INFO) = (
+    0, 1, 2, 3, 4, 5, 8, 9, 12, 14, 15, 16, 18, 19, 20, 22, 23, 24, 26, 27, 28, 30, 31, 32, 33, 34, 35, 37, 38, 39, 40, 42, 43, 44, 45, 1000001000, 1000001001
+)
+
+QUEUE_GRAPHICS = IMAGE_USAGE_TRANSFER_SRC = BUFFER_USAGE_TRANSFER_SRC = COMPOSITE_OPAQUE = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR = TRANSFORM_IDENTITY = IMAGE_TYPE_2D = IMAGE_VIEW_2D = IMAGE_ASPECT_COLOR = SAMPLE_1 = LOAD_CLEAR = STORE_DONT = STAGE_TOP = STAGE_VERTEX_BIT = CMD_ONE_TIME = FENCE_SIGNALED = DYNAMIC_SCISSOR = DESCRIPTOR_COMBINED_IMAGE_SAMPLER = SHADER_VERTEX = MEMORY_DEVICE_LOCAL = FILTER_LINEAR = SAMPLER_MIPMAP_LINEAR = GLFW_TRUE = GLFW_PRESS = 1
+IMAGE_USAGE_TRANSFER_DST = BUFFER_USAGE_TRANSFER_DST = COMPOSITE_PRE_MULTIPLIED = PRESENT_FIFO = LOAD_DONT = LAYOUT_COLOR = CMD_POOL_RESET = MEMORY_HOST_VISIBLE = 2
+SHARING_EXCLUSIVE = TILING_OPTIMAL = STORE_STORE = LAYOUT_UNDEFINED = DYNAMIC_VIEWPORT = SUCCESS = SAMPLER_ADDRESS_REPEAT = GLFW_NO_API = GLFW_FALSE = 0
+IMAGE_USAGE_SAMPLED = COMPOSITE_POST_MULTIPLIED = MEMORY_HOST_COHERENT = 4
+COMPOSITE_INHERIT = ACCESS_UNIFORM = 8
+IMAGE_USAGE_COLOR = BUFFER_USAGE_UNIFORM = STAGE_FRAGMENT_BIT = SHADER_FRAGMENT = 0x10
+FORMAT_R8G8B8A8_UNORM, FORMAT_B8G8R8A8_UNORM, FORMAT_B8G8R8A8_SRGB = 37, 44, 50
+LAYOUT_SHADER_READ_ONLY, LAYOUT_TRANSFER_SRC, LAYOUT_TRANSFER_DST, LAYOUT_PRESENT = 5, 6, 7, 1000001002
+SUBPASS_EXTERNAL = QUEUE_FAMILY_IGNORED = 0xFFFFFFFF
+STAGE_FRAGMENT, STAGE_COLOR_OUT, STAGE_TRANSFER, STAGE_BOTTOM, STAGE_HOST = 0x80, 0x400, 0x1000, 0x2000, 0x4000
+ACCESS_SHADER_READ, ACCESS_COLOR_WRITE, ACCESS_TRANSFER_READ, ACCESS_TRANSFER_WRITE, ACCESS_HOST_WRITE, ACCESS_MEMORY_READ = 0x20, 0x100, 0x800, 0x1000, 0x4000, 0x8000
+TOPOLOGY_TRIANGLE_LIST, COLOR_WRITE_ALL, DESCRIPTOR_UNIFORM = 3, 0xF, 6
+SUBOPTIMAL, OUT_OF_DATE = 1000001003, -1000001004
+
+GLFW_CLIENT_API, GLFW_RESIZABLE, GLFW_VISIBLE, GLFW_DECORATED = 0x00022001, 0x00020003, 0x00020004, 0x00020005
+GLFW_FOCUSED, GLFW_AUTO_ICONIFY, GLFW_FLOATING, GLFW_ICONIFIED = 0x00020001, 0x00020006, 0x00020007, 0x00020002
+GLFW_FOCUS_ON_SHOW, GLFW_PLATFORM, GLFW_PLATFORM_X11, GLFW_DONT_CARE = 0x0002000C, 0x00050003, 0x00060004, -1
+GLFW_KEY_ESCAPE, GLFW_KEY_Q, GLFW_KEY_Z, GLFW_KEY_SPACE = 256, 81, 90, 32
+GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6, GLFW_KEY_7, GLFW_KEY_8, GLFW_KEY_9 = range(49, 58)
+
+def _S(name: str, *fields: Tuple[str, Any]):
+    return type(name, (Structure,), {"_fields_": list(fields)})
+
+U32, I32, U64, F32, VP, CP = c_uint32, c_int32, c_uint64, c_float, c_void_p, c_char_p
+GLFWvidmode = _S("GLFWvidmode", ("width", c_int), ("height", c_int), ("redBits", c_int), ("greenBits", c_int), ("blueBits", c_int), ("refreshRate", c_int))
+VkApplicationInfo = _S("VkApplicationInfo", ("sType", U32), ("pNext", VP), ("pApplicationName", CP), ("applicationVersion", U32), ("pEngineName", CP), ("engineVersion", U32), ("apiVersion", U32))
+VkInstanceCreateInfo = _S("VkInstanceCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("pApplicationInfo", VP), ("enabledLayerCount", U32), ("ppEnabledLayerNames", VP), ("enabledExtensionCount", U32), ("ppEnabledExtensionNames", VP))
+VkDeviceQueueCreateInfo = _S("VkDeviceQueueCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("queueFamilyIndex", U32), ("queueCount", U32), ("pQueuePriorities", VP))
+VkDeviceCreateInfo = _S("VkDeviceCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("queueCreateInfoCount", U32), ("pQueueCreateInfos", VP), ("enabledLayerCount", U32), ("ppEnabledLayerNames", VP), ("enabledExtensionCount", U32), ("ppEnabledExtensionNames", VP), ("pEnabledFeatures", VP))
+VkExtent2D = _S("VkExtent2D", ("width", U32), ("height", U32))
+VkExtent3D = _S("VkExtent3D", ("width", U32), ("height", U32), ("depth", U32))
+VkOffset2D = _S("VkOffset2D", ("x", I32), ("y", I32))
+VkOffset3D = _S("VkOffset3D", ("x", I32), ("y", I32), ("z", I32))
+VkRect2D = _S("VkRect2D", ("offset", VkOffset2D), ("extent", VkExtent2D))
+VkSurfaceCapabilitiesKHR = _S("VkSurfaceCapabilitiesKHR", ("minImageCount", U32), ("maxImageCount", U32), ("currentExtent", VkExtent2D), ("minImageExtent", VkExtent2D), ("maxImageExtent", VkExtent2D), ("maxImageArrayLayers", U32), ("supportedTransforms", U32), ("currentTransform", U32), ("supportedCompositeAlpha", U32), ("supportedUsageFlags", U32))
+VkSurfaceFormatKHR = _S("VkSurfaceFormatKHR", ("format", U32), ("colorSpace", U32))
+VkSwapchainCreateInfoKHR = _S("VkSwapchainCreateInfoKHR", ("sType", U32), ("pNext", VP), ("flags", U32), ("surface", U64), ("minImageCount", U32), ("imageFormat", U32), ("imageColorSpace", U32), ("imageExtent", VkExtent2D), ("imageArrayLayers", U32), ("imageUsage", U32), ("imageSharingMode", U32), ("queueFamilyIndexCount", U32), ("pQueueFamilyIndices", VP), ("preTransform", U32), ("compositeAlpha", U32), ("presentMode", U32), ("clipped", U32), ("oldSwapchain", U64))
+VkImageCreateInfo = _S("VkImageCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("imageType", U32), ("format", U32), ("extent", VkExtent3D), ("mipLevels", U32), ("arrayLayers", U32), ("samples", U32), ("tiling", U32), ("usage", U32), ("sharingMode", U32), ("queueFamilyIndexCount", U32), ("pQueueFamilyIndices", VP), ("initialLayout", U32))
+VkImageViewCreateInfo = _S("VkImageViewCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("image", U64), ("viewType", U32), ("format", U32), ("r", U32), ("g", U32), ("b", U32), ("a", U32), ("aspectMask", U32), ("baseMipLevel", U32), ("levelCount", U32), ("baseArrayLayer", U32), ("layerCount", U32))
+VkSamplerCreateInfo = _S("VkSamplerCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("magFilter", U32), ("minFilter", U32), ("mipmapMode", U32), ("addressModeU", U32), ("addressModeV", U32), ("addressModeW", U32), ("mipLodBias", F32), ("anisotropyEnable", U32), ("maxAnisotropy", F32), ("compareEnable", U32), ("compareOp", U32), ("minLod", F32), ("maxLod", F32), ("borderColor", U32), ("unnormalizedCoordinates", U32))
+VkAttachmentDescription = _S("VkAttachmentDescription", ("flags", U32), ("format", U32), ("samples", U32), ("loadOp", U32), ("storeOp", U32), ("stencilLoadOp", U32), ("stencilStoreOp", U32), ("initialLayout", U32), ("finalLayout", U32))
+VkAttachmentReference = _S("VkAttachmentReference", ("attachment", U32), ("layout", U32))
+VkSubpassDescription = _S("VkSubpassDescription", ("flags", U32), ("pipelineBindPoint", U32), ("inputAttachmentCount", U32), ("pInputAttachments", VP), ("colorAttachmentCount", U32), ("pColorAttachments", VP), ("pResolveAttachments", VP), ("pDepthStencilAttachment", VP), ("preserveAttachmentCount", U32), ("pPreserveAttachments", VP))
+VkSubpassDependency = _S("VkSubpassDependency", ("srcSubpass", U32), ("dstSubpass", U32), ("srcStageMask", U32), ("dstStageMask", U32), ("srcAccessMask", U32), ("dstAccessMask", U32), ("dependencyFlags", U32))
+VkRenderPassCreateInfo = _S("VkRenderPassCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("attachmentCount", U32), ("pAttachments", VP), ("subpassCount", U32), ("pSubpasses", VP), ("dependencyCount", U32), ("pDependencies", VP))
+VkFramebufferCreateInfo = _S("VkFramebufferCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("renderPass", U64), ("attachmentCount", U32), ("pAttachments", VP), ("width", U32), ("height", U32), ("layers", U32))
+VkShaderModuleCreateInfo = _S("VkShaderModuleCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("codeSize", c_size_t), ("pCode", VP))
+VkPipelineShaderStageCreateInfo = _S("VkPipelineShaderStageCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("stage", U32), ("module", U64), ("pName", CP), ("pSpecializationInfo", VP))
+VkPipelineVertexInputStateCreateInfo = _S("VkPipelineVertexInputStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("vertexBindingDescriptionCount", U32), ("pVertexBindingDescriptions", VP), ("vertexAttributeDescriptionCount", U32), ("pVertexAttributeDescriptions", VP))
+VkPipelineInputAssemblyStateCreateInfo = _S("VkPipelineInputAssemblyStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("topology", U32), ("primitiveRestartEnable", U32))
+VkPipelineViewportStateCreateInfo = _S("VkPipelineViewportStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("viewportCount", U32), ("pViewports", VP), ("scissorCount", U32), ("pScissors", VP))
+VkPipelineRasterizationStateCreateInfo = _S("VkPipelineRasterizationStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("depthClampEnable", U32), ("rasterizerDiscardEnable", U32), ("polygonMode", U32), ("cullMode", U32), ("frontFace", U32), ("depthBiasEnable", U32), ("depthBiasConstantFactor", F32), ("depthBiasClamp", F32), ("depthBiasSlopeFactor", F32), ("lineWidth", F32))
+VkPipelineMultisampleStateCreateInfo = _S("VkPipelineMultisampleStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("rasterizationSamples", U32), ("sampleShadingEnable", U32), ("minSampleShading", F32), ("pSampleMask", VP), ("alphaToCoverageEnable", U32), ("alphaToOneEnable", U32))
+VkPipelineColorBlendAttachmentState = _S("VkPipelineColorBlendAttachmentState", ("blendEnable", U32), ("srcColorBlendFactor", U32), ("dstColorBlendFactor", U32), ("colorBlendOp", U32), ("srcAlphaBlendFactor", U32), ("dstAlphaBlendFactor", U32), ("alphaBlendOp", U32), ("colorWriteMask", U32))
+VkPipelineColorBlendStateCreateInfo = _S("VkPipelineColorBlendStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("logicOpEnable", U32), ("logicOp", U32), ("attachmentCount", U32), ("pAttachments", VP), ("blendConstants", F32 * 4))
+VkPipelineDynamicStateCreateInfo = _S("VkPipelineDynamicStateCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("dynamicStateCount", U32), ("pDynamicStates", VP))
+VkPipelineLayoutCreateInfo = _S("VkPipelineLayoutCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("setLayoutCount", U32), ("pSetLayouts", VP), ("pushConstantRangeCount", U32), ("pPushConstantRanges", VP))
+VkGraphicsPipelineCreateInfo = _S("VkGraphicsPipelineCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("stageCount", U32), ("pStages", VP), ("pVertexInputState", VP), ("pInputAssemblyState", VP), ("pTessellationState", VP), ("pViewportState", VP), ("pRasterizationState", VP), ("pMultisampleState", VP), ("pDepthStencilState", VP), ("pColorBlendState", VP), ("pDynamicState", VP), ("layout", U64), ("renderPass", U64), ("subpass", U32), ("basePipelineHandle", U64), ("basePipelineIndex", I32))
+VkDescriptorSetLayoutBinding = _S("VkDescriptorSetLayoutBinding", ("binding", U32), ("descriptorType", U32), ("descriptorCount", U32), ("stageFlags", U32), ("pImmutableSamplers", VP))
+VkDescriptorSetLayoutCreateInfo = _S("VkDescriptorSetLayoutCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("bindingCount", U32), ("pBindings", VP))
+VkDescriptorPoolSize = _S("VkDescriptorPoolSize", ("type", U32), ("descriptorCount", U32))
+VkDescriptorPoolCreateInfo = _S("VkDescriptorPoolCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("maxSets", U32), ("poolSizeCount", U32), ("pPoolSizes", VP))
+VkDescriptorSetAllocateInfo = _S("VkDescriptorSetAllocateInfo", ("sType", U32), ("pNext", VP), ("descriptorPool", U64), ("descriptorSetCount", U32), ("pSetLayouts", VP))
+VkDescriptorBufferInfo = _S("VkDescriptorBufferInfo", ("buffer", U64), ("offset", U64), ("range", U64))
+VkDescriptorImageInfo = _S("VkDescriptorImageInfo", ("sampler", U64), ("imageView", U64), ("imageLayout", U32))
+VkWriteDescriptorSet = _S("VkWriteDescriptorSet", ("sType", U32), ("pNext", VP), ("dstSet", U64), ("dstBinding", U32), ("dstArrayElement", U32), ("descriptorCount", U32), ("descriptorType", U32), ("pImageInfo", VP), ("pBufferInfo", VP), ("pTexelBufferView", VP))
+VkBufferCreateInfo = _S("VkBufferCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("size", U64), ("usage", U32), ("sharingMode", U32), ("queueFamilyIndexCount", U32), ("pQueueFamilyIndices", VP))
+VkMemoryAllocateInfo = _S("VkMemoryAllocateInfo", ("sType", U32), ("pNext", VP), ("allocationSize", U64), ("memoryTypeIndex", U32))
+VkMemoryRequirements = _S("VkMemoryRequirements", ("size", U64), ("alignment", U64), ("memoryTypeBits", U32))
+VkMemoryType = _S("VkMemoryType", ("propertyFlags", U32), ("heapIndex", U32))
+VkMemoryHeap = _S("VkMemoryHeap", ("size", U64), ("flags", U32), ("_pad", U32))
+VkPhysicalDeviceMemoryProperties = _S("VkPhysicalDeviceMemoryProperties", ("memoryTypeCount", U32), ("memoryTypes", VkMemoryType * 32), ("memoryHeapCount", U32), ("memoryHeaps", VkMemoryHeap * 16))
+VkQueueFamilyProperties = _S("VkQueueFamilyProperties", ("queueFlags", U32), ("queueCount", U32), ("timestampValidBits", U32), ("minImageTransferGranularity", VkExtent3D))
+VkCommandPoolCreateInfo = _S("VkCommandPoolCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("queueFamilyIndex", U32))
+VkCommandBufferAllocateInfo = _S("VkCommandBufferAllocateInfo", ("sType", U32), ("pNext", VP), ("commandPool", U64), ("level", U32), ("commandBufferCount", U32))
+VkCommandBufferBeginInfo = _S("VkCommandBufferBeginInfo", ("sType", U32), ("pNext", VP), ("flags", U32), ("pInheritanceInfo", VP))
+VkClearValue = _S("VkClearValue", ("color", F32 * 4))
+VkRenderPassBeginInfo = _S("VkRenderPassBeginInfo", ("sType", U32), ("pNext", VP), ("renderPass", U64), ("framebuffer", U64), ("renderArea", VkRect2D), ("clearValueCount", U32), ("pClearValues", VP))
+VkViewport = _S("VkViewport", ("x", F32), ("y", F32), ("width", F32), ("height", F32), ("minDepth", F32), ("maxDepth", F32))
+VkSubmitInfo = _S("VkSubmitInfo", ("sType", U32), ("pNext", VP), ("waitSemaphoreCount", U32), ("pWaitSemaphores", VP), ("pWaitDstStageMask", VP), ("commandBufferCount", U32), ("pCommandBuffers", VP), ("signalSemaphoreCount", U32), ("pSignalSemaphores", VP))
+VkPresentInfoKHR = _S("VkPresentInfoKHR", ("sType", U32), ("pNext", VP), ("waitSemaphoreCount", U32), ("pWaitSemaphores", VP), ("swapchainCount", U32), ("pSwapchains", VP), ("pImageIndices", VP), ("pResults", VP))
+VkBufferMemoryBarrier = _S("VkBufferMemoryBarrier", ("sType", U32), ("pNext", VP), ("srcAccessMask", U32), ("dstAccessMask", U32), ("srcQueueFamilyIndex", U32), ("dstQueueFamilyIndex", U32), ("buffer", U64), ("offset", U64), ("size", U64))
+VkImageSubresourceRange = _S("VkImageSubresourceRange", ("aspectMask", U32), ("baseMipLevel", U32), ("levelCount", U32), ("baseArrayLayer", U32), ("layerCount", U32))
+VkImageMemoryBarrier = _S("VkImageMemoryBarrier", ("sType", U32), ("pNext", VP), ("srcAccessMask", U32), ("dstAccessMask", U32), ("oldLayout", U32), ("newLayout", U32), ("srcQueueFamilyIndex", U32), ("dstQueueFamilyIndex", U32), ("image", U64), ("subresourceRange", VkImageSubresourceRange))
+VkImageSubresourceLayers = _S("VkImageSubresourceLayers", ("aspectMask", U32), ("mipLevel", U32), ("baseArrayLayer", U32), ("layerCount", U32))
+VkBufferImageCopy = _S("VkBufferImageCopy", ("bufferOffset", U64), ("bufferRowLength", U32), ("bufferImageHeight", U32), ("imageSubresource", VkImageSubresourceLayers), ("imageOffset", VkOffset3D), ("imageExtent", VkExtent3D))
+VkFenceCreateInfo = _S("VkFenceCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32))
+VkSemaphoreCreateInfo = _S("VkSemaphoreCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32))
+VisualizerUBO = _S("VisualizerUBO", ("res", F32 * 4), ("audio0", F32 * 4), ("audio1", F32 * 4), ("audio2", F32 * 4), ("bands0", F32 * 4), ("bands1", F32 * 4), ("bands2", F32 * 4), ("bands3", F32 * 4), ("preset", F32 * 4))
+_VkExtProp = _S("_VkExtProp", ("extensionName", c_char * 256), ("specVersion", U32))
+_WinPOINT = _S("_WinPOINT", ("x", c_int), ("y", c_int))
+
+def _api_version(major, minor, patch=0): return (major << 22) | (minor << 12) | patch
 def _check(result, what):
-    if result != SUCCESS:
-        raise RuntimeError(f"{what} failed with Vulkan result {result}")
+    if result != SUCCESS: raise RuntimeError(f"{what} failed with Vulkan result {result}")
     return result
-
-
-def _addr(obj):
-    return ctypes.cast(byref(obj), c_void_p)
-
-
+def _addr(obj): return cast(byref(obj), VP)
 def _load(getter, owner, name, restype, argtypes):
     raw = getter(owner, name.encode())
-    if not raw:
-        raise RuntimeError(f"Vulkan entry point {name} is missing")
+    if not raw: raise RuntimeError(f"Vulkan entry point {name} is missing")
     return CFUNCTYPE(restype, *argtypes)(raw)
 
-
 def select_vulkan_device(devices: List[Dict[str, Any]]) -> int:
-    """Select preferred discrete Vulkan GPU (prioritizing NVIDIA discrete GPU)."""
     nvidia = [i for i, dev in enumerate(devices) if int(dev["vendor_id"]) == NVIDIA_VENDOR_ID]
     if nvidia:
         discrete = [i for i in nvidia if int(devices[i].get("device_type", -1)) == DISCRETE_GPU]
         return (discrete or nvidia)[0]
     discrete = [i for i, dev in enumerate(devices) if int(dev.get("device_type", -1)) == DISCRETE_GPU]
-    if discrete:
-        return discrete[0]
-    if devices:
-        return 0
+    if discrete: return discrete[0]
+    if devices: return 0
     raise RuntimeError("MP_Liquid_Visualizer requires a Vulkan-capable GPU.")
 
 
 class LiquidVisualizerVulkanRenderer:
-    """Borderless fixed 1400x1400 Vulkan 3D Visualizer Window with zero text overlay."""
-
     width = WINDOW_WIDTH
     height = WINDOW_HEIGHT
 
-    def __init__(
-        self,
-        preset_name: Optional[str] = None,
-        fullscreen: bool = False,
-        target_4k: bool = False,
-    ):
+    def __init__(self, preset_name: Optional[str] = None, fullscreen: bool = False, target_4k: bool = False):
         self.preset = get_active_preset(preset_name)
         self.title = "MP Liquid Visualizer"
         self.target_4k = target_4k
         self.fullscreen_on_start = fullscreen or target_4k
-        self._user_toggled_windowed = False
-        self._last_monitor = None
+        self._user_toggled_windowed = self.should_close = self.mouse_down = self._drag_active = self.is_fullscreen = self._resize = self._alive = False
+        self._last_monitor = self._readback_ptr = None
         self.device_name = ""
-        self.vendor_id = 0
+        self.vendor_id = self._frame = self._swapchain = self._tex_image = self._tex_memory = self._tex_view = self._tex_sampler = self._readback_buffer = self._readback_memory = self._readback_bytes = 0
         self.device_type = -1
         self.format = FORMAT_B8G8R8A8_UNORM
-        self.should_close = False
-        self.mouse_down = False
         self.cursor = (0.0, 0.0)
-        self._drag_active = False
-        self._drag_origin = (0, 0)
-        self._drag_press_screen = (0, 0)
-        self._cur_pos = (160, 80)
-        self._saved_window_pos = (160, 80)
-        self.is_fullscreen = False
-        self._resize = False
-
-        self._frame = 0
-        self._swapchain = 0
-        self._images = []
-        self._views = []
-        self._framebuffers = []
-        self._image_available = []
-        self._render_finished = []
-        self._fences = []
-        self._cmd = []
+        self._drag_origin = self._drag_press_screen = (0, 0)
+        self._cur_pos = self._saved_window_pos = (160, 80)
+        self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
         self._extent = (WINDOW_WIDTH, WINDOW_HEIGHT)
-
-        self._tex_image = 0
-        self._tex_memory = 0
-        self._tex_view = 0
-        self._tex_sampler = 0
-
-        self._readback_buffer = 0
-        self._readback_memory = 0
-        self._readback_ptr = None
-        self._readback_bytes = 0
-        self._alive = False
+        self._is_4k_cached = False
+        self._ubo_struct = VisualizerUBO()
 
     @property
     def summary(self) -> str:
         kind = "discrete" if self.device_type == DISCRETE_GPU else "gpu"
-        return (
-            f"MP_Liquid_Visualizer Vulkan device: {self.device_name} "
-            f"(vendor 0x{self.vendor_id:04x}, {kind}) | "
-            f"Preset: {self.preset['name']} | Window: {self.width}x{self.height} Fixed Borderless"
-        )
+        return f"MP_Liquid_Visualizer Vulkan device: {self.device_name} (vendor 0x{self.vendor_id:04x}, {kind}) | Preset: {self.preset['name']} | Window: {self.width}x{self.height} Fixed Borderless"
 
     def open(self):
         self._silence_overlays()
-        if is_windows() or is_macos():
-            self._glfw = load_glfw_dll()
-            self._bind_glfw()
-            self._x11 = None
-        else:
-            self._x11 = None
+        self._x11 = None
+        if not is_windows() and not is_macos():
             try:
                 self._x11 = ctypes.CDLL("libX11.so.6")
                 self._x11.XInitThreads.restype = c_int
                 self._x11.XInitThreads()
                 self._bind_x11()
             except Exception:
-                pass
-            self._glfw = load_glfw_dll()
-            self._bind_glfw()
-            if self._x11 is not None and hasattr(self._glfw, "glfwInitHint"):
-                try:
-                    self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
-                except Exception:
-                    pass
+                self._x11 = None
 
-        if not self._glfw.glfwInit():
-            raise RuntimeError("glfwInit failed")
-        if not self._glfw.glfwVulkanSupported():
-            raise RuntimeError("GLFW reports Vulkan is unavailable")
+        self._glfw = load_glfw_dll()
+        self._bind_glfw()
+        if self._x11 is not None and hasattr(self._glfw, "glfwInitHint"):
+            try: self._glfw.glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11)
+            except Exception: pass
+
+        if not self._glfw.glfwInit(): raise RuntimeError("glfwInit failed")
+        if not self._glfw.glfwVulkanSupported(): raise RuntimeError("GLFW reports Vulkan is unavailable")
 
         self._window = self._create_window()
         self._bind_input()
@@ -1436,11 +505,8 @@ class LiquidVisualizerVulkanRenderer:
         self._create_instance()
         self._load_instance()
 
-        surface = c_uint64()
-        _check(
-            self._glfw.glfwCreateWindowSurface(self._instance, self._window, None, byref(surface)),
-            "glfwCreateWindowSurface",
-        )
+        surface = U64()
+        _check(self._glfw.glfwCreateWindowSurface(self._instance, self._window, None, byref(surface)), "glfwCreateWindowSurface")
         self._surface = surface.value
 
         self._pick_device()
@@ -1451,187 +517,87 @@ class LiquidVisualizerVulkanRenderer:
         self._create_cover_texture()
         self._create_pipeline()
         self._create_descriptors()
+        self._init_hotloop_structs()
         self._alive = True
 
-        # When requested fullscreen, go full screen at 1920x1080
         if getattr(self, "fullscreen_on_start", False):
             self.toggle_fullscreen()
-
         return self
 
     def _silence_overlays(self):
-        # Strictly disable all FPS/HUD overlays so there is NEVER any text overlay displayed
-        os.environ["DISABLE_MANGOHUD"] = "1"
-        os.environ["MANGOHUD"] = "0"
-        os.environ["DISABLE_VKBASALT"] = "1"
-        os.environ["GALLIUM_HUD"] = ""
-        os.environ["DXVK_HUD"] = "0"
-        os.environ["VK_LOADER_LAYERS_DISABLE"] = (
-            "VK_LAYER_MANGOHUD_overlay_x86_64,VK_LAYER_MANGOHUD_overlay_x86,"
-            "VK_LAYER_VKBASALT_post_processing,VK_LAYER_OBS_vkcapture_64,"
-            "VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_fossilize_64,"
-            "VK_LAYER_MESA_overlay"
-        )
+        os.environ.update({
+            "DISABLE_MANGOHUD": "1", "MANGOHUD": "0", "DISABLE_VKBASALT": "1", "GALLIUM_HUD": "", "DXVK_HUD": "0",
+            "VK_LOADER_LAYERS_DISABLE": "VK_LAYER_MANGOHUD_overlay_x86_64,VK_LAYER_MANGOHUD_overlay_x86,VK_LAYER_VKBASALT_post_processing,VK_LAYER_OBS_vkcapture_64,VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_fossilize_64,VK_LAYER_MESA_overlay"
+        })
 
     def _bind_x11(self):
-        x = self._x11
-        x.XDefaultRootWindow.argtypes = [c_void_p]
-        x.XDefaultRootWindow.restype = c_uint64
-        x.XQueryPointer.argtypes = [
-            c_void_p, c_uint64,
-            POINTER(c_uint64), POINTER(c_uint64),
-            POINTER(c_int), POINTER(c_int),
-            POINTER(c_int), POINTER(c_int),
-            POINTER(c_uint32),
-        ]
-        x.XQueryPointer.restype = c_int
+        self._x11.XDefaultRootWindow.argtypes, self._x11.XDefaultRootWindow.restype = [VP], U64
+        self._x11.XQueryPointer.argtypes = [VP, U64, POINTER(U64), POINTER(U64), POINTER(c_int), POINTER(c_int), POINTER(c_int), POINTER(c_int), POINTER(U32)]
+        self._x11.XQueryPointer.restype = c_int
 
     def _bind_glfw(self):
         g = self._glfw
-        g.glfwInit.restype = c_int
-        g.glfwInitHint.argtypes = [c_int, c_int]
-        g.glfwWindowHint.argtypes = [c_int, c_int]
-        g.glfwVulkanSupported.restype = c_int
-        g.glfwCreateWindow.argtypes = [c_int, c_int, c_char_p, c_void_p, c_void_p]
-        g.glfwCreateWindow.restype = c_void_p
-        g.glfwDestroyWindow.argtypes = [c_void_p]
-        g.glfwTerminate.argtypes = []
-        g.glfwPollEvents.argtypes = []
-        g.glfwWindowShouldClose.argtypes = [c_void_p]
-        g.glfwWindowShouldClose.restype = c_int
-        g.glfwSetWindowShouldClose.argtypes = [c_void_p, c_int]
-        g.glfwSetWindowPos.argtypes = [c_void_p, c_int, c_int]
-        g.glfwSetWindowSize.argtypes = [c_void_p, c_int, c_int]
-        g.glfwSetWindowSizeLimits.argtypes = [c_void_p, c_int, c_int, c_int, c_int]
-        g.glfwGetWindowSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
-        g.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
-        g.glfwGetFramebufferSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
-        g.glfwGetPrimaryMonitor.restype = c_void_p
-        g.glfwGetPrimaryMonitor.argtypes = []
-        g.glfwGetMonitors.restype = POINTER(c_void_p)
-        g.glfwGetMonitors.argtypes = [POINTER(c_int)]
-        g.glfwGetMonitorPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
-        g.glfwGetVideoMode.argtypes = [c_void_p]
-        g.glfwGetVideoMode.restype = POINTER(GLFWvidmode)
-        if hasattr(g, "glfwGetMonitorName"):
-            g.glfwGetMonitorName.argtypes = [c_void_p]
-            g.glfwGetMonitorName.restype = c_char_p
-        g.glfwSetWindowMonitor.argtypes = [c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_int]
-        g.glfwGetRequiredInstanceExtensions.argtypes = [POINTER(c_uint32)]
-        g.glfwGetRequiredInstanceExtensions.restype = POINTER(c_char_p)
-        g.glfwCreateWindowSurface.argtypes = [c_void_p, c_void_p, c_void_p, POINTER(c_uint64)]
-        g.glfwCreateWindowSurface.restype = c_int
-        g.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
-        g.glfwSetKeyCallback.restype = c_void_p
-        g.glfwSetMouseButtonCallback.argtypes = [c_void_p, c_void_p]
-        g.glfwSetMouseButtonCallback.restype = c_void_p
-        g.glfwSetCursorPosCallback.argtypes = [c_void_p, c_void_p]
-        g.glfwSetCursorPosCallback.restype = c_void_p
-        g.glfwSetFramebufferSizeCallback.argtypes = [c_void_p, c_void_p]
-        g.glfwSetFramebufferSizeCallback.restype = c_void_p
-        g.glfwSetWindowPosCallback.argtypes = [c_void_p, c_void_p]
-        g.glfwSetWindowPosCallback.restype = c_void_p
-        if hasattr(g, "glfwSetWindowAttrib"):
-            g.glfwSetWindowAttrib.argtypes = [c_void_p, c_int, c_int]
-            g.glfwSetWindowAttrib.restype = None
-        if hasattr(g, "glfwGetWindowAttrib"):
-            g.glfwGetWindowAttrib.argtypes = [c_void_p, c_int]
-            g.glfwGetWindowAttrib.restype = c_int
-        if hasattr(g, "glfwRestoreWindow"):
-            g.glfwRestoreWindow.argtypes = [c_void_p]
-            g.glfwRestoreWindow.restype = None
-        if hasattr(g, "glfwFocusWindow"):
-            g.glfwFocusWindow.argtypes = [c_void_p]
-            g.glfwFocusWindow.restype = None
-        if hasattr(g, "glfwSetWindowIconifyCallback"):
-            g.glfwSetWindowIconifyCallback.argtypes = [c_void_p, c_void_p]
-            g.glfwSetWindowIconifyCallback.restype = c_void_p
-        if hasattr(g, "glfwWindowHintString"):
-            g.glfwWindowHintString.argtypes = [c_int, c_char_p]
-            g.glfwWindowHintString.restype = None
-        if is_windows() and hasattr(g, "glfwGetWin32Window"):
-            g.glfwGetWin32Window.argtypes = [c_void_p]
-            g.glfwGetWin32Window.restype = c_void_p
-        elif is_macos() and hasattr(g, "glfwGetCocoaWindow"):
-            g.glfwGetCocoaWindow.argtypes = [c_void_p]
-            g.glfwGetCocoaWindow.restype = c_void_p
-        elif hasattr(g, "glfwGetX11Display"):
-            try:
-                g.glfwGetX11Display.argtypes = [c_void_p]
-                g.glfwGetX11Display.restype = c_void_p
-            except Exception:
-                pass
-        if hasattr(g, "glfwGetX11Window"):
-            try:
-                g.glfwGetX11Window.argtypes = [c_void_p]
-                g.glfwGetX11Window.restype = c_uint64
-            except Exception:
-                pass
+        CI, PI = c_int, POINTER(c_int)
+        for name, res, args in (
+            ("glfwInit", CI, []), ("glfwInitHint", None, [CI, CI]), ("glfwWindowHint", None, [CI, CI]),
+            ("glfwVulkanSupported", CI, []), ("glfwCreateWindow", VP, [CI, CI, CP, VP, VP]), ("glfwDestroyWindow", None, [VP]),
+            ("glfwTerminate", None, []), ("glfwPollEvents", None, []), ("glfwWindowShouldClose", CI, [VP]),
+            ("glfwSetWindowShouldClose", None, [VP, CI]), ("glfwSetWindowPos", None, [VP, CI, CI]),
+            ("glfwSetWindowSize", None, [VP, CI, CI]), ("glfwSetWindowSizeLimits", None, [VP, CI, CI, CI, CI]),
+            ("glfwGetWindowSize", None, [VP, PI, PI]), ("glfwGetWindowPos", None, [VP, PI, PI]),
+            ("glfwGetFramebufferSize", None, [VP, PI, PI]), ("glfwGetPrimaryMonitor", VP, []),
+            ("glfwGetMonitors", POINTER(VP), [PI]), ("glfwGetMonitorPos", None, [VP, PI, PI]),
+            ("glfwGetVideoMode", POINTER(GLFWvidmode), [VP]), ("glfwGetMonitorName", CP, [VP]),
+            ("glfwSetWindowMonitor", None, [VP, VP, CI, CI, CI, CI, CI]),
+            ("glfwGetRequiredInstanceExtensions", POINTER(CP), [POINTER(U32)]),
+            ("glfwCreateWindowSurface", CI, [VP, VP, VP, POINTER(U64)]),
+            ("glfwSetKeyCallback", VP, [VP, VP]), ("glfwSetMouseButtonCallback", VP, [VP, VP]),
+            ("glfwSetCursorPosCallback", VP, [VP, VP]), ("glfwSetFramebufferSizeCallback", VP, [VP, VP]),
+            ("glfwSetWindowPosCallback", VP, [VP, VP]), ("glfwSetWindowAttrib", None, [VP, CI, CI]),
+            ("glfwGetWindowAttrib", CI, [VP, CI]), ("glfwRestoreWindow", None, [VP]), ("glfwFocusWindow", None, [VP]),
+            ("glfwSetWindowIconifyCallback", VP, [VP, VP]), ("glfwWindowHintString", None, [CI, CP]),
+            ("glfwGetWin32Window", VP, [VP]), ("glfwGetCocoaWindow", VP, [VP]),
+            ("glfwGetX11Display", VP, [VP]), ("glfwGetX11Window", U64, [VP]),
+        ):
+            if hasattr(g, name):
+                try:
+                    fn = getattr(g, name)
+                    fn.restype, fn.argtypes = res, args
+                except Exception:
+                    pass
 
-    def win32_window(self):
-        """Win32 HWND handle if on Windows."""
-        if is_windows() and hasattr(self._glfw, "glfwGetWin32Window") and self._window:
-            return self._glfw.glfwGetWin32Window(self._window)
-        return 0
-
-    def cocoa_window(self):
-        """macOS NSWindow handle if on macOS."""
-        if is_macos() and hasattr(self._glfw, "glfwGetCocoaWindow") and self._window:
-            return self._glfw.glfwGetCocoaWindow(self._window)
-        return 0
-
+    def win32_window(self): return self._glfw.glfwGetWin32Window(self._window) if is_windows() and hasattr(self._glfw, "glfwGetWin32Window") and self._window else 0
+    def cocoa_window(self): return self._glfw.glfwGetCocoaWindow(self._window) if is_macos() and hasattr(self._glfw, "glfwGetCocoaWindow") and self._window else 0
     def x11_window(self):
-        """X11 Window handle if on X11."""
         if not is_windows() and not is_macos() and hasattr(self._glfw, "glfwGetX11Window") and self._window:
-            try:
-                return self._glfw.glfwGetX11Window(self._window)
-            except Exception:
-                return 0
+            try: return self._glfw.glfwGetX11Window(self._window)
+            except Exception: pass
         return 0
-
     def x11_display(self):
-        """X11 Display pointer if on X11."""
         if not is_windows() and not is_macos() and hasattr(self._glfw, "glfwGetX11Display") and self._window:
-            try:
-                return self._glfw.glfwGetX11Display(self._window)
-            except Exception:
-                return None
+            try: return self._glfw.glfwGetX11Display(self._window)
+            except Exception: pass
         return None
 
     def _create_window(self):
         g = self._glfw
-        g.glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)
-        # Fixed 1400x1400 non-resizable, borderless window
-        g.glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE)
-        g.glfwWindowHint(GLFW_DECORATED, GLFW_FALSE)
-        g.glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_TRUE)
-        g.glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE)
-        g.glfwWindowHint(GLFW_FOCUSED, GLFW_TRUE)
-        # Do not auto-iconify/minimize when losing focus across desktops/monitors
-        g.glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE)
+        for k, v in ((GLFW_CLIENT_API, GLFW_NO_API), (GLFW_RESIZABLE, GLFW_FALSE), (GLFW_DECORATED, GLFW_FALSE),
+                     (GLFW_FOCUS_ON_SHOW, GLFW_TRUE), (GLFW_VISIBLE, GLFW_TRUE), (GLFW_FOCUSED, GLFW_TRUE), (GLFW_AUTO_ICONIFY, GLFW_FALSE)):
+            g.glfwWindowHint(k, v)
         if hasattr(g, "glfwWindowHintString"):
             try:
                 g.glfwWindowHintString(0x00024001, b"MP_Visualizer")
                 g.glfwWindowHintString(0x00024002, b"mp_visualizer")
-            except Exception:
-                pass
+            except Exception: pass
 
-        title = self.title.encode("utf-8")
-        window = g.glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, title, None, None)
-        if not window:
-            raise RuntimeError("GLFW could not open a 1400x1400 borderless window for Vulkan")
-
+        window = g.glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, self.title.encode("utf-8"), None, None)
+        if not window: raise RuntimeError("GLFW could not open a 1400x1400 borderless window for Vulkan")
         if hasattr(g, "glfwSetWindowAttrib"):
-            try:
-                g.glfwSetWindowAttrib(window, GLFW_AUTO_ICONIFY, GLFW_FALSE)
-            except Exception:
-                pass
+            try: g.glfwSetWindowAttrib(window, GLFW_AUTO_ICONIFY, GLFW_FALSE)
+            except Exception: pass
+        try: g.glfwSetWindowSizeLimits(window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
+        except Exception: pass
 
-        # Enforce strict 1400x1400 size limits
-        try:
-            g.glfwSetWindowSizeLimits(window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
-        except Exception:
-            pass
         init_x, init_y = 160, 80
         if getattr(self, "target_4k", False):
             mon_4k = self._find_4k_monitor()
@@ -1644,53 +610,37 @@ class LiquidVisualizerVulkanRenderer:
         return window
 
     def _bind_input(self):
-        KEY_CB = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
-        MOUSE_CB = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)
-        CURSOR_CB = CFUNCTYPE(None, c_void_p, c_double, c_double)
-        FB_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
-        POS_CB = CFUNCTYPE(None, c_void_p, c_int, c_int)
-        ICONIFY_CB = CFUNCTYPE(None, c_void_p, c_int)
+        self._on_key_cb = CFUNCTYPE(None, VP, c_int, c_int, c_int, c_int)(self._on_key)
+        self._on_mouse_cb = CFUNCTYPE(None, VP, c_int, c_int, c_int)(self._on_mouse)
+        self._on_cursor_cb = CFUNCTYPE(None, VP, c_double, c_double)(self._on_cursor)
+        self._on_fb_cb = CFUNCTYPE(None, VP, c_int, c_int)(self._on_fb)
+        self._on_pos_cb = CFUNCTYPE(None, VP, c_int, c_int)(self._on_pos)
+        self._on_iconify_cb = CFUNCTYPE(None, VP, c_int)(self._on_iconify)
 
-        self._on_key_cb = KEY_CB(self._on_key)
-        self._on_mouse_cb = MOUSE_CB(self._on_mouse)
-        self._on_cursor_cb = CURSOR_CB(self._on_cursor)
-        self._on_fb_cb = FB_CB(self._on_fb)
-        self._on_pos_cb = POS_CB(self._on_pos)
-        self._on_iconify_cb = ICONIFY_CB(self._on_iconify)
-
-        self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_cb, c_void_p))
-        self._glfw.glfwSetMouseButtonCallback(self._window, ctypes.cast(self._on_mouse_cb, c_void_p))
-        self._glfw.glfwSetCursorPosCallback(self._window, ctypes.cast(self._on_cursor_cb, c_void_p))
-        self._glfw.glfwSetFramebufferSizeCallback(self._window, ctypes.cast(self._on_fb_cb, c_void_p))
-        self._glfw.glfwSetWindowPosCallback(self._window, ctypes.cast(self._on_pos_cb, c_void_p))
-        if hasattr(self._glfw, "glfwSetWindowIconifyCallback"):
-            self._glfw.glfwSetWindowIconifyCallback(self._window, ctypes.cast(self._on_iconify_cb, c_void_p))
+        g, w = self._glfw, self._window
+        g.glfwSetKeyCallback(w, cast(self._on_key_cb, VP))
+        g.glfwSetMouseButtonCallback(w, cast(self._on_mouse_cb, VP))
+        g.glfwSetCursorPosCallback(w, cast(self._on_cursor_cb, VP))
+        g.glfwSetFramebufferSizeCallback(w, cast(self._on_fb_cb, VP))
+        g.glfwSetWindowPosCallback(w, cast(self._on_pos_cb, VP))
+        if hasattr(g, "glfwSetWindowIconifyCallback"):
+            g.glfwSetWindowIconifyCallback(w, cast(self._on_iconify_cb, VP))
+        self._is_4k_cached = self.is_4k_display()
 
     def _on_iconify(self, _window, iconified):
-        # Prevent visualizer from staying minimized if accidentally iconified during fullscreen
-        if iconified and self.is_fullscreen:
-            if hasattr(self._glfw, "glfwRestoreWindow"):
-                try:
-                    self._glfw.glfwRestoreWindow(self._window)
-                except Exception:
-                    pass
+        if iconified and self.is_fullscreen and hasattr(self._glfw, "glfwRestoreWindow"):
+            try: self._glfw.glfwRestoreWindow(self._window)
+            except Exception: pass
 
     def _on_key(self, _window, key, _scancode, action, _mods):
-        if action != GLFW_PRESS:
-            return
-        # Pressing Escape or 'q'/'Q' immediately closes the visualizer
-        if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q):
-            self.request_close()
-        elif key == GLFW_KEY_Z:
-            # Pressing 'z'/'Z' toggles between fullscreen and normal 1400x1400 size
-            self.toggle_fullscreen()
-        elif key == 75 and (_mods & 1):  # GLFW_KEY_K = 75, GLFW_MOD_SHIFT = 1
+        if action != GLFW_PRESS: return
+        if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q): self.request_close()
+        elif key == GLFW_KEY_Z: self.toggle_fullscreen()
+        elif key == 75 and (_mods & 1):
             if is_windows():
-                import subprocess
                 subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
                 subprocess.run('powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like \'*MP_Audio_Player*\' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1', shell=True)
             else:
-                import subprocess
                 subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
         elif GLFW_KEY_1 <= key <= GLFW_KEY_9:
             idx = key - GLFW_KEY_1
@@ -1698,90 +648,64 @@ class LiquidVisualizerVulkanRenderer:
                 self.switch_preset(VISUALIZER_PRESETS[idx])
 
     def is_4k_display(self, mon=None) -> bool:
-        """Return True if the specified monitor (or current monitor) is a 4K display (>= 3840x2160)."""
-        if not getattr(self, "_glfw", None):
-            return False
-        g = self._glfw
-        if mon is None:
-            mon = self._current_monitor()
-        if not mon:
-            return False
+        g = getattr(self, "_glfw", None)
+        if not g: return False
+        mon = mon or self._current_monitor()
+        if not mon: return False
         try:
             mode_ptr = g.glfwGetVideoMode(mon)
-            if mode_ptr:
-                mode = mode_ptr.contents
-                if mode.width >= FOUR_K_MIN_WIDTH or mode.height >= FOUR_K_MIN_HEIGHT:
-                    return True
+            if mode_ptr and (mode_ptr.contents.width >= FOUR_K_MIN_WIDTH or mode_ptr.contents.height >= FOUR_K_MIN_HEIGHT):
+                return True
             if hasattr(g, "glfwGetMonitorName"):
                 name_b = g.glfwGetMonitorName(mon)
-                if name_b:
-                    n = name_b.decode("utf-8", errors="ignore").lower()
-                    if "4k" in n or "uhd" in n or "hisense" in n:
-                        return True
-        except Exception:
-            pass
+                if name_b and any(k in name_b.decode("utf-8", errors="ignore").lower() for k in ("4k", "uhd", "hisense")):
+                    return True
+        except Exception: pass
         return False
 
     def _find_4k_monitor(self):
-        """Find and return any connected 4K monitor handle, or None."""
-        if not getattr(self, "_glfw", None):
-            return None
-        g = self._glfw
+        g = getattr(self, "_glfw", None)
+        if not g: return None
         try:
             count = c_int()
             mons = g.glfwGetMonitors(byref(count))
             if mons and count.value > 0:
                 for i in range(count.value):
-                    m = mons[i]
-                    if self.is_4k_display(m):
-                        return m
-        except Exception:
-            pass
+                    if self.is_4k_display(mons[i]): return mons[i]
+        except Exception: pass
         return None
 
     def _current_monitor(self):
-        if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
-            return None
+        if not getattr(self, "_window", None) or not getattr(self, "_glfw", None): return None
         g = self._glfw
         mon = g.glfwGetPrimaryMonitor()
         try:
-            wx, wy = self.window_pos()
-            ww, wh = self.window_size()
+            wx, wy = self._cur_pos
+            ww, wh = self.width, self.height
             count = c_int()
             mons = g.glfwGetMonitors(byref(count))
             if mons and count.value > 0:
-                best_area = -1
-                best_mon = None
+                best_area, best_mon = -1, None
+                mx, my = c_int(), c_int()
                 for i in range(count.value):
                     m = mons[i]
-                    mx, my = c_int(), c_int()
                     g.glfwGetMonitorPos(m, byref(mx), byref(my))
                     mode_ptr = g.glfwGetVideoMode(m)
                     if mode_ptr:
                         mode = mode_ptr.contents
-                        mw = mode.width
-                        mh = mode.height
-                        ix = max(0, min(wx + ww, mx.value + mw) - max(wx, mx.value))
-                        iy = max(0, min(wy + wh, my.value + mh) - max(wy, my.value))
+                        ix = max(0, min(wx + ww, mx.value + mode.width) - max(wx, mx.value))
+                        iy = max(0, min(wy + wh, my.value + mode.height) - max(wy, my.value))
                         area = ix * iy
                         if area > best_area:
-                            best_area = area
-                            best_mon = m
-                if best_mon and best_area > 0:
-                    return best_mon
-        except Exception:
-            pass
+                            best_area, best_mon = area, m
+                if best_mon and best_area > 0: return best_mon
+        except Exception: pass
         return mon
 
     def toggle_fullscreen(self) -> bool:
-        """Toggle between fullscreen mode (rendered at 1920x1080 on 4K) and normal 1400x1400 window size."""
         if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
             self.is_fullscreen = not self.is_fullscreen
-            self.width, self.height = (
-                (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT)
-                if self.is_fullscreen
-                else (WINDOW_WIDTH, WINDOW_HEIGHT)
-            )
+            self.width, self.height = (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT) if self.is_fullscreen else (WINDOW_WIDTH, WINDOW_HEIGHT)
             return self.is_fullscreen
 
         g = self._glfw
@@ -1794,28 +718,15 @@ class LiquidVisualizerVulkanRenderer:
                 mode_ptr = g.glfwGetVideoMode(mon)
                 if mode_ptr:
                     mode = mode_ptr.contents
-                    # 4K displays: strictly render at 1920 by 1080 (no 4K until later date)
-                    if self.is_4k_display(mon) or mode.width >= FOUR_K_MIN_WIDTH or mode.height >= FOUR_K_MIN_HEIGHT:
-                        full_w = RENDER_1080P_WIDTH
-                        full_h = RENDER_1080P_HEIGHT
-                    else:
+                    if not (self.is_4k_display(mon) or mode.width >= FOUR_K_MIN_WIDTH or mode.height >= FOUR_K_MIN_HEIGHT):
                         if mode.width > 0 and mode.height > 0:
-                            full_w = int(mode.width)
-                            full_h = int(mode.height)
-                    if mode.refreshRate > 0:
-                        refresh = int(mode.refreshRate)
-            self.is_fullscreen = True
-            self._user_toggled_windowed = False
-            self.width = full_w
-            self.height = full_h
-            try:
-                g.glfwSetWindowSizeLimits(
-                    self._window, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE
-                )
-            except Exception:
-                pass
-            if mon:
-                g.glfwSetWindowMonitor(self._window, mon, 0, 0, full_w, full_h, refresh)
+                            full_w, full_h = int(mode.width), int(mode.height)
+                    if mode.refreshRate > 0: refresh = int(mode.refreshRate)
+            self.is_fullscreen, self._user_toggled_windowed = True, False
+            self.width, self.height = full_w, full_h
+            try: g.glfwSetWindowSizeLimits(self._window, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE)
+            except Exception: pass
+            if mon: g.glfwSetWindowMonitor(self._window, mon, 0, 0, full_w, full_h, refresh)
             else:
                 g.glfwSetWindowPos(self._window, 0, 0)
                 g.glfwSetWindowSize(self._window, full_w, full_h)
@@ -1823,37 +734,25 @@ class LiquidVisualizerVulkanRenderer:
                 try:
                     g.glfwSetWindowAttrib(self._window, GLFW_AUTO_ICONIFY, GLFW_FALSE)
                     g.glfwSetWindowAttrib(self._window, GLFW_FLOATING, GLFW_TRUE)
-                except Exception:
-                    pass
+                except Exception: pass
             self._resize = True
         else:
             rx, ry = getattr(self, "_saved_window_pos", (160, 80))
-            self.is_fullscreen = False
-            self._user_toggled_windowed = True
-            self.width = WINDOW_WIDTH
-            self.height = WINDOW_HEIGHT
+            self.is_fullscreen, self._user_toggled_windowed = False, True
+            self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
             if hasattr(g, "glfwSetWindowAttrib"):
-                try:
-                    g.glfwSetWindowAttrib(self._window, GLFW_FLOATING, GLFW_FALSE)
-                except Exception:
-                    pass
-            g.glfwSetWindowMonitor(
-                self._window, None, int(rx), int(ry), WINDOW_WIDTH, WINDOW_HEIGHT, 0
-            )
-            try:
-                g.glfwSetWindowSizeLimits(
-                    self._window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT
-                )
-            except Exception:
-                pass
+                try: g.glfwSetWindowAttrib(self._window, GLFW_FLOATING, GLFW_FALSE)
+                except Exception: pass
+            g.glfwSetWindowMonitor(self._window, None, int(rx), int(ry), WINDOW_WIDTH, WINDOW_HEIGHT, 0)
+            try: g.glfwSetWindowSizeLimits(self._window, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
+            except Exception: pass
             g.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
             g.glfwSetWindowPos(self._window, int(rx), int(ry))
             self._cur_pos = (int(rx), int(ry))
             self._resize = True
-            try:
-                g.glfwPollEvents()
-            except Exception:
-                pass
+            try: g.glfwPollEvents()
+            except Exception: pass
+        self._is_4k_cached = self.is_4k_display()
         return self.is_fullscreen
 
     def _on_mouse(self, _window, button, action, _mods):
@@ -1863,10 +762,7 @@ class LiquidVisualizerVulkanRenderer:
                 self._drag_active = True
                 self._drag_origin = self.window_pos()
                 rx, ry = self.root_pointer()
-                self._drag_press_screen = (rx, ry) if (rx or ry) else (
-                    int(self._drag_origin[0] + self.cursor[0]),
-                    int(self._drag_origin[1] + self.cursor[1]),
-                )
+                self._drag_press_screen = (rx, ry) if (rx or ry) else (int(self._drag_origin[0] + self.cursor[0]), int(self._drag_origin[1] + self.cursor[1]))
             else:
                 self._drag_active = False
 
@@ -1875,74 +771,55 @@ class LiquidVisualizerVulkanRenderer:
         if self._drag_active and self.mouse_down and not self.is_fullscreen:
             rx, ry = self.root_pointer()
             if rx or ry:
-                nx = int(self._drag_origin[0] + (rx - self._drag_press_screen[0]))
-                ny = int(self._drag_origin[1] + (ry - self._drag_press_screen[1]))
-                self.set_window_pos(nx, ny)
+                self.set_window_pos(int(self._drag_origin[0] + (rx - self._drag_press_screen[0])),
+                                    int(self._drag_origin[1] + (ry - self._drag_press_screen[1])))
 
-    def _on_fb(self, _window, _w, _h):
-        self._resize = True
+    def _on_fb(self, _window, _w, _h): self._resize = True
 
     def _on_pos(self, _window, x, y):
         self._cur_pos = (int(x), int(y))
         cur_mon = self._current_monitor()
         if cur_mon != getattr(self, "_last_monitor", None):
             self._last_monitor = cur_mon
-            if self.is_4k_display(cur_mon):
+            self._is_4k_cached = self.is_4k_display(cur_mon)
+            if self._is_4k_cached:
                 self._user_toggled_windowed = False
 
     def root_pointer(self) -> Tuple[int, int]:
         if is_windows():
             try:
-                class POINT(ctypes.Structure):
-                    _fields_ = [("x", c_int), ("y", c_int)]
-                pt = POINT()
-                if ctypes.windll.user32.GetCursorPos(byref(pt)):
-                    return int(pt.x), int(pt.y)
-            except Exception:
-                pass
+                pt = _WinPOINT()
+                if ctypes.windll.user32.GetCursorPos(byref(pt)): return int(pt.x), int(pt.y)
+            except Exception: pass
             return self.window_pos()
-        if is_macos():
-            try:
-                wx, wy = self.window_pos()
-                return int(wx + self.cursor[0]), int(wy + self.cursor[1])
-            except Exception:
-                return self.window_pos()
-        display = self.x11_display()
-        if not display or not getattr(self, "_x11", None):
-            try:
-                wx, wy = self.window_pos()
-                return int(wx + self.cursor[0]), int(wy + self.cursor[1])
-            except Exception:
-                return self.window_pos()
+        if not is_macos():
+            display = self.x11_display()
+            if display and getattr(self, "_x11", None):
+                try:
+                    root = self._x11.XDefaultRootWindow(display)
+                    r_ret, c_ret, rx, ry, wx, wy, mask = U64(), U64(), c_int(), c_int(), c_int(), c_int(), U32()
+                    if self._x11.XQueryPointer(display, root, byref(r_ret), byref(c_ret), byref(rx), byref(ry), byref(wx), byref(wy), byref(mask)):
+                        return int(rx.value), int(ry.value)
+                except Exception: pass
         try:
-            root = self._x11.XDefaultRootWindow(display)
-            root_ret, child_ret = c_uint64(), c_uint64()
-            rx, ry, wx, wy = c_int(), c_int(), c_int(), c_int()
-            mask = c_uint32()
-            if self._x11.XQueryPointer(
-                display, root, byref(root_ret), byref(child_ret),
-                byref(rx), byref(ry), byref(wx), byref(wy), byref(mask),
-            ):
-                return int(rx.value), int(ry.value)
+            wx, wy = self.window_pos()
+            return int(wx + self.cursor[0]), int(wy + self.cursor[1])
         except Exception:
-            pass
-        return self.window_pos()
+            return self.window_pos()
 
     def window_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
         self._glfw.glfwGetWindowSize(self._window, byref(w), byref(h))
-        if not self.is_fullscreen:
-            return WINDOW_WIDTH, WINDOW_HEIGHT
-        if self.is_4k_display() or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
+        if not self.is_fullscreen: return WINDOW_WIDTH, WINDOW_HEIGHT
+        if self._is_4k_cached or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
             return RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
         return int(w.value), int(h.value)
 
     def framebuffer_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
         self._glfw.glfwGetFramebufferSize(self._window, byref(w), byref(h))
-        if not self.is_fullscreen:
-            return max(1, int(w.value)), max(1, int(h.value))
-        if self.is_4k_display() or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
+        if not self.is_fullscreen: return max(1, int(w.value)), max(1, int(h.value))
+        if self._is_4k_cached or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
             return RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
         return max(1, int(w.value)), max(1, int(h.value))
 
@@ -1952,8 +829,7 @@ class LiquidVisualizerVulkanRenderer:
                 x, y = c_int(), c_int()
                 self._glfw.glfwGetWindowPos(self._window, byref(x), byref(y))
                 self._cur_pos = (int(x.value), int(y.value))
-            except Exception:
-                pass
+            except Exception: pass
         return self._cur_pos
 
     def set_window_pos(self, x: int, y: int):
@@ -1962,481 +838,292 @@ class LiquidVisualizerVulkanRenderer:
 
     def request_close(self):
         self.should_close = True
-        if getattr(self, "_window", None):
-            self._glfw.glfwSetWindowShouldClose(self._window, 1)
+        if getattr(self, "_window", None): self._glfw.glfwSetWindowShouldClose(self._window, 1)
 
     def poll(self) -> bool:
-        self._glfw.glfwPollEvents()
-        if self._glfw.glfwWindowShouldClose(self._window):
-            self.should_close = True
+        g, w = self._glfw, self._window
+        g.glfwPollEvents()
+        if g.glfwWindowShouldClose(w): self.should_close = True
         if not self.is_fullscreen:
-            # If moved to a 4K display and not explicitly toggled to windowed by user,
-            # automatically enter fullscreen rendered at 1920x1080
-            cur_mon = self._current_monitor()
-            if self.is_4k_display(cur_mon) and not getattr(self, "_user_toggled_windowed", False):
+            if self._is_4k_cached and not getattr(self, "_user_toggled_windowed", False):
                 self.toggle_fullscreen()
             else:
-                # Ensure window dimensions remain strictly 1400x1400 in normal mode
-                w, h = self.window_size()
-                if (w, h) != (WINDOW_WIDTH, WINDOW_HEIGHT):
-                    self._glfw.glfwSetWindowSize(self._window, WINDOW_WIDTH, WINDOW_HEIGHT)
+                ww, wh = c_int(), c_int()
+                g.glfwGetWindowSize(w, byref(ww), byref(wh))
+                if (ww.value, wh.value) != (WINDOW_WIDTH, WINDOW_HEIGHT):
+                    g.glfwSetWindowSize(w, WINDOW_WIDTH, WINDOW_HEIGHT)
                     self._resize = True
                 self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
         else:
-            if hasattr(self._glfw, "glfwGetWindowAttrib") and hasattr(self._glfw, "glfwRestoreWindow"):
+            if hasattr(g, "glfwGetWindowAttrib") and hasattr(g, "glfwRestoreWindow"):
                 try:
-                    if self._glfw.glfwGetWindowAttrib(self._window, GLFW_ICONIFIED):
-                        self._glfw.glfwRestoreWindow(self._window)
-                except Exception:
-                    pass
-            w, h = self.window_size()
-            if w > 0 and h > 0:
-                if self.is_4k_display() or w >= FOUR_K_MIN_WIDTH or h >= FOUR_K_MIN_HEIGHT:
-                    self.width, self.height = RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
-                else:
-                    self.width, self.height = w, h
+                    if g.glfwGetWindowAttrib(w, GLFW_ICONIFIED): g.glfwRestoreWindow(w)
+                except Exception: pass
+            ww, wh = self.window_size()
+            if ww > 0 and wh > 0:
+                self.width, self.height = (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT) if (self._is_4k_cached or ww >= FOUR_K_MIN_WIDTH or wh >= FOUR_K_MIN_HEIGHT) else (ww, wh)
         return not self.should_close
 
     def _bind_loader(self):
         v = self._vulkan
-        v.vkGetInstanceProcAddr.restype = c_void_p
-        v.vkGetInstanceProcAddr.argtypes = [c_void_p, c_char_p]
-        v.vkGetDeviceProcAddr.restype = c_void_p
-        v.vkGetDeviceProcAddr.argtypes = [c_void_p, c_char_p]
-        v.vkCreateInstance.restype = c_int32
-        v.vkCreateInstance.argtypes = [c_void_p, c_void_p, POINTER(c_void_p)]
+        v.vkGetInstanceProcAddr.restype, v.vkGetInstanceProcAddr.argtypes = VP, [VP, CP]
+        v.vkGetDeviceProcAddr.restype, v.vkGetDeviceProcAddr.argtypes = VP, [VP, CP]
+        v.vkCreateInstance.restype, v.vkCreateInstance.argtypes = I32, [VP, VP, POINTER(VP)]
         if hasattr(v, "vkEnumerateInstanceExtensionProperties"):
-            v.vkEnumerateInstanceExtensionProperties.restype = c_int32
-            v.vkEnumerateInstanceExtensionProperties.argtypes = [c_char_p, POINTER(c_uint32), c_void_p]
+            v.vkEnumerateInstanceExtensionProperties.restype, v.vkEnumerateInstanceExtensionProperties.argtypes = I32, [CP, POINTER(U32), VP]
 
     def _create_instance(self):
-        count = c_uint32()
+        count = U32()
         ptr = self._glfw.glfwGetRequiredInstanceExtensions(byref(count))
         names = [ptr[i] for i in range(count.value)]
 
         available_exts = set()
         if hasattr(self._vulkan, "vkEnumerateInstanceExtensionProperties"):
-            ext_count = c_uint32(0)
+            ext_count = U32(0)
             self._vulkan.vkEnumerateInstanceExtensionProperties(None, byref(ext_count), None)
             if ext_count.value > 0:
-                class _VkExtProp(ctypes.Structure):
-                    _fields_ = [("extensionName", ctypes.c_char * 256), ("specVersion", c_uint32)]
                 arr_props = (_VkExtProp * ext_count.value)()
                 self._vulkan.vkEnumerateInstanceExtensionProperties(None, byref(ext_count), arr_props)
                 available_exts = {p.extensionName.split(b"\x00")[0] for p in arr_props}
 
         instance_flags = 0
         if b"VK_KHR_portability_enumeration" in available_exts or is_macos():
-            if b"VK_KHR_portability_enumeration" not in names:
-                names.append(b"VK_KHR_portability_enumeration")
+            if b"VK_KHR_portability_enumeration" not in names: names.append(b"VK_KHR_portability_enumeration")
             instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
-
         if b"VK_KHR_get_physical_device_properties2" in available_exts and b"VK_KHR_get_physical_device_properties2" not in names:
             names.append(b"VK_KHR_get_physical_device_properties2")
 
         self._ext_names = names
-        arr = (c_char_p * len(names))(*names)
-        self._ext_arr = arr
-        app = VkApplicationInfo()
-        app.sType = ST_APPLICATION_INFO
-        app.pApplicationName = b"MP Liquid Visualizer"
-        app.applicationVersion = _api_version(0, 4, 0)
-        app.pEngineName = b"mp-liquid-visualizer-vulkan"
-        app.engineVersion = 1
-        app.apiVersion = _api_version(1, 2, 0)
-        self._app = app
-        info = VkInstanceCreateInfo()
-        info.sType = ST_INSTANCE_CREATE_INFO
-        info.flags = instance_flags
-        info.pApplicationInfo = _addr(app)
-        info.enabledExtensionCount = len(names)
-        info.ppEnabledExtensionNames = ctypes.cast(arr, c_void_p)
-        self._instance_info = info
-        instance = c_void_p()
+        self._ext_arr = arr = (CP * len(names))(*names)
+        self._app = app = VkApplicationInfo(ST_APPLICATION_INFO, None, b"MP Liquid Visualizer", _api_version(0, 4, 0), b"mp-liquid-visualizer-vulkan", 1, _api_version(1, 2, 0))
+        self._instance_info = info = VkInstanceCreateInfo(ST_INSTANCE_CREATE_INFO, None, instance_flags, _addr(app), 0, None, len(names), cast(arr, VP))
+        instance = VP()
         _check(self._vulkan.vkCreateInstance(_addr(info), None, byref(instance)), "vkCreateInstance")
         self._instance = instance
 
     def _load_instance(self):
-        g = self._vulkan.vkGetInstanceProcAddr
-        inst = self._instance
-
-        def load(name, restype, argtypes):
-            return _load(g, inst, name, restype, argtypes)
-
-        U32 = c_uint32
+        g, inst = self._vulkan.vkGetInstanceProcAddr, self._instance
+        PU32 = POINTER(U32)
         self._i = type("I", (), {})()
-        self._i.DestroyInstance = load("vkDestroyInstance", None, [c_void_p, c_void_p])
-        self._i.DestroySurfaceKHR = load("vkDestroySurfaceKHR", None, [c_void_p, c_uint64, c_void_p])
-        self._i.EnumeratePhysicalDevices = load(
-            "vkEnumeratePhysicalDevices", c_int32, [c_void_p, POINTER(U32), POINTER(c_void_p)]
-        )
-        self._i.GetPhysicalDeviceProperties = load(
-            "vkGetPhysicalDeviceProperties", None, [c_void_p, c_void_p]
-        )
-        self._i.GetPhysicalDeviceQueueFamilyProperties = load(
-            "vkGetPhysicalDeviceQueueFamilyProperties", None, [c_void_p, POINTER(U32), c_void_p]
-        )
-        self._i.GetPhysicalDeviceMemoryProperties = load(
-            "vkGetPhysicalDeviceMemoryProperties", None, [c_void_p, c_void_p]
-        )
-        self._i.GetSurfaceSupport = load(
-            "vkGetPhysicalDeviceSurfaceSupportKHR", c_int32, [c_void_p, U32, c_uint64, POINTER(U32)]
-        )
-        self._i.GetSurfaceCaps = load(
-            "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", c_int32, [c_void_p, c_uint64, c_void_p]
-        )
-        self._i.GetSurfaceFormats = load(
-            "vkGetPhysicalDeviceSurfaceFormatsKHR", c_int32, [c_void_p, c_uint64, POINTER(U32), c_void_p]
-        )
-        self._i.GetSurfaceModes = load(
-            "vkGetPhysicalDeviceSurfacePresentModesKHR", c_int32, [c_void_p, c_uint64, POINTER(U32), c_void_p]
-        )
-        self._i.CreateDevice = load(
-            "vkCreateDevice", c_int32, [c_void_p, c_void_p, c_void_p, POINTER(c_void_p)]
-        )
-        self._i.EnumerateDeviceExtensionProperties = load(
-            "vkEnumerateDeviceExtensionProperties", c_int32, [c_void_p, c_char_p, POINTER(U32), c_void_p]
-        )
+        for attr, name, res, args in (
+            ("DestroyInstance", "vkDestroyInstance", None, [VP, VP]),
+            ("DestroySurfaceKHR", "vkDestroySurfaceKHR", None, [VP, U64, VP]),
+            ("EnumeratePhysicalDevices", "vkEnumeratePhysicalDevices", I32, [VP, PU32, POINTER(VP)]),
+            ("GetPhysicalDeviceProperties", "vkGetPhysicalDeviceProperties", None, [VP, VP]),
+            ("GetPhysicalDeviceQueueFamilyProperties", "vkGetPhysicalDeviceQueueFamilyProperties", None, [VP, PU32, VP]),
+            ("GetPhysicalDeviceMemoryProperties", "vkGetPhysicalDeviceMemoryProperties", None, [VP, VP]),
+            ("GetSurfaceSupport", "vkGetPhysicalDeviceSurfaceSupportKHR", I32, [VP, U32, U64, PU32]),
+            ("GetSurfaceCaps", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", I32, [VP, U64, VP]),
+            ("GetSurfaceFormats", "vkGetPhysicalDeviceSurfaceFormatsKHR", I32, [VP, U64, PU32, VP]),
+            ("GetSurfaceModes", "vkGetPhysicalDeviceSurfacePresentModesKHR", I32, [VP, U64, PU32, VP]),
+            ("CreateDevice", "vkCreateDevice", I32, [VP, VP, VP, POINTER(VP)]),
+            ("EnumerateDeviceExtensionProperties", "vkEnumerateDeviceExtensionProperties", I32, [VP, CP, PU32, VP]),
+        ):
+            setattr(self._i, attr, _load(g, inst, name, res, args))
 
     def _device_header(self, phys) -> Dict[str, Any]:
         buf = (c_uint8 * 16384)()
         self._i.GetPhysicalDeviceProperties(phys, buf)
-        api, driver, vendor, device, dtype = ctypes.cast(buf, POINTER(c_uint32 * 5)).contents
-        name = ctypes.string_at(ctypes.addressof(buf) + 20, 256).split(b"\0", 1)[0].decode("utf-8", "replace")
-        return {
-            "api": int(api),
-            "driver": int(driver),
-            "vendor_id": int(vendor),
-            "device_id": int(device),
-            "device_type": int(dtype),
-            "name": name,
-        }
+        api, driver, vendor, device, dtype = cast(buf, POINTER(U32 * 5)).contents
+        name = string_at(addressof(buf) + 20, 256).split(b"\0", 1)[0].decode("utf-8", "replace")
+        return {"api": int(api), "driver": int(driver), "vendor_id": int(vendor), "device_id": int(device), "device_type": int(dtype), "name": name}
 
     def _pick_device(self):
-        count = c_uint32()
+        count = U32()
         _check(self._i.EnumeratePhysicalDevices(self._instance, byref(count), None), "enumerate devices")
-        if count.value == 0:
-            raise RuntimeError("Vulkan reported no physical devices")
-        raw = (c_void_p * count.value)()
+        if count.value == 0: raise RuntimeError("Vulkan reported no physical devices")
+        raw = (VP * count.value)()
         _check(self._i.EnumeratePhysicalDevices(self._instance, byref(count), raw), "enumerate devices")
         headers = [self._device_header(raw[i]) for i in range(count.value)]
         idx = select_vulkan_device(headers)
-        self._physical = raw[idx]
-        chosen = headers[idx]
-        self.device_name = chosen["name"]
-        self.vendor_id = chosen["vendor_id"]
-        self.device_type = chosen["device_type"]
+        self._physical, chosen = raw[idx], headers[idx]
+        self.device_name, self.vendor_id, self.device_type = chosen["name"], chosen["vendor_id"], chosen["device_type"]
         self._queue_family = self._present_family(self._physical)
 
     def _present_family(self, phys) -> int:
-        count = c_uint32()
+        count = U32()
         self._i.GetPhysicalDeviceQueueFamilyProperties(phys, byref(count), None)
         props = (VkQueueFamilyProperties * count.value)()
         self._i.GetPhysicalDeviceQueueFamilyProperties(phys, byref(count), props)
+        support = U32()
         for i in range(count.value):
-            if not (props[i].queueFlags & QUEUE_GRAPHICS):
-                continue
-            support = c_uint32()
-            _check(self._i.GetSurfaceSupport(phys, i, self._surface, byref(support)), "surface support")
-            if support.value:
-                return i
+            if props[i].queueFlags & QUEUE_GRAPHICS:
+                _check(self._i.GetSurfaceSupport(phys, i, self._surface, byref(support)), "surface support")
+                if support.value: return i
         raise RuntimeError(f"{self.device_name} has no Vulkan graphics queue that can present")
 
     def _create_device(self):
-        priority = (c_float * 1)(1.0)
-        self._priority = priority
-        q = VkDeviceQueueCreateInfo()
-        q.sType = ST_DEVICE_QUEUE_CREATE_INFO
-        q.queueFamilyIndex = self._queue_family
-        q.queueCount = 1
-        q.pQueuePriorities = ctypes.cast(priority, c_void_p)
-        self._queue_info = q
-
+        self._priority = priority = (F32 * 1)(1.0)
+        self._queue_info = q = VkDeviceQueueCreateInfo(ST_DEVICE_QUEUE_CREATE_INFO, None, 0, self._queue_family, 1, cast(priority, VP))
         dev_exts = [b"VK_KHR_swapchain"]
         if hasattr(self._i, "EnumerateDeviceExtensionProperties"):
-            ext_count = c_uint32(0)
+            ext_count = U32(0)
             self._i.EnumerateDeviceExtensionProperties(self._physical, None, byref(ext_count), None)
             if ext_count.value > 0:
-                class _VkExtProp(ctypes.Structure):
-                    _fields_ = [("extensionName", ctypes.c_char * 256), ("specVersion", c_uint32)]
                 arr_props = (_VkExtProp * ext_count.value)()
                 self._i.EnumerateDeviceExtensionProperties(self._physical, None, byref(ext_count), arr_props)
-                available = {p.extensionName.split(b"\x00")[0] for p in arr_props}
-                if b"VK_KHR_portability_subset" in available and b"VK_KHR_portability_subset" not in dev_exts:
+                if b"VK_KHR_portability_subset" in {p.extensionName.split(b"\x00")[0] for p in arr_props}:
                     dev_exts.append(b"VK_KHR_portability_subset")
 
-        ext = (c_char_p * len(dev_exts))(*dev_exts)
-        self._dev_ext = ext
-        info = VkDeviceCreateInfo()
-        info.sType = ST_DEVICE_CREATE_INFO
-        info.queueCreateInfoCount = 1
-        info.pQueueCreateInfos = _addr(q)
-        info.enabledExtensionCount = len(dev_exts)
-        info.ppEnabledExtensionNames = ctypes.cast(ext, c_void_p)
-        self._device_info = info
-        device = c_void_p()
+        self._dev_ext = ext = (CP * len(dev_exts))(*dev_exts)
+        self._device_info = info = VkDeviceCreateInfo(ST_DEVICE_CREATE_INFO, None, 0, 1, _addr(q), 0, None, len(dev_exts), cast(ext, VP), None)
+        device = VP()
         _check(self._i.CreateDevice(self._physical, _addr(info), None, byref(device)), "vkCreateDevice")
         self._device = device
 
     def _load_device(self):
-        g = self._vulkan.vkGetDeviceProcAddr
-        dev = self._device
-
-        def load(name, restype, argtypes):
-            return _load(g, dev, name, restype, argtypes)
-
-        U32 = c_uint32
-        P = c_void_p
-        H = c_uint64
-        self._vk = type("D", (), {})()
-        vk = self._vk
-        vk.GetDeviceQueue = load("vkGetDeviceQueue", None, [P, U32, U32, POINTER(P)])
-        vk.DeviceWaitIdle = load("vkDeviceWaitIdle", c_int32, [P])
-        vk.DestroyDevice = load("vkDestroyDevice", None, [P, P])
-        vk.CreateSwapchainKHR = load("vkCreateSwapchainKHR", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroySwapchainKHR = load("vkDestroySwapchainKHR", None, [P, H, P])
-        vk.GetSwapchainImagesKHR = load("vkGetSwapchainImagesKHR", c_int32, [P, H, POINTER(U32), POINTER(H)])
-        vk.CreateImage = load("vkCreateImage", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyImage = load("vkDestroyImage", None, [P, H, P])
-        vk.GetImageMemoryRequirements = load("vkGetImageMemoryRequirements", None, [P, H, P])
-        vk.BindImageMemory = load("vkBindImageMemory", c_int32, [P, H, H, c_uint64])
-        vk.CreateImageView = load("vkCreateImageView", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyImageView = load("vkDestroyImageView", None, [P, H, P])
-        vk.CreateSampler = load("vkCreateSampler", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroySampler = load("vkDestroySampler", None, [P, H, P])
-        vk.CreateRenderPass = load("vkCreateRenderPass", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyRenderPass = load("vkDestroyRenderPass", None, [P, H, P])
-        vk.CreateFramebuffer = load("vkCreateFramebuffer", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyFramebuffer = load("vkDestroyFramebuffer", None, [P, H, P])
-        vk.CreateShaderModule = load("vkCreateShaderModule", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyShaderModule = load("vkDestroyShaderModule", None, [P, H, P])
-        vk.CreatePipelineLayout = load("vkCreatePipelineLayout", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyPipelineLayout = load("vkDestroyPipelineLayout", None, [P, H, P])
-        vk.CreateGraphicsPipelines = load("vkCreateGraphicsPipelines", c_int32, [P, H, U32, P, P, POINTER(H)])
-        vk.DestroyPipeline = load("vkDestroyPipeline", None, [P, H, P])
-        vk.CreateDescriptorSetLayout = load("vkCreateDescriptorSetLayout", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyDescriptorSetLayout = load("vkDestroyDescriptorSetLayout", None, [P, H, P])
-        vk.CreateDescriptorPool = load("vkCreateDescriptorPool", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyDescriptorPool = load("vkDestroyDescriptorPool", None, [P, H, P])
-        vk.AllocateDescriptorSets = load("vkAllocateDescriptorSets", c_int32, [P, P, POINTER(H)])
-        vk.UpdateDescriptorSets = load("vkUpdateDescriptorSets", None, [P, U32, P, U32, P])
-        vk.CreateBuffer = load("vkCreateBuffer", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyBuffer = load("vkDestroyBuffer", None, [P, H, P])
-        vk.GetBufferMemoryRequirements = load("vkGetBufferMemoryRequirements", None, [P, H, P])
-        vk.AllocateMemory = load("vkAllocateMemory", c_int32, [P, P, P, POINTER(H)])
-        vk.FreeMemory = load("vkFreeMemory", None, [P, H, P])
-        vk.BindBufferMemory = load("vkBindBufferMemory", c_int32, [P, H, H, c_uint64])
-        vk.MapMemory = load("vkMapMemory", c_int32, [P, H, c_uint64, c_uint64, U32, POINTER(P)])
-        vk.UnmapMemory = load("vkUnmapMemory", None, [P, H])
-        vk.CreateCommandPool = load("vkCreateCommandPool", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyCommandPool = load("vkDestroyCommandPool", None, [P, H, P])
-        vk.AllocateCommandBuffers = load("vkAllocateCommandBuffers", c_int32, [P, P, POINTER(P)])
-        vk.BeginCommandBuffer = load("vkBeginCommandBuffer", c_int32, [P, P])
-        vk.EndCommandBuffer = load("vkEndCommandBuffer", c_int32, [P])
-        vk.ResetCommandBuffer = load("vkResetCommandBuffer", c_int32, [P, U32])
-        vk.CmdBeginRenderPass = load("vkCmdBeginRenderPass", None, [P, P, U32])
-        vk.CmdEndRenderPass = load("vkCmdEndRenderPass", None, [P])
-        vk.CmdBindPipeline = load("vkCmdBindPipeline", None, [P, U32, H])
-        vk.CmdBindDescriptorSets = load("vkCmdBindDescriptorSets", None, [P, U32, H, U32, U32, P, U32, P])
-        vk.CmdDraw = load("vkCmdDraw", None, [P, U32, U32, U32, U32])
-        vk.CmdSetViewport = load("vkCmdSetViewport", None, [P, U32, U32, P])
-        vk.CmdSetScissor = load("vkCmdSetScissor", None, [P, U32, U32, P])
-        vk.CmdPipelineBarrier = load("vkCmdPipelineBarrier", None, [P, U32, U32, U32, U32, P, U32, P, U32, P])
-        vk.CmdCopyBufferToImage = load("vkCmdCopyBufferToImage", None, [P, H, H, U32, U32, P])
-        vk.CmdCopyImageToBuffer = load("vkCmdCopyImageToBuffer", None, [P, H, U32, H, U32, P])
-        vk.CreateSemaphore = load("vkCreateSemaphore", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroySemaphore = load("vkDestroySemaphore", None, [P, H, P])
-        vk.CreateFence = load("vkCreateFence", c_int32, [P, P, P, POINTER(H)])
-        vk.DestroyFence = load("vkDestroyFence", None, [P, H, P])
-        vk.WaitForFences = load("vkWaitForFences", c_int32, [P, U32, P, U32, c_uint64])
-        vk.ResetFences = load("vkResetFences", c_int32, [P, U32, P])
-        vk.AcquireNextImageKHR = load("vkAcquireNextImageKHR", c_int32, [P, H, c_uint64, H, H, POINTER(U32)])
-        vk.QueueSubmit = load("vkQueueSubmit", c_int32, [P, U32, P, H])
-        vk.QueuePresentKHR = load("vkQueuePresentKHR", c_int32, [P, P])
-        vk.QueueWaitIdle = load("vkQueueWaitIdle", c_int32, [P])
-
-        queue = c_void_p()
+        g, dev = self._vulkan.vkGetDeviceProcAddr, self._device
+        P, H, PH, PU32 = VP, U64, POINTER(U64), POINTER(U32)
+        self._vk = vk = type("D", (), {})()
+        for attr, res, args in (
+            ("GetDeviceQueue", None, [P, U32, U32, POINTER(P)]), ("DeviceWaitIdle", I32, [P]), ("DestroyDevice", None, [P, P]),
+            ("CreateSwapchainKHR", I32, [P, P, P, PH]), ("DestroySwapchainKHR", None, [P, H, P]),
+            ("GetSwapchainImagesKHR", I32, [P, H, PU32, PH]), ("CreateImage", I32, [P, P, P, PH]), ("DestroyImage", None, [P, H, P]),
+            ("GetImageMemoryRequirements", None, [P, H, P]), ("BindImageMemory", I32, [P, H, H, U64]),
+            ("CreateImageView", I32, [P, P, P, PH]), ("DestroyImageView", None, [P, H, P]),
+            ("CreateSampler", I32, [P, P, P, PH]), ("DestroySampler", None, [P, H, P]),
+            ("CreateRenderPass", I32, [P, P, P, PH]), ("DestroyRenderPass", None, [P, H, P]),
+            ("CreateFramebuffer", I32, [P, P, P, PH]), ("DestroyFramebuffer", None, [P, H, P]),
+            ("CreateShaderModule", I32, [P, P, P, PH]), ("DestroyShaderModule", None, [P, H, P]),
+            ("CreatePipelineLayout", I32, [P, P, P, PH]), ("DestroyPipelineLayout", None, [P, H, P]),
+            ("CreateGraphicsPipelines", I32, [P, H, U32, P, P, PH]), ("DestroyPipeline", None, [P, H, P]),
+            ("CreateDescriptorSetLayout", I32, [P, P, P, PH]), ("DestroyDescriptorSetLayout", None, [P, H, P]),
+            ("CreateDescriptorPool", I32, [P, P, P, PH]), ("DestroyDescriptorPool", None, [P, H, P]),
+            ("AllocateDescriptorSets", I32, [P, P, PH]), ("UpdateDescriptorSets", None, [P, U32, P, U32, P]),
+            ("CreateBuffer", I32, [P, P, P, PH]), ("DestroyBuffer", None, [P, H, P]),
+            ("GetBufferMemoryRequirements", None, [P, H, P]), ("AllocateMemory", I32, [P, P, P, PH]),
+            ("FreeMemory", None, [P, H, P]), ("BindBufferMemory", I32, [P, H, H, U64]),
+            ("MapMemory", I32, [P, H, U64, U64, U32, POINTER(P)]), ("UnmapMemory", None, [P, H]),
+            ("CreateCommandPool", I32, [P, P, P, PH]), ("DestroyCommandPool", None, [P, H, P]),
+            ("AllocateCommandBuffers", I32, [P, P, POINTER(P)]), ("BeginCommandBuffer", I32, [P, P]),
+            ("EndCommandBuffer", I32, [P]), ("ResetCommandBuffer", I32, [P, U32]),
+            ("CmdBeginRenderPass", None, [P, P, U32]), ("CmdEndRenderPass", None, [P]),
+            ("CmdBindPipeline", None, [P, U32, H]), ("CmdBindDescriptorSets", None, [P, U32, H, U32, U32, P, U32, P]),
+            ("CmdDraw", None, [P, U32, U32, U32, U32]), ("CmdSetViewport", None, [P, U32, U32, P]),
+            ("CmdSetScissor", None, [P, U32, U32, P]), ("CmdPipelineBarrier", None, [P, U32, U32, U32, U32, P, U32, P, U32, P]),
+            ("CmdCopyBufferToImage", None, [P, H, H, U32, U32, P]), ("CmdCopyImageToBuffer", None, [P, H, U32, H, U32, P]),
+            ("CreateSemaphore", I32, [P, P, P, PH]), ("DestroySemaphore", None, [P, H, P]),
+            ("CreateFence", I32, [P, P, P, PH]), ("DestroyFence", None, [P, H, P]),
+            ("WaitForFences", I32, [P, U32, P, U32, U64]), ("ResetFences", I32, [P, U32, P]),
+            ("AcquireNextImageKHR", I32, [P, H, U64, H, H, PU32]), ("QueueSubmit", I32, [P, U32, P, H]),
+            ("QueuePresentKHR", I32, [P, P]), ("QueueWaitIdle", I32, [P]),
+        ):
+            setattr(vk, attr, _load(g, dev, f"vk{attr}", res, args))
+        queue = VP()
         vk.GetDeviceQueue(self._device, self._queue_family, 0, byref(queue))
         self._queue = queue
 
     def _surface_choices(self):
         caps = VkSurfaceCapabilitiesKHR()
         _check(self._i.GetSurfaceCaps(self._physical, self._surface, _addr(caps)), "surface caps")
-        count = c_uint32()
+        count = U32()
         _check(self._i.GetSurfaceFormats(self._physical, self._surface, byref(count), None), "surface formats")
         formats = (VkSurfaceFormatKHR * count.value)()
         _check(self._i.GetSurfaceFormats(self._physical, self._surface, byref(count), formats), "surface formats")
-        preferred = (FORMAT_B8G8R8A8_UNORM, FORMAT_R8G8B8A8_UNORM, FORMAT_B8G8R8A8_SRGB)
         chosen = formats[0]
-        for want in preferred:
+        for want in (FORMAT_B8G8R8A8_UNORM, FORMAT_R8G8B8A8_UNORM, FORMAT_B8G8R8A8_SRGB):
             for fmt in formats:
                 if fmt.format == want:
                     chosen = fmt
                     break
-            else:
-                continue
+            else: continue
             break
-        modes_n = c_uint32()
+        modes_n = U32()
         _check(self._i.GetSurfaceModes(self._physical, self._surface, byref(modes_n), None), "present modes")
-        modes = (c_uint32 * modes_n.value)()
+        modes = (U32 * modes_n.value)()
         _check(self._i.GetSurfaceModes(self._physical, self._surface, byref(modes_n), modes), "present modes")
         present = PRESENT_FIFO if any(modes[i] == PRESENT_FIFO for i in range(modes_n.value)) else modes[0]
         return caps, chosen, present
 
     def _create_swapchain(self, old=0):
         caps, fmt, present = self._surface_choices()
-        self.format = int(fmt.format)
-        self._colorspace = int(fmt.colorSpace)
+        self.format, self._colorspace = int(fmt.format), int(fmt.colorSpace)
         fw, fh = self.framebuffer_size()
         if caps.currentExtent.width != 0xFFFFFFFF and caps.currentExtent.width > 0:
             extent = (int(caps.currentExtent.width), int(caps.currentExtent.height))
         else:
-            eff_fw = min(fw, RENDER_1080P_WIDTH) if (self.is_fullscreen and self.is_4k_display()) else fw
-            eff_fh = min(fh, RENDER_1080P_HEIGHT) if (self.is_fullscreen and self.is_4k_display()) else fh
-            extent = (
-                min(max(eff_fw, caps.minImageExtent.width), caps.maxImageExtent.width),
-                min(max(eff_fh, caps.minImageExtent.height), caps.maxImageExtent.height),
-            )
-        if extent[0] == 0 or extent[1] == 0:
-            extent = (fw, fh)
+            eff_fw = min(fw, RENDER_1080P_WIDTH) if (self.is_fullscreen and self._is_4k_cached) else fw
+            eff_fh = min(fh, RENDER_1080P_HEIGHT) if (self.is_fullscreen and self._is_4k_cached) else fh
+            extent = (min(max(eff_fw, caps.minImageExtent.width), caps.maxImageExtent.width),
+                      min(max(eff_fh, caps.minImageExtent.height), caps.maxImageExtent.height))
+        if extent[0] == 0 or extent[1] == 0: extent = (fw, fh)
 
         image_count = max(caps.minImageCount, 3)
-        if caps.maxImageCount:
-            image_count = min(image_count, caps.maxImageCount)
+        if caps.maxImageCount: image_count = min(image_count, caps.maxImageCount)
 
-        usage = IMAGE_USAGE_COLOR
-        if caps.supportedUsageFlags & IMAGE_USAGE_TRANSFER_SRC:
-            usage |= IMAGE_USAGE_TRANSFER_SRC
-            self._can_readback = True
-        else:
-            self._can_readback = False
+        self._can_readback = bool(caps.supportedUsageFlags & IMAGE_USAGE_TRANSFER_SRC)
+        usage = IMAGE_USAGE_COLOR | (IMAGE_USAGE_TRANSFER_SRC if self._can_readback else 0)
 
         composite_alpha = COMPOSITE_OPAQUE
         if not (caps.supportedCompositeAlpha & COMPOSITE_OPAQUE):
-            for candidate in (COMPOSITE_PRE_MULTIPLIED, COMPOSITE_POST_MULTIPLIED, COMPOSITE_INHERIT):
-                if caps.supportedCompositeAlpha & candidate:
-                    composite_alpha = candidate
+            for cand in (COMPOSITE_PRE_MULTIPLIED, COMPOSITE_POST_MULTIPLIED, COMPOSITE_INHERIT):
+                if caps.supportedCompositeAlpha & cand:
+                    composite_alpha = cand
                     break
 
-        info = VkSwapchainCreateInfoKHR()
-        info.sType = ST_SWAPCHAIN_CREATE
-        info.surface = self._surface
-        info.minImageCount = image_count
-        info.imageFormat = self.format
-        info.imageColorSpace = self._colorspace
-        info.imageExtent = VkExtent2D(extent[0], extent[1])
-        info.imageArrayLayers = 1
-        info.imageUsage = usage
-        info.imageSharingMode = SHARING_EXCLUSIVE
-        info.preTransform = caps.currentTransform or TRANSFORM_IDENTITY
-        info.compositeAlpha = composite_alpha
-        info.presentMode = present
-        info.clipped = 1
-        info.oldSwapchain = old
-        self._swap_info = info
-
-        swap = c_uint64()
+        self._swap_info = info = VkSwapchainCreateInfoKHR(
+            ST_SWAPCHAIN_CREATE, None, 0, self._surface, image_count, self.format, self._colorspace,
+            VkExtent2D(extent[0], extent[1]), 1, usage, SHARING_EXCLUSIVE, 0, None,
+            caps.currentTransform or TRANSFORM_IDENTITY, composite_alpha, present, 1, old
+        )
+        swap = U64()
         _check(self._vk.CreateSwapchainKHR(self._device, _addr(info), None, byref(swap)), "vkCreateSwapchainKHR")
-        if old:
-            self._vk.DestroySwapchainKHR(self._device, old, None)
-        self._swapchain = swap.value
-        self._extent = extent
+        if old: self._vk.DestroySwapchainKHR(self._device, old, None)
+        self._swapchain, self._extent = swap.value, extent
 
-        count = c_uint32()
+        count = U32()
         _check(self._vk.GetSwapchainImagesKHR(self._device, self._swapchain, byref(count), None), "swapchain images")
-        images = (c_uint64 * count.value)()
+        images = (U64 * count.value)()
         _check(self._vk.GetSwapchainImagesKHR(self._device, self._swapchain, byref(count), images), "swapchain images")
         self._images = [int(images[i]) for i in range(count.value)]
-        self._views = []
-        self._framebuffers = []
+        self._views, self._framebuffers = [], []
 
         for image in self._images:
-            view_info = VkImageViewCreateInfo()
-            view_info.sType = ST_IMAGE_VIEW_CREATE_INFO
-            view_info.image = image
-            view_info.viewType = IMAGE_VIEW_2D
-            view_info.format = self.format
-            view_info.aspectMask = IMAGE_ASPECT_COLOR
-            view_info.levelCount = 1
-            view_info.layerCount = 1
-            view = c_uint64()
+            view_info = VkImageViewCreateInfo(ST_IMAGE_VIEW_CREATE_INFO, None, 0, image, IMAGE_VIEW_2D, self.format, 0, 0, 0, 0, IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+            view = U64()
             _check(self._vk.CreateImageView(self._device, _addr(view_info), None, byref(view)), "image view")
             self._views.append(view.value)
 
-        if not getattr(self, "_render_pass", 0):
-            self._create_render_pass()
+        if not getattr(self, "_render_pass", 0): self._create_render_pass()
         self._create_framebuffers()
 
     def _create_render_pass(self):
-        attachment = VkAttachmentDescription()
-        attachment.format = self.format
-        attachment.samples = SAMPLE_1
-        attachment.loadOp = LOAD_CLEAR
-        attachment.storeOp = STORE_STORE
-        attachment.stencilLoadOp = LOAD_DONT
-        attachment.stencilStoreOp = STORE_DONT
-        attachment.initialLayout = LAYOUT_UNDEFINED
-        attachment.finalLayout = LAYOUT_PRESENT
+        att = VkAttachmentDescription(0, self.format, SAMPLE_1, LOAD_CLEAR, STORE_STORE, LOAD_DONT, STORE_DONT, LAYOUT_UNDEFINED, LAYOUT_PRESENT)
         ref = VkAttachmentReference(0, LAYOUT_COLOR)
-        sub = VkSubpassDescription()
-        sub.pipelineBindPoint = 0
-        sub.colorAttachmentCount = 1
-        sub.pColorAttachments = _addr(ref)
-        deps = (VkSubpassDependency * 2)()
-        deps[0].srcSubpass = SUBPASS_EXTERNAL
-        deps[0].dstSubpass = 0
-        deps[0].srcStageMask = STAGE_COLOR_OUT
-        deps[0].dstStageMask = STAGE_COLOR_OUT
-        deps[0].dstAccessMask = ACCESS_COLOR_WRITE
-        deps[1].srcSubpass = 0
-        deps[1].dstSubpass = SUBPASS_EXTERNAL
-        deps[1].srcStageMask = STAGE_COLOR_OUT
-        deps[1].dstStageMask = STAGE_BOTTOM
-        deps[1].srcAccessMask = ACCESS_COLOR_WRITE
-        info = VkRenderPassCreateInfo()
-        info.sType = ST_RENDER_PASS
-        info.attachmentCount = 1
-        info.pAttachments = _addr(attachment)
-        info.subpassCount = 1
-        info.pSubpasses = _addr(sub)
-        info.dependencyCount = 2
-        info.pDependencies = ctypes.cast(deps, c_void_p)
-        self._rp_keep = (attachment, ref, sub, deps, info)
-        rp = c_uint64()
+        sub = VkSubpassDescription(0, 0, 0, None, 1, _addr(ref), None, None, 0, None)
+        deps = (VkSubpassDependency * 2)(
+            VkSubpassDependency(SUBPASS_EXTERNAL, 0, STAGE_COLOR_OUT, STAGE_COLOR_OUT, 0, ACCESS_COLOR_WRITE, 0),
+            VkSubpassDependency(0, SUBPASS_EXTERNAL, STAGE_COLOR_OUT, STAGE_BOTTOM, ACCESS_COLOR_WRITE, 0, 0),
+        )
+        info = VkRenderPassCreateInfo(ST_RENDER_PASS, None, 0, 1, _addr(att), 1, _addr(sub), 2, cast(deps, VP))
+        self._rp_keep = (att, ref, sub, deps, info)
+        rp = U64()
         _check(self._vk.CreateRenderPass(self._device, _addr(info), None, byref(rp)), "render pass")
         self._render_pass = rp.value
 
     def _create_framebuffers(self):
         self._fb_keeps = []
         for view in self._views:
-            views = (c_uint64 * 1)(view)
-            info = VkFramebufferCreateInfo()
-            info.sType = ST_FRAMEBUFFER
-            info.renderPass = self._render_pass
-            info.attachmentCount = 1
-            info.pAttachments = ctypes.cast(views, c_void_p)
-            info.width, info.height = self._extent
-            info.layers = 1
-            fb = c_uint64()
+            views = (U64 * 1)(view)
+            info = VkFramebufferCreateInfo(ST_FRAMEBUFFER, None, 0, self._render_pass, 1, cast(views, VP), self._extent[0], self._extent[1], 1)
+            fb = U64()
             self._fb_keeps.append((views, info))
             _check(self._vk.CreateFramebuffer(self._device, _addr(info), None, byref(fb)), "framebuffer")
             self._framebuffers.append(fb.value)
 
     def _destroy_swapchain_views(self):
-        for fb in self._framebuffers:
-            self._vk.DestroyFramebuffer(self._device, fb, None)
-        for view in self._views:
-            self._vk.DestroyImageView(self._device, view, None)
-        self._framebuffers = []
-        self._views = []
+        for fb in self._framebuffers: self._vk.DestroyFramebuffer(self._device, fb, None)
+        for view in self._views: self._vk.DestroyImageView(self._device, view, None)
+        self._framebuffers, self._views = [], []
 
     def _recreate_swapchain(self):
         self._vk.DeviceWaitIdle(self._device)
         self._destroy_swapchain_views()
-        old = self._swapchain
-        self._create_swapchain(old)
+        self._create_swapchain(self._swapchain)
         self._resize = False
         self._destroy_readback()
+        if hasattr(self, "_hot_rp"):
+            self._sync_hotloop_extent()
 
     def _memory_type(self, bits: int, flags: int) -> int:
         props = VkPhysicalDeviceMemoryProperties()
@@ -2447,235 +1134,130 @@ class LiquidVisualizerVulkanRenderer:
         raise RuntimeError("No compatible Vulkan memory type found on device")
 
     def _create_buffer(self, size: int, usage: int, mem_flags: int = MEMORY_HOST_VISIBLE | MEMORY_HOST_COHERENT):
-        info = VkBufferCreateInfo()
-        info.sType = ST_BUFFER_CREATE_INFO
-        info.size = size
-        info.usage = usage
-        info.sharingMode = SHARING_EXCLUSIVE
-        buf = c_uint64()
+        info = VkBufferCreateInfo(ST_BUFFER_CREATE_INFO, None, 0, size, usage, SHARING_EXCLUSIVE, 0, None)
+        buf = U64()
         _check(self._vk.CreateBuffer(self._device, _addr(info), None, byref(buf)), "buffer")
         req = VkMemoryRequirements()
         self._vk.GetBufferMemoryRequirements(self._device, buf.value, _addr(req))
-        alloc = VkMemoryAllocateInfo()
-        alloc.sType = ST_MEMORY_ALLOCATE_INFO
-        alloc.allocationSize = req.size
-        alloc.memoryTypeIndex = self._memory_type(req.memoryTypeBits, mem_flags)
-        mem = c_uint64()
+        alloc = VkMemoryAllocateInfo(ST_MEMORY_ALLOCATE_INFO, None, req.size, self._memory_type(req.memoryTypeBits, mem_flags))
+        mem = U64()
         _check(self._vk.AllocateMemory(self._device, _addr(alloc), None, byref(mem)), "memory")
         _check(self._vk.BindBufferMemory(self._device, buf.value, mem.value, 0), "bind memory")
         return buf.value, mem.value, int(req.size)
 
     def _create_commands(self):
-        pool_info = VkCommandPoolCreateInfo()
-        pool_info.sType = ST_COMMAND_POOL
-        pool_info.flags = CMD_POOL_RESET
-        pool_info.queueFamilyIndex = self._queue_family
-        pool = c_uint64()
+        pool_info = VkCommandPoolCreateInfo(ST_COMMAND_POOL, None, CMD_POOL_RESET, self._queue_family)
+        pool = U64()
         _check(self._vk.CreateCommandPool(self._device, _addr(pool_info), None, byref(pool)), "command pool")
         self._pool = pool.value
 
-        frames = 2
-        alloc = VkCommandBufferAllocateInfo()
-        alloc.sType = ST_COMMAND_BUFFER_ALLOCATE
-        alloc.commandPool = self._pool
-        alloc.level = 0
-        alloc.commandBufferCount = frames
-        cmds = (c_void_p * frames)()
-        self._cmd_alloc = alloc
+        self._cmd_alloc = alloc = VkCommandBufferAllocateInfo(ST_COMMAND_BUFFER_ALLOCATE, None, self._pool, 0, 2)
+        self._cmd_keep = cmds = (VP * 2)()
         _check(self._vk.AllocateCommandBuffers(self._device, _addr(alloc), cmds), "command buffers")
-        self._cmd = [cmds[i] for i in range(frames)]
-        self._cmd_keep = cmds
+        self._cmd = [cmds[0], cmds[1]]
 
-        sem_info = VkSemaphoreCreateInfo()
-        sem_info.sType = ST_SEMAPHORE_CREATE_INFO
-        fence_info = VkFenceCreateInfo()
-        fence_info.sType = ST_FENCE_CREATE_INFO
-        fence_info.flags = FENCE_SIGNALED
+        sem_info, fence_info = VkSemaphoreCreateInfo(ST_SEMAPHORE_CREATE_INFO, None, 0), VkFenceCreateInfo(ST_FENCE_CREATE_INFO, None, FENCE_SIGNALED)
         self._sync_info = (sem_info, fence_info)
-
-        for _ in range(frames):
-            sem = c_uint64()
+        for _ in range(2):
+            sem, sem2, fence = U64(), U64(), U64()
             _check(self._vk.CreateSemaphore(self._device, _addr(sem_info), None, byref(sem)), "semaphore")
-            self._image_available.append(sem.value)
-            sem2 = c_uint64()
             _check(self._vk.CreateSemaphore(self._device, _addr(sem_info), None, byref(sem2)), "semaphore")
-            self._render_finished.append(sem2.value)
-            fence = c_uint64()
             _check(self._vk.CreateFence(self._device, _addr(fence_info), None, byref(fence)), "fence")
+            self._image_available.append(sem.value)
+            self._render_finished.append(sem2.value)
             self._fences.append(fence.value)
         self._frame = 0
+
+    def _submit_one_time_cmd(self, record_fn):
+        vk = self._vk
+        alloc = VkCommandBufferAllocateInfo(ST_COMMAND_BUFFER_ALLOCATE, None, self._pool, 0, 1)
+        cmd = VP()
+        _check(vk.AllocateCommandBuffers(self._device, _addr(alloc), byref(cmd)), "alloc one-time cmd")
+        begin = VkCommandBufferBeginInfo(ST_COMMAND_BUFFER_BEGIN, None, CMD_ONE_TIME, None)
+        _check(vk.BeginCommandBuffer(cmd, _addr(begin)), "begin one-time cmd")
+        keep = record_fn(cmd)
+        _check(vk.EndCommandBuffer(cmd), "end one-time cmd")
+        submit = VkSubmitInfo(ST_SUBMIT_INFO, None, 0, None, None, 1, cast(byref(cmd), VP), 0, None)
+        _check(vk.QueueSubmit(self._queue, 1, _addr(submit), 0), "submit one-time cmd")
+        _check(vk.QueueWaitIdle(self._queue), "wait one-time cmd")
+        return keep
 
     def _upload_cover_image(self):
         tw, th, rgba_bytes = load_preset_cover_rgba(self.preset, tex_size=1024)
         byte_len = len(rgba_bytes)
-
         staging_buf, staging_mem, _ = self._create_buffer(byte_len, BUFFER_USAGE_TRANSFER_SRC)
-        ptr = c_void_p()
+        ptr = VP()
         _check(self._vk.MapMemory(self._device, staging_mem, 0, byte_len, 0, byref(ptr)), "map staging")
-        ctypes.memmove(ptr, rgba_bytes, byte_len)
+        memmove(ptr, rgba_bytes, byte_len)
         self._vk.UnmapMemory(self._device, staging_mem)
 
-        img_info = VkImageCreateInfo()
-        img_info.sType = ST_IMAGE_CREATE_INFO
-        img_info.imageType = IMAGE_TYPE_2D
-        img_info.format = FORMAT_R8G8B8A8_UNORM
-        img_info.extent = VkExtent3D(tw, th, 1)
-        img_info.mipLevels = 1
-        img_info.arrayLayers = 1
-        img_info.samples = SAMPLE_1
-        img_info.tiling = TILING_OPTIMAL
-        img_info.usage = IMAGE_USAGE_TRANSFER_DST | IMAGE_USAGE_SAMPLED
-        img_info.sharingMode = SHARING_EXCLUSIVE
-        img_info.initialLayout = LAYOUT_UNDEFINED
-
-        tex_img = c_uint64()
+        img_info = VkImageCreateInfo(ST_IMAGE_CREATE_INFO, None, 0, IMAGE_TYPE_2D, FORMAT_R8G8B8A8_UNORM, VkExtent3D(tw, th, 1),
+                                     1, 1, SAMPLE_1, TILING_OPTIMAL, IMAGE_USAGE_TRANSFER_DST | IMAGE_USAGE_SAMPLED, SHARING_EXCLUSIVE, 0, None, LAYOUT_UNDEFINED)
+        tex_img = U64()
         _check(self._vk.CreateImage(self._device, _addr(img_info), None, byref(tex_img)), "create cover image")
         self._tex_image = tex_img.value
 
         req = VkMemoryRequirements()
         self._vk.GetImageMemoryRequirements(self._device, self._tex_image, _addr(req))
-        alloc = VkMemoryAllocateInfo()
-        alloc.sType = ST_MEMORY_ALLOCATE_INFO
-        alloc.allocationSize = req.size
-        try:
-            alloc.memoryTypeIndex = self._memory_type(req.memoryTypeBits, MEMORY_DEVICE_LOCAL)
-        except Exception:
-            alloc.memoryTypeIndex = self._memory_type(req.memoryTypeBits, 0)
-        tex_mem = c_uint64()
+        try: mtype = self._memory_type(req.memoryTypeBits, MEMORY_DEVICE_LOCAL)
+        except Exception: mtype = self._memory_type(req.memoryTypeBits, 0)
+        alloc = VkMemoryAllocateInfo(ST_MEMORY_ALLOCATE_INFO, None, req.size, mtype)
+        tex_mem = U64()
         _check(self._vk.AllocateMemory(self._device, _addr(alloc), None, byref(tex_mem)), "alloc cover mem")
         self._tex_memory = tex_mem.value
         _check(self._vk.BindImageMemory(self._device, self._tex_image, self._tex_memory, 0), "bind cover mem")
 
-        # Transition image layout and copy staging buffer -> device image
-        cmd_alloc = VkCommandBufferAllocateInfo()
-        cmd_alloc.sType = ST_COMMAND_BUFFER_ALLOCATE
-        cmd_alloc.commandPool = self._pool
-        cmd_alloc.commandBufferCount = 1
-        cmd = c_void_p()
-        _check(self._vk.AllocateCommandBuffers(self._device, _addr(cmd_alloc), byref(cmd)), "tex cmd")
+        sub_range = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+        def _rec(cmd):
+            b1 = VkImageMemoryBarrier(ST_IMAGE_MEMORY_BARRIER, None, 0, ACCESS_TRANSFER_WRITE, LAYOUT_UNDEFINED, LAYOUT_TRANSFER_DST, QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, self._tex_image, sub_range)
+            self._vk.CmdPipelineBarrier(cmd, STAGE_TOP, STAGE_TRANSFER, 0, 0, None, 0, None, 1, _addr(b1))
+            region = VkBufferImageCopy(0, 0, 0, VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1), VkOffset3D(0, 0, 0), VkExtent3D(tw, th, 1))
+            self._vk.CmdCopyBufferToImage(cmd, staging_buf, self._tex_image, LAYOUT_TRANSFER_DST, 1, _addr(region))
+            b2 = VkImageMemoryBarrier(ST_IMAGE_MEMORY_BARRIER, None, ACCESS_TRANSFER_WRITE, ACCESS_SHADER_READ, LAYOUT_TRANSFER_DST, LAYOUT_SHADER_READ_ONLY, QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, self._tex_image, sub_range)
+            self._vk.CmdPipelineBarrier(cmd, STAGE_TRANSFER, STAGE_FRAGMENT, 0, 0, None, 0, None, 1, _addr(b2))
+            return (b1, region, b2)
 
-        begin = VkCommandBufferBeginInfo()
-        begin.sType = ST_COMMAND_BUFFER_BEGIN
-        begin.flags = CMD_ONE_TIME
-        _check(self._vk.BeginCommandBuffer(cmd, _addr(begin)), "begin tex cmd")
-
-        b1 = VkImageMemoryBarrier()
-        b1.sType = ST_IMAGE_MEMORY_BARRIER
-        b1.srcAccessMask = 0
-        b1.dstAccessMask = ACCESS_TRANSFER_WRITE
-        b1.oldLayout = LAYOUT_UNDEFINED
-        b1.newLayout = LAYOUT_TRANSFER_DST
-        b1.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        b1.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        b1.image = self._tex_image
-        b1.subresourceRange = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
-        self._vk.CmdPipelineBarrier(cmd, STAGE_TOP, STAGE_TRANSFER, 0, 0, None, 0, None, 1, _addr(b1))
-
-        region = VkBufferImageCopy()
-        region.bufferOffset = 0
-        region.bufferRowLength = 0
-        region.bufferImageHeight = 0
-        region.imageSubresource = VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1)
-        region.imageOffset = VkOffset3D(0, 0, 0)
-        region.imageExtent = VkExtent3D(tw, th, 1)
-        self._vk.CmdCopyBufferToImage(cmd, staging_buf, self._tex_image, LAYOUT_TRANSFER_DST, 1, _addr(region))
-
-        b2 = VkImageMemoryBarrier()
-        b2.sType = ST_IMAGE_MEMORY_BARRIER
-        b2.srcAccessMask = ACCESS_TRANSFER_WRITE
-        b2.dstAccessMask = ACCESS_SHADER_READ
-        b2.oldLayout = LAYOUT_TRANSFER_DST
-        b2.newLayout = LAYOUT_SHADER_READ_ONLY
-        b2.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        b2.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        b2.image = self._tex_image
-        b2.subresourceRange = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
-        self._vk.CmdPipelineBarrier(cmd, STAGE_TRANSFER, STAGE_FRAGMENT, 0, 0, None, 0, None, 1, _addr(b2))
-
-        _check(self._vk.EndCommandBuffer(cmd), "end tex cmd")
-        submit = VkSubmitInfo()
-        submit.sType = ST_SUBMIT_INFO
-        submit.commandBufferCount = 1
-        submit.pCommandBuffers = ctypes.cast(byref(cmd), c_void_p)
-        _check(self._vk.QueueSubmit(self._queue, 1, _addr(submit), 0), "submit tex cmd")
-        _check(self._vk.QueueWaitIdle(self._queue), "wait tex upload")
-
+        self._submit_one_time_cmd(_rec)
         self._vk.DestroyBuffer(self._device, staging_buf, None)
         self._vk.FreeMemory(self._device, staging_mem, None)
 
-        view_info = VkImageViewCreateInfo()
-        view_info.sType = ST_IMAGE_VIEW_CREATE_INFO
-        view_info.image = self._tex_image
-        view_info.viewType = IMAGE_VIEW_2D
-        view_info.format = FORMAT_R8G8B8A8_UNORM
-        view_info.aspectMask = IMAGE_ASPECT_COLOR
-        view_info.levelCount = 1
-        view_info.layerCount = 1
-        tview = c_uint64()
+        view_info = VkImageViewCreateInfo(ST_IMAGE_VIEW_CREATE_INFO, None, 0, self._tex_image, IMAGE_VIEW_2D, FORMAT_R8G8B8A8_UNORM, 0, 0, 0, 0, IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+        tview = U64()
         _check(self._vk.CreateImageView(self._device, _addr(view_info), None, byref(tview)), "cover image view")
         self._tex_view = tview.value
 
     def _create_cover_texture(self):
-        """Upload the Bandcamp cover for the active preset into a Vulkan 2D Texture."""
         self._upload_cover_image()
-
-        samp_info = VkSamplerCreateInfo()
-        samp_info.sType = ST_SAMPLER_CREATE_INFO
-        samp_info.magFilter = FILTER_LINEAR
-        samp_info.minFilter = FILTER_LINEAR
-        samp_info.mipmapMode = SAMPLER_MIPMAP_LINEAR
-        samp_info.addressModeU = SAMPLER_ADDRESS_REPEAT
-        samp_info.addressModeV = SAMPLER_ADDRESS_REPEAT
-        samp_info.addressModeW = SAMPLER_ADDRESS_REPEAT
-        samp_info.maxAnisotropy = 1.0
-        samp_info.maxLod = 1.0
-        sampler = c_uint64()
+        samp_info = VkSamplerCreateInfo(ST_SAMPLER_CREATE_INFO, None, 0, FILTER_LINEAR, FILTER_LINEAR, SAMPLER_MIPMAP_LINEAR,
+                                        SAMPLER_ADDRESS_REPEAT, SAMPLER_ADDRESS_REPEAT, SAMPLER_ADDRESS_REPEAT, 0.0, 0, 1.0, 0, 0, 0.0, 1.0, 0, 0)
+        sampler = U64()
         _check(self._vk.CreateSampler(self._device, _addr(samp_info), None, byref(sampler)), "cover sampler")
         self._tex_sampler = sampler.value
 
     def switch_preset(self, preset: Dict[str, Any]):
-        if preset.get("id") == self.preset.get("id"):
-            return
+        if preset.get("id") == self.preset.get("id"): return
         self.preset = preset
         save_active_preset(self.preset["key"])
         if hasattr(self, "_device") and self._device and getattr(self, "_tex_sampler", 0):
             try:
                 self._vk.QueueWaitIdle(self._queue)
-                if getattr(self, "_tex_view", None):
-                    self._vk.DestroyImageView(self._device, self._tex_view, None)
-                    self._tex_view = None
-                if getattr(self, "_tex_image", None):
-                    self._vk.DestroyImage(self._device, self._tex_image, None)
-                    self._tex_image = None
-                if getattr(self, "_tex_memory", None):
-                    self._vk.FreeMemory(self._device, self._tex_memory, None)
-                    self._tex_memory = None
+                if getattr(self, "_tex_view", None): self._vk.DestroyImageView(self._device, self._tex_view, None); self._tex_view = None
+                if getattr(self, "_tex_image", None): self._vk.DestroyImage(self._device, self._tex_image, None); self._tex_image = None
+                if getattr(self, "_tex_memory", None): self._vk.FreeMemory(self._device, self._tex_memory, None); self._tex_memory = None
                 self._upload_cover_image()
-                # Update descriptor set binding 1 with new image view
                 image_info = VkDescriptorImageInfo(self._tex_sampler, self._tex_view, LAYOUT_SHADER_READ_ONLY)
-                write = VkWriteDescriptorSet()
-                write.sType = ST_WRITE_DESCRIPTOR_SET
-                write.dstSet = self._dset
-                write.dstBinding = 1
-                write.descriptorCount = 1
-                write.descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
-                write.pImageInfo = _addr(image_info)
+                write = VkWriteDescriptorSet(ST_WRITE_DESCRIPTOR_SET, None, self._dset, 1, 0, 1, DESCRIPTOR_COMBINED_IMAGE_SAMPLER, _addr(image_info), None, None)
                 self._desc_switch_keep = (image_info, write)
                 self._vk.UpdateDescriptorSets(self._device, 1, _addr(write), 0, None)
             except Exception as e:
-                import sys
                 print(f"[LiquidVisualizer] Warning: failed to switch cover texture: {e}", file=sys.stderr)
 
     def _shader_module(self, path: Path) -> int:
         data = Path(path).read_bytes()
-        if len(data) % 4:
-            raise RuntimeError(f"{path} is not aligned SPIR-V")
+        if len(data) % 4: raise RuntimeError(f"{path} is not aligned SPIR-V")
         buf = (c_uint8 * len(data)).from_buffer_copy(data)
-        info = VkShaderModuleCreateInfo()
-        info.sType = ST_SHADER_MODULE_CREATE_INFO
-        info.codeSize = len(data)
-        info.pCode = ctypes.cast(buf, c_void_p)
-        mod = c_uint64()
+        info = VkShaderModuleCreateInfo(ST_SHADER_MODULE_CREATE_INFO, None, 0, len(data), cast(buf, VP))
+        mod = U64()
         self._shader_keep = getattr(self, "_shader_keep", [])
         self._shader_keep.append((buf, info))
         _check(self._vk.CreateShaderModule(self._device, _addr(info), None, byref(mod)), f"shader {path.name}")
@@ -2686,443 +1268,268 @@ class LiquidVisualizerVulkanRenderer:
         frag = self._shader_module(SHADER_DIR / "mp_liquid_visualizer.frag.spv")
         self._modules = [vert, frag]
 
-        stages = (VkPipelineShaderStageCreateInfo * 2)()
-        for stage, mod, bit in ((0, vert, SHADER_VERTEX), (1, frag, SHADER_FRAGMENT)):
-            stages[stage].sType = ST_PIPELINE_SHADER_STAGE
-            stages[stage].stage = bit
-            stages[stage].module = mod
-            stages[stage].pName = b"main"
-
-        vertex = VkPipelineVertexInputStateCreateInfo()
-        vertex.sType = ST_PIPELINE_VERTEX_INPUT
-        assembly = VkPipelineInputAssemblyStateCreateInfo()
-        assembly.sType = ST_PIPELINE_INPUT_ASSEMBLY
-        assembly.topology = TOPOLOGY_TRIANGLE_LIST
-
+        stages = (VkPipelineShaderStageCreateInfo * 2)(
+            VkPipelineShaderStageCreateInfo(ST_PIPELINE_SHADER_STAGE, None, 0, SHADER_VERTEX, vert, b"main", None),
+            VkPipelineShaderStageCreateInfo(ST_PIPELINE_SHADER_STAGE, None, 0, SHADER_FRAGMENT, frag, b"main", None),
+        )
+        vertex = VkPipelineVertexInputStateCreateInfo(ST_PIPELINE_VERTEX_INPUT, None, 0, 0, None, 0, None)
+        assembly = VkPipelineInputAssemblyStateCreateInfo(ST_PIPELINE_INPUT_ASSEMBLY, None, 0, TOPOLOGY_TRIANGLE_LIST, 0)
         vp = VkViewport(0, 0, float(self._extent[0]), float(self._extent[1]), 0.0, 1.0)
         sc = VkRect2D(VkOffset2D(0, 0), VkExtent2D(self._extent[0], self._extent[1]))
-        viewport = VkPipelineViewportStateCreateInfo()
-        viewport.sType = ST_PIPELINE_VIEWPORT
-        viewport.viewportCount = 1
-        viewport.pViewports = _addr(vp)
-        viewport.scissorCount = 1
-        viewport.pScissors = _addr(sc)
+        viewport = VkPipelineViewportStateCreateInfo(ST_PIPELINE_VIEWPORT, None, 0, 1, _addr(vp), 1, _addr(sc))
+        raster = VkPipelineRasterizationStateCreateInfo(ST_PIPELINE_RASTER, None, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 1.0)
+        multi = VkPipelineMultisampleStateCreateInfo(ST_PIPELINE_MULTISAMPLE, None, 0, SAMPLE_1, 0, 0.0, None, 0, 0)
+        blend_att = VkPipelineColorBlendAttachmentState(0, 0, 0, 0, 0, 0, 0, COLOR_WRITE_ALL)
+        blend = VkPipelineColorBlendStateCreateInfo(ST_PIPELINE_COLOR_BLEND, None, 0, 0, 0, 1, _addr(blend_att), (F32 * 4)(0, 0, 0, 0))
+        dynamics = (U32 * 2)(DYNAMIC_VIEWPORT, DYNAMIC_SCISSOR)
+        dynamic = VkPipelineDynamicStateCreateInfo(ST_PIPELINE_DYNAMIC, None, 0, 2, cast(dynamics, VP))
 
-        raster = VkPipelineRasterizationStateCreateInfo()
-        raster.sType = ST_PIPELINE_RASTER
-        raster.polygonMode = 0
-        raster.lineWidth = 1.0
-
-        multi = VkPipelineMultisampleStateCreateInfo()
-        multi.sType = ST_PIPELINE_MULTISAMPLE
-        multi.rasterizationSamples = SAMPLE_1
-
-        blend_att = VkPipelineColorBlendAttachmentState()
-        blend_att.colorWriteMask = COLOR_WRITE_ALL
-        blend_att.blendEnable = 0
-        blend = VkPipelineColorBlendStateCreateInfo()
-        blend.sType = ST_PIPELINE_COLOR_BLEND
-        blend.attachmentCount = 1
-        blend.pAttachments = _addr(blend_att)
-
-        dynamics = (c_uint32 * 2)(DYNAMIC_VIEWPORT, DYNAMIC_SCISSOR)
-        dynamic = VkPipelineDynamicStateCreateInfo()
-        dynamic.sType = ST_PIPELINE_DYNAMIC
-        dynamic.dynamicStateCount = 2
-        dynamic.pDynamicStates = ctypes.cast(dynamics, c_void_p)
-
-        bindings = (VkDescriptorSetLayoutBinding * 2)()
-        bindings[0].binding = 0
-        bindings[0].descriptorType = DESCRIPTOR_UNIFORM
-        bindings[0].descriptorCount = 1
-        bindings[0].stageFlags = STAGE_VERTEX_BIT | STAGE_FRAGMENT_BIT
-
-        bindings[1].binding = 1
-        bindings[1].descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
-        bindings[1].descriptorCount = 1
-        bindings[1].stageFlags = STAGE_FRAGMENT_BIT
-
-        set_info = VkDescriptorSetLayoutCreateInfo()
-        set_info.sType = ST_DESCRIPTOR_SET_LAYOUT
-        set_info.bindingCount = 2
-        set_info.pBindings = ctypes.cast(bindings, c_void_p)
-        desc_layout = c_uint64()
-        _check(
-            self._vk.CreateDescriptorSetLayout(self._device, _addr(set_info), None, byref(desc_layout)),
-            "descriptor layout",
+        bindings = (VkDescriptorSetLayoutBinding * 2)(
+            VkDescriptorSetLayoutBinding(0, DESCRIPTOR_UNIFORM, 1, STAGE_VERTEX_BIT | STAGE_FRAGMENT_BIT, None),
+            VkDescriptorSetLayoutBinding(1, DESCRIPTOR_COMBINED_IMAGE_SAMPLER, 1, STAGE_FRAGMENT_BIT, None),
         )
+        set_info = VkDescriptorSetLayoutCreateInfo(ST_DESCRIPTOR_SET_LAYOUT, None, 0, 2, cast(bindings, VP))
+        desc_layout = U64()
+        _check(self._vk.CreateDescriptorSetLayout(self._device, _addr(set_info), None, byref(desc_layout)), "descriptor layout")
         self._desc_layout = desc_layout.value
 
-        layouts = (c_uint64 * 1)(self._desc_layout)
-        pipe_layout_info = VkPipelineLayoutCreateInfo()
-        pipe_layout_info.sType = ST_PIPELINE_LAYOUT
-        pipe_layout_info.setLayoutCount = 1
-        pipe_layout_info.pSetLayouts = ctypes.cast(layouts, c_void_p)
-        layout = c_uint64()
-        _check(
-            self._vk.CreatePipelineLayout(self._device, _addr(pipe_layout_info), None, byref(layout)),
-            "pipeline layout",
-        )
+        layouts = (U64 * 1)(self._desc_layout)
+        pipe_layout_info = VkPipelineLayoutCreateInfo(ST_PIPELINE_LAYOUT, None, 0, 1, cast(layouts, VP), 0, None)
+        layout = U64()
+        _check(self._vk.CreatePipelineLayout(self._device, _addr(pipe_layout_info), None, byref(layout)), "pipeline layout")
         self._layout = layout.value
 
-        gp = VkGraphicsPipelineCreateInfo()
-        gp.sType = ST_GRAPHICS_PIPELINE
-        gp.stageCount = 2
-        gp.pStages = ctypes.cast(stages, c_void_p)
-        gp.pVertexInputState = _addr(vertex)
-        gp.pInputAssemblyState = _addr(assembly)
-        gp.pViewportState = _addr(viewport)
-        gp.pRasterizationState = _addr(raster)
-        gp.pMultisampleState = _addr(multi)
-        gp.pColorBlendState = _addr(blend)
-        gp.pDynamicState = _addr(dynamic)
-        gp.layout = self._layout
-        gp.renderPass = self._render_pass
-        gp.basePipelineIndex = -1
-        self._pipe_keep = (
-            stages, vertex, assembly, vp, sc, viewport, raster, multi,
-            blend_att, blend, dynamics, dynamic, bindings, set_info, layouts,
-            pipe_layout_info, gp,
+        gp = VkGraphicsPipelineCreateInfo(
+            ST_GRAPHICS_PIPELINE, None, 0, 2, cast(stages, VP), _addr(vertex), _addr(assembly), None,
+            _addr(viewport), _addr(raster), _addr(multi), None, _addr(blend), _addr(dynamic),
+            self._layout, self._render_pass, 0, 0, -1
         )
-        pipeline = c_uint64()
-        _check(
-            self._vk.CreateGraphicsPipelines(self._device, 0, 1, _addr(gp), None, byref(pipeline)),
-            "graphics pipeline",
-        )
+        self._pipe_keep = (stages, vertex, assembly, vp, sc, viewport, raster, multi, blend_att, blend, dynamics, dynamic, bindings, set_info, layouts, pipe_layout_info, gp)
+        pipeline = U64()
+        _check(self._vk.CreateGraphicsPipelines(self._device, 0, 1, _addr(gp), None, byref(pipeline)), "graphics pipeline")
         self._pipeline = pipeline.value
 
     def _create_descriptors(self):
-        ubo_size = ctypes.sizeof(VisualizerUBO)
+        ubo_size = sizeof(VisualizerUBO)
         self._ubo, self._ubo_memory, _ = self._create_buffer(ubo_size, BUFFER_USAGE_UNIFORM)
-        ptr = c_void_p()
+        ptr = VP()
         _check(self._vk.MapMemory(self._device, self._ubo_memory, 0, ubo_size, 0, byref(ptr)), "map ubo")
         self._ubo_ptr = ptr
 
-        pool_sizes = (VkDescriptorPoolSize * 2)()
-        pool_sizes[0] = VkDescriptorPoolSize(DESCRIPTOR_UNIFORM, 1)
-        pool_sizes[1] = VkDescriptorPoolSize(DESCRIPTOR_COMBINED_IMAGE_SAMPLER, 1)
-
-        pool_info = VkDescriptorPoolCreateInfo()
-        pool_info.sType = ST_DESCRIPTOR_POOL
-        pool_info.maxSets = 1
-        pool_info.poolSizeCount = 2
-        pool_info.pPoolSizes = ctypes.cast(pool_sizes, c_void_p)
-        pool = c_uint64()
+        pool_sizes = (VkDescriptorPoolSize * 2)(VkDescriptorPoolSize(DESCRIPTOR_UNIFORM, 1), VkDescriptorPoolSize(DESCRIPTOR_COMBINED_IMAGE_SAMPLER, 1))
+        pool_info = VkDescriptorPoolCreateInfo(ST_DESCRIPTOR_POOL, None, 0, 1, 2, cast(pool_sizes, VP))
+        pool = U64()
         _check(self._vk.CreateDescriptorPool(self._device, _addr(pool_info), None, byref(pool)), "descriptor pool")
         self._desc_pool = pool.value
 
-        layouts = (c_uint64 * 1)(self._desc_layout)
-        alloc_info = VkDescriptorSetAllocateInfo()
-        alloc_info.sType = ST_DESCRIPTOR_SET_ALLOCATE
-        alloc_info.descriptorPool = self._desc_pool
-        alloc_info.descriptorSetCount = 1
-        alloc_info.pSetLayouts = ctypes.cast(layouts, c_void_p)
-        dset = c_uint64()
+        layouts = (U64 * 1)(self._desc_layout)
+        alloc_info = VkDescriptorSetAllocateInfo(ST_DESCRIPTOR_SET_ALLOCATE, None, self._desc_pool, 1, cast(layouts, VP))
+        dset = U64()
         self._desc_keep = (pool_sizes, pool_info, layouts, alloc_info)
         _check(self._vk.AllocateDescriptorSets(self._device, _addr(alloc_info), byref(dset)), "descriptor set")
         self._dset = dset.value
 
         buffer_info = VkDescriptorBufferInfo(self._ubo, 0, ubo_size)
         image_info = VkDescriptorImageInfo(self._tex_sampler, self._tex_view, LAYOUT_SHADER_READ_ONLY)
-
-        writes = (VkWriteDescriptorSet * 2)()
-        writes[0].sType = ST_WRITE_DESCRIPTOR_SET
-        writes[0].dstSet = self._dset
-        writes[0].dstBinding = 0
-        writes[0].descriptorCount = 1
-        writes[0].descriptorType = DESCRIPTOR_UNIFORM
-        writes[0].pBufferInfo = _addr(buffer_info)
-
-        writes[1].sType = ST_WRITE_DESCRIPTOR_SET
-        writes[1].dstSet = self._dset
-        writes[1].dstBinding = 1
-        writes[1].descriptorCount = 1
-        writes[1].descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
-        writes[1].pImageInfo = _addr(image_info)
-
+        writes = (VkWriteDescriptorSet * 2)(
+            VkWriteDescriptorSet(ST_WRITE_DESCRIPTOR_SET, None, self._dset, 0, 0, 1, DESCRIPTOR_UNIFORM, None, _addr(buffer_info), None),
+            VkWriteDescriptorSet(ST_WRITE_DESCRIPTOR_SET, None, self._dset, 1, 0, 1, DESCRIPTOR_COMBINED_IMAGE_SAMPLER, _addr(image_info), None, None),
+        )
         self._write_keep = (buffer_info, image_info, writes)
-        self._vk.UpdateDescriptorSets(self._device, 2, ctypes.cast(writes, c_void_p), 0, None)
+        self._vk.UpdateDescriptorSets(self._device, 2, cast(writes, VP), 0, None)
+
+    def _init_hotloop_structs(self):
+        """Pre-allocate and wire all per-frame Vulkan structs once to eliminate per-frame allocations."""
+        self._ubo_size = sizeof(VisualizerUBO)
+        self._hot_begin = VkCommandBufferBeginInfo(ST_COMMAND_BUFFER_BEGIN, None, CMD_ONE_TIME, None)
+        self._hot_begin_ptr = _addr(self._hot_begin)
+
+        self._hot_barrier = VkBufferMemoryBarrier(ST_BUFFER_MEMORY_BARRIER, None, ACCESS_HOST_WRITE, ACCESS_UNIFORM, QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, self._ubo, 0, self._ubo_size)
+        self._hot_barrier_ptr = _addr(self._hot_barrier)
+
+        self._hot_clear = VkClearValue((F32 * 4)(0.0, 0.0, 0.0, 1.0))
+        self._hot_rp = VkRenderPassBeginInfo(ST_RENDER_PASS_BEGIN, None, self._render_pass, 0, VkRect2D(VkOffset2D(0, 0), VkExtent2D(*self._extent)), 1, _addr(self._hot_clear))
+        self._hot_rp_ptr = _addr(self._hot_rp)
+
+        self._hot_view = VkViewport(0.0, 0.0, float(self._extent[0]), float(self._extent[1]), 0.0, 1.0)
+        self._hot_view_ptr = VP(addressof(self._hot_view))
+        self._hot_scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(*self._extent))
+        self._hot_scissor_ptr = VP(addressof(self._hot_scissor))
+
+        self._hot_dset = U64(self._dset)
+        self._hot_dset_ptr = cast(byref(self._hot_dset), VP)
+
+        self._hot_fences = [U64(f) for f in self._fences]
+        self._hot_fence_ptrs = [byref(f) for f in self._hot_fences]
+        self._hot_wait_sems = [U64(s) for s in self._image_available]
+        self._hot_sig_sems = [U64(s) for s in self._render_finished]
+        self._hot_wait_stage = U32(STAGE_COLOR_OUT)
+        self._hot_cmd_keeps = [VP(c) for c in self._cmd]
+
+        self._hot_submits = []
+        self._hot_submit_ptrs = []
+        for i in range(2):
+            sub = VkSubmitInfo(
+                ST_SUBMIT_INFO, None, 1, cast(byref(self._hot_wait_sems[i]), VP),
+                cast(byref(self._hot_wait_stage), VP), 1, cast(byref(self._hot_cmd_keeps[i]), VP),
+                1, cast(byref(self._hot_sig_sems[i]), VP)
+            )
+            self._hot_submits.append(sub)
+            self._hot_submit_ptrs.append(_addr(sub))
+
+        self._hot_index = U32()
+        self._hot_swap = U64(self._swapchain)
+        self._hot_presents = []
+        self._hot_present_ptrs = []
+        for i in range(2):
+            pr = VkPresentInfoKHR(
+                ST_PRESENT_INFO, None, 1, cast(byref(self._hot_sig_sems[i]), VP),
+                1, cast(byref(self._hot_swap), VP), cast(byref(self._hot_index), VP), None
+            )
+            self._hot_presents.append(pr)
+            self._hot_present_ptrs.append(_addr(pr))
+
+    def _sync_hotloop_extent(self):
+        ew, eh = self._extent
+        self._hot_rp.renderArea.extent.width, self._hot_rp.renderArea.extent.height = ew, eh
+        self._hot_view.width, self._hot_view.height = float(ew), float(eh)
+        self._hot_scissor.extent.width, self._hot_scissor.extent.height = ew, eh
+        self._hot_swap.value = self._swapchain
 
     def _write_ubo(self, bridge: AudioTelemetryBridge):
         fw, fh = self._extent
-        if self.is_4k_display() or fw >= FOUR_K_MIN_WIDTH or fh >= FOUR_K_MIN_HEIGHT:
-            render_w = float(min(fw, RENDER_1080P_WIDTH))
-            render_h = float(min(fh, RENDER_1080P_HEIGHT))
+        if self._is_4k_cached or fw >= FOUR_K_MIN_WIDTH or fh >= FOUR_K_MIN_HEIGHT:
+            rw, rh = float(min(fw, RENDER_1080P_WIDTH)), float(min(fh, RENDER_1080P_HEIGHT))
         else:
-            render_w = float(fw)
-            render_h = float(fh)
-        ubo = VisualizerUBO()
-        ubo.res[:] = (
-            render_w,
-            render_h,
-            float(bridge.accum_time),
-            1.0 if bridge.is_playing else 0.0,
-        )
-        ubo.audio0[:] = (
-            float(bridge.sub_bass),
-            float(bridge.bass),
-            float(bridge.low_mid),
-            float(bridge.mid),
-        )
-        ubo.audio1[:] = (
-            float(bridge.high_mid),
-            float(bridge.treble),
-            float(bridge.air),
-            float(bridge.rms_energy),
-        )
-        ubo.audio2[:] = (
-            float(bridge.beat_pulse),
-            float(bridge.bass_phase),
-            float(bridge.mid_phase),
-            float(bridge.high_phase),
-        )
+            rw, rh = float(fw), float(fh)
+        u = self._ubo_struct
+        r, a0, a1, a2, b0, b1, b2, b3, pr = u.res, u.audio0, u.audio1, u.audio2, u.bands0, u.bands1, u.bands2, u.bands3, u.preset
+        r[0], r[1], r[2], r[3] = rw, rh, bridge.accum_time, 1.0 if bridge.is_playing else 0.0
+        a0[0], a0[1], a0[2], a0[3] = bridge.sub_bass, bridge.bass, bridge.low_mid, bridge.mid
+        a1[0], a1[1], a1[2], a1[3] = bridge.high_mid, bridge.treble, bridge.air, bridge.rms_energy
+        a2[0], a2[1], a2[2], a2[3] = bridge.beat_pulse, bridge.bass_phase, bridge.mid_phase, bridge.high_phase
         b = bridge.bands16
-        ubo.bands0[:] = (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
-        ubo.bands1[:] = (float(b[4]), float(b[5]), float(b[6]), float(b[7]))
-        ubo.bands2[:] = (float(b[8]), float(b[9]), float(b[10]), float(b[11]))
-        ubo.bands3[:] = (float(b[12]), float(b[13]), float(b[14]), float(b[15]))
-        ubo.preset[:] = (
-            float(self.preset["id"]),
-            float(bridge.pitch_factor),
-            1.0,
-            float(getattr(bridge, "dynamic_time", bridge.accum_time)),
-        )
-        ctypes.memmove(self._ubo_ptr, byref(ubo), ctypes.sizeof(ubo))
+        b0[0], b0[1], b0[2], b0[3] = b[0], b[1], b[2], b[3]
+        b1[0], b1[1], b1[2], b1[3] = b[4], b[5], b[6], b[7]
+        b2[0], b2[1], b2[2], b2[3] = b[8], b[9], b[10], b[11]
+        b3[0], b3[1], b3[2], b3[3] = b[12], b[13], b[14], b[15]
+        pr[0], pr[1], pr[2], pr[3] = float(self.preset["id"]), bridge.pitch_factor, 1.0, getattr(bridge, "dynamic_time", bridge.accum_time)
+        memmove(self._ubo_ptr, byref(u), self._ubo_size)
 
     def draw(self, bridge: AudioTelemetryBridge, capture: bool = False):
-        if not self.poll():
-            return None
+        if not self.poll(): return None
         fw, fh = self.framebuffer_size()
-        if fw < 2 or fh < 2:
-            return None
+        if fw < 2 or fh < 2: return None
         if getattr(self, "_resize", False) or (fw, fh) != self._extent:
             self._recreate_swapchain()
         self._write_ubo(bridge)
         return self._render(capture)
 
     def _render(self, capture: bool):
-        vk = self._vk
+        vk, dev = self._vk, self._device
         frame = self._frame
         fence = self._fences[frame]
-        _check(vk.WaitForFences(self._device, 1, byref(c_uint64(fence)), 1, 2_000_000_000), "wait fence")
-        index = c_uint32()
-        acquired = vk.AcquireNextImageKHR(
-            self._device, self._swapchain, 2_000_000_000,
-            self._image_available[frame], 0, byref(index),
-        )
+        fence_ptr = self._hot_fence_ptrs[frame]
+        _check(vk.WaitForFences(dev, 1, fence_ptr, 1, 2_000_000_000), "wait fence")
+
+        index = self._hot_index
+        acquired = vk.AcquireNextImageKHR(dev, self._swapchain, 2_000_000_000, self._image_available[frame], 0, byref(index))
         if acquired == OUT_OF_DATE:
             self._recreate_swapchain()
             return None
-        if acquired not in (SUCCESS, SUBOPTIMAL):
-            _check(acquired, "acquire")
-        if acquired == SUBOPTIMAL:
-            self._resize = True
-        _check(vk.ResetFences(self._device, 1, byref(c_uint64(fence))), "reset fence")
+        if acquired not in (SUCCESS, SUBOPTIMAL): _check(acquired, "acquire")
+        if acquired == SUBOPTIMAL: self._resize = True
+
+        _check(vk.ResetFences(dev, 1, fence_ptr), "reset fence")
         cmd = self._cmd[frame]
         _check(vk.ResetCommandBuffer(cmd, 0), "reset command")
+        _check(vk.BeginCommandBuffer(cmd, self._hot_begin_ptr), "begin command")
 
-        begin = VkCommandBufferBeginInfo()
-        begin.sType = ST_COMMAND_BUFFER_BEGIN
-        begin.flags = CMD_ONE_TIME
-        _check(vk.BeginCommandBuffer(cmd, _addr(begin)), "begin command")
-
-        barrier = VkBufferMemoryBarrier()
-        barrier.sType = ST_BUFFER_MEMORY_BARRIER
-        barrier.srcAccessMask = ACCESS_HOST_WRITE
-        barrier.dstAccessMask = ACCESS_UNIFORM
-        barrier.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        barrier.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        barrier.buffer = self._ubo
-        barrier.size = ctypes.sizeof(VisualizerUBO)
-        vk.CmdPipelineBarrier(cmd, STAGE_HOST, STAGE_FRAGMENT, 0, 0, None, 1, _addr(barrier), 0, None)
-
-        clear = VkClearValue()
-        clear.color[:] = (0.0, 0.0, 0.0, 1.0)
-        rp = VkRenderPassBeginInfo()
-        rp.sType = ST_RENDER_PASS_BEGIN
-        rp.renderPass = self._render_pass
-        rp.framebuffer = self._framebuffers[index.value]
-        rp.renderArea.extent = VkExtent2D(*self._extent)
-        rp.clearValueCount = 1
-        rp.pClearValues = _addr(clear)
-        vk.CmdBeginRenderPass(cmd, _addr(rp), 0)
+        vk.CmdPipelineBarrier(cmd, STAGE_HOST, STAGE_FRAGMENT, 0, 0, None, 1, self._hot_barrier_ptr, 0, None)
+        self._hot_rp.framebuffer = self._framebuffers[index.value]
+        vk.CmdBeginRenderPass(cmd, self._hot_rp_ptr, 0)
         vk.CmdBindPipeline(cmd, 0, self._pipeline)
-
-        view = VkViewport(0.0, 0.0, float(self._extent[0]), float(self._extent[1]), 0.0, 1.0)
-        scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(self._extent[0], self._extent[1]))
-        vk.CmdSetViewport(cmd, 0, 1, c_void_p(ctypes.addressof(view)))
-        vk.CmdSetScissor(cmd, 0, 1, c_void_p(ctypes.addressof(scissor)))
-        self._vbind_keep = (view, scissor)
-
-        dset = c_uint64(self._dset)
-        vk.CmdBindDescriptorSets(cmd, 0, self._layout, 0, 1, ctypes.cast(byref(dset), c_void_p), 0, None)
+        vk.CmdSetViewport(cmd, 0, 1, self._hot_view_ptr)
+        vk.CmdSetScissor(cmd, 0, 1, self._hot_scissor_ptr)
+        vk.CmdBindDescriptorSets(cmd, 0, self._layout, 0, 1, self._hot_dset_ptr, 0, None)
         vk.CmdDraw(cmd, 3, 1, 0, 0)
         vk.CmdEndRenderPass(cmd)
         _check(vk.EndCommandBuffer(cmd), "end command")
 
-        wait_sem = c_uint64(self._image_available[frame])
-        signal_sem = c_uint64(self._render_finished[frame])
-        wait_stage = c_uint32(STAGE_COLOR_OUT)
-        cmd_keep = c_void_p(cmd)
-        submit = VkSubmitInfo()
-        submit.sType = ST_SUBMIT_INFO
-        submit.waitSemaphoreCount = 1
-        submit.pWaitSemaphores = ctypes.cast(byref(wait_sem), c_void_p)
-        submit.pWaitDstStageMask = ctypes.cast(byref(wait_stage), c_void_p)
-        submit.commandBufferCount = 1
-        submit.pCommandBuffers = ctypes.cast(byref(cmd_keep), c_void_p)
-        submit.signalSemaphoreCount = 1
-        submit.pSignalSemaphores = ctypes.cast(byref(signal_sem), c_void_p)
-        _check(vk.QueueSubmit(self._queue, 1, _addr(submit), fence), "queue submit")
+        _check(vk.QueueSubmit(self._queue, 1, self._hot_submit_ptrs[frame], fence), "queue submit")
 
         pixels = None
         if capture and self._can_readback:
-            _check(vk.WaitForFences(self._device, 1, byref(c_uint64(fence)), 1, 2_000_000_000), "wait draw")
+            _check(vk.WaitForFences(dev, 1, fence_ptr, 1, 2_000_000_000), "wait draw")
             pixels = self._read_image(self._images[index.value])
 
-        swap = c_uint64(self._swapchain)
-        present = VkPresentInfoKHR()
-        present.sType = ST_PRESENT_INFO
-        present.waitSemaphoreCount = 1
-        present.pWaitSemaphores = ctypes.cast(byref(signal_sem), c_void_p)
-        present.swapchainCount = 1
-        present.pSwapchains = ctypes.cast(byref(swap), c_void_p)
-        present.pImageIndices = ctypes.cast(byref(index), c_void_p)
-        presented = vk.QueuePresentKHR(self._queue, _addr(present))
-        if presented in (OUT_OF_DATE, SUBOPTIMAL):
-            self._resize = True
-        elif presented != SUCCESS:
-            _check(presented, "present")
+        presented = vk.QueuePresentKHR(self._queue, self._hot_present_ptrs[frame])
+        if presented in (OUT_OF_DATE, SUBOPTIMAL): self._resize = True
+        elif presented != SUCCESS: _check(presented, "present")
 
-        self._frame = (frame + 1) % 2
-        self._frame_keep = (begin, barrier, clear, rp, wait_sem, signal_sem, wait_stage, cmd_keep, submit, swap, present, index)
+        self._frame = (frame + 1) & 1
         return pixels
 
     def _ensure_readback(self):
         byte_count = self._extent[0] * self._extent[1] * 4
-        if self._readback_buffer and self._readback_bytes >= byte_count:
-            return
+        if self._readback_buffer and self._readback_bytes >= byte_count: return
         self._destroy_readback()
         buf, mem, size = self._create_buffer(byte_count, BUFFER_USAGE_TRANSFER_DST)
-        ptr = c_void_p()
+        ptr = VP()
         _check(self._vk.MapMemory(self._device, mem, 0, size, 0, byref(ptr)), "map readback")
-        self._readback_buffer = buf
-        self._readback_memory = mem
-        self._readback_ptr = ptr
-        self._readback_bytes = byte_count
+        self._readback_buffer, self._readback_memory, self._readback_ptr, self._readback_bytes = buf, mem, ptr, byte_count
 
     def _destroy_readback(self):
         if self._readback_memory:
             self._vk.UnmapMemory(self._device, self._readback_memory)
             self._vk.DestroyBuffer(self._device, self._readback_buffer, None)
             self._vk.FreeMemory(self._device, self._readback_memory, None)
-        self._readback_buffer = 0
-        self._readback_memory = 0
+        self._readback_buffer = self._readback_memory = self._readback_bytes = 0
         self._readback_ptr = None
-        self._readback_bytes = 0
 
     def _read_image(self, image: int):
         self._ensure_readback()
-        vk = self._vk
-        alloc = VkCommandBufferAllocateInfo()
-        alloc.sType = ST_COMMAND_BUFFER_ALLOCATE
-        alloc.commandPool = self._pool
-        alloc.commandBufferCount = 1
-        cmd = c_void_p()
-        _check(vk.AllocateCommandBuffers(self._device, _addr(alloc), byref(cmd)), "readback command")
-        begin = VkCommandBufferBeginInfo()
-        begin.sType = ST_COMMAND_BUFFER_BEGIN
-        begin.flags = CMD_ONE_TIME
-        _check(vk.BeginCommandBuffer(cmd, _addr(begin)), "begin readback")
+        sub_range = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+        def _rec(cmd):
+            b1 = VkImageMemoryBarrier(ST_IMAGE_MEMORY_BARRIER, None, ACCESS_MEMORY_READ, ACCESS_TRANSFER_READ, LAYOUT_PRESENT, LAYOUT_TRANSFER_SRC, QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, image, sub_range)
+            self._vk.CmdPipelineBarrier(cmd, STAGE_BOTTOM, STAGE_TRANSFER, 0, 0, None, 0, None, 1, _addr(b1))
+            region = VkBufferImageCopy(0, 0, 0, VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1), VkOffset3D(0, 0, 0), VkExtent3D(self._extent[0], self._extent[1], 1))
+            self._vk.CmdCopyImageToBuffer(cmd, image, LAYOUT_TRANSFER_SRC, self._readback_buffer, 1, _addr(region))
+            b2 = VkImageMemoryBarrier(ST_IMAGE_MEMORY_BARRIER, None, ACCESS_TRANSFER_READ, ACCESS_MEMORY_READ, LAYOUT_TRANSFER_SRC, LAYOUT_PRESENT, QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, image, sub_range)
+            self._vk.CmdPipelineBarrier(cmd, STAGE_TRANSFER, STAGE_BOTTOM, 0, 0, None, 0, None, 1, _addr(b2))
+            return (b1, region, b2)
 
-        barrier = VkImageMemoryBarrier()
-        barrier.sType = ST_IMAGE_MEMORY_BARRIER
-        barrier.srcAccessMask = ACCESS_MEMORY_READ
-        barrier.dstAccessMask = ACCESS_TRANSFER_READ
-        barrier.oldLayout = LAYOUT_PRESENT
-        barrier.newLayout = LAYOUT_TRANSFER_SRC
-        barrier.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        barrier.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        barrier.image = image
-        barrier.subresourceRange = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
-        vk.CmdPipelineBarrier(cmd, STAGE_BOTTOM, STAGE_TRANSFER, 0, 0, None, 0, None, 1, _addr(barrier))
-
-        region = VkBufferImageCopy()
-        region.imageSubresource = VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1)
-        region.imageExtent = VkExtent3D(self._extent[0], self._extent[1], 1)
-        vk.CmdCopyImageToBuffer(cmd, image, LAYOUT_TRANSFER_SRC, self._readback_buffer, 1, _addr(region))
-
-        back = VkImageMemoryBarrier()
-        back.sType = ST_IMAGE_MEMORY_BARRIER
-        back.srcAccessMask = ACCESS_TRANSFER_READ
-        back.dstAccessMask = ACCESS_MEMORY_READ
-        back.oldLayout = LAYOUT_TRANSFER_SRC
-        back.newLayout = LAYOUT_PRESENT
-        back.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        back.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
-        back.image = image
-        back.subresourceRange = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
-        vk.CmdPipelineBarrier(cmd, STAGE_TRANSFER, STAGE_BOTTOM, 0, 0, None, 0, None, 1, _addr(back))
-
-        _check(vk.EndCommandBuffer(cmd), "end readback")
-        submit = VkSubmitInfo()
-        submit.sType = ST_SUBMIT_INFO
-        submit.commandBufferCount = 1
-        submit.pCommandBuffers = ctypes.cast(byref(cmd), c_void_p)
-        _check(vk.QueueSubmit(self._queue, 1, _addr(submit), 0), "submit readback")
-        _check(vk.QueueWaitIdle(self._queue), "readback idle")
-        byte_count = self._extent[0] * self._extent[1] * 4
-        raw = ctypes.string_at(self._readback_ptr, byte_count)
-        self._read_keep = (alloc, begin, barrier, region, back, submit)
-        return self._extent[0], self._extent[1], raw
+        self._read_keep = self._submit_one_time_cmd(_rec)
+        return self._extent[0], self._extent[1], string_at(self._readback_ptr, self._extent[0] * self._extent[1] * 4)
 
     def close(self):
         if not self._alive:
             self._destroy_window()
             return
-        try:
-            self._vk.DeviceWaitIdle(self._device)
-        except Exception:
-            pass
+        vk, dev = self._vk, self._device
+        try: vk.DeviceWaitIdle(dev)
+        except Exception: pass
         self._destroy_readback()
-        if self._tex_sampler:
-            self._vk.DestroySampler(self._device, self._tex_sampler, None)
-        if self._tex_view:
-            self._vk.DestroyImageView(self._device, self._tex_view, None)
-        if self._tex_image:
-            self._vk.DestroyImage(self._device, self._tex_image, None)
-        if self._tex_memory:
-            self._vk.FreeMemory(self._device, self._tex_memory, None)
-        for fence in self._fences:
-            self._vk.DestroyFence(self._device, fence, None)
-        for sem in self._image_available + self._render_finished:
-            self._vk.DestroySemaphore(self._device, sem, None)
-        if getattr(self, "_pool", 0):
-            self._vk.DestroyCommandPool(self._device, self._pool, None)
-        for fb in self._framebuffers:
-            self._vk.DestroyFramebuffer(self._device, fb, None)
-        for view in self._views:
-            self._vk.DestroyImageView(self._device, view, None)
-        if getattr(self, "_pipeline", 0):
-            self._vk.DestroyPipeline(self._device, self._pipeline, None)
-        if getattr(self, "_layout", 0):
-            self._vk.DestroyPipelineLayout(self._device, self._layout, None)
-        if getattr(self, "_render_pass", 0):
-            self._vk.DestroyRenderPass(self._device, self._render_pass, None)
-        if getattr(self, "_desc_pool", 0):
-            self._vk.DestroyDescriptorPool(self._device, self._desc_pool, None)
-        if getattr(self, "_desc_layout", 0):
-            self._vk.DestroyDescriptorSetLayout(self._device, self._desc_layout, None)
+        if self._tex_sampler: vk.DestroySampler(dev, self._tex_sampler, None)
+        if self._tex_view: vk.DestroyImageView(dev, self._tex_view, None)
+        if self._tex_image: vk.DestroyImage(dev, self._tex_image, None)
+        if self._tex_memory: vk.FreeMemory(dev, self._tex_memory, None)
+        for fence in self._fences: vk.DestroyFence(dev, fence, None)
+        for sem in self._image_available + self._render_finished: vk.DestroySemaphore(dev, sem, None)
+        if getattr(self, "_pool", 0): vk.DestroyCommandPool(dev, self._pool, None)
+        self._destroy_swapchain_views()
+        if getattr(self, "_pipeline", 0): vk.DestroyPipeline(dev, self._pipeline, None)
+        if getattr(self, "_layout", 0): vk.DestroyPipelineLayout(dev, self._layout, None)
+        if getattr(self, "_render_pass", 0): vk.DestroyRenderPass(dev, self._render_pass, None)
+        if getattr(self, "_desc_pool", 0): vk.DestroyDescriptorPool(dev, self._desc_pool, None)
+        if getattr(self, "_desc_layout", 0): vk.DestroyDescriptorSetLayout(dev, self._desc_layout, None)
         if getattr(self, "_ubo", 0):
-            self._vk.UnmapMemory(self._device, self._ubo_memory)
-            self._vk.DestroyBuffer(self._device, self._ubo, None)
-        if getattr(self, "_ubo_memory", 0):
-            self._vk.FreeMemory(self._device, self._ubo_memory, None)
-        for mod in getattr(self, "_modules", []):
-            self._vk.DestroyShaderModule(self._device, mod, None)
-        if self._swapchain:
-            self._vk.DestroySwapchainKHR(self._device, self._swapchain, None)
-        self._vk.DestroyDevice(self._device, None)
+            vk.UnmapMemory(dev, self._ubo_memory)
+            vk.DestroyBuffer(dev, self._ubo, None)
+        if getattr(self, "_ubo_memory", 0): vk.FreeMemory(dev, self._ubo_memory, None)
+        for mod in getattr(self, "_modules", []): vk.DestroyShaderModule(dev, mod, None)
+        if self._swapchain: vk.DestroySwapchainKHR(dev, self._swapchain, None)
+        vk.DestroyDevice(dev, None)
         self._i.DestroySurfaceKHR(self._instance, self._surface, None)
         self._i.DestroyInstance(self._instance, None)
         self._alive = False
@@ -3137,47 +1544,37 @@ class LiquidVisualizerVulkanRenderer:
 
 def save_png(path: Union[str, Path], width: int, height: int, bgra: bytes, swap_rb: bool = True):
     from PIL import Image
-    raw = bytearray(bgra)
     if swap_rb:
-        for i in range(0, len(raw), 4):
-            raw[i], raw[i + 2] = raw[i + 2], raw[i]
-    image = Image.frombytes("RGBA", (width, height), bytes(raw))
+        raw = bytearray(bgra)
+        raw[0::4], raw[2::4] = raw[2::4], raw[0::4]
+        bgra = bytes(raw)
+    image = Image.frombytes("RGBA", (width, height), bgra)
     image.save(path)
     return image
 
 
 def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Optional[str] = None) -> str:
-    """Verify 1400x1400 borderless Vulkan rendering, cover texture binding, and pause/play freeze behavior."""
-    target_preset = preset_name or get_active_preset()["name"]
-    renderer = LiquidVisualizerVulkanRenderer(target_preset)
+    renderer = LiquidVisualizerVulkanRenderer(preset_name or get_active_preset()["name"])
     bridge = AudioTelemetryBridge()
     try:
         renderer.open()
         ww, wh = renderer.window_size()
-        if (ww, wh) != (1400, 1400):
-            raise RuntimeError(f"Expected fixed 1400x1400 window, got {ww}x{wh}")
+        if (ww, wh) != (1400, 1400): raise RuntimeError(f"Expected fixed 1400x1400 window, got {ww}x{wh}")
 
-        # 1. Verify active playing state advances 3D generation
         for _ in range(5):
             bridge.update(0.12, force_playing=True, synthetic_audio=True)
             renderer.draw(bridge, capture=False)
         t_playing = bridge.accum_time
-        if t_playing <= 0.0:
-            raise RuntimeError("accum_time did not advance while playing")
+        if t_playing <= 0.0: raise RuntimeError("accum_time did not advance while playing")
 
-        # 2. Verify paused/stopped state freezes 3D generation in-place
         bridge.update(0.50, force_playing=False, synthetic_audio=True)
-        if bridge.accum_time != t_playing:
-            raise RuntimeError("accum_time advanced while music was stopped/paused")
+        if bridge.accum_time != t_playing: raise RuntimeError("accum_time advanced while music was stopped/paused")
 
-        # 3. Capture rendered 1400x1400 frame
         bridge.update(0.15, force_playing=True, synthetic_audio=True)
         pixels = renderer.draw(bridge, capture=True)
-        if not pixels:
-            raise RuntimeError("Vulkan swapchain did not produce a readable 1400x1400 frame")
+        if not pixels: raise RuntimeError("Vulkan swapchain did not produce a readable 1400x1400 frame")
         width, height, bgra = pixels
-        if (width, height) != (1400, 1400):
-            raise RuntimeError(f"Expected 1400x1400 framebuffer, got {width}x{height}")
+        if (width, height) != (1400, 1400): raise RuntimeError(f"Expected 1400x1400 framebuffer, got {width}x{height}")
 
         if png_path:
             save_png(png_path, width, height, bgra, swap_rb=(renderer.format != FORMAT_R8G8B8A8_UNORM))
@@ -3188,31 +1585,23 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
         renderer.close()
 
 
-def run_visualizer(
-    preset_name: Optional[str] = None,
-    max_seconds: Optional[float] = None,
-    fullscreen: bool = False,
-    target_4k: bool = False,
-) -> int:
-    renderer = LiquidVisualizerVulkanRenderer(
-        preset_name,
-        fullscreen=fullscreen,
-        target_4k=target_4k,
-    )
+def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[float] = None, fullscreen: bool = False, target_4k: bool = False) -> int:
+    renderer = LiquidVisualizerVulkanRenderer(preset_name, fullscreen=fullscreen, target_4k=target_4k)
     bridge = AudioTelemetryBridge()
     renderer.open()
-    last_t = time.monotonic()
-    start_t = last_t
+    monotonic, sleep = time.monotonic, time.sleep
+    last_t = start_t = monotonic()
+    update, draw = bridge.update, renderer.draw
     try:
         while not renderer.should_close:
-            now = time.monotonic()
+            now = monotonic()
             dt = now - last_t
             last_t = now
             if max_seconds is not None and (now - start_t) >= max_seconds:
                 break
-            bridge.update(dt)
-            renderer.draw(bridge, capture=False)
-            time.sleep(0.008)
+            update(dt)
+            draw(bridge, False)
+            sleep(0.008)
     except KeyboardInterrupt:
         pass
     finally:
@@ -3221,57 +1610,37 @@ def run_visualizer(
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    import argparse
+    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer")
+    p.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
+    p.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
+    p.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
+    p.add_argument("--list-presets", action="store_true", help="List available visualizer presets and exit")
+    p.add_argument("--fullscreen", "-fs", action="store_true", help="Launch visualizer in fullscreen mode (rendered at 1920x1080 on 4K)")
+    p.add_argument("--4k", "--screen-4k", dest="target_4k", action="store_true", help="Launch visualizer on 4K display in fullscreen (rendered at 1920x1080)")
+    p.add_argument("--screen", type=str, default=None, help="Target screen or monitor (e.g. '4k', 'hdmi', 'primary')")
+    p.add_argument("--self-test", action="store_true", help="Run Vulkan 1400x1400 render & pause/play verification")
+    p.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
+    p.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
+    args = p.parse_args(argv)
 
-    parser = argparse.ArgumentParser(
-        prog="MP_Liquid_Visualizer",
-        description="MP Liquid Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer",
-    )
-    parser.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
-    parser.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
-    parser.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
-    parser.add_argument("--list-presets", action="store_true", help="List available visualizer presets and exit")
-    parser.add_argument("--fullscreen", "-fs", action="store_true", help="Launch visualizer in fullscreen mode (rendered at 1920x1080 on 4K)")
-    parser.add_argument("--4k", "--screen-4k", dest="target_4k", action="store_true", help="Launch visualizer on 4K display in fullscreen (rendered at 1920x1080)")
-    parser.add_argument("--screen", type=str, default=None, help="Target screen or monitor (e.g. '4k', 'hdmi', 'primary')")
-    parser.add_argument("--self-test", action="store_true", help="Run Vulkan 1400x1400 render & pause/play verification")
-    parser.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
-    parser.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
-    args = parser.parse_args(argv)
-
-    if args.random_preset:
-        args.preset = "random"
-
+    if args.random_preset: args.preset = "random"
     if args.list_presets:
         active = get_active_preset()
-        for p in VISUALIZER_PRESETS:
-            marker = "*" if p["key"] == active["key"] else " "
-            print(f"[{marker}] {p['id'] + 1}. {p['name']} ({p['key']}) — Cover: {p['album']}")
+        for pr in VISUALIZER_PRESETS:
+            print(f"[{'*' if pr['key'] == active['key'] else ' '}] {pr['id'] + 1}. {pr['name']} ({pr['key']}) — Cover: {pr['album']}")
         return 0
-
     if args.set_preset is not None:
         saved = save_active_preset(args.set_preset)
         print(f"Active Preset set to: {saved['name']} ({saved['key']})")
         return 0
-
-    if args.preset is not None and args.preset.lower() not in ("random", "rand", "rnd", "-1", "any", "shuffle"):
+    if args.preset is not None and args.preset.lower() not in _RAND_KEYS:
         save_active_preset(args.preset)
-
     if args.self_test:
         run_self_test(args.png)
         return 0
 
-    target_4k = bool(args.target_4k)
-    if args.screen and any(k in args.screen.lower() for k in ("4k", "hdmi", "uhd", "hisense")):
-        target_4k = True
-
-    return run_visualizer(
-        preset_name=args.preset,
-        max_seconds=args.max_seconds,
-        fullscreen=bool(args.fullscreen),
-        target_4k=target_4k,
-    )
-
+    target_4k = bool(args.target_4k) or bool(args.screen and any(k in args.screen.lower() for k in ("4k", "hdmi", "uhd", "hisense")))
+    return run_visualizer(preset_name=args.preset, max_seconds=args.max_seconds, fullscreen=bool(args.fullscreen), target_4k=target_4k)
 
 if __name__ == "__main__":
     raise SystemExit(main())
