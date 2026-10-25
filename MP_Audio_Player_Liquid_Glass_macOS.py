@@ -265,17 +265,6 @@ class MetalGlassHost:  # 0 spaces (touching the left edge)
                 player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
             )
 
-        def _sync_panels(self):
-            if self.renderer is None:
-                return
-            char_w, char_h = 9, 18
-            margin = self.renderer.bezel_px
-            cols = getattr(self, "_target_cols", COLS)
-            rows = getattr(self, "_target_rows", ROWS)
-            self.renderer.set_panels(
-                player_panel_rects(cols, rows, char_w, char_h, margin, margin, mode=self.mode)
-            )
-
         def toggle_maximize(self):
             """Toggle fullscreen maximize across active display workarea."""
             if self.renderer is None:
