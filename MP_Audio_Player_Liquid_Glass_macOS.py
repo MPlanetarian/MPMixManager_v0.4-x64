@@ -221,7 +221,7 @@ class MetalGlassHost:
             self._sync_panels()
 
     def run(self):
-        """Execute the Metal Liquid Glass player session with diagnostics."""
+        """Execute the Metal Liquid Glass player session with loop diagnostics."""
         print("DEBUG: check_apple_silicon_support() starting...", flush=True)
         check_apple_silicon_support()
         print("DEBUG: Apple Silicon check passed.", flush=True)
@@ -288,22 +288,32 @@ class MetalGlassHost:
 
         print("DEBUG: Entering main event loop...", flush=True)
         try:
+            loop_count = 0
             while not self.renderer.should_close:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
                     theme_at = now
 
+                if loop_count < 3:
+                    print(f"DEBUG: Loop iteration {loop_count}: syncing panels...", flush=True)
                 self._sync_panels()
+
+                if loop_count < 3:
+                    print(f"DEBUG: Loop iteration {loop_count}: calling renderer.draw()...", flush=True)
                 self.renderer.draw(theme)
 
                 # Check if child process has exited
+                if loop_count < 3:
+                    print(f"DEBUG: Loop iteration {loop_count}: checking waitpid...", flush=True)
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
                     print("DEBUG: Child process exited.", flush=True)
                     break
 
                 # Non-blocking poll of terminal I/O
+                if loop_count < 3:
+                    print(f"DEBUG: Loop iteration {loop_count}: polling select()...", flush=True)
                 r, _, _ = select.select([master_fd], [], [], 0.016)
                 if master_fd in r:
                     try:
@@ -313,6 +323,8 @@ class MetalGlassHost:
                             break
                     except OSError:
                         break
+                
+                loop_count += 1
         finally:
             print("DEBUG: Closing session...", flush=True)
             self.close(master_fd)
