@@ -316,7 +316,6 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self._locked_base_rect = None
 
         try:
             from PIL import Image, ImageFont
@@ -446,34 +445,11 @@ class TerminalOverlay:
         self.cursor_col = max(0, min(self.cols - 1, self.cursor_col))
 
     def _scroll_up(self, n=1):
-        n = max(1, n)
-        for _ in range(n):
-            self.grid.pop(0)
-            self.colors.pop(0)
-            self.grid.append([" " for _ in range(self.cols)])
-            self.colors.append([(200, 235, 255) for _ in range(self.cols)])
-            self.cell_dirty.pop(0)
-            self.cell_dirty.append([True for _ in range(self.cols)])
-        self.min_dirty_r = 0
-        self.max_dirty_r = self.rows - 1
-        self.min_dirty_c = 0
-        self.max_dirty_c = self.cols - 1
-        self.dirty = True
+        # Disable automatic scrolling to keep terminal grid lines permanently pinned to absolute screen rows
+        pass
 
     def _scroll_down(self, n=1):
-        n = max(1, n)
-        for _ in range(n):
-            self.grid.pop()
-            self.colors.pop()
-            self.grid.insert(0, [" " for _ in range(self.cols)])
-            self.colors.insert(0, [(200, 235, 255) for _ in range(self.cols)])
-            self.cell_dirty.pop()
-            self.cell_dirty.insert(0, [True for _ in range(self.cols)])
-        self.min_dirty_r = 0
-        self.max_dirty_r = self.rows - 1
-        self.min_dirty_c = 0
-        self.max_dirty_c = self.cols - 1
-        self.dirty = True
+        pass
 
     def feed(self, data: bytes):
         if not data:
@@ -680,11 +656,10 @@ class TerminalOverlay:
                 self.max_dirty_c = -1
                 self.dirty = False
 
-            # Lock base_rect on the first valid frame so audio-reactive panel shifts don't move the text
-            if self._locked_base_rect is None or base_rect[0] > 0 or base_rect[1] > 0:
-                self._locked_base_rect = (float(base_rect[0]), float(base_rect[1]))
-
-            rx1, ry1 = self._locked_base_rect
+            # Lock rendering quad to a static origin so text position never drifts
+            margin = 18.0
+            rx1 = margin
+            ry1 = margin
             rx2 = rx1 + float(self.img_w)
             ry2 = ry1 + float(self.img_h)
 
@@ -817,7 +792,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # Render terminal overlay using p0
         self.overlay.render(p0, fw, fh)
 
         pixels = None
