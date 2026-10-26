@@ -239,8 +239,9 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H,
     else:
         iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
-        body_rows = max(1, rows - (before + 1) - 4)
+        # Shift panel 1 down to match the shaded container layout area
+        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
+        body_rows = max(1, rows - (before + 1) - 5)
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows + 2)
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -540,6 +541,11 @@ class TerminalOverlay:
                         if ch != " ":
                             x = c * self.char_w
                             col = self.colors[r][c]
+                            # Center the top header title horizontally within the panel
+                            if r == 0 and "MP AUDIO PLAYER" in "".join(self.grid[r]):
+                                line_str = "".join(self.grid[r]).strip()
+                                x = (self.img_w - len(line_str) * self.char_w) // 2 + (c * self.char_w) % self.char_w
+
                             draw.text((x, y), ch, fill=(col[0], col[1],
                                                       col[2], 255), font=self.font)
 
