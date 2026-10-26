@@ -287,7 +287,7 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """High-performance terminal overlay with sub-region texture uploads and dirty bounding boxes."""
+    """Fully static, non-drifting high-performance terminal text renderer."""
 
     def __init__(self, cols=120, rows=40, char_w=9, char_h=18):
         self.cols = cols
@@ -297,12 +297,6 @@ class TerminalOverlay:
 
         self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
         self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
-        self.cell_dirty = [[True for _ in range(cols)] for _ in range(rows)]
-        self.min_dirty_r = 0
-        self.max_dirty_r = rows - 1
-        self.min_dirty_c = 0
-        self.max_dirty_c = cols - 1
-
         self.cursor_row = 0
         self.cursor_col = 0
         self.current_fg = (200, 235, 255)
@@ -316,6 +310,7 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
+        self._locked_screen_rect = None
 
         try:
             from PIL import Image, ImageFont
@@ -431,25 +426,9 @@ class TerminalOverlay:
         except Exception as e:
             print(f"Overlay GL init error: {e}", flush=True)
 
-    def _mark_dirty(self, r, c):
-        if not self.cell_dirty[r][c]:
-            self.cell_dirty[r][c] = True
-            self.min_dirty_r = min(self.min_dirty_r, r)
-            self.max_dirty_r = max(self.max_dirty_r, r)
-            self.min_dirty_c = min(self.min_dirty_c, c)
-            self.max_dirty_c = max(self.max_dirty_c, c)
-            self.dirty = True
-
     def _clamp_cursor(self):
         self.cursor_row = max(0, min(self.rows - 1, self.cursor_row))
         self.cursor_col = max(0, min(self.cols - 1, self.cursor_col))
-
-    def _scroll_up(self, n=1):
-        # Disable automatic scrolling to keep terminal grid lines permanently pinned to absolute screen rows
-        pass
-
-    def _scroll_down(self, n=1):
-        pass
 
     def feed(self, data: bytes):
         if not data:
@@ -509,11 +488,6 @@ class TerminalOverlay:
                             for r in range(self.rows):
                                 for c in range(self.cols):
                                     self.grid[r][c] = " "
-                                    self.cell_dirty[r][c] = True
-                            self.min_dirty_r = 0
-                            self.max_dirty_r = self.rows - 1
-                            self.min_dirty_c = 0
-                            self.max_dirty_c = self.cols - 1
                             self.cursor_row = 0
                             self.cursor_col = 0
                             self.dirty = True
@@ -521,11 +495,7 @@ class TerminalOverlay:
                         if 0 <= self.cursor_row < self.rows:
                             for c in range(self.cursor_col, self.cols):
                                 self.grid[self.cursor_row][c] = " "
-                                self._mark_dirty(self.cursor_row, c)
-                    elif cmd == "S":
-                        self._scroll_up(params[0] if params else 1)
-                    elif cmd == "T":
-                        self._scroll_down(params[0] if params else 1)
+                            self.dirty = True
                     i = end + 1
                     consumed = i
                     continue
@@ -540,6 +510,7 @@ class TerminalOverlay:
                 self.cursor_col = 0
                 if self.cursor_row >= self.rows:
                     self.cursor_row = self.rows - 1
+                self.dirty = True
             elif ch == "\r":
                 self.cursor_col = 0
             elif ord(ch) >= 32:
@@ -550,13 +521,14 @@ class TerminalOverlay:
                     ):
                         self.grid[self.cursor_row][self.cursor_col] = ch
                         self.colors[self.cursor_row][self.cursor_col] = self.current_fg
-                        self._mark_dirty(self.cursor_row, self.cursor_col)
+                        self.dirty = True
                 self.cursor_col += 1
                 if self.cursor_col >= self.cols:
                     self.cursor_col = 0
                     self.cursor_row += 1
                     if self.cursor_row >= self.rows:
                         self.cursor_row = self.rows - 1
+                self.dirty = True
             i += 1
             consumed = i
 
@@ -610,7 +582,7 @@ class TerminalOverlay:
                 GL_DYNAMIC_DRAW,
                 glBindTexture,
                 GL_TEXTURE_2D,
-                glTexSubImage2D,
+                glTexImage2D,
                 GL_RGBA,
                 GL_UNSIGNED_BYTE,
             )
@@ -618,48 +590,31 @@ class TerminalOverlay:
             from PIL import ImageDraw
 
             if self.dirty and self.image:
+                self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
                 draw = ImageDraw.Draw(self.image)
-                r_min = max(0, self.min_dirty_r)
-                r_max = min(self.rows - 1, self.max_dirty_r)
-                c_min = max(0, self.min_dirty_c)
-                c_max = min(self.cols - 1, self.max_dirty_c)
-
-                for r in range(r_min, r_max + 1):
+                for r in range(self.rows):
                     y = r * self.char_h
-                    for c in range(c_min, c_max + 1):
-                        if self.cell_dirty[r][c]:
+                    for c in range(self.cols):
+                        ch = self.grid[r][c]
+                        if ch != " ":
                             x = c * self.char_w
-                            draw.rectangle([x, y, x + self.char_w, y + self.char_h], fill=(0, 0, 0, 0))
-                            ch = self.grid[r][c]
-                            if ch != " ":
-                                col = self.colors[r][c]
-                                draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
-                            self.cell_dirty[r][c] = False
-
-                sub_x = c_min * self.char_w
-                sub_y = r_min * self.char_h
-                sub_w = (c_max - c_min + 1) * self.char_w
-                sub_h = (r_max - r_min + 1) * self.char_h
-
-                sub_img = self.image.crop((sub_x, sub_y, sub_x + sub_w, sub_y + sub_h))
-                tex_data = sub_img.tobytes("raw", "RGBA", 0, 1)
+                            col = self.colors[r][c]
+                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
-                glTexSubImage2D(
-                    GL_TEXTURE_2D, 0, sub_x, sub_y, sub_w, sub_h, GL_RGBA, GL_UNSIGNED_BYTE, tex_data
+                glTexImage2D(
+                    GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.image.tobytes("raw", "RGBA", 0, 1)
                 )
                 glBindTexture(GL_TEXTURE_2D, 0)
-
-                self.min_dirty_r = self.rows
-                self.max_dirty_r = -1
-                self.min_dirty_c = self.cols
-                self.max_dirty_c = -1
                 self.dirty = False
 
-            # Lock rendering quad to a static origin so text position never drifts
-            margin = 18.0
-            rx1 = margin
-            ry1 = margin
+            # Permanently lock screen coordinates on first frame and never update them again
+            if self._locked_screen_rect is None and base_rect is not None and len(base_rect) >= 2:
+                bx, by = float(base_rect[0]), float(base_rect[1])
+                if bx != 0.0 or by != 0.0:
+                    self._locked_screen_rect = (bx, by)
+
+            rx1, ry1 = self._locked_screen_rect if self._locked_screen_rect is not None else (float(base_rect[0]), float(base_rect[1]))
             rx2 = rx1 + float(self.img_w)
             ry2 = ry1 + float(self.img_h)
 
@@ -715,23 +670,26 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
         def key_callback(_window, key, scancode, action, mods):
-            if action in (1, 2):
+            if action in (1, 2):  # GLFW_PRESS or GLFW_REPEAT
+                # Quit shortcuts: Q or Escape
+                if key in (81, 256):  # 'Q' or ESC
+                    os._exit(0)
+
                 char_map = {
-                    65: b"a", 66: b"b", 67: b"c", 68: b"d", 69: b"e", 70: b"f", 71: b"g",
-                    72: b"h", 73: b"i", 74: b"j", 75: b"k", 76: b"l", 77: b"m", 78: b"n",
-                    79: b"o", 80: b"p", 81: b"q", 82: b"r", 83: b"s", 84: b"t", 85: b"u",
-                    86: b"v", 87: b"w", 88: b"x", 89: b"y", 90: b"z",
-                    257: b"\n",
-                    259: b"\x7f",
-                    262: b"\x1b[C",
-                    263: b"\x1b[D",
-                    264: b"\x1b[B",
-                    265: b"\x1b[A",
+                    257: b"\n",      # Enter
+                    259: b"\x7f",    # Backspace
+                    262: b"\x1b[C",  # Right Arrow
+                    263: b"\x1b[D",  # Left Arrow
+                    264: b"\x1b[B",  # Down Arrow
+                    265: b"\x1b[A",  # Up Arrow
                 }
                 if key in char_map:
                     self.host_ref.send_input(char_map[key])
                 elif 32 <= key <= 126:
-                    self.host_ref.send_input(chr(key).lower().encode("utf-8"))
+                    char_byte = chr(key).encode("utf-8")
+                    if mods & 1 == 0:
+                        char_byte = char_byte.lower()
+                    self.host_ref.send_input(char_byte)
 
         self._on_key_ref = key_callback
         if hasattr(self._glfw, "glfwSetKeyCallback") and self._window:
@@ -792,6 +750,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
+        # Render terminal overlay stably using p0 (Linux matching layout)
         self.overlay.render(p0, fw, fh)
 
         pixels = None
@@ -811,7 +770,6 @@ class OpenGLGlassHost:
         self.master_fd = None
         self._target_cols = COLS
         self._target_rows = ROWS
-        self._last_win_size = None
         self.overlay = TerminalOverlay(COLS, ROWS)
 
     def send_input(self, data: bytes):
@@ -864,7 +822,6 @@ class OpenGLGlassHost:
         )
         self.renderer.open()
         self._sync_panels()
-        self._last_win_size = self.renderer.window_size()
 
         theme = read_player_theme()
         theme_at = 0.0
@@ -885,12 +842,6 @@ class OpenGLGlassHost:
                         except OSError:
                             pass
                 self.renderer.poll()
-
-                curr_size = self.renderer.window_size()
-                if curr_size != self._last_win_size:
-                    self._sync_panels()
-                    self._last_win_size = curr_size
-
                 self.renderer.draw(theme)
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
