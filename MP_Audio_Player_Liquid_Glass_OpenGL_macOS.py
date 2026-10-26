@@ -15,17 +15,14 @@ import termios
 import time
 from pathlib import Path
 
-# Enable C-level crash tracebacks
 faulthandler.enable()
 
-# --- 0. Restore ctypes._CData for Python 3.14+ ---
 if not hasattr(ctypes, "_CData"):
     for base in ctypes.c_int.__mro__:
         if base.__name__ == "_CData":
             ctypes._CData = base
             break
 
-# --- 1. Python 3.14 / 3.15 ctypes strictness patch for PyOpenGL ---
 _orig_cfunctype = ctypes.CFUNCTYPE
 _type_proxy_cache = {}
 
@@ -77,7 +74,11 @@ def _sanitize_ctype(tp):
             if isinstance(value, int):
                 return ctypes.c_void_p(value)
             if isinstance(value, ctypes._CData):
-                return ctypes.byref(value) if not isinstance(value, (ctypes._Pointer, ctypes.Array, ctypes.c_void_p, ctypes.c_char_p)) else value
+                return (
+                    ctypes.byref(value)
+                    if not isinstance(value, (ctypes._Pointer, ctypes.Array, ctypes.c_void_p, ctypes.c_char_p))
+                    else value
+                )
             if hasattr(value, "ctypes"):
                 return value.ctypes.data_as(ctypes.c_void_p)
             return ctypes.c_void_p.from_param(value)
@@ -114,11 +115,8 @@ try:
 except ImportError:
     pass
 
-# --- 2. Advanced macOS Compatibility Patch for OpenGL & GLFW ---
 _orig_cdll = ctypes.CDLL
 _c_func_refs = {}
-_scratch_buf = ctypes.create_string_buffer(4096)
-_scratch_ptr = ctypes.cast(_scratch_buf, ctypes.c_void_p).value
 _FALLBACK_DYLIB = "/usr/lib/libSystem.B.dylib"
 _OPENGL_FRAMEWORK = (
     ctypes.util.find_library("OpenGL")
@@ -194,13 +192,14 @@ def _mock_cdll(name, *args, **kwargs):
     sname = str(name) if name else ""
     if "glfw" in sname.lower() and _GLFW_DYLIB:
         return SafeMacOSCDLL(_GLFW_DYLIB, *args, **kwargs)
-    return SafeMacOSCDLL(_OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB, *args, **kwargs)
+    return SafeMacOSCDLL(
+        _OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB, *args, **kwargs
+    )
 
 
 ctypes.CDLL = _mock_cdll
 ctypes.cdll = ctypes.LibraryLoader(_mock_cdll)
 
-# --------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -233,7 +232,7 @@ ANSI_COLORS = {
     94: (90, 160, 255),
     95: (255, 90, 255),
     96: (90, 255, 255),
-    97: (255, 255, 255),
+    97: (255, 255, 90),
 }
 
 
@@ -288,7 +287,7 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """Stable, flicker-free Font Texture Renderer with complete cursor handling."""
+    """High-performance terminal overlay with sub-region texture uploads and dirty bounding boxes."""
 
     def __init__(self, cols=120, rows=40, char_w=9, char_h=18):
         self.cols = cols
@@ -298,10 +297,17 @@ class TerminalOverlay:
 
         self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
         self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
+        self.cell_dirty = [[True for _ in range(cols)] for _ in range(rows)]
+        self.min_dirty_r = 0
+        self.max_dirty_r = rows - 1
+        self.min_dirty_c = 0
+        self.max_dirty_c = cols - 1
+
         self.cursor_row = 0
         self.cursor_col = 0
         self.current_fg = (200, 235, 255)
         self._buf = bytearray()
+        self.dirty = True
 
         self.texture_id = 0
         self.shader_program = None
@@ -310,6 +316,8 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
+        self._locked_quad = None
+
         try:
             from PIL import Image, ImageFont
 
@@ -361,7 +369,7 @@ class TerminalOverlay:
                 GL_TEXTURE_2D,
                 GL_TEXTURE_MIN_FILTER,
                 GL_TEXTURE_MAG_FILTER,
-                GL_LINEAR,
+                GL_NEAREST,
                 GL_TEXTURE_WRAP_S,
                 GL_TEXTURE_WRAP_T,
                 GL_CLAMP_TO_EDGE,
@@ -412,11 +420,10 @@ class TerminalOverlay:
             glBindVertexArray(0)
             self.texture_id = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-
             glTexImage2D(
                 GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None
             )
@@ -425,9 +432,48 @@ class TerminalOverlay:
         except Exception as e:
             print(f"Overlay GL init error: {e}", flush=True)
 
+    def _mark_dirty(self, r, c):
+        if not self.cell_dirty[r][c]:
+            self.cell_dirty[r][c] = True
+            self.min_dirty_r = min(self.min_dirty_r, r)
+            self.max_dirty_r = max(self.max_dirty_r, r)
+            self.min_dirty_c = min(self.min_dirty_c, c)
+            self.max_dirty_c = max(self.max_dirty_c, c)
+            self.dirty = True
+
     def _clamp_cursor(self):
         self.cursor_row = max(0, min(self.rows - 1, self.cursor_row))
         self.cursor_col = max(0, min(self.cols - 1, self.cursor_col))
+
+    def _scroll_up(self, n=1):
+        n = max(1, n)
+        for _ in range(n):
+            self.grid.pop(0)
+            self.colors.pop(0)
+            self.grid.append([" " for _ in range(self.cols)])
+            self.colors.append([(200, 235, 255) for _ in range(self.cols)])
+            self.cell_dirty.pop(0)
+            self.cell_dirty.append([True for _ in range(self.cols)])
+        self.min_dirty_r = 0
+        self.max_dirty_r = self.rows - 1
+        self.min_dirty_c = 0
+        self.max_dirty_c = self.cols - 1
+        self.dirty = True
+
+    def _scroll_down(self, n=1):
+        n = max(1, n)
+        for _ in range(n):
+            self.grid.pop()
+            self.colors.pop()
+            self.grid.insert(0, [" " for _ in range(self.cols)])
+            self.colors.insert(0, [(200, 235, 255) for _ in range(self.cols)])
+            self.cell_dirty.pop()
+            self.cell_dirty.insert(0, [True for _ in range(self.cols)])
+        self.min_dirty_r = 0
+        self.max_dirty_r = self.rows - 1
+        self.min_dirty_c = 0
+        self.max_dirty_c = self.cols - 1
+        self.dirty = True
 
     def feed(self, data: bytes):
         if not data:
@@ -435,102 +481,115 @@ class TerminalOverlay:
         self._buf.extend(data)
         try:
             text = self._buf.decode("utf-8", errors="replace")
-            self._buf.clear()
         except Exception:
             return
 
         i = 0
         n = len(text)
+        consumed = 0
         while i < n:
             ch = text[i]
             if ch == "\x1b":
-                end = i + 1
-                if end < n and text[end] == "[":
-                    end += 1
-                    seq_start = end
+                if i + 1 >= n:
+                    break
+                if text[i + 1] == "[":
+                    end = i + 2
                     while end < n and not (64 <= ord(text[end]) <= 126):
                         end += 1
-                    if end < n:
-                        cmd = text[end]
-                        param_str = text[seq_start:end]
-                        params = []
-                        for p in param_str.split(";"):
-                            clean_p = re.sub(r"[^0-9]", "", p)
-                            params.append(int(clean_p) if clean_p else 0)
+                    if end >= n:
+                        break
+                    cmd = text[end]
+                    param_str = text[i + 2 : end]
+                    params = []
+                    for p in param_str.split(";"):
+                        clean_p = re.sub(r"[^0-9]", "", p)
+                        params.append(int(clean_p) if clean_p else 0)
 
-                        if cmd == "m":
-                            self._apply_sgr(params if params else [0])
-                        elif cmd in ("H", "f"):
-                            r = params[0] if len(params) > 0 and params[0] > 0 else 1
-                            c = params[1] if len(params) > 1 and params[1] > 0 else 1
-                            self.cursor_row = r - 1
-                            self.cursor_col = c - 1
-                            self._clamp_cursor()
-                        elif cmd == "A":  # cursor up
-                            n_up = params[0] if params else 1
-                            self.cursor_row -= max(1, n_up)
-                            self._clamp_cursor()
-                        elif cmd == "B":  # cursor down
-                            n_dn = params[0] if params else 1
-                            self.cursor_row += max(1, n_dn)
-                            self._clamp_cursor()
-                        elif cmd == "C":  # cursor forward
-                            n_fw = params[0] if params else 1
-                            self.cursor_col += max(1, n_fw)
-                            self._clamp_cursor()
-                        elif cmd == "D":  # cursor back
-                            n_bk = params[0] if params else 1
-                            self.cursor_col -= max(1, n_bk)
-                            self._clamp_cursor()
-                        elif cmd == "J":
-                            if not params or params[0] == 2:
-                                self.grid = [[" " for _ in range(self.cols)] for _ in range(self.rows)]
-                                self.colors = [[(200, 235, 255) for _ in range(self.cols)] for _ in range(self.rows)]
-                                self.cursor_row = 0
-                                self.cursor_col = 0
-                        elif cmd == "K":
-                            if 0 <= self.cursor_row < self.rows:
-                                line = self.grid[self.cursor_row]
-                                for c in range(self.cursor_col, self.cols):
-                                    line[c] = " "
-                        end += 1
-                elif end < n and text[end] == "]":
-                    while end < n and text[end] != "\x07":
-                        end += 1
-                    if end < n:
-                        end += 1
+                    if cmd == "m":
+                        self._apply_sgr(params if params else [0])
+                    elif cmd in ("H", "f"):
+                        r = params[0] if len(params) > 0 and params[0] > 0 else 1
+                        c = params[1] if len(params) > 1 and params[1] > 0 else 1
+                        self.cursor_row = r - 1
+                        self.cursor_col = c - 1
+                        self._clamp_cursor()
+                    elif cmd == "A":
+                        self.cursor_row -= max(1, params[0] if params else 1)
+                        self._clamp_cursor()
+                    elif cmd == "B":
+                        self.cursor_row += max(1, params[0] if params else 1)
+                        self._clamp_cursor()
+                    elif cmd == "C":
+                        self.cursor_col += max(1, params[0] if params else 1)
+                        self._clamp_cursor()
+                    elif cmd == "D":
+                        self.cursor_col -= max(1, params[0] if params else 1)
+                        self._clamp_cursor()
+                    elif cmd == "G":
+                        self.cursor_col = (params[0] if params else 1) - 1
+                        self._clamp_cursor()
+                    elif cmd == "J":
+                        if not params or params[0] == 2:
+                            for r in range(self.rows):
+                                for c in range(self.cols):
+                                    self.grid[r][c] = " "
+                                    self.cell_dirty[r][c] = True
+                            self.min_dirty_r = 0
+                            self.max_dirty_r = self.rows - 1
+                            self.min_dirty_c = 0
+                            self.max_dirty_c = self.cols - 1
+                            self.cursor_row = 0
+                            self.cursor_col = 0
+                            self.dirty = True
+                    elif cmd == "K":
+                        if 0 <= self.cursor_row < self.rows:
+                            for c in range(self.cursor_col, self.cols):
+                                self.grid[self.cursor_row][c] = " "
+                                self._mark_dirty(self.cursor_row, c)
+                    elif cmd == "S":
+                        self._scroll_up(params[0] if params else 1)
+                    elif cmd == "T":
+                        self._scroll_down(params[0] if params else 1)
+                    i = end + 1
+                    consumed = i
+                    continue
                 else:
-                    end = min(n, i + 2)
-                i = end
-                continue
-
+                    if i + 1 < n:
+                        i += 2
+                        consumed = i
+                        continue
+                    break
             if ch == "\n":
                 self.cursor_row += 1
                 self.cursor_col = 0
                 if self.cursor_row >= self.rows:
-                    # Controlled scroll only on genuine newline at bottom
-                    self.grid.pop(0)
-                    self.colors.pop(0)
-                    self.grid.append([" " for _ in range(self.cols)])
-                    self.colors.append([(200, 235, 255) for _ in range(self.cols)])
                     self.cursor_row = self.rows - 1
             elif ch == "\r":
                 self.cursor_col = 0
             elif ord(ch) >= 32:
                 if 0 <= self.cursor_row < self.rows and 0 <= self.cursor_col < self.cols:
-                    self.grid[self.cursor_row][self.cursor_col] = ch
-                    self.colors[self.cursor_row][self.cursor_col] = self.current_fg
+                    if (
+                        self.grid[self.cursor_row][self.cursor_col] != ch
+                        or self.colors[self.cursor_row][self.cursor_col] != self.current_fg
+                    ):
+                        self.grid[self.cursor_row][self.cursor_col] = ch
+                        self.colors[self.cursor_row][self.cursor_col] = self.current_fg
+                        self._mark_dirty(self.cursor_row, self.cursor_col)
                 self.cursor_col += 1
                 if self.cursor_col >= self.cols:
                     self.cursor_col = 0
                     self.cursor_row += 1
                     if self.cursor_row >= self.rows:
-                        self.grid.pop(0)
-                        self.colors.pop(0)
-                        self.grid.append([" " for _ in range(self.cols)])
-                        self.colors.append([(200, 235, 255) for _ in range(self.cols)])
                         self.cursor_row = self.rows - 1
             i += 1
+            consumed = i
+
+        if consumed > 0:
+            try:
+                remaining = text[consumed:].encode("utf-8", errors="replace")
+                self._buf = bytearray(remaining)
+            except Exception:
+                self._buf.clear()
 
     def _apply_sgr(self, params):
         idx = 0
@@ -551,7 +610,7 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
-    def render(self, margin_x, margin_y, fw, fh):
+    def render(self, base_rect, fw, fh):
         if not self._initialized_gl:
             self.init_gl()
         if not self._initialized_gl or not self.shader_program:
@@ -582,64 +641,68 @@ class TerminalOverlay:
             import numpy as np
             from PIL import ImageDraw
 
-            # Always refresh the complete texture surface every frame for perfect sync
-            if self.image:
-                self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
+            if self.dirty and self.image:
                 draw = ImageDraw.Draw(self.image)
-                for r in range(self.rows):
+                r_min = max(0, self.min_dirty_r)
+                r_max = min(self.rows - 1, self.max_dirty_r)
+                c_min = max(0, self.min_dirty_c)
+                c_max = min(self.cols - 1, self.max_dirty_c)
+
+                for r in range(r_min, r_max + 1):
                     y = r * self.char_h
-                    for c in range(self.cols):
-                        ch = self.grid[r][c]
-                        if ch != " ":
+                    for c in range(c_min, c_max + 1):
+                        if self.cell_dirty[r][c]:
                             x = c * self.char_w
-                            col = self.colors[r][c]
-                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
-                tex_data = self.image.tobytes("raw", "RGBA", 0, 1)
+                            draw.rectangle([x, y, x + self.char_w, y + self.char_h], fill=(0, 0, 0, 0))
+                            ch = self.grid[r][c]
+                            if ch != " ":
+                                col = self.colors[r][c]
+                                draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                            self.cell_dirty[r][c] = False
+
+                sub_x = c_min * self.char_w
+                sub_y = r_min * self.char_h
+                sub_w = (c_max - c_min + 1) * self.char_w
+                sub_h = (r_max - r_min + 1) * self.char_h
+
+                sub_img = self.image.crop((sub_x, sub_y, sub_x + sub_w, sub_y + sub_h))
+                tex_data = sub_img.tobytes("raw", "RGBA", 0, 1)
+
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexSubImage2D(
-                    GL_TEXTURE_2D, 0, 0, 0, self.img_w, self.img_h, GL_RGBA, GL_UNSIGNED_BYTE, tex_data
+                    GL_TEXTURE_2D, 0, sub_x, sub_y, sub_w, sub_h, GL_RGBA, GL_UNSIGNED_BYTE, tex_data
                 )
                 glBindTexture(GL_TEXTURE_2D, 0)
 
-            # Integer pixel snapping to eliminate any sub-pixel jitter
-            rx1 = round(margin_x)
-            ry1 = round(margin_y)
-            rx2 = round(margin_x + self.img_w)
-            ry2 = round(margin_y + self.img_h)
-            x1 = (rx1 / fw) * 2.0 - 1.0
-            y1 = 1.0 - (ry1 / fh) * 2.0
-            x2 = (rx2 / fw) * 2.0 - 1.0
-            y2 = 1.0 - (ry2 / fh) * 2.0
+                self.min_dirty_r = self.rows
+                self.max_dirty_r = -1
+                self.min_dirty_c = self.cols
+                self.max_dirty_c = -1
+                self.dirty = False
 
-            quad = np.array(
-                [
-                    x1,
-                    y1,
-                    0.0,
-                    0.0,
-                    x2,
-                    y1,
-                    1.0,
-                    0.0,
-                    x1,
-                    y2,
-                    0.0,
-                    1.0,
-                    x2,
-                    y1,
-                    1.0,
-                    0.0,
-                    x2,
-                    y2,
-                    1.0,
-                    1.0,
-                    x1,
-                    y2,
-                    0.0,
-                    1.0,
-                ],
-                dtype=np.float32,
-            )
+            # Permanently lock quad coordinates to a static size based on character grid dimensions
+            if self._locked_quad is None:
+                rx1 = int(round(base_rect[0]))
+                ry1 = int(round(base_rect[1]))
+                rx2 = rx1 + self.img_w
+                ry2 = ry1 + self.img_h
+
+                x1 = (rx1 / fw) * 2.0 - 1.0
+                y1 = 1.0 - (ry1 / fh) * 2.0
+                x2 = (rx2 / fw) * 2.0 - 1.0
+                y2 = 1.0 - (ry2 / fh) * 2.0
+
+                self._locked_quad = np.array(
+                    [
+                        x1, y1, 0.0, 0.0,
+                        x2, y1, 1.0, 0.0,
+                        x1, y2, 0.0, 1.0,
+                        x2, y1, 1.0, 0.0,
+                        x2, y2, 1.0, 1.0,
+                        x1, y2, 0.0, 1.0,
+                    ],
+                    dtype=np.float32,
+                )
 
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -647,7 +710,7 @@ class TerminalOverlay:
             glUseProgram(self.shader_program)
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, quad.nbytes, quad, GL_DYNAMIC_DRAW)
+            glBufferData(GL_ARRAY_BUFFER, self._locked_quad.nbytes, self._locked_quad, GL_DYNAMIC_DRAW)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
             glDrawArrays(GL_TRIANGLES, 0, 6)
             glBindTexture(GL_TEXTURE_2D, 0)
@@ -658,8 +721,6 @@ class TerminalOverlay:
 
 
 class CustomGlassRenderer(LiquidGlassRendererOpenGL):
-    """Subclass with synchronized VSync enabled and integrated render pass."""
-
     def __init__(self, overlay, host_ref, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.overlay = overlay
@@ -678,46 +739,24 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
         def key_callback(_window, key, scancode, action, mods):
-            if action in (1, 2):  # GLFW_PRESS or GLFW_REPEAT
+            if action in (1, 2):
                 char_map = {
-                    65: b"a",
-                    66: b"b",
-                    67: b"c",
-                    68: b"d",
-                    69: b"e",
-                    70: b"f",
-                    71: b"g",
-                    72: b"h",
-                    73: b"i",
-                    74: b"j",
-                    75: b"k",
-                    76: b"l",
-                    77: b"m",
-                    78: b"n",
-                    79: b"o",
-                    80: b"p",
-                    81: b"q",
-                    82: b"r",
-                    83: b"s",
-                    84: b"t",
-                    85: b"u",
-                    86: b"v",
-                    87: b"w",
-                    88: b"x",
-                    89: b"y",
-                    90: b"z",
-                    257: b"\n",  # Enter
-                    259: b"\x7f",  # Backspace
-                    262: b"\x1b[C",  # Right
-                    263: b"\x1b[D",  # Left
-                    264: b"\x1b[B",  # Down
-                    265: b"\x1b[A",  # Up
+                    65: b"a", 66: b"b", 67: b"c", 68: b"d", 69: b"e", 70: b"f", 71: b"g",
+                    72: b"h", 73: b"i", 74: b"j", 75: b"k", 76: b"l", 77: b"m", 78: b"n",
+                    79: b"o", 80: b"p", 81: b"q", 82: b"r", 83: b"s", 84: b"t", 85: b"u",
+                    86: b"v", 87: b"w", 88: b"x", 89: b"y", 90: b"z",
+                    113: b"q", 81: b"q",
+                    257: b"\n",
+                    259: b"\x7f",
+                    262: b"\x1b[C",
+                    263: b"\x1b[D",
+                    264: b"\x1b[B",
+                    265: b"\x1b[A",
                 }
                 if key in char_map:
                     self.host_ref.send_input(char_map[key])
                 elif 32 <= key <= 126:
-                    ch = chr(key).lower()
-                    self.host_ref.send_input(ch.encode("utf-8"))
+                    self.host_ref.send_input(chr(key).lower().encode("utf-8"))
 
         self._on_key_ref = key_callback
         if hasattr(self._glfw, "glfwSetKeyCallback") and self._window:
@@ -728,10 +767,12 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         if not self.poll():
             return None
         fw, fh = self.framebuffer_size()
-        if fw < 2 or fh < 2:
+        ww, wh = self.window_size()
+        if fw < 2 or fh < 2 or ww < 2 or wh < 2:
             return None
         if self.window_size() != self._shape_size:
             self._apply_shape()
+
         from OpenGL import GL
 
         GL.glViewport(0, 0, fw, fh)
@@ -750,7 +791,9 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         c = _rgb01(colors[2])
         aspect = float(fw) / max(1.0, float(fh))
         u = self._u_locs
-        GL.glUniform4f(u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect)
+        GL.glUniform4f(
+            u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect
+        )
         GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
         GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
         GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
@@ -773,8 +816,11 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                 GL.glUniform1f(u["u_hasSkin"], 0.0)
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
-        # Render overlay locked to bezel with integer snapping
-        self.overlay.render(self.bezel_px, self.bezel_px, fw, fh)
+
+        scale_x = fw / max(1.0, float(ww))
+        scale_y = fh / max(1.0, float(wh))
+        self.overlay.render((p0[0] * scale_x, p0[1] * scale_y, p0[2] * scale_x, p0[3] * scale_y), fw, fh)
+
         pixels = None
         if capture:
             raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
@@ -784,8 +830,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
 
 class OpenGLGlassHost:
-    """macOS OpenGL liquid-glass host with input forwarding and anchored layout."""
-
     def __init__(self, mode="NORMAL", cli_theme=None):
         self.mode = mode.upper()
         self.cli_theme = cli_theme
@@ -809,7 +853,9 @@ class OpenGLGlassHost:
         char_w, char_h = 9, 18
         margin = self.renderer.bezel_px
         self.renderer.set_panels(
-            player_panel_rects(self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode)
+            player_panel_rects(
+                self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
+            )
         )
 
     def run(self):
@@ -842,7 +888,6 @@ class OpenGLGlassHost:
         self.renderer = CustomGlassRenderer(
             overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
         )
-
         self.renderer.open()
         self._sync_panels()
         theme = read_player_theme()
@@ -855,10 +900,10 @@ class OpenGLGlassHost:
                     theme = read_player_theme()
                     theme_at = now
                 if self.master_fd is not None:
-                    r, _, _ = select.select([self.master_fd], [], [], 0.01)
+                    r, _, _ = select.select([self.master_fd], [], [], 0.0)
                     if self.master_fd in r:
                         try:
-                            data = os.read(self.master_fd, 4096)
+                            data = os.read(self.master_fd, 16384)
                             if data:
                                 self.overlay.feed(data)
                         except OSError:
@@ -869,7 +914,6 @@ class OpenGLGlassHost:
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
                     break
-                time.sleep(0.015)
         finally:
             if self.master_fd is not None:
                 try:
@@ -913,4 +957,3 @@ if __name__ == "__main__":
 
         traceback.print_exc()
         sys.exit(1)
-
