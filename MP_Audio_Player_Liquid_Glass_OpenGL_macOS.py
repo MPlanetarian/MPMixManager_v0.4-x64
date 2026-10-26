@@ -265,7 +265,7 @@ def _child_env():
     return env
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay - full grid mapped cleanly across panels."""
+    """Fixed absolute coordinate terminal overlay using independent dual textures for clean, full-scale card mapping."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -280,13 +280,15 @@ class TerminalOverlay:
         self.current_fg = (200, 235, 255)
         self._buf = bytearray()
         self.dirty = True
-        self.texture_id = 0
+        self.tex_p0 = 0
+        self.tex_p1 = 0
         self.shader_program = None
         self.vao = None
         self.vbo = None
         self._initialized_gl = False
         self.font = None
-        self.image = None
+        self.img_p0 = None
+        self.img_p1 = None
 
         try:
             from PIL import Image, ImageFont
@@ -301,9 +303,6 @@ class TerminalOverlay:
                     break
             if not self.font:
                 self.font = ImageFont.load_default()
-            self.img_w = self.cols * self.char_w
-            self.img_h = self.rows * self.char_h
-            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
         except Exception:
             pass
 
@@ -368,15 +367,16 @@ class TerminalOverlay:
             glEnableVertexAttribArray(1)
             glBindVertexArray(0)
 
-            self.texture_id = glGenTextures(1)
-            glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
-                        0, GL_RGBA, GL_UNSIGNED_BYTE, None)
-            glBindTexture(GL_TEXTURE_2D, 0)
+            textures = glGenTextures(2)
+            self.tex_p0, self.tex_p1 = textures[0], textures[1]
+            for tex in (self.tex_p0, self.tex_p1):
+                glBindTexture(GL_TEXTURE_2D, tex)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+                glBindTexture(GL_TEXTURE_2D, 0)
+
             self._initialized_gl = True
         except Exception as e:
             print(f"Overlay GL init error: {e}", flush=True)
@@ -527,42 +527,7 @@ class TerminalOverlay:
                 glTexImage2D, GL_RGBA, GL_UNSIGNED_BYTE
             )
             import numpy as np
-            from PIL import ImageDraw
-
-            if self.dirty and self.image:
-                self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
-                draw = ImageDraw.Draw(self.image)
-
-                for r in range(self.rows):
-                    y = r * self.char_h
-                    row_text = "".join(self.grid[r])
-                    trimmed_row = row_text.rstrip()
-
-                    if r == 0 and "MP AUDIO PLAYER" in row_text:
-                        line_str = trimmed_row
-                        total_text_w = len(line_str) * self.char_w
-                        start_x = max(0, (self.img_w - total_text_w) // 2)
-
-                        for idx, ch in enumerate(line_str):
-                            if ch != " ":
-                                col = self.colors[r][idx]
-                                draw.text((start_x + (idx * self.char_w), y), ch,
-                                          fill=(col[0], col[1], col[2], 255), font=self.font)
-                    else:
-                        for c in range(self.cols):
-                            ch = self.grid[r][c]
-                            if ch != " ":
-                                x = c * self.char_w
-                                col = self.colors[r][c]
-                                draw.text((x, y), ch, fill=(col[0], col[1],
-                                                          col[2], 255), font=self.font)
-
-                glBindTexture(GL_TEXTURE_2D, self.texture_id)
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
-                            0, GL_RGBA, GL_UNSIGNED_BYTE, self.image.tobytes(
-                                "raw", "RGBA", 0, 1))
-                glBindTexture(GL_TEXTURE_2D, 0)
-                self.dirty = False
+            from PIL import Image, ImageDraw
 
             p0, p1 = panels[0], panels[1]
             px1, py1, pw1, ph1 = p0
@@ -571,37 +536,90 @@ class TerminalOverlay:
             if pw1 < 10 or ph1 < 10 or qw1 < 10 or qh1 < 10:
                 return
 
-            # Split point between top panel (0) and bottom panel (1)
-            split_row = 14
+            if self.dirty:
+                # Panel 0 Texture (Header rows 0 to 3)
+                p0_rows = 4
+                img_p0_w = self.cols * self.char_w
+                img_p0_h = p0_rows * self.char_h
+                self.img_p0 = Image.new("RGBA", (img_p0_w, img_p0_h), (0, 0, 0, 0))
+                draw_p0 = ImageDraw.Draw(self.img_p0)
 
-            # Panel 0 Screen NDC
+                for r in range(p0_rows):
+                    y = r * self.char_h
+                    row_text = "".join(self.grid[r])
+                    trimmed_row = row_text.rstrip()
+                    if r == 0 and "MP AUDIO PLAYER" in row_text:
+                        line_str = trimmed_row
+                        total_text_w = len(line_str) * self.char_w
+                        start_x = max(0, (img_p0_w - total_text_w) // 2)
+                        for idx, ch in enumerate(line_str):
+                            if ch != " ":
+                                col = self.colors[r][idx]
+                                draw_p0.text((start_x + (idx * self.char_w), y), ch,
+                                             fill=(col[0], col[1], col[2], 255), font=self.font)
+                    else:
+                        for c in range(self.cols):
+                            ch = self.grid[r][c]
+                            if ch != " ":
+                                x = c * self.char_w
+                                col = self.colors[r][c]
+                                draw_p0.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+
+                # Panel 1 Texture (Tracklist / Body rows starting from 'before')
+                viz_rows = 7 if self.rows >= 34 else (5 if self.rows >= 28 else 3)
+                before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
+                body_row_count = max(1, self.rows - before)
+                
+                img_p1_w = self.cols * self.char_w
+                img_p1_h = body_row_count * self.char_h
+                self.img_p1 = Image.new("RGBA", (img_p1_w, img_p1_h), (0, 0, 0, 0))
+                draw_p1 = ImageDraw.Draw(self.img_p1)
+
+                for r_idx, r in enumerate(range(before, self.rows)):
+                    y = r_idx * self.char_h
+                    for c in range(self.cols):
+                        ch = self.grid[r][c]
+                        if ch != " ":
+                            x = c * self.char_w
+                            col = self.colors[r][c]
+                            draw_p1.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+
+                # Upload Textures
+                glBindTexture(GL_TEXTURE_2D, self.tex_p0)
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img_p0_w, img_p0_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.img_p0.tobytes("raw", "RGBA", 0, 1))
+
+                glBindTexture(GL_TEXTURE_2D, self.tex_p1)
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img_p1_w, img_p1_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.img_p1.tobytes("raw", "RGBA", 0, 1))
+
+                glBindTexture(GL_TEXTURE_2D, 0)
+                self.dirty = False
+
+            # Panel 0 NDC Mapping
             nx1 = (px1 / float(fw)) * 2.0 - 1.0
             ny1 = 1.0 - (py1 / float(fh)) * 2.0
             nx2 = ((px1 + pw1) / float(fw)) * 2.0 - 1.0
             ny2 = 1.0 - ((py1 + ph1) / float(fh)) * 2.0
-            p0_v2 = (split_row * self.char_h) / float(self.img_h)
 
-            # Panel 1 Screen NDC
+            # Panel 1 NDC Mapping
             mx1 = (qx1 / float(fw)) * 2.0 - 1.0
             my1 = 1.0 - (qy1 / float(fh)) * 2.0
             mx2 = ((qx1 + qw1) / float(fw)) * 2.0 - 1.0
             my2 = 1.0 - ((qy1 + qh1) / float(fh)) * 2.0
-            p1_v1 = (split_row * self.char_h) / float(self.img_h)
 
             quad_data = np.array([
-                # Panel 0 Quad (Top section of terminal grid)
+                # Panel 0 Quad
                 nx1, ny1, 0.0, 0.0,
                 nx2, ny1, 1.0, 0.0,
-                nx1, ny2, 0.0, p0_v2,
+                nx1, ny2, 0.0, 1.0,
                 nx2, ny1, 1.0, 0.0,
-                nx2, ny2, 1.0, p0_v2,
-                nx1, ny2, 0.0, p0_v2,
+                nx2, ny2, 1.0, 1.0,
+                nx1, ny2, 0.0, 1.0,
 
-                # Panel 1 Quad (Bottom section of terminal grid)
-                mx1, my1, 0.0, p1_v1,
-                mx2, my1, 1.0, p1_v1,
+                # Panel 1 Quad
+                mx1, my1, 0.0, 0.0,
+                mx2, my1, 1.0, 0.0,
                 mx1, my2, 0.0, 1.0,
-                mx2, my1, 1.0, p1_v1,
+                mx2, my1, 1.0, 0.0,
                 mx2, my2, 1.0, 1.0,
                 mx1, my2, 0.0, 1.0,
             ], dtype=np.float32)
@@ -613,10 +631,15 @@ class TerminalOverlay:
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
             glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data, GL_DYNAMIC_DRAW)
-            
-            glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            glDrawArrays(GL_TRIANGLES, 0, 12)
-            
+
+            # Draw Panel 0 (Header Card)
+            glBindTexture(GL_TEXTURE_2D, self.tex_p0)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            # Draw Panel 1 (Tracklist Card)
+            glBindTexture(GL_TEXTURE_2D, self.tex_p1)
+            glDrawArrays(GL_TRIANGLES, 6, 6)
+
             glBindTexture(GL_TEXTURE_2D, 0)
             glBindVertexArray(0)
             glUseProgram(0)
@@ -739,7 +762,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER STABLE SPLIT-UV OVERLAY
+        # RENDER DUAL INDEPENDENT TEXTURES OVER THE GLASS CARDS
         self.overlay.render(fw, fh, bezel_px=self.bezel_px, panels=self.panels)
 
         pixels = None
