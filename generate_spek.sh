@@ -144,13 +144,28 @@ open_image_viewer() {
     fi
 }
 
+# Global cache variable for Spek status on macOS
+: "${_SPEK_MACOS_INSTALLED:=-1}"
+
 # Cross-Platform Native Spek GUI Launcher
 launch_native_spek_gui() {
     local target_audio="${1:-}"
     echo -e "${BOLD}${CYAN}Checking for native Spek Acoustic Spectrum Analyser GUI...${NC}"
     
     if [ "$OS_TYPE" = "macos" ]; then
-        if [ -d "/Applications/Spek.app" ] || [ -d "$HOME/Applications/Spek.app" ] || osascript -e 'id of application "Spek"' >/dev/null 2>&1; then
+        # Check standard directory paths first (no osascript title-glitch overhead)
+        if [ -d "/Applications/Spek.app" ] || [ -d "$HOME/Applications/Spek.app" ]; then
+            _SPEK_MACOS_INSTALLED=1
+        elif [ "$_SPEK_MACOS_INSTALLED" -eq -1 ]; then
+            # Only call osascript as a fallback, and cache it so it never runs twice
+            if osascript -e 'id of application "Spek"' >/dev/null 2>&1; then
+                _SPEK_MACOS_INSTALLED=1
+            else
+                _SPEK_MACOS_INSTALLED=0
+            fi
+        fi
+
+        if [ "$_SPEK_MACOS_INSTALLED" -eq 1 ]; then
             if [ -n "$target_audio" ]; then
                 open -a Spek "$target_audio" >/dev/null 2>&1 &
             else
