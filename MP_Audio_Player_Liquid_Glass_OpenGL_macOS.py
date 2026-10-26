@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import ctypes
 import ctypes.util
 import faulthandler
@@ -14,18 +13,22 @@ import sys
 import termios
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 faulthandler.enable()
-
 if not hasattr(ctypes, "_CData"):
-    for base in ctypes.c_int.__mro__:
+    for base in getattr(ctypes.c_int, "__mro__", ()):
         if base.__name__ == "_CData":
             ctypes._CData = base
             break
+    if not hasattr(ctypes, "_CData"):
+        for base in getattr(ctypes.c_void_p, "__mro__", ()):
+            if base.__name__ == "_CData":
+                ctypes._CData = base
+                break
 
 _orig_cfunctype = ctypes.CFUNCTYPE
-_type_proxy_cache = {}
-
+_type_proxy_cache: dict = {}
 
 def _is_valid_ctype(tp):
     if tp is None:
@@ -33,20 +36,12 @@ def _is_valid_ctype(tp):
     if isinstance(tp, type):
         try:
             return issubclass(
-                tp,
-                (
-                    ctypes._SimpleCData,
-                    ctypes.Structure,
-                    ctypes.Union,
-                    ctypes._Pointer,
-                    ctypes.Array,
-                    ctypes._CFuncPtr,
-                ),
+                tp, (ctypes._SimpleCData, ctypes.Structure, ctypes.Union,
+                      ctypes._Pointer, ctypes.Array, ctypes._CFuncPtr)
             )
         except TypeError:
             return False
     return False
-
 
 def _sanitize_ctype(tp):
     if _is_valid_ctype(tp):
@@ -74,11 +69,10 @@ def _sanitize_ctype(tp):
             if isinstance(value, int):
                 return ctypes.c_void_p(value)
             if isinstance(value, ctypes._CData):
-                return (
-                    ctypes.byref(value)
-                    if not isinstance(value, (ctypes._Pointer, ctypes.Array, ctypes.c_void_p, ctypes.c_char_p))
-                    else value
-                )
+                return (ctypes.byref(value)
+                        if not isinstance(value, (ctypes._Pointer, ctypes.Array,
+                                                  ctypes.c_void_p, ctypes.c_char_p))
+                        else value)
             if hasattr(value, "ctypes"):
                 return value.ctypes.data_as(ctypes.c_void_p)
             return ctypes.c_void_p.from_param(value)
@@ -86,7 +80,6 @@ def _sanitize_ctype(tp):
     _PyOpenGLTypeProxy.__name__ = f"Proxy_{getattr(tp, '__name__', 'Param')}"
     _type_proxy_cache[tp] = _PyOpenGLTypeProxy
     return _PyOpenGLTypeProxy
-
 
 def _py315_safe_cfunctype(restype, *argtypes, **kwargs):
     safe_restype = _sanitize_ctype(restype)
@@ -96,33 +89,28 @@ def _py315_safe_cfunctype(restype, *argtypes, **kwargs):
     except (TypeError, ValueError):
         return _orig_cfunctype(safe_restype, *safe_argtypes, **kwargs)
 
-
 ctypes.CFUNCTYPE = _py315_safe_cfunctype
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
 
 try:
     import OpenGL.platform.baseplatform as _bp
-
     def _safe_function_type_for(self, dll):
         def _builder(restype, *argtypes):
             safe_res = _sanitize_ctype(restype)
             safe_args = tuple(_sanitize_ctype(a) for a in argtypes)
             return _orig_cfunctype(safe_res, *safe_args)
-
         return _builder
-
     _bp.BasePlatform.functionTypeFor = _safe_function_type_for
 except ImportError:
     pass
 
 _orig_cdll = ctypes.CDLL
-_c_func_refs = {}
+_c_func_refs: dict = {}
 _FALLBACK_DYLIB = "/usr/lib/libSystem.B.dylib"
-_OPENGL_FRAMEWORK = (
-    ctypes.util.find_library("OpenGL")
-    or "/System/Library/Frameworks/OpenGL.framework/OpenGL"
-)
+_OPENGL_FRAMEWORK = (ctypes.util.find_library("OpenGL")
+                    or "/System/Library/Frameworks/OpenGL.framework/OpenGL")
 _GLFW_DYLIB = None
+
 for _cand in (
     "/opt/homebrew/lib/libglfw.3.dylib",
     "/usr/local/lib/libglfw.3.dylib",
@@ -141,19 +129,15 @@ except OSError:
 _RAW_GLFW = _orig_cdll(_GLFW_DYLIB) if _GLFW_DYLIB else _RAW_MACOS_GL
 _DUMMY_CFUNCTYPE = _orig_cfunctype(ctypes.c_void_p)
 
-
 def _get_dummy_cfunc(name: str):
     sname = str(name)
     if sname not in _c_func_refs:
-
         def _noop(*args):
             return 0
-
         cfunc = _DUMMY_CFUNCTYPE(_noop)
         cfunc.__name__ = sname
         _c_func_refs[sname] = cfunc
     return _c_func_refs[sname]
-
 
 class SafeMacOSCDLL(_orig_cdll):
     def __init__(self, name, *args, **kwargs):
@@ -185,7 +169,6 @@ class SafeMacOSCDLL(_orig_cdll):
             super().__setattr__(name, fn)
             return fn
 
-
 def _mock_cdll(name, *args, **kwargs):
     if isinstance(name, _orig_cdll):
         return name
@@ -193,9 +176,9 @@ def _mock_cdll(name, *args, **kwargs):
     if "glfw" in sname.lower() and _GLFW_DYLIB:
         return SafeMacOSCDLL(_GLFW_DYLIB, *args, **kwargs)
     return SafeMacOSCDLL(
-        _OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB, *args, **kwargs
+        _OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB,
+        *args, **kwargs
     )
-
 
 ctypes.CDLL = _mock_cdll
 ctypes.cdll = ctypes.LibraryLoader(_mock_cdll)
@@ -204,7 +187,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from liquid_glass_opengl import (  # noqa: E402
+from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
     read_player_theme,
     get_dynamic_theme_state,
@@ -213,9 +196,10 @@ from liquid_glass_opengl import (  # noqa: E402
 )
 
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
-
 COLS = 120
 ROWS = 40
+CHAR_W = 9
+CHAR_H = 18
 ANSI_COLORS = {
     30: (0, 0, 0),
     31: (220, 50, 50),
@@ -235,21 +219,18 @@ ANSI_COLORS = {
     97: (255, 255, 90),
 }
 
-
-def player_panel_rects(cols=120, rows=40, char_w=9, char_h=18, origin_x=0, origin_y=0, mode="NORMAL"):
+def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H,
+                       origin_x=0, origin_y=0, mode="NORMAL"):
     def box(col, row, box_cols, box_rows):
-        return (
-            float(origin_x + col * char_w),
-            float(origin_y + row * char_h),
-            float(box_cols * char_w),
-            float(box_rows * char_h),
-        )
+        return (float(origin_x + col * char_w), float(origin_y + row * char_h),
+                float(box_cols * char_w), float(box_rows * char_h))
 
     m = str(mode).upper()
     if m == "MICRO":
         return box(2, 0, max(20, cols - 4), rows), (0.0, 0.0, 0.0, 0.0)
     elif m == "MINI":
-        return box(2, 0, max(20, cols - 4), 3), box(2, 3, max(20, cols - 4), max(1, rows - 3))
+        return box(2, 0, max(20, cols - 4), 3), box(2, 3, max(20, cols - 4),
+                                                      max(1, rows - 3))
     elif m == "TRACKLIST":
         iw = max(20, cols - 4)
         if rows <= 7:
@@ -262,7 +243,6 @@ def player_panel_rects(cols=120, rows=40, char_w=9, char_h=18, origin_x=0, origi
         body_rows = max(1, rows - (before + 1) - 4)
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows + 2)
 
-
 def player_argv(mode="NORMAL", extra_args=None):
     cmd = [sys.executable, str(ROOT / "MP_Audio_Player.py"), "--interactive"]
     m = str(mode).upper()
@@ -274,7 +254,6 @@ def player_argv(mode="NORMAL", extra_args=None):
         cmd.extend(extra_args)
     return cmd
 
-
 def _child_env():
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
@@ -285,24 +264,22 @@ def _child_env():
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
-
 class TerminalOverlay:
-    """Fully static, non-drifting high-performance terminal text renderer."""
+    """Fixed absolute coordinate terminal overlay - no text drift."""
 
-    def __init__(self, cols=120, rows=40, char_w=9, char_h=18):
+    def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
         self.rows = rows
         self.char_w = char_w
         self.char_h = char_h
-
-        self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
-        self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
+        self.grid: list[list[str]] = [[" " for _ in range(cols)] for _ in range(rows)]
+        self.colors: list[list[tuple]] = [[(200, 235, 255) for _ in range(cols)]
+                                          for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
         self.current_fg = (200, 235, 255)
         self._buf = bytearray()
         self.dirty = True
-
         self.texture_id = 0
         self.shader_program = None
         self.vao = None
@@ -310,11 +287,9 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self._locked_screen_rect = None
 
         try:
             from PIL import Image, ImageFont
-
             for font_path in [
                 "/System/Library/Fonts/SFNSMono.ttf",
                 "/System/Library/Fonts/Monaco.ttf",
@@ -337,38 +312,15 @@ class TerminalOverlay:
             return
         try:
             from OpenGL.GL import (
-                glCreateShader,
-                glShaderSource,
-                glCompileShader,
-                glCreateProgram,
-                glAttachShader,
-                glLinkProgram,
-                glGenVertexArrays,
-                glBindVertexArray,
-                glGenBuffers,
-                glBindBuffer,
-                glBufferData,
-                glVertexAttribPointer,
-                glEnableVertexAttribArray,
-                GL_VERTEX_SHADER,
-                GL_FRAGMENT_SHADER,
-                GL_ARRAY_BUFFER,
-                GL_DYNAMIC_DRAW,
-                GL_FLOAT,
-                GL_FALSE,
-                glGenTextures,
-                glBindTexture,
-                glTexParameteri,
-                glTexImage2D,
-                GL_TEXTURE_2D,
-                GL_TEXTURE_MIN_FILTER,
-                GL_TEXTURE_MAG_FILTER,
-                GL_NEAREST,
-                GL_TEXTURE_WRAP_S,
-                GL_TEXTURE_WRAP_T,
-                GL_CLAMP_TO_EDGE,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
+                glCreateShader, glShaderSource, glCompileShader, glCreateProgram,
+                glAttachShader, glLinkProgram, glGenVertexArrays, glBindVertexArray,
+                glGenBuffers, glBindBuffer, glBufferData, glVertexAttribPointer,
+                glEnableVertexAttribArray, GL_VERTEX_SHADER, GL_FRAGMENT_SHADER,
+                GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW, GL_FLOAT, GL_FALSE,
+                glGenTextures, glBindTexture, glTexParameteri, glTexImage2D,
+                GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER,
+                GL_NEAREST, GL_TEXTURE_WRAP_S, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE,
+                GL_RGBA, GL_UNSIGNED_BYTE
             )
 
             vs_src = b"""
@@ -384,6 +336,7 @@ class TerminalOverlay:
             vs = glCreateShader(GL_VERTEX_SHADER)
             glShaderSource(vs, vs_src)
             glCompileShader(vs)
+
             fs_src = b"""
                 #version 410 core
                 in vec2 v_uv;
@@ -398,10 +351,12 @@ class TerminalOverlay:
             fs = glCreateShader(GL_FRAGMENT_SHADER)
             glShaderSource(fs, fs_src)
             glCompileShader(fs)
+
             self.shader_program = glCreateProgram()
             glAttachShader(self.shader_program, vs)
             glAttachShader(self.shader_program, fs)
             glLinkProgram(self.shader_program)
+
             self.vao = glGenVertexArrays(1)
             self.vbo = glGenBuffers(1)
             glBindVertexArray(self.vao)
@@ -412,15 +367,15 @@ class TerminalOverlay:
             glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))
             glEnableVertexAttribArray(1)
             glBindVertexArray(0)
+
             self.texture_id = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-            glTexImage2D(
-                GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None
-            )
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
+                        0, GL_RGBA, GL_UNSIGNED_BYTE, None)
             glBindTexture(GL_TEXTURE_2D, 0)
             self._initialized_gl = True
         except Exception as e:
@@ -504,21 +459,25 @@ class TerminalOverlay:
                         i += 2
                         consumed = i
                         continue
-                    break
-            if ch == "\n":
+                break
+            elif ch == "\n":
                 self.cursor_row += 1
                 self.cursor_col = 0
                 if self.cursor_row >= self.rows:
                     self.cursor_row = self.rows - 1
+                    # Smooth vertical scrolling only on explicit bottom-row newline
+                    self.grid.pop(0)
+                    self.grid.append([" " for _ in range(self.cols)])
+                    self.colors.pop(0)
+                    self.colors.append([self.current_fg for _ in range(self.cols)])
                 self.dirty = True
             elif ch == "\r":
                 self.cursor_col = 0
             elif ord(ch) >= 32:
-                if 0 <= self.cursor_row < self.rows and 0 <= self.cursor_col < self.cols:
-                    if (
-                        self.grid[self.cursor_row][self.cursor_col] != ch
-                        or self.colors[self.cursor_row][self.cursor_col] != self.current_fg
-                    ):
+                if (0 <= self.cursor_row < self.rows and
+                    0 <= self.cursor_col < self.cols):
+                    if (self.grid[self.cursor_row][self.cursor_col] != ch or
+                        self.colors[self.cursor_row][self.cursor_col] != self.current_fg):
                         self.grid[self.cursor_row][self.cursor_col] = ch
                         self.colors[self.cursor_row][self.cursor_col] = self.current_fg
                         self.dirty = True
@@ -527,7 +486,7 @@ class TerminalOverlay:
                     self.cursor_col = 0
                     self.cursor_row += 1
                     if self.cursor_row >= self.rows:
-                        self.cursor_row = self.rows - 1
+                        self.cursor_row = self.rows - 1  # FIXED: Clamp on auto-wrap, do NOT scroll buffer
                 self.dirty = True
             i += 1
             consumed = i
@@ -558,33 +517,20 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
-    def render(self, base_rect, fw, fh):
+    def render(self, fw, fh):
         if not self._initialized_gl:
             self.init_gl()
+
         if not self._initialized_gl or not self.shader_program:
             return
+
         try:
             from OpenGL.GL import (
-                glUseProgram,
-                glBindVertexArray,
-                glDrawArrays,
-                glBindBuffer,
-                glBufferData,
-                glDisable,
-                glEnable,
-                glBlendFunc,
-                GL_DEPTH_TEST,
-                GL_BLEND,
-                GL_SRC_ALPHA,
-                GL_ONE_MINUS_SRC_ALPHA,
-                GL_TRIANGLES,
-                GL_ARRAY_BUFFER,
-                GL_DYNAMIC_DRAW,
-                glBindTexture,
-                GL_TEXTURE_2D,
-                glTexImage2D,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
+                glUseProgram, glBindVertexArray, glDrawArrays, glBindBuffer,
+                glBufferData, glDisable, glEnable, glBlendFunc, GL_DEPTH_TEST,
+                GL_BLEND, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_TRIANGLES,
+                GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW, glBindTexture, GL_TEXTURE_2D,
+                glTexImage2D, GL_RGBA, GL_UNSIGNED_BYTE
             )
             import numpy as np
             from PIL import ImageDraw
@@ -592,6 +538,7 @@ class TerminalOverlay:
             if self.dirty and self.image:
                 self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
                 draw = ImageDraw.Draw(self.image)
+
                 for r in range(self.rows):
                     y = r * self.char_h
                     for c in range(self.cols):
@@ -599,22 +546,18 @@ class TerminalOverlay:
                         if ch != " ":
                             x = c * self.char_w
                             col = self.colors[r][c]
-                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                            draw.text((x, y), ch, fill=(col[0], col[1],
+                                                      col[2], 255), font=self.font)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
-                glTexImage2D(
-                    GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.image.tobytes("raw", "RGBA", 0, 1)
-                )
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
+                            0, GL_RGBA, GL_UNSIGNED_BYTE, self.image.tobytes(
+                                "raw", "RGBA", 0, 1))
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            # Permanently lock screen coordinates on first frame and never update them again
-            if self._locked_screen_rect is None and base_rect is not None and len(base_rect) >= 2:
-                bx, by = float(base_rect[0]), float(base_rect[1])
-                if bx != 0.0 or by != 0.0:
-                    self._locked_screen_rect = (bx, by)
-
-            rx1, ry1 = self._locked_screen_rect if self._locked_screen_rect is not None else (float(base_rect[0]), float(base_rect[1]))
+            rx1 = 18.0
+            ry1 = 18.0
             rx2 = rx1 + float(self.img_w)
             ry2 = ry1 + float(self.img_h)
 
@@ -623,17 +566,14 @@ class TerminalOverlay:
             x2 = (rx2 / float(fw)) * 2.0 - 1.0
             y2 = 1.0 - (ry2 / float(fh)) * 2.0
 
-            quad_data = np.array(
-                [
-                    x1, y1, 0.0, 0.0,
-                    x2, y1, 1.0, 0.0,
-                    x1, y2, 0.0, 1.0,
-                    x2, y1, 1.0, 0.0,
-                    x2, y2, 1.0, 1.0,
-                    x1, y2, 0.0, 1.0,
-                ],
-                dtype=np.float32,
-            )
+            quad_data = np.array([
+                x1, y1, 0.0, 0.0,
+                x2, y1, 1.0, 0.0,
+                x1, y2, 0.0, 1.0,
+                x2, y1, 1.0, 0.0,
+                x2, y2, 1.0, 1.0,
+                x1, y2, 0.0, 1.0,
+            ], dtype=np.float32)
 
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -641,7 +581,8 @@ class TerminalOverlay:
             glUseProgram(self.shader_program)
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data, GL_DYNAMIC_DRAW)
+            glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data,
+                        GL_DYNAMIC_DRAW)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
             glDrawArrays(GL_TRIANGLES, 0, 6)
             glBindTexture(GL_TEXTURE_2D, 0)
@@ -649,7 +590,6 @@ class TerminalOverlay:
             glUseProgram(0)
         except Exception as e:
             print(f"Overlay draw error: {e}", flush=True)
-
 
 class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def __init__(self, overlay, host_ref, *args, **kwargs):
@@ -671,10 +611,8 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
         def key_callback(_window, key, scancode, action, mods):
             if action in (1, 2):  # GLFW_PRESS or GLFW_REPEAT
-                # Quit shortcuts: Q or Escape
                 if key in (81, 256):  # 'Q' or ESC
                     os._exit(0)
-
                 char_map = {
                     257: b"\n",      # Enter
                     259: b"\x7f",    # Backspace
@@ -694,15 +632,19 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self._on_key_ref = key_callback
         if hasattr(self._glfw, "glfwSetKeyCallback") and self._window:
             self._glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
-            self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_ref, c_void_p))
+            self._glfw.glfwSetKeyCallback(self._window,
+                                          ctypes.cast(self._on_key_ref, c_void_p))
 
     def draw(self, theme_name, opacity=1.0, capture=False):
         if not self.poll():
             return None
+
         fw, fh = self.framebuffer_size()
         ww, wh = self.window_size()
+
         if fw < 2 or fh < 2 or ww < 2 or wh < 2:
             return None
+
         if self.window_size() != self._shape_size:
             self._apply_shape()
 
@@ -712,31 +654,45 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glClearColor(0.0, 0.0, 0.0, 0.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT)
         GL.glUseProgram(self._prog)
-        colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
+
+        colors, effective_opacity, factor = get_dynamic_theme_state(
+            theme_name, opacity
+        )
+
         win = self.x11_window() if hasattr(self, "x11_window") else None
         if factor != 1.0 and win:
             target_op = int(self.clear_opacity * factor * 1000)
             if getattr(self, "_last_dyn_opacity", None) != target_op:
                 self._last_dyn_opacity = target_op
                 self._set_opacity(win, self.clear_opacity * factor)
+
         a = _rgb01(colors[0])
         b = _rgb01(colors[1])
         c = _rgb01(colors[2])
         aspect = float(fw) / max(1.0, float(fh))
+
         u = self._u_locs
-        GL.glUniform4f(
-            u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect
-        )
-        GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
-        GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_res"], float(fw), float(fh),
+                      float(time.monotonic() - getattr(self, "_start", 0)), aspect)
+        GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2],
+                      float(self.cursor[0]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2],
+                      float(self.cursor[1]) / max(1.0, float(fw)))
         GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
-        GL.glUniform4f(u["u_bezel"], float(self.bezel_px), float(self.radius_px), 0.0, 1.0)
+        GL.glUniform4f(u["u_bezel"], float(self.bezel_px), float(self.radius_px),
+                      0.0, 1.0)
+
         p0 = self.panels[0]
         p1 = self.panels[1]
-        GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]), float(p0[2]), float(p0[3]))
-        GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]), float(p1[2]), float(p1[3]))
-        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+        GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]),
+                      float(p0[2]), float(p0[3]))
+        GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]),
+                      float(p1[2]), float(p1[3]))
+
+        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(),
+                                    str(theme_name or "").strip().lower())
         tex_id = self._load_skin_texture(skin_key)
+
         if tex_id:
             GL.glActiveTexture(GL.GL_TEXTURE0)
             GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
@@ -747,19 +703,20 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         else:
             if u.get("u_hasSkin", -1) != -1:
                 GL.glUniform1f(u["u_hasSkin"], 0.0)
+
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # Render terminal overlay stably using p0 (Linux matching layout)
-        self.overlay.render(p0, fw, fh)
+        # RENDER TERMINAL OVERLAY
+        self.overlay.render(fw, fh)
 
         pixels = None
         if capture:
             raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
             pixels = self._format_capture(fw, fh, raw)
+
         self._glfw.glfwSwapBuffers(self._window)
         return pixels
-
 
 class OpenGLGlassHost:
     def __init__(self, mode="NORMAL", cli_theme=None):
@@ -782,11 +739,14 @@ class OpenGLGlassHost:
     def _sync_panels(self):
         if self.renderer is None:
             return
-        char_w, char_h = 9, 18
+
+        char_w = CHAR_W
+        char_h = CHAR_H
         margin = self.renderer.bezel_px
         self.renderer.set_panels(
             player_panel_rects(
-                self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
+                self._target_cols, self._target_rows, char_w, char_h,
+                margin, margin, mode=self.mode
             )
         )
 
@@ -794,11 +754,14 @@ class OpenGLGlassHost:
         self.master_fd, slave_fd = pty.openpty()
         winsize = struct.pack("HHHH", ROWS, COLS, 0, 0)
         fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
+
         extra = []
         if self.cli_theme:
             extra.extend(["--theme", self.cli_theme])
+
         command = player_argv(mode=self.mode, extra_args=extra)
         pid = os.fork()
+
         if pid == 0:
             os.close(self.master_fd)
             os.setsid()
@@ -810,28 +773,36 @@ class OpenGLGlassHost:
             env = _child_env()
             os.execvpe(command[0], command, env)
             sys.exit(1)
+
         os.close(slave_fd)
         self.child_pid = pid
-        char_w, char_h = 9, 18
+
+        char_w = CHAR_W
+        char_h = CHAR_H
         margin = LiquidGlassRendererOpenGL.bezel_px
         init_w = self._target_cols * char_w + 2 * margin
         init_h = self._target_rows * char_h + 2 * margin
         title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
+
         self.renderer = CustomGlassRenderer(
-            overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
+            overlay=self.overlay, host_ref=self,
+            width=init_w, height=init_h, title=title
         )
+
         self.renderer.open()
         self._sync_panels()
-
         theme = read_player_theme()
         theme_at = 0.0
+
         print("DEBUG: Entering OpenGL event loop...", flush=True)
+
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
                     theme_at = now
+
                 if self.master_fd is not None:
                     r, _, _ = select.select([self.master_fd], [], [], 0.0)
                     if self.master_fd in r:
@@ -841,8 +812,10 @@ class OpenGLGlassHost:
                                 self.overlay.feed(data)
                         except OSError:
                             pass
+
                 self.renderer.poll()
                 self.renderer.draw(theme)
+
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
                     break
@@ -852,6 +825,7 @@ class OpenGLGlassHost:
                     os.close(self.master_fd)
                 except OSError:
                     pass
+
             if self.child_pid:
                 try:
                     os.kill(self.child_pid, signal.SIGTERM)
@@ -859,11 +833,12 @@ class OpenGLGlassHost:
                     os.kill(self.child_pid, signal.SIGKILL)
                 except OSError:
                     pass
+
             if self.renderer:
                 self.renderer.close()
                 self.renderer = None
-        return True
 
+        return True
 
 def main():
     theme_arg = None
@@ -875,9 +850,9 @@ def main():
             i += 2
             continue
         i += 1
+
     host = OpenGLGlassHost(mode="NORMAL", cli_theme=theme_arg)
     host.run()
-
 
 if __name__ == "__main__":
     try:
@@ -886,6 +861,5 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as exc:
         import traceback
-
         traceback.print_exc()
         sys.exit(1)
