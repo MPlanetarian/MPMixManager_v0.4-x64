@@ -265,7 +265,7 @@ def _child_env():
     return env
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay - 100% rigid, stationary text layout."""
+    """Fixed absolute coordinate terminal overlay using dual textures for exact panel alignment."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -280,13 +280,15 @@ class TerminalOverlay:
         self.current_fg = (200, 235, 255)
         self._buf = bytearray()
         self.dirty = True
-        self.texture_id = 0
+        self.tex_p0 = 0
+        self.tex_p1 = 0
         self.shader_program = None
         self.vao = None
         self.vbo = None
         self._initialized_gl = False
         self.font = None
-        self.image = None
+        self.img_p0 = None
+        self.img_p1 = None
 
         try:
             from PIL import Image, ImageFont
@@ -301,9 +303,6 @@ class TerminalOverlay:
                     break
             if not self.font:
                 self.font = ImageFont.load_default()
-            self.img_w = self.cols * self.char_w
-            self.img_h = self.rows * self.char_h
-            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
         except Exception:
             pass
 
@@ -368,15 +367,16 @@ class TerminalOverlay:
             glEnableVertexAttribArray(1)
             glBindVertexArray(0)
 
-            self.texture_id = glGenTextures(1)
-            glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
-                        0, GL_RGBA, GL_UNSIGNED_BYTE, None)
-            glBindTexture(GL_TEXTURE_2D, 0)
+            textures = glGenTextures(2)
+            self.tex_p0, self.tex_p1 = textures[0], textures[1]
+            for tex in (self.tex_p0, self.tex_p1):
+                glBindTexture(GL_TEXTURE_2D, tex)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+                glBindTexture(GL_TEXTURE_2D, 0)
+
             self._initialized_gl = True
         except Exception as e:
             print(f"Overlay GL init error: {e}", flush=True)
@@ -515,7 +515,7 @@ class TerminalOverlay:
         if not self._initialized_gl:
             self.init_gl()
 
-        if not self._initialized_gl or not self.shader_program:
+        if not self._initialized_gl or not self.shader_program or not panels or len(panels) < 2:
             return
 
         try:
@@ -527,100 +527,97 @@ class TerminalOverlay:
                 glTexImage2D, GL_RGBA, GL_UNSIGNED_BYTE
             )
             import numpy as np
-            from PIL import ImageDraw
+            from PIL import Image, ImageDraw
 
-            if self.dirty and self.image:
-                self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
-                draw = ImageDraw.Draw(self.image)
+            p0, p1 = panels[0], panels[1]
+            px1, py1, pw1, ph1 = p0
+            qx1, qy1, qw1, qh1 = p1
 
-                for r in range(self.rows):
+            if pw1 < 10 or ph1 < 10 or qw1 < 10 or qh1 < 10:
+                return
+
+            if self.dirty:
+                # Render Panel 0 (Header / Top Card)
+                img_p0_w, img_p0_h = int(pw1), int(ph1)
+                self.img_p0 = Image.new("RGBA", (img_p0_w, img_p0_h), (0, 0, 0, 0))
+                draw_p0 = ImageDraw.Draw(self.img_p0)
+                
+                for r in range(4): # Top 4 rows for header
                     y = r * self.char_h
                     row_text = "".join(self.grid[r])
                     trimmed_row = row_text.rstrip()
-
                     if r == 0 and "MP AUDIO PLAYER" in row_text:
                         line_str = trimmed_row
                         total_text_w = len(line_str) * self.char_w
-                        start_x = max(0, (self.img_w - total_text_w) // 2)
-
+                        start_x = max(0, (img_p0_w - total_text_w) // 2)
                         for idx, ch in enumerate(line_str):
                             if ch != " ":
                                 col = self.colors[r][idx]
-                                draw.text((start_x + (idx * self.char_w), y), ch,
-                                          fill=(col[0], col[1], col[2], 255), font=self.font)
+                                draw_p0.text((start_x + (idx * self.char_w), y), ch,
+                                             fill=(col[0], col[1], col[2], 255), font=self.font)
                     else:
                         for c in range(self.cols):
                             ch = self.grid[r][c]
                             if ch != " ":
                                 x = c * self.char_w
                                 col = self.colors[r][c]
-                                draw.text((x, y), ch, fill=(col[0], col[1],
-                                                          col[2], 255), font=self.font)
+                                draw_p0.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
-                glBindTexture(GL_TEXTURE_2D, self.texture_id)
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
-                            0, GL_RGBA, GL_UNSIGNED_BYTE, self.image.tobytes(
-                                "raw", "RGBA", 0, 1))
+                # Render Panel 1 (Body / Tracklist Card)
+                viz_rows = 7 if self.rows >= 34 else (5 if self.rows >= 28 else 3)
+                before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
+                img_p1_w, img_p1_h = int(qw1), int(qh1)
+                self.img_p1 = Image.new("RGBA", (img_p1_w, img_p1_h), (0, 0, 0, 0))
+                draw_p1 = ImageDraw.Draw(self.img_p1)
+
+                for r_idx, r in enumerate(range(before, self.rows)):
+                    y = r_idx * self.char_h
+                    for c in range(self.cols):
+                        ch = self.grid[r][c]
+                        if ch != " ":
+                            x = c * self.char_w
+                            col = self.colors[r][c]
+                            draw_p1.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+
+                # Upload Textures
+                glBindTexture(GL_TEXTURE_2D, self.tex_p0)
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img_p0_w, img_p0_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.img_p0.tobytes("raw", "RGBA", 0, 1))
+                
+                glBindTexture(GL_TEXTURE_2D, self.tex_p1)
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img_p1_w, img_p1_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.img_p1.tobytes("raw", "RGBA", 0, 1))
+                
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            if panels and len(panels) >= 2:
-                p0, p1 = panels
-                
-                # Panel 0 quad mapping (Rows 0 to 4)
-                px1, py1, pw1, ph1 = p0
-                px2, py2 = px1 + pw1, py1 + ph1
-                nx1 = (px1 / float(fw)) * 2.0 - 1.0
-                ny1 = 1.0 - (py1 / float(fh)) * 2.0
-                nx2 = (px2 / float(fw)) * 2.0 - 1.0
-                ny2 = 1.0 - (py2 / float(fh)) * 2.0
-                p0_uv_y2 = (4 * self.char_h) / float(self.img_h)
+            # Screen NDC Coordinate Mapping for Panel 0
+            nx1 = (px1 / float(fw)) * 2.0 - 1.0
+            ny1 = 1.0 - (py1 / float(fh)) * 2.0
+            nx2 = ((px1 + pw1) / float(fw)) * 2.0 - 1.0
+            ny2 = 1.0 - ((py1 + ph1) / float(fh)) * 2.0
 
-                # Panel 1 quad mapping (Rows 21 to ROWS)
-                qx1, qy1, qw1, qh1 = p1
-                qx2, qy2 = qx1 + qw1, qy1 + qh1
-                mx1 = (qx1 / float(fw)) * 2.0 - 1.0
-                my1 = 1.0 - (qy1 / float(fh)) * 2.0
-                mx2 = (qx2 / float(fw)) * 2.0 - 1.0
-                my2 = 1.0 - (qy2 / float(fh)) * 2.0
-                p1_uv_y1 = (21 * self.char_h) / float(self.img_h)
+            # Screen NDC Coordinate Mapping for Panel 1
+            mx1 = (qx1 / float(fw)) * 2.0 - 1.0
+            my1 = 1.0 - (qy1 / float(fh)) * 2.0
+            mx2 = ((qx1 + qw1) / float(fw)) * 2.0 - 1.0
+            my2 = 1.0 - ((qy1 + qh1) / float(fh)) * 2.0
 
-                quad_data = np.array([
-                    # Panel 0 Quad
-                    nx1, ny1, 0.0, 0.0,
-                    nx2, ny1, 1.0, 0.0,
-                    nx1, ny2, 0.0, p0_uv_y2,
-                    nx2, ny1, 1.0, 0.0,
-                    nx2, ny2, 1.0, p0_uv_y2,
-                    nx1, ny2, 0.0, p0_uv_y2,
+            quad_data = np.array([
+                # Panel 0 Quad
+                nx1, ny1, 0.0, 0.0,
+                nx2, ny1, 1.0, 0.0,
+                nx1, ny2, 0.0, 1.0,
+                nx2, ny1, 1.0, 0.0,
+                nx2, ny2, 1.0, 1.0,
+                nx1, ny2, 0.0, 1.0,
 
-                    # Panel 1 Quad
-                    mx1, my1, 0.0, p1_uv_y1,
-                    mx2, my1, 1.0, p1_uv_y1,
-                    mx1, my2, 0.0, 1.0,
-                    mx2, my1, 1.0, p1_uv_y1,
-                    mx2, my2, 1.0, 1.0,
-                    mx1, my2, 0.0, 1.0,
-                ], dtype=np.float32)
-            else:
-                rx1 = float(bezel_px)
-                ry1 = float(bezel_px)
-                rx2 = rx1 + float(self.img_w)
-                ry2 = ry1 + float(self.img_h)
-
-                x1 = (rx1 / float(fw)) * 2.0 - 1.0
-                y1 = 1.0 - (ry1 / float(fh)) * 2.0
-                x2 = (rx2 / float(fw)) * 2.0 - 1.0
-                y2 = 1.0 - (ry2 / float(fh)) * 2.0
-
-                quad_data = np.array([
-                    x1, y1, 0.0, 0.0,
-                    x2, y1, 1.0, 0.0,
-                    x1, y2, 0.0, 1.0,
-                    x2, y1, 1.0, 0.0,
-                    x2, y2, 1.0, 1.0,
-                    x1, y2, 0.0, 1.0,
-                ], dtype=np.float32)
+                # Panel 1 Quad
+                mx1, my1, 0.0, 0.0,
+                mx2, my1, 1.0, 0.0,
+                mx1, my2, 0.0, 1.0,
+                mx2, my1, 1.0, 0.0,
+                mx2, my2, 1.0, 1.0,
+                mx1, my2, 0.0, 1.0,
+            ], dtype=np.float32)
 
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -628,11 +625,16 @@ class TerminalOverlay:
             glUseProgram(self.shader_program)
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data,
-                        GL_DYNAMIC_DRAW)
-            glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            vertex_count = 12 if (panels and len(panels) >= 2) else 6
-            glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+            glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data, GL_DYNAMIC_DRAW)
+
+            # Draw Panel 0
+            glBindTexture(GL_TEXTURE_2D, self.tex_p0)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            # Draw Panel 1
+            glBindTexture(GL_TEXTURE_2D, self.tex_p1)
+            glDrawArrays(GL_TRIANGLES, 6, 6)
+
             glBindTexture(GL_TEXTURE_2D, 0)
             glBindVertexArray(0)
             glUseProgram(0)
@@ -755,7 +757,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER STABLE TERMINAL OVERLAY WITH EXACT PANEL RECT MAPPING
+        # RENDER STABLE DUAL-TEXTURE TERMINAL OVERLAY
         self.overlay.render(fw, fh, bezel_px=self.bezel_px, panels=self.panels)
 
         pixels = None
