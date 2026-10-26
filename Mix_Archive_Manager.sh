@@ -956,77 +956,87 @@ launch_mp_audio_player_liquid_glass() {
     local audio_file="${1:-}"
     local seek_pos="${2:-}"
     local mode="${3:-MIX_ARCHIVE}"
-    local os_type="$(uname -s)"
-    local arch_type="$(uname -m)"
-    local py=""
-    local backend_name="OpenGL"
 
-    if [ "$os_type" = "Darwin" ]; then
-        py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
-        [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
-        backend_name="OpenGL (macOS)"
-        if [ ! -f "$py" ]; then
-            if [ "$arch_type" != "arm64" ]; then
-                echo -e "\n${RED}Liquid Glass Metal mode requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported.${NC}\n"
-                manage_mp_audio_player
-                return
-            fi
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
-            backend_name="Metal (Apple Silicon)"
-        fi
-    elif [ "$os_type" = "Linux" ] || [[ "$os_type" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
-        local backend="${LIQUID_GLASS_BACKEND:-opengl}"
-        backend="$(echo "$backend" | tr '[:upper:]' '[:lower:]')"
-        if [ "$backend" = "vulkan" ]; then
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
-            backend_name="Vulkan"
-        else
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
-            backend_name="OpenGL"
-            if [ ! -f "$py" ]; then
-                py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-                [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
-                backend_name="Vulkan"
-            fi
-        fi
+    # Locate the correct calling desktop launcher script
+    local launcher="$HOME/.local/bin/launch-liquid-glass"
+    [ ! -f "$launcher" ] && launcher="$SCRIPT_DIR/launch-liquid-glass"
+    [ ! -f "$launcher" ] && launcher="$SCRIPT_DIR/../bin/launch-liquid-glass"
+
+    # Build argument array
+    local -a launcher_args=()
+    [ -n "$audio_file" ] && launcher_args=("--play" "$audio_file")
+    [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && launcher_args+=(--seek-to "$seek_pos")
+    [ "$mode" = "MUSIC" ] && launcher_args+=(--music-mode)
+
+    if [ -f "$launcher" ]; then
+        echo -e "\n${BOLD}${CYAN}Launching MP Liquid Glass Audio Player using desktop launcher script...${NC}\n"
+        bash "$launcher" "${launcher_args[@]}" &>/dev/null &
+        disown 2>/dev/null || true
     else
-        echo -e "\n${YELLOW}Liquid Glass Mode requires Linux, Windows 10/11, or Apple Silicon macOS. Opening the standard MP Audio Player.${NC}\n"
-        manage_mp_audio_player
-        return
-    fi
+        # Fallback to embedded logic mirroring launch-liquid-glass exactly
+        local BASE_DIR="$SCRIPT_DIR"
+        [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && BASE_DIR="$(dirname "$SCRIPT_DIR")"
+        
+        local CONFIG_FILE="$HOME/.config/mix-manager/config.env"
+        [ ! -f "$CONFIG_FILE" ] && CONFIG_FILE="$BASE_DIR/config.env"
 
-    if [ -z "$py" ] || [ ! -f "$py" ]; then
-        echo -e "\n${RED}Liquid Glass player script was not found. Opening the standard MP Audio Player.${NC}\n"
-        manage_mp_audio_player
-        return
-    fi
-
-    mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
-    echo -e "\n${BOLD}${CYAN}Opening MP Audio Player (Liquid Glass Mode - ${backend_name}) in its own window.${NC}\n"
-    local py_bin="python3"
-    if [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
-        py_bin="$SCRIPT_DIR/venv/bin/python3"
-    fi
-
-    local -a py_args=()
-    [ -n "$audio_file" ] && py_args=("--play" "$audio_file")
-    [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && py_args+=(--seek-to "$seek_pos")
-    [ "$mode" = "MUSIC" ] && py_args+=(--music-mode)
-
-    nohup "$py_bin" "$py" "${py_args[@]}" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
-    disown
-
-    # Automatically start MP Liquid Visualizer with a random preset if not already running
-    if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
-        local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
-        [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/scripts/mp_liquid_visualizer_vulkan.py"
-        if [ -f "$vis_py" ]; then
-            nohup "$py_bin" "$vis_py" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
-            disown
+        local TARGET_PY=""
+        if [ "$(uname -s)" = "Darwin" ]; then
+            TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
+            [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
+        else
+            local BACKEND="opengl"
+            if [ -f "$CONFIG_FILE" ]; then
+                local VAL=$(grep -E "^LIQUID_GLASS_BACKEND=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"'\'' ')
+                [ -n "$VAL" ] && BACKEND="$(echo "$VAL" | tr '[:upper:]' '[:lower:]')"
+            fi
+            if [ "$BACKEND" = "vulkan" ]; then
+                TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass.py"
+                [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+            fi
+            if [ -z "$TARGET_PY" ] || [ ! -f "$TARGET_PY" ]; then
+                TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+                [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            fi
+            [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass.py"
         fi
+
+        # Ensure audio volume level is set to 100% and unmuted
+        if command -v wpctl >/dev/null 2>&1; then
+            wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
+            wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 2>/dev/null || true
+        fi
+        if command -v pactl >/dev/null 2>&1; then
+            pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null || true
+            pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
+        fi
+        if [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
+            python3 "$BASE_DIR/MP_Audio_Player.py" --vol 100 2>/dev/null || true
+        fi
+
+        # Single instance check with wmctrl window activation
+        if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+            if command -v wmctrl >/dev/null 2>&1; then
+                wmctrl -a "MP Audio Player (Liquid Glass" 2>/dev/null || true
+            fi
+            return 0
+        fi
+
+        # Automatically start MP Liquid Visualizer if not running
+        if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
+            local VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
+            [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
+            if [ -f "$VIS_PY" ]; then
+                nohup python3 "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
+            fi
+        fi
+
+        mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+        (
+            cd "$BASE_DIR" || exit 1
+            nohup python3 "$TARGET_PY" "${launcher_args[@]}" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
+            disown
+        )
     fi
 }
 launch_mp_liquid_visualizer() {
