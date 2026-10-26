@@ -239,10 +239,10 @@ ANSI_COLORS = {
 def player_panel_rects(cols=120, rows=40, char_w=9, char_h=18, origin_x=0, origin_y=0, mode="NORMAL"):
     def box(col, row, box_cols, box_rows):
         return (
-            origin_x + col * char_w,
-            origin_y + row * char_h,
-            box_cols * char_w,
-            box_rows * char_h,
+            float(origin_x + col * char_w),
+            float(origin_y + row * char_h),
+            float(box_cols * char_w),
+            float(box_rows * char_h),
         )
 
     m = str(mode).upper()
@@ -316,7 +316,7 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self._locked_quad = None
+        self._locked_base_rect = None
 
         try:
             from PIL import Image, ImageFont
@@ -680,29 +680,30 @@ class TerminalOverlay:
                 self.max_dirty_c = -1
                 self.dirty = False
 
-            # Permanently lock quad coordinates to a static size based on character grid dimensions
-            if self._locked_quad is None:
-                rx1 = int(round(base_rect[0]))
-                ry1 = int(round(base_rect[1]))
-                rx2 = rx1 + self.img_w
-                ry2 = ry1 + self.img_h
+            # Lock base_rect on the first valid frame so audio-reactive panel shifts don't move the text
+            if self._locked_base_rect is None or base_rect[0] > 0 or base_rect[1] > 0:
+                self._locked_base_rect = (float(base_rect[0]), float(base_rect[1]))
 
-                x1 = (rx1 / fw) * 2.0 - 1.0
-                y1 = 1.0 - (ry1 / fh) * 2.0
-                x2 = (rx2 / fw) * 2.0 - 1.0
-                y2 = 1.0 - (ry2 / fh) * 2.0
+            rx1, ry1 = self._locked_base_rect
+            rx2 = rx1 + float(self.img_w)
+            ry2 = ry1 + float(self.img_h)
 
-                self._locked_quad = np.array(
-                    [
-                        x1, y1, 0.0, 0.0,
-                        x2, y1, 1.0, 0.0,
-                        x1, y2, 0.0, 1.0,
-                        x2, y1, 1.0, 0.0,
-                        x2, y2, 1.0, 1.0,
-                        x1, y2, 0.0, 1.0,
-                    ],
-                    dtype=np.float32,
-                )
+            x1 = (rx1 / float(fw)) * 2.0 - 1.0
+            y1 = 1.0 - (ry1 / float(fh)) * 2.0
+            x2 = (rx2 / float(fw)) * 2.0 - 1.0
+            y2 = 1.0 - (ry2 / float(fh)) * 2.0
+
+            quad_data = np.array(
+                [
+                    x1, y1, 0.0, 0.0,
+                    x2, y1, 1.0, 0.0,
+                    x1, y2, 0.0, 1.0,
+                    x2, y1, 1.0, 0.0,
+                    x2, y2, 1.0, 1.0,
+                    x1, y2, 0.0, 1.0,
+                ],
+                dtype=np.float32,
+            )
 
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -710,7 +711,7 @@ class TerminalOverlay:
             glUseProgram(self.shader_program)
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, self._locked_quad.nbytes, self._locked_quad, GL_DYNAMIC_DRAW)
+            glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data, GL_DYNAMIC_DRAW)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
             glDrawArrays(GL_TRIANGLES, 0, 6)
             glBindTexture(GL_TEXTURE_2D, 0)
@@ -745,7 +746,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                     72: b"h", 73: b"i", 74: b"j", 75: b"k", 76: b"l", 77: b"m", 78: b"n",
                     79: b"o", 80: b"p", 81: b"q", 82: b"r", 83: b"s", 84: b"t", 85: b"u",
                     86: b"v", 87: b"w", 88: b"x", 89: b"y", 90: b"z",
-                    113: b"q", 81: b"q",
                     257: b"\n",
                     259: b"\x7f",
                     262: b"\x1b[C",
@@ -817,9 +817,8 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        scale_x = fw / max(1.0, float(ww))
-        scale_y = fh / max(1.0, float(wh))
-        self.overlay.render((p0[0] * scale_x, p0[1] * scale_y, p0[2] * scale_x, p0[3] * scale_y), fw, fh)
+        # Render terminal overlay using p0
+        self.overlay.render(p0, fw, fh)
 
         pixels = None
         if capture:
@@ -838,6 +837,7 @@ class OpenGLGlassHost:
         self.master_fd = None
         self._target_cols = COLS
         self._target_rows = ROWS
+        self._last_win_size = None
         self.overlay = TerminalOverlay(COLS, ROWS)
 
     def send_input(self, data: bytes):
@@ -890,6 +890,8 @@ class OpenGLGlassHost:
         )
         self.renderer.open()
         self._sync_panels()
+        self._last_win_size = self.renderer.window_size()
+
         theme = read_player_theme()
         theme_at = 0.0
         print("DEBUG: Entering OpenGL event loop...", flush=True)
@@ -909,7 +911,12 @@ class OpenGLGlassHost:
                         except OSError:
                             pass
                 self.renderer.poll()
-                self._sync_panels()
+
+                curr_size = self.renderer.window_size()
+                if curr_size != self._last_win_size:
+                    self._sync_panels()
+                    self._last_win_size = curr_size
+
                 self.renderer.draw(theme)
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
