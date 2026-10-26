@@ -953,6 +953,9 @@ launch_mp_audio_player_window() {
     fi
 }
 launch_mp_audio_player_liquid_glass() {
+    local audio_file="${1:-}"
+    local seek_pos="${2:-}"
+    local mode="${3:-MIX_ARCHIVE}"
     local os_type="$(uname -s)"
     local arch_type="$(uname -m)"
     local py=""
@@ -1007,8 +1010,15 @@ launch_mp_audio_player_liquid_glass() {
     if [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
         py_bin="$SCRIPT_DIR/venv/bin/python3"
     fi
-    nohup "$py_bin" "$py" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
+
+    local -a py_args=()
+    [ -n "$audio_file" ] && py_args=("--play" "$audio_file")
+    [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && py_args+=(--seek-to "$seek_pos")
+    [ "$mode" = "MUSIC" ] && py_args+=(--music-mode)
+
+    nohup "$py_bin" "$py" "${py_args[@]}" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
     disown
+
     # Automatically start MP Liquid Visualizer with a random preset if not already running
     if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
         local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
@@ -2563,36 +2573,165 @@ garage_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/Native Ins
 ;; 10) launch_traktor ;; 11) launch_traktor_monitor_window; ;; 12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;; 13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
 }
 play_audio_file() {
-local player="${1:-${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}}"; local file="$2"; local seek_pos="${3:-}"; local mode="${4:-MIX_ARCHIVE}"; [ -z "$file" ] && return 1; file="$(realpath "$file" 2>/dev/null || echo "$file")"; case "$player" in
-mp_liquid_glass|liquid_glass|liquid|glass)
-    launch_mp_audio_player_liquid_glass
-    local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-    if [ -f "$mp_py" ]; then
-        local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode)
-        (sleep 0.8; python3 "$mp_py" "${play_args[@]}" &>/dev/null) &
-    fi ;;
-mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode); python3 "$mp_py" "${play_args[@]}"; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
-disown 2>/dev/null || true; elif _has_flatpak "org.atheme.audacious"; then nohup flatpak run org.atheme.audacious "$file" &>/dev/null &
-disown 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then open -a Audacious "$file" &>/dev/null &
-fi; if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then (for _i in {1..20}; do sleep 0.2; command -v audtool &>/dev/null && audtool playback-seek "${seek_pos%.*}" &>/dev/null && break; done) & fi; align_mix_windows_on_screen --expect-audacious; ;; cliamp) local cliamp_bin="cliamp"; command -v cliamp &>/dev/null || cliamp_bin="$SCRIPT_DIR/bin/cliamp"; [ ! -x "$cliamp_bin" ] && cliamp_bin="$HOME/.local/bin/cliamp"; if pgrep -x cliamp &>/dev/null; then "$cliamp_bin" queue "$file" 2>/dev/null || true; sleep 0.3; "$cliamp_bin" play 2>/dev/null || true; else local full_cmd="\"$cliamp_bin\" queue \"$file\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play"; launch_in_terminal "cliamp - $(basename "$file")" "$full_cmd" "window"; fi ;; strawberry) if get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ]; then if [ "$STRAWBERRY_RESOLVED_PATH" = "$file" ] || [ "$STRAWBERRY_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-strawberry; return 0; fi; fi; if command -v strawberry &>/dev/null; then nohup strawberry "$file" &>/dev/null &
-disown 2>/dev/null || true; elif _has_flatpak "org.strawberrymusicplayer.strawberry"; then nohup flatpak run org.strawberrymusicplayer.strawberry "$file" &>/dev/null &
-disown 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then open -a Strawberry "$file" &>/dev/null &
-fi; if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then (for _i in {1..20}; do sleep 0.3; command -v playerctl &>/dev/null && playerctl -p strawberry position "${seek_pos%.*}" &>/dev/null && break; done) & fi; align_mix_windows_on_screen --expect-strawberry; ;; vlc) if command -v vlc &>/dev/null; then nohup vlc "$file" &>/dev/null &
-elif _has_flatpak "org.videolan.VLC"; then nohup flatpak run org.videolan.VLC "$file" &>/dev/null &
-elif [ "$OS_TYPE" = "macos" ]; then open -a VLC "$file" &>/dev/null &
-fi ;; haruna) if command -v haruna &>/dev/null; then nohup haruna "$file" &>/dev/null &
-elif _has_flatpak "org.kde.haruna"; then nohup flatpak run org.kde.haruna "$file" &>/dev/null &
-fi ;; kodi) if command -v kodi &>/dev/null; then nohup kodi "$file" &>/dev/null &
-elif _has_flatpak "tv.kodi.Kodi"; then nohup flatpak run tv.kodi.Kodi "$file" &>/dev/null &
-fi ;; audacity) if command -v audacity &>/dev/null; then nohup audacity "$file" &>/dev/null &
-elif _has_flatpak "org.audacityteam.Audacity"; then nohup flatpak run org.audacityteam.Audacity "$file" &>/dev/null &
-fi ;; mpv) if command -v mpv &>/dev/null; then nohup mpv "$file" &>/dev/null &
-fi ;; winamp) launch_winamp "$file"; ;; foobar2000) launch_foobar2000 "$file" ;; music|apple_music) launch_apple_music "$file"; ;; garageband) launch_garageband "$file" ;; logic|logic_pro) launch_logic_pro "$file"; ;; reaper) if [ "$OS_TYPE" = "macos" ]; then open -a "REAPER" "$file" &>/dev/null &
-elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then local win_p; win_p="$(cygpath -w "$file" 2>/dev/null || wslpath -w "$file" 2>/dev/null || echo "$file")"; cmd.exe /c start "" "reaper.exe" "$win_p" &>/dev/null &
-elif command -v reaper &>/dev/null; then nohup reaper "$file" &>/dev/null &
-elif _has_flatpak "fm.reaper.Reaper"; then nohup flatpak run fm.reaper.Reaper "$file" &>/dev/null &
-fi ;; flstudio|fl_studio) launch_fl_studio "$file"; ;; *) if command -v "$player" &>/dev/null; then nohup "$player" "$file" &>/dev/null &
-elif [ "$player" != "audacious" ] && (command -v audacious &>/dev/null || _has_flatpak "org.atheme.audacious"); then play_audio_file "audacious" "$file"; elif [ "$player" != "strawberry" ] && command -v strawberry &>/dev/null; then play_audio_file "strawberry" "$file"; else play_audio_file "cliamp" "$file"; fi ;; esac; if [ "${AUTO_SHOW_PLAYING_ASSETS:-true}" = "true" ] && [ "${SKIP_PLAYING_ASSETS:-0}" -ne 1 ]; then auto_show_playing_mix_assets "$file" "$player"; fi
+    local player="${1:-${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}}"
+    local file="$2"
+    local seek_pos="${3:-}"
+    local mode="${4:-MIX_ARCHIVE}"
+    
+    [ -z "$file" ] && return 1
+    file="$(realpath "$file" 2>/dev/null \vert{}\vert{} echo "$file")"
+    
+    case "$player" in
+        mp_liquid_glass|liquid_glass|liquid|glass)
+            launch_mp_audio_player_liquid_glass "$file" "$seek_pos" "$mode"
+            ;;
+        mp_audio_player|mp_player|mp-player|mpplayer|mp) 
+            local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
+            [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+            if [ -f "$mp_py" ]; then
+                local play_args=("--play" "$file")
+                [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos")
+                [ "$mode" = "MUSIC" ] && play_args+=(--music-mode)
+                python3 "$mp_py" "${play_args[@]}"
+            fi 
+            ;;
+        audacious) 
+            if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then
+                if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then
+                    align_mix_windows_on_screen --expect-audacious
+                    return 0
+                fi
+            fi
+            if command -v audacious &>/dev/null; then
+                nohup audacious "$file" &>/dev/null &
+                disown 2>/dev/null || true
+            elif _has_flatpak "org.atheme.audacious"; then
+                nohup flatpak run org.atheme.audacious "$file" &>/dev/null &
+                disown 2>/dev/null || true
+            elif [ "$OS_TYPE" = "macos" ]; then
+                open -a Audacious "$file" &>/dev/null &
+            fi
+            if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then
+                (for _i in {1..20}; do sleep 0.2; command -v audtool &>/dev/null && audtool playback-seek "${seek_pos%.*}" &>/dev/null && break; done) &
+            fi
+            align_mix_windows_on_screen --expect-audacious
+            ;;
+        cliamp) 
+            local cliamp_bin="cliamp"
+            command -v cliamp &>/dev/null || cliamp_bin="$SCRIPT_DIR/bin/cliamp"
+            [ ! -x "$cliamp_bin" ] && cliamp_bin="$HOME/.local/bin/cliamp"
+            if pgrep -x cliamp &>/dev/null; then
+                "$cliamp_bin" queue "$file" 2>/dev/null || true
+                sleep 0.3
+                "$cliamp_bin" play 2>/dev/null || true
+            else
+                local full_cmd="\"$cliamp_bin\" queue \"$file\" 2>/dev/null; \"$cliamp_bin\" --auto-play play 2>/dev/null || \"$cliamp_bin\" --auto-play"
+                launch_in_terminal "cliamp - $(basename "$file")" "$full_cmd" "window"
+            fi 
+            ;;
+        strawberry) 
+            if get_strawberry_track_info 2>/dev/null && [ "$STRAWBERRY_STATE" = "playing" ]; then
+                if [ "$STRAWBERRY_RESOLVED_PATH" = "$file" ] || [ "$STRAWBERRY_RAW_PATH" = "$file" ]; then
+                    align_mix_windows_on_screen --expect-strawberry
+                    return 0
+                fi
+            fi
+            if command -v strawberry &>/dev/null; then
+                nohup strawberry "$file" &>/dev/null &
+                disown 2>/dev/null || true
+            elif _has_flatpak "org.strawberrymusicplayer.strawberry"; then
+                nohup flatpak run org.strawberrymusicplayer.strawberry "$file" &>/dev/null &
+                disown 2>/dev/null || true
+            elif [ "$OS_TYPE" = "macos" ]; then
+                open -a Strawberry "$file" &>/dev/null &
+            fi
+            if [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ]; then
+                (for _i in {1..20}; do sleep 0.3; command -v playerctl &>/dev/null && playerctl -p strawberry position "${seek_pos%.*}" &>/dev/null && break; done) &
+            fi
+            align_mix_windows_on_screen --expect-strawberry
+            ;;
+        vlc) 
+            if command -v vlc &>/dev/null; then
+                nohup vlc "$file" &>/dev/null &
+            elif _has_flatpak "org.videolan.VLC"; then
+                nohup flatpak run org.videolan.VLC "$file" &>/dev/null &
+            elif [ "$OS_TYPE" = "macos" ]; then
+                open -a VLC "$file" &>/dev/null &
+            fi 
+            ;;
+        haruna) 
+            if command -v haruna &>/dev/null; then
+                nohup haruna "$file" &>/dev/null &
+            elif _has_flatpak "org.kde.haruna"; then
+                nohup flatpak run org.kde.haruna "$file" &>/dev/null &
+            fi 
+            ;;
+        kodi) 
+            if command -v kodi &>/dev/null; then
+                nohup kodi "$file" &>/dev/null &
+            elif _has_flatpak "tv.kodi.Kodi"; then
+                nohup flatpak run tv.kodi.Kodi "$file" &>/dev/null &
+            fi 
+            ;;
+        audacity) 
+            if command -v audacity &>/dev/null; then
+                nohup audacity "$file" &>/dev/null &
+            elif _has_flatpak "org.audacityteam.Audacity"; then
+                nohup flatpak run org.audacityteam.Audacity "$file" &>/dev/null &
+            fi 
+            ;;
+        mpv) 
+            if command -v mpv &>/dev/null; then
+                nohup mpv "$file" &>/dev/null &
+            fi 
+            ;;
+        winamp) 
+            launch_winamp "$file"
+            ;;
+        foobar2000) 
+            launch_foobar2000 "$file" 
+            ;;
+        music|apple_music) 
+            launch_apple_music "$file"
+            ;;
+        garageband) 
+            launch_garageband "$file" 
+            ;;
+        logic|logic_pro) 
+            launch_logic_pro "$file" 
+            ;;
+        reaper) 
+            if [ "$OS_TYPE" = "macos" ]; then
+                open -a "REAPER" "$file" &>/dev/null &
+            elif [ "$OS_TYPE" = "windows" ] \vert{}\vert{} [ "$OS_TYPE" = "wsl" ]; then
+                local win_p
+                win_p="$(cygpath -w "$file" 2>/dev/null || wslpath -w "$file" 2>/dev/null \vert{}\vert{} echo "$file")"
+                cmd.exe /c start "" "reaper.exe" "$win_p" &>/dev/null &
+            elif command -v reaper &>/dev/null; then
+                nohup reaper "$file" &>/dev/null &
+            elif _has_flatpak "fm.reaper.Reaper"; then
+                nohup flatpak run fm.reaper.Reaper "$file" &>/dev/null &
+            fi 
+            ;;
+        flstudio|fl_studio) 
+            launch_fl_studio "$file"
+            ;;
+        *) 
+            if command -v "$player" &>/dev/null; then
+                nohup "$player" "$file" &>/dev/null &
+            elif [ "$player" != "audacious" ] && (command -v audacious &>/dev/null || _has_flatpak "org.atheme.audacious"); then
+                play_audio_file "audacious" "$file" "$seek_pos" "$mode"
+            elif [ "$player" != "strawberry" ] && command -v strawberry &>/dev/null; then
+                play_audio_file "strawberry" "$file" "$seek_pos" "$mode"
+            else
+                play_audio_file "cliamp" "$file" "$seek_pos" "$mode"
+            fi 
+            ;;
+    esac
+    
+    if [ "${AUTO_SHOW_PLAYING_ASSETS:-true}" = "true" ] && [ "${SKIP_PLAYING_ASSETS:-0}" -ne 1 ]; then
+        auto_show_playing_mix_assets "$file" "$player"
+    fi
 }
 collect_converted_mix_dirs() {
 local -a dirs=(); local seen="|"; local cand resolved rel adir kind
