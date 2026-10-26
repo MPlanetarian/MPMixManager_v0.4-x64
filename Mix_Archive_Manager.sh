@@ -713,8 +713,27 @@ get_connected_displays_count() {
 if command -v kscreen-doctor &>/dev/null; then kscreen-doctor -o 2>/dev/null | grep -c "Output: " || echo 1; elif command -v xrandr &>/dev/null; then xrandr --listmonitors 2>/dev/null | awk '/Monitors:/{print $2}' || echo 1; else echo 1; fi
 }
 _IS_FULLSCREEN=0
+_LAST_SET_TITLE=""
+
 toggle_manager_fullscreen() {
-local app_ver; app_ver="v${VERSION#v}"; if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then _IS_FULLSCREEN=0; printf '\033[10;0t\033[9;0t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true; else _IS_FULLSCREEN=1; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true; fi
+    local app_ver; app_ver="v${VERSION#v}"
+    local new_title
+    
+    if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then 
+        _IS_FULLSCREEN=0
+        new_title="MP Mix Archive Manager [${app_ver}]"
+        printf '\033[10;0t\033[9;0t' 2>/dev/null || true
+    else 
+        _IS_FULLSCREEN=1
+        new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
+        printf '\033[10;1t\033[9;1t' 2>/dev/null || true
+    fi
+
+    # Only update the terminal title if it changed, stopping the flicker loop
+    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
+        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
+        _LAST_SET_TITLE="$new_title"
+    fi
 }
 ensure_manager_windowed() {
 _IS_FULLSCREEN=0; local app_ver; app_ver="v${VERSION#v}"; printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
