@@ -628,13 +628,8 @@ class TerminalOverlay:
                             col = self.colors[r][c]
                             # Use font.getbbox() for better character positioning
                             try:
-                                if ch in self.char_width_cache:
-                                    char_width = self.char_width_cache[ch]
-                                else:
-                                    bbox = self.font.getbbox(ch)
-                                    char_width = bbox[2] - bbox[0]
-                                    self.char_width_cache[ch] = char_width
-                                
+                                bbox = self.font.getbbox(ch)
+                                char_width = bbox[2] - bbox[0]
                                 # Adjust x position to center the character in its cell
                                 adjusted_x = x + (self.char_w - char_width) // 2
                                 draw.text((adjusted_x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
