@@ -144,7 +144,7 @@ open_image_viewer() {
     fi
 }
 
-# Global cache variable for Spek status on macOS
+# Global cache variable for Spek status on macOS (prevents redundant osascript calls)
 : "${_SPEK_MACOS_INSTALLED:=-1}"
 
 # Cross-Platform Native Spek GUI Launcher
@@ -915,4 +915,4 @@ case "$choice" in
         echo -e "\n${RED}Invalid choice!${NC}"
         exit 1
         ;;
-esac
+es:
