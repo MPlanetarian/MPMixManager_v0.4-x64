@@ -712,6 +712,7 @@ fi
 get_connected_displays_count() {
 if command -v kscreen-doctor &>/dev/null; then kscreen-doctor -o 2>/dev/null | grep -c "Output: " || echo 1; elif command -v xrandr &>/dev/null; then xrandr --listmonitors 2>/dev/null | awk '/Monitors:/{print $2}' || echo 1; else echo 1; fi
 }
+
 _IS_FULLSCREEN=0
 _LAST_SET_TITLE=""
 
@@ -729,17 +730,34 @@ toggle_manager_fullscreen() {
         printf '\033[10;1t\033[9;1t' 2>/dev/null || true
     fi
 
-    # Only update the terminal title if it changed, stopping the flicker loop
     if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
         printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
         _LAST_SET_TITLE="$new_title"
     fi
 }
 ensure_manager_windowed() {
-_IS_FULLSCREEN=0; local app_ver; app_ver="v${VERSION#v}"; printf '\033]0;%s\007' "MP Mix Archive Manager [${app_ver}]" 2>/dev/null || true
+    _IS_FULLSCREEN=0
+    local app_ver; app_ver="v${VERSION#v}"
+    local new_title="MP Mix Archive Manager [${app_ver}]"
+    
+    printf '\033[10;0t\033[9;0t' 2>/dev/null || true
+    
+    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
+        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
+        _LAST_SET_TITLE="$new_title"
+    fi
 }
 ensure_manager_fullscreen() {
-_IS_FULLSCREEN=1; local app_ver; app_ver="v${VERSION#v}"; printf '\033[10;1t\033[9;1t\033]0;%s\007' "MP Mix Archive Manager [${app_ver}] (Fullscreen)" 2>/dev/null || true
+    _IS_FULLSCREEN=1
+    local app_ver; app_ver="v${VERSION#v}"
+    local new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
+    
+    printf '\033[10;1t\033[9;1t' 2>/dev/null || true
+    
+    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
+        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
+        _LAST_SET_TITLE="$new_title"
+    fi
 }
 align_mix_windows_on_screen() {
 [ "$OS_TYPE" = "windows" ] && return 0; local align_sh="$SCRIPT_DIR/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/Documents/BASH_SCRIPTS/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$PWD/scripts/align_mix_windows.py"; if [ -f "$align_sh" ] && command -v python3 &>/dev/null; then local mgr_pid="$$"; local parent_pid="$PPID"; (python3 "$align_sh" --mgr-pid "$mgr_pid" --parent-pid "$parent_pid" "$@" &>/dev/null || true) &
