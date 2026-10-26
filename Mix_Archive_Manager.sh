@@ -902,9 +902,19 @@ toggle_mp_audio_player() {
 local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --toggle --only-if-running &>/dev/null &
 }
 launch_mp_audio_player_window() {
-local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then
-if python3 "$mp_py" --mini --new-window &>/dev/null; then return 0; fi; if python3 "$mp_py" --new-window &>/dev/null; then return 0; fi; launch_in_terminal "MP Mini Audio Player" "python3 \"$mp_py\" --interactive --mini" "window"
-fi
+    local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
+    [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+    if [ -f "$mp_py" ]; then
+        if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+            source "$SCRIPT_DIR/venv/bin/activate"
+        fi
+        local py_bin="python3"
+        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
+        
+        if "$py_bin" "$mp_py" --mini --new-window &>/dev/null; then return 0; fi
+        if "$py_bin" "$mp_py" --new-window &>/dev/null; then return 0; fi
+        launch_in_terminal "MP Mini Audio Player" "$py_bin \"$mp_py\" --interactive --mini" "window"
+    fi
 }
 launch_mp_audio_player_liquid_glass() {
     local os_type="$(uname -s)"
@@ -1385,13 +1395,18 @@ manage_mp_audio_player() {
     local py_script="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
     
-    # Explicitly use virtual environment Python if available
-    local py_bin="python3"
-    [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
-    
-    if [ -f "$py_script" ]; then 
+    if [ -f "$py_script" ]; then
+        # Activate virtual environment if it exists
+        if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
+            source "$SCRIPT_DIR/venv/bin/activate"
+        fi
+        
+        # Use venv python if available, otherwise fallback to python3
+        local py_bin="python3"
+        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
+        
         "$py_bin" "$py_script" --interactive "$@"
-    else 
+    else
         echo -e "${RED}Error: MP_Audio_Player.py not found!${NC}"
         press_enter
     fi
@@ -2511,21 +2526,15 @@ while true; do clear; echo -e "${BOLD}${MAGENTA}================================
 garage_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/Native Instruments/Traktor Pro 3/Traktor.app" ] || [ -d "/Applications/Native Instruments/Traktor Pro 4/Traktor.app" ] || [ -d "/Applications/Traktor Pro 4.app" ] || [ -d "/Applications/Traktor Pro 3.app" ] || [ -d "/Applications/Traktor.app" ] || osascript -e 'id of application "Traktor"' &>/dev/null; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/FL Studio 2024.app" ] || [ -d "/Applications/FL Studio 21.app" ] || [ -d "/Applications/FL Studio.app" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then if [ -f "/c/Program Files/Native Instruments/Traktor Pro 4/Traktor.exe" ] || [ -f "/c/Program Files/Native Instruments/Traktor Pro 3/Traktor.exe" ]; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${YELLOW}[AVAILABLE]${NC}"; fi; if [ -f "/c/Program Files/Image-Line/FL Studio 2024/FL64.exe" ] || [ -f "/c/Program Files/Image-Line/FL Studio 21/FL64.exe" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi; fi; echo -e "${BOLD}Select a DAW or Audio Editor to launch (or install):${NC}\n  ${BOLD}${CYAN} 1)${NC} Launch REAPER DAW (${reaper_badge}${NC})\n  ${BOLD}${CYAN} 2)${NC} Launch Audacity Audio Editor (${audacity_badge}${NC})\n  ${BOLD}${CYAN} 3)${NC} Launch / Install Ardour DAW (${ardour_badge}${NC})\n  ${BOLD}${CYAN} 4)${NC} Launch / Install LMMS Studio (${lmms_badge}${NC})\n  ${BOLD}${CYAN} 5)${NC} Launch / Install Bitwig Studio (${bitwig_badge}${NC})\n  ${BOLD}${CYAN} 6)${NC} Launch / Install Bespoke Synth (${bespoke_badge}${NC})\n  ${BOLD}${CYAN} 7)${NC} Launch Apple Logic Pro (${logic_badge}${NC})\n  ${BOLD}${CYAN} 8)${NC} Launch Apple GarageBand (${garage_badge}${NC})\n  ${BOLD}${CYAN} 9)${NC} Launch Image-Line FL Studio / Fruity Loops (${fl_badge}${NC})\n  ${BOLD}${CYAN}10)${NC} Launch Native Instruments Traktor Pro (${traktor_badge}${NC})\n  ${BOLD}${CYAN}11)${NC} Launch Traktor Live Monitor & Audio Recorder (${GREEN}New Window - CPU, Decks, Recording, Audio I/O${NC})"; if [ "$OS_TYPE" = "macos" ]; then local t_ver; t_ver="$(get_traktor_version_mac 2>/dev/null || echo "3")"; if [ -n "$t_ver" ] && [ "$t_ver" != "3" ]; then echo -e "  ${BOLD}${CYAN}12)${NC} Generate Playlist from History Files on Traktor 3 (${GREEN}v${t_ver} Key Sorted / Decks Ready${NC})"; else echo -e "  ${BOLD}${CYAN}12)${NC} Generate Playlist from History Files on Traktor 3 (${GREEN}Key Sorted / Decks Ready${NC})"; fi; echo -e "  ${BOLD}${BLUE}────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}13)${NC} ${BOLD}${GREEN}Open Mix WAV/FLAC Audio File in DAW...${NC} (Reaper, Logic Pro, FL Studio)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-13]: " d_choice; else echo -e "  ${BOLD}${BLUE}────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}12)${NC} ${BOLD}${GREEN}Open Mix WAV/FLAC Audio File in DAW...${NC} (Reaper, Logic Pro, FL Studio)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-12]: " d_choice; fi; case "$d_choice" in 1) launch_gui_app "REAPER" "reaper" "fm.reaper.Reaper" "REAPER" "reaper" "REAPER (x64)/reaper.exe" "Cockos.REAPER"; ;; 2) launch_audacity ;; 3) launch_gui_app "Ardour" "ardour" "org.ardour.Ardour" "Ardour" "ardour" "Ardour/bin/ardour.exe" ""; ;; 4) launch_gui_app "LMMS" "lmms" "io.lmms.LMMS" "LMMS" "lmms" "LMMS/lmms.exe" "LMMS.LMMS" ;; 5) launch_gui_app "Bitwig Studio" "bitwig-studio" "com.bitwig.BitwigStudio" "Bitwig Studio" "bitwig-studio" "Bitwig Studio/bin/BitwigStudio.exe" "Bitwig.BitwigStudio"; ;; 6) launch_gui_app "Bespoke Synth" "bespokesynth" "com.bespokesynth.BespokeSynth" "BespokeSynth" "bespoke-synth" "BespokeSynth/BespokeSynth.exe" "" ;; 7) launch_logic_pro; ;; 8) launch_garageband ;; 9) launch_fl_studio
 ;; 10) launch_traktor ;; 11) launch_traktor_monitor_window; ;; 12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;; 13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
 }
-
-mp_audio_player|mp_player|mp-player|mpplayer|mp) 
-    local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
-    [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
-    
-    local py_bin="python3"
-    [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
-    
-    if [ -f "$mp_py" ]; then 
-        local play_args=("--play" "$file")
-        [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos")
-        [ "$mode" = "MUSIC" ] && play_args+=(--music-mode)
-        "$py_bin" "$mp_py" "${play_args[@]}"
-    fi
-    ;;
+play_audio_file() {
+local player="${1:-${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}}"; local file="$2"; local seek_pos="${3:-}"; local mode="${4:-MIX_ARCHIVE}"; [ -z "$file" ] && return 1; file="$(realpath "$file" 2>/dev/null || echo "$file")"; case "$player" in
+mp_liquid_glass|liquid_glass|liquid|glass)
+    launch_mp_audio_player_liquid_glass
+    local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+    if [ -f "$mp_py" ]; then
+        local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode)
+        (sleep 0.8; python3 "$mp_py" "${play_args[@]}" &>/dev/null) &
+    fi ;;
 mp_audio_player|mp_player|mp-player|mpplayer|mp) local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; if [ -f "$mp_py" ]; then local play_args=("--play" "$file"); [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && play_args+=(--seek-to "$seek_pos"); [ "$mode" = "MUSIC" ] && play_args+=(--music-mode); python3 "$mp_py" "${play_args[@]}"; fi; ;; audacious) if get_audacious_track_info 2>/dev/null && [ "$AUDACIOUS_STATE" = "playing" ]; then if [ "$AUDACIOUS_RESOLVED_PATH" = "$file" ] || [ "$AUDACIOUS_RAW_PATH" = "$file" ]; then align_mix_windows_on_screen --expect-audacious; return 0; fi; fi; if command -v audacious &>/dev/null; then nohup audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif _has_flatpak "org.atheme.audacious"; then nohup flatpak run org.atheme.audacious "$file" &>/dev/null &
 disown 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then open -a Audacious "$file" &>/dev/null &
