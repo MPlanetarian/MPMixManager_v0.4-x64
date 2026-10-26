@@ -239,7 +239,6 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H,
     else:
         iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        # Shift panel 1 down to match the shaded container layout area
         before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
         body_rows = max(1, rows - (before + 1) - 5)
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows + 2)
@@ -536,18 +535,28 @@ class TerminalOverlay:
 
                 for r in range(self.rows):
                     y = r * self.char_h
-                    for c in range(self.cols):
-                        ch = self.grid[r][c]
-                        if ch != " ":
-                            x = c * self.char_w
-                            col = self.colors[r][c]
-                            # Center the top header title horizontally within the panel
-                            if r == 0 and "MP AUDIO PLAYER" in "".join(self.grid[r]):
-                                line_str = "".join(self.grid[r]).strip()
-                                x = (self.img_w - len(line_str) * self.char_w) // 2 + (c * self.char_w) % self.char_w
+                    row_text = "".join(self.grid[r])
+                    trimmed_row = row_text.rstrip()
 
-                            draw.text((x, y), ch, fill=(col[0], col[1],
-                                                      col[2], 255), font=self.font)
+                    # Corrected text alignment block for header and body
+                    if r == 0 and "MP AUDIO PLAYER" in row_text:
+                        line_str = trimmed_row
+                        total_text_w = len(line_str) * self.char_w
+                        start_x = max(0, (self.img_w - total_text_w) // 2)
+
+                        for idx, ch in enumerate(line_str):
+                            if ch != " ":
+                                col = self.colors[r][idx]
+                                draw.text((start_x + (idx * self.char_w), y), ch,
+                                          fill=(col[0], col[1], col[2], 255), font=self.font)
+                    else:
+                        for c in range(self.cols):
+                            ch = self.grid[r][c]
+                            if ch != " ":
+                                x = c * self.char_w
+                                col = self.colors[r][c]
+                                draw.text((x, y), ch, fill=(col[0], col[1],
+                                                          col[2], 255), font=self.font)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h,
