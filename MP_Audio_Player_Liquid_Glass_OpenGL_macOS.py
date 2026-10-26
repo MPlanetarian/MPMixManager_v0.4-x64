@@ -3,27 +3,29 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import faulthandler
+import fcntl
 import os
 import pty
+import re
 import select
-import shutil
 import signal
+import struct
 import sys
-import threading
+import termios
 import time
 from pathlib import Path
 
-# Enable C-level crash tracebacks so any segfault prints the exact Python line
+# Enable C-level crash tracebacks
 faulthandler.enable()
 
-# --- 0. Restore ctypes._CData for Python 3.14+ (removed from public API, needed by PyOpenGL) ---
+# --- 0. Restore ctypes._CData for Python 3.14+ ---
 if not hasattr(ctypes, "_CData"):
     for base in ctypes.c_int.__mro__:
         if base.__name__ == "_CData":
             ctypes._CData = base
             break
 
-# --- 1. Fix Python 3.14 / 3.15 ctypes.CFUNCTYPE strictness for PyOpenGL ---
+# --- 1. Python 3.14 / 3.15 ctypes strictness patch for PyOpenGL ---
 _orig_cfunctype = ctypes.CFUNCTYPE
 _type_proxy_cache = {}
 
@@ -31,30 +33,29 @@ _type_proxy_cache = {}
 def _is_valid_ctype(tp):
     if tp is None:
         return True
-    return isinstance(tp, type) and issubclass(
-        tp,
-        (
-            ctypes._SimpleCData,
-            ctypes.Structure,
-            ctypes.Union,
-            ctypes._Pointer,
-            ctypes.Array,
-            ctypes._CFuncPtr,
-        ),
-    )
+    if isinstance(tp, type):
+        try:
+            return issubclass(
+                tp,
+                (
+                    ctypes._SimpleCData,
+                    ctypes.Structure,
+                    ctypes.Union,
+                    ctypes._Pointer,
+                    ctypes.Array,
+                    ctypes._CFuncPtr,
+                ),
+            )
+        except TypeError:
+            return False
+    return False
 
 
 def _sanitize_ctype(tp):
-    """
-    Wrap non-ctype PyOpenGL ArrayDatatype / Wrapper classes in a real
-    ctypes.c_void_p subclass that preserves their .from_param() conversion.
-    Without this, passing arrays/buffers to OpenGL segfaults in Python 3.15.
-    """
     if _is_valid_ctype(tp):
         return tp
     if tp in _type_proxy_cache:
         return _type_proxy_cache[tp]
-
     orig_from_param = getattr(tp, "from_param", None)
 
     class _PyOpenGLTypeProxy(ctypes.c_void_p):
@@ -78,7 +79,6 @@ def _sanitize_ctype(tp):
             if isinstance(value, ctypes._CData):
                 return ctypes.byref(value) if not isinstance(value, (ctypes._Pointer, ctypes.Array, ctypes.c_void_p, ctypes.c_char_p)) else value
             if hasattr(value, "ctypes"):
-                # numpy array support
                 return value.ctypes.data_as(ctypes.c_void_p)
             return ctypes.c_void_p.from_param(value)
 
@@ -92,155 +92,85 @@ def _py315_safe_cfunctype(restype, *argtypes, **kwargs):
     safe_argtypes = tuple(_sanitize_ctype(a) for a in argtypes)
     try:
         return _orig_cfunctype(restype, *argtypes, **kwargs)
-    except TypeError:
+    except (TypeError, ValueError):
         return _orig_cfunctype(safe_restype, *safe_argtypes, **kwargs)
 
 
 ctypes.CFUNCTYPE = _py315_safe_cfunctype
-
-# --- 2. Advanced macOS Compatibility Patch for X11, GL, GLX, and GLFW calls ---
-_orig_cdll = ctypes.CDLL
-
-# Keep C callback references and scratch memory alive so C callers never dereference 0x1
-_c_func_refs = {}
-_scratch_buf = ctypes.create_string_buffer(4096)
-_scratch_ptr = ctypes.cast(_scratch_buf, ctypes.c_void_p).value
-
-_FALLBACK_DYLIB = "/usr/lib/libSystem.B.dylib"
-_OPENGL_FRAMEWORK = (
-    ctypes.util.find_library("OpenGL")
-    or "/System/Library/Frameworks/OpenGL.framework/OpenGL"
-)
-
-# Load a raw handle to macOS OpenGL.framework for symbol lookups
-try:
-    _RAW_MACOS_GL = _orig_cdll(_OPENGL_FRAMEWORK)
-except OSError:
-    _RAW_MACOS_GL = _orig_cdll(_FALLBACK_DYLIB)
-
-_DUMMY_CFUNCTYPE = _orig_cfunctype(ctypes.c_void_p)
-_PROC_ADDR_CFUNCTYPE = _orig_cfunctype(ctypes.c_void_p, ctypes.c_char_p)
-
-
-def _get_dummy_cfunc(name: str):
-    """
-    Return a real ctypes CFuncPtr.
-    Returns 0 (NULL) by default so C code checking for NULL pointers doesn't
-    dereference invalid address 0x1 and segfault.
-    """
-    sname = str(name)
-    if sname not in _c_func_refs:
-        if sname in ("glXGetProcAddress", "glXGetProcAddressARB", "eglGetProcAddress"):
-            def _proc_addr(sym_bytes):
-                if not sym_bytes:
-                    return 0
-                sym = sym_bytes.decode("utf-8", errors="ignore") if isinstance(sym_bytes, bytes) else str(sym_bytes)
-                try:
-                    fn = _orig_cdll.__getitem__(_RAW_MACOS_GL, sym)
-                    return ctypes.cast(fn, ctypes.c_void_p).value or 0
-                except Exception:
-                    return 0
-            cfunc = _PROC_ADDR_CFUNCTYPE(_proc_addr)
-        elif sname in ("XOpenDisplay",):
-            # Return valid zeroed scratch memory so structs reading Display* don't segfault
-            def _open_disp(*args):
-                return _scratch_ptr
-            cfunc = _DUMMY_CFUNCTYPE(_open_disp)
-        else:
-            def _noop(*args):
-                return 0
-            cfunc = _DUMMY_CFUNCTYPE(_noop)
-
-        cfunc.__name__ = sname
-        _c_func_refs[sname] = cfunc
-    return _c_func_refs[sname]
-
-
-# Force PyOpenGL to use native macOS (darwin) platform BEFORE liquid_glass_opengl imports it
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
+
 try:
     import OpenGL.platform.baseplatform as _bp
-    import OpenGL.platform.ctypesloader as _cl
 
     def _safe_function_type_for(self, dll):
         def _builder(restype, *argtypes):
             safe_res = _sanitize_ctype(restype)
             safe_args = tuple(_sanitize_ctype(a) for a in argtypes)
             return _orig_cfunctype(safe_res, *safe_args)
+
         return _builder
 
     _bp.BasePlatform.functionTypeFor = _safe_function_type_for
-
-    def _safe_build_function(functionType, name, dll):
-        """Build a PyOpenGL ctypes function using _PyOpenGLTypeProxy argtypes for Python 3.15."""
-        safe_res = _sanitize_ctype(getattr(functionType, "_restype_", ctypes.c_void_p))
-        raw_args = getattr(functionType, "_argtypes_", ())
-        safe_args = tuple(_sanitize_ctype(a) for a in raw_args)
-        safe_ftype = _orig_cfunctype(safe_res, *safe_args)
-        # Always look up real gl* functions in _RAW_MACOS_GL if dll is missing them
-        target_dll = _RAW_MACOS_GL if str(name).startswith("gl") else dll
-        try:
-            func = safe_ftype((name, target_dll))
-            func.argtypes = safe_args
-            func.restype = safe_res
-            return func
-        except (AttributeError, OSError, TypeError):
-            try:
-                func = safe_ftype((name, dll))
-                func.argtypes = safe_args
-                func.restype = safe_res
-                return func
-            except (AttributeError, OSError, TypeError):
-                return _get_dummy_cfunc(name)
-
-    _cl.buildFunction = _safe_build_function
 except ImportError:
     pass
 
+# --- 2. Advanced macOS Compatibility Patch for OpenGL & GLFW ---
+_orig_cdll = ctypes.CDLL
+_c_func_refs = {}
+_scratch_buf = ctypes.create_string_buffer(4096)
+_scratch_ptr = ctypes.cast(_scratch_buf, ctypes.c_void_p).value
+_FALLBACK_DYLIB = "/usr/lib/libSystem.B.dylib"
+_OPENGL_FRAMEWORK = (
+    ctypes.util.find_library("OpenGL")
+    or "/System/Library/Frameworks/OpenGL.framework/OpenGL"
+)
+_GLFW_DYLIB = None
+for _cand in (
+    "/opt/homebrew/lib/libglfw.3.dylib",
+    "/usr/local/lib/libglfw.3.dylib",
+    ctypes.util.find_library("glfw"),
+    ctypes.util.find_library("glfw3"),
+):
+    if _cand and os.path.exists(_cand):
+        _GLFW_DYLIB = _cand
+        break
+
+try:
+    _RAW_MACOS_GL = _orig_cdll(_OPENGL_FRAMEWORK)
+except OSError:
+    _RAW_MACOS_GL = _orig_cdll(_FALLBACK_DYLIB)
+
+_RAW_GLFW = _orig_cdll(_GLFW_DYLIB) if _GLFW_DYLIB else _RAW_MACOS_GL
+_DUMMY_CFUNCTYPE = _orig_cfunctype(ctypes.c_void_p)
+
+
+def _get_dummy_cfunc(name: str):
+    sname = str(name)
+    if sname not in _c_func_refs:
+
+        def _noop(*args):
+            return 0
+
+        cfunc = _DUMMY_CFUNCTYPE(_noop)
+        cfunc.__name__ = sname
+        _c_func_refs[sname] = cfunc
+    return _c_func_refs[sname]
+
 
 class SafeMacOSCDLL(_orig_cdll):
-    """
-    Real ctypes.CDLL subclass that preserves _FuncPtr and _handle for PyOpenGL,
-    while mocking any missing Linux/X11/GLX symbols safely.
-    """
-
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-
-    def _mock_symbol(self, name: str):
-        fn = _get_dummy_cfunc(str(name))
-        try:
-            super().__setattr__(str(name), fn)
-        except Exception:
-            pass
-        return fn
 
     def __getattr__(self, name: str):
         if name.startswith("_"):
             raise AttributeError(name)
-
-        if name == "glfwInitHint":
+        if name.startswith("glfw") and _GLFW_DYLIB:
             try:
-                orig_hint = _orig_cdll.__getitem__(self, name)
-                def _safe_init_hint(hint, value):
-                    # Ignore GLFW_PLATFORM (0x00050003) X11 hint on macOS
-                    if hint == 0x00050003:
-                        return 0
-                    return orig_hint(hint, value)
-                super().__setattr__(name, _safe_init_hint)
-                return _safe_init_hint
-            except (AttributeError, OSError, KeyError):
-                return self._mock_symbol(name)
-
-        if name == "glXGetCurrentContext":
-            try:
-                cgl_fn = _orig_cdll.__getitem__(_RAW_MACOS_GL, "CGLGetCurrentContext")
-                cgl_fn.restype = ctypes.c_void_p
-                super().__setattr__(name, cgl_fn)
-                return cgl_fn
-            except (AttributeError, OSError, KeyError):
-                return self._mock_symbol(name)
-
+                func = _orig_cdll.__getitem__(self, name)
+                super().__setattr__(name, func)
+                return func
+            except Exception:
+                pass
         try:
             func = _orig_cdll.__getitem__(self, name)
             super().__setattr__(name, func)
@@ -251,62 +181,26 @@ class SafeMacOSCDLL(_orig_cdll):
                     func = _orig_cdll.__getitem__(_RAW_MACOS_GL, name)
                     super().__setattr__(name, func)
                     return func
-                except (AttributeError, OSError, KeyError):
+                except Exception:
                     pass
-            return self._mock_symbol(name)
-
-    def __getitem__(self, name):
-        if isinstance(name, str) and name.startswith("_"):
-            return _orig_cdll.__getitem__(self, name)
-        try:
-            return _orig_cdll.__getitem__(self, name)
-        except (AttributeError, OSError, KeyError):
-            sname = str(name)
-            if sname.startswith("gl") and not sname.startswith("glX") and not sname.startswith("glfw"):
-                try:
-                    return _orig_cdll.__getitem__(_RAW_MACOS_GL, sname)
-                except (AttributeError, OSError, KeyError):
-                    pass
-            return self._mock_symbol(sname)
+            fn = _get_dummy_cfunc(name)
+            super().__setattr__(name, fn)
+            return fn
 
 
 def _mock_cdll(name, *args, **kwargs):
     if isinstance(name, _orig_cdll):
         return name
-
-    if name is None or str(name) in ("None", "libc.dylib", "libdl.dylib", "libSystem.B.dylib"):
-        return SafeMacOSCDLL(_OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB, *args, **kwargs)
-
-    sname = str(name)
-    slower = sname.lower()
-
-    if "glfw" in slower:
-        for candidate in (
-            ctypes.util.find_library("glfw"),
-            "/opt/homebrew/lib/libglfw.3.dylib",
-            "/usr/local/lib/libglfw.3.dylib",
-        ):
-            if candidate and os.path.exists(candidate):
-                return SafeMacOSCDLL(candidate, *args, **kwargs)
-
-    if any(k in slower for k in ("libgl", "libopengl", "opengl", "libegl")):
-        if os.path.exists(_OPENGL_FRAMEWORK):
-            return SafeMacOSCDLL(_OPENGL_FRAMEWORK, *args, **kwargs)
-        return SafeMacOSCDLL(_FALLBACK_DYLIB, *args, **kwargs)
-
-    if any(k in slower for k in ("libx11", "libxext", "libxrender", "libxfixes", "libxcb")):
-        return SafeMacOSCDLL(_FALLBACK_DYLIB, *args, **kwargs)
-
-    try:
-        return SafeMacOSCDLL(sname, *args, **kwargs)
-    except OSError:
-        return SafeMacOSCDLL(_FALLBACK_DYLIB, *args, **kwargs)
+    sname = str(name) if name else ""
+    if "glfw" in sname.lower() and _GLFW_DYLIB:
+        return SafeMacOSCDLL(_GLFW_DYLIB, *args, **kwargs)
+    return SafeMacOSCDLL(_OPENGL_FRAMEWORK if os.path.exists(_OPENGL_FRAMEWORK) else _FALLBACK_DYLIB, *args, **kwargs)
 
 
 ctypes.CDLL = _mock_cdll
 ctypes.cdll = ctypes.LibraryLoader(_mock_cdll)
-# --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -314,12 +208,33 @@ if str(ROOT / "scripts") not in sys.path:
 from liquid_glass_opengl import (  # noqa: E402
     LiquidGlassRendererOpenGL,
     read_player_theme,
+    get_dynamic_theme_state,
+    _rgb01,
+    THEME_ALIASES,
 )
 
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
 
 COLS = 120
 ROWS = 40
+ANSI_COLORS = {
+    30: (0, 0, 0),
+    31: (220, 50, 50),
+    32: (50, 200, 50),
+    33: (220, 220, 50),
+    34: (50, 100, 220),
+    35: (220, 50, 220),
+    36: (50, 200, 200),
+    37: (230, 230, 230),
+    90: (120, 120, 120),
+    91: (255, 90, 90),
+    92: (90, 255, 90),
+    93: (255, 255, 90),
+    94: (90, 160, 255),
+    95: (255, 90, 255),
+    96: (90, 255, 255),
+    97: (255, 255, 255),
+}
 
 
 def player_panel_rects(cols=120, rows=40, char_w=9, char_h=18, origin_x=0, origin_y=0, mode="NORMAL"):
@@ -373,79 +288,146 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """Core Profile compatible OpenGL terminal text overlay using shaders and VBOs."""
+    """Stable, flicker-free Font Texture Renderer with complete cursor handling."""
 
     def __init__(self, cols=120, rows=40, char_w=9, char_h=18):
         self.cols = cols
         self.rows = rows
         self.char_w = char_w
         self.char_h = char_h
-        self.lines = [""] * rows
+
+        self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
+        self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
+        self.current_fg = (200, 235, 255)
         self._buf = bytearray()
-        
+
+        self.texture_id = 0
         self.shader_program = None
         self.vao = None
         self.vbo = None
         self._initialized_gl = False
-        self.feed(b"MP Audio Player Initializing (OpenGL Core Profile macOS)...\r\n")
+        self.font = None
+        self.image = None
+        try:
+            from PIL import Image, ImageFont
 
-    def _init_gl_resources(self):
+            for font_path in [
+                "/System/Library/Fonts/SFNSMono.ttf",
+                "/System/Library/Fonts/Monaco.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/Library/Fonts/Courier New.ttf",
+            ]:
+                if os.path.exists(font_path):
+                    self.font = ImageFont.truetype(font_path, 13)
+                    break
+            if not self.font:
+                self.font = ImageFont.load_default()
+            self.img_w = self.cols * self.char_w
+            self.img_h = self.rows * self.char_h
+            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
+        except Exception:
+            pass
+
+    def init_gl(self):
         if self._initialized_gl:
             return
         try:
             from OpenGL.GL import (
-                glCreateShader, glShaderSource, glCompileShader,
-                glCreateProgram, glAttachShader, glLinkProgram,
-                glGetUniformLocation, glGenVertexArrays, glBindVertexArray,
-                glGenBuffers, glBindBuffer, glBufferData, glVertexAttribPointer,
-                glEnableVertexAttribArray, GL_VERTEX_SHADER, GL_FRAGMENT_SHADER,
-                GL_ARRAY_BUFFER, GL_STATIC_DRAW, GL_DYNAMIC_DRAW, GL_FLOAT, GL_FALSE
+                glCreateShader,
+                glShaderSource,
+                glCompileShader,
+                glCreateProgram,
+                glAttachShader,
+                glLinkProgram,
+                glGenVertexArrays,
+                glBindVertexArray,
+                glGenBuffers,
+                glBindBuffer,
+                glBufferData,
+                glVertexAttribPointer,
+                glEnableVertexAttribArray,
+                GL_VERTEX_SHADER,
+                GL_FRAGMENT_SHADER,
+                GL_ARRAY_BUFFER,
+                GL_DYNAMIC_DRAW,
+                GL_FLOAT,
+                GL_FALSE,
+                glGenTextures,
+                glBindTexture,
+                glTexParameteri,
+                glTexImage2D,
+                GL_TEXTURE_2D,
+                GL_TEXTURE_MIN_FILTER,
+                GL_TEXTURE_MAG_FILTER,
+                GL_LINEAR,
+                GL_TEXTURE_WRAP_S,
+                GL_TEXTURE_WRAP_T,
+                GL_CLAMP_TO_EDGE,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
             )
 
-            vs = glCreateShader(GL_VERTEX_SHADER)
-            glShaderSource(vs, b"""
+            vs_src = b"""
                 #version 410 core
                 layout(location = 0) in vec2 a_position;
+                layout(location = 1) in vec2 a_uv;
+                out vec2 v_uv;
                 void main() {
                     gl_Position = vec4(a_position, 0.0, 1.0);
+                    v_uv = a_uv;
                 }
-            """)
+            """
+            vs = glCreateShader(GL_VERTEX_SHADER)
+            glShaderSource(vs, vs_src)
             glCompileShader(vs)
-
-            fs = glCreateShader(GL_FRAGMENT_SHADER)
-            glShaderSource(fs, b"""
+            fs_src = b"""
                 #version 410 core
+                in vec2 v_uv;
+                uniform sampler2D u_textTex;
                 out vec4 fragColor;
-                uniform vec4 u_color;
                 void main() {
-                    fragColor = u_color;
+                    vec4 texColor = texture(u_textTex, v_uv);
+                    if (texColor.a < 0.05) discard;
+                    fragColor = texColor;
                 }
-            """)
+            """
+            fs = glCreateShader(GL_FRAGMENT_SHADER)
+            glShaderSource(fs, fs_src)
             glCompileShader(fs)
-
             self.shader_program = glCreateProgram()
             glAttachShader(self.shader_program, vs)
             glAttachShader(self.shader_program, fs)
             glLinkProgram(self.shader_program)
-
-            self.u_color_loc = glGetUniformLocation(self.shader_program, "u_color")
-
             self.vao = glGenVertexArrays(1)
             self.vbo = glGenBuffers(1)
-
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, 1024 * 6 * 2 * 4, None, GL_DYNAMIC_DRAW)
-
-            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * 4, ctypes.c_void_p(0))
+            glBufferData(GL_ARRAY_BUFFER, 6 * 4 * 4, None, GL_DYNAMIC_DRAW)
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(0))
             glEnableVertexAttribArray(0)
-
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))
+            glEnableVertexAttribArray(1)
             glBindVertexArray(0)
+            self.texture_id = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, self.texture_id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None
+            )
+            glBindTexture(GL_TEXTURE_2D, 0)
             self._initialized_gl = True
         except Exception as e:
-            print(f"DEBUG Overlay GL init error: {e}", flush=True)
+            print(f"Overlay GL init error: {e}", flush=True)
+
+    def _clamp_cursor(self):
+        self.cursor_row = max(0, min(self.rows - 1, self.cursor_row))
+        self.cursor_col = max(0, min(self.cols - 1, self.cursor_col))
 
     def feed(self, data: bytes):
         if not data:
@@ -457,92 +439,369 @@ class TerminalOverlay:
         except Exception:
             return
 
-        import re
-        text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch == "\x1b":
+                end = i + 1
+                if end < n and text[end] == "[":
+                    end += 1
+                    seq_start = end
+                    while end < n and not (64 <= ord(text[end]) <= 126):
+                        end += 1
+                    if end < n:
+                        cmd = text[end]
+                        param_str = text[seq_start:end]
+                        params = []
+                        for p in param_str.split(";"):
+                            clean_p = re.sub(r"[^0-9]", "", p)
+                            params.append(int(clean_p) if clean_p else 0)
 
-        for ch in text:
+                        if cmd == "m":
+                            self._apply_sgr(params if params else [0])
+                        elif cmd in ("H", "f"):
+                            r = params[0] if len(params) > 0 and params[0] > 0 else 1
+                            c = params[1] if len(params) > 1 and params[1] > 0 else 1
+                            self.cursor_row = r - 1
+                            self.cursor_col = c - 1
+                            self._clamp_cursor()
+                        elif cmd == "A":  # cursor up
+                            n_up = params[0] if params else 1
+                            self.cursor_row -= max(1, n_up)
+                            self._clamp_cursor()
+                        elif cmd == "B":  # cursor down
+                            n_dn = params[0] if params else 1
+                            self.cursor_row += max(1, n_dn)
+                            self._clamp_cursor()
+                        elif cmd == "C":  # cursor forward
+                            n_fw = params[0] if params else 1
+                            self.cursor_col += max(1, n_fw)
+                            self._clamp_cursor()
+                        elif cmd == "D":  # cursor back
+                            n_bk = params[0] if params else 1
+                            self.cursor_col -= max(1, n_bk)
+                            self._clamp_cursor()
+                        elif cmd == "J":
+                            if not params or params[0] == 2:
+                                self.grid = [[" " for _ in range(self.cols)] for _ in range(self.rows)]
+                                self.colors = [[(200, 235, 255) for _ in range(self.cols)] for _ in range(self.rows)]
+                                self.cursor_row = 0
+                                self.cursor_col = 0
+                        elif cmd == "K":
+                            if 0 <= self.cursor_row < self.rows:
+                                line = self.grid[self.cursor_row]
+                                for c in range(self.cursor_col, self.cols):
+                                    line[c] = " "
+                        end += 1
+                elif end < n and text[end] == "]":
+                    while end < n and text[end] != "\x07":
+                        end += 1
+                    if end < n:
+                        end += 1
+                else:
+                    end = min(n, i + 2)
+                i = end
+                continue
+
             if ch == "\n":
-                self.cursor_row = min(self.rows - 1, self.cursor_row + 1)
+                self.cursor_row += 1
                 self.cursor_col = 0
-                if self.cursor_row == self.rows - 1:
-                    self.lines = self.lines[1:] + [""]
-            elif ch == "\b":
-                self.cursor_col = max(0, self.cursor_col - 1)
+                if self.cursor_row >= self.rows:
+                    # Controlled scroll only on genuine newline at bottom
+                    self.grid.pop(0)
+                    self.colors.pop(0)
+                    self.grid.append([" " for _ in range(self.cols)])
+                    self.colors.append([(200, 235, 255) for _ in range(self.cols)])
+                    self.cursor_row = self.rows - 1
+            elif ch == "\r":
+                self.cursor_col = 0
             elif ord(ch) >= 32:
-                line = self.lines[self.cursor_row]
-                if self.cursor_col >= len(line):
-                    line += " " * (self.cursor_col - len(line) + 1)
-                line = line[:self.cursor_col] + ch + line[self.cursor_col + 1:]
-                self.lines[self.cursor_row] = line[:self.cols]
-                self.cursor_col = min(self.cols - 1, self.cursor_col + 1)
+                if 0 <= self.cursor_row < self.rows and 0 <= self.cursor_col < self.cols:
+                    self.grid[self.cursor_row][self.cursor_col] = ch
+                    self.colors[self.cursor_row][self.cursor_col] = self.current_fg
+                self.cursor_col += 1
+                if self.cursor_col >= self.cols:
+                    self.cursor_col = 0
+                    self.cursor_row += 1
+                    if self.cursor_row >= self.rows:
+                        self.grid.pop(0)
+                        self.colors.pop(0)
+                        self.grid.append([" " for _ in range(self.cols)])
+                        self.colors.append([(200, 235, 255) for _ in range(self.cols)])
+                        self.cursor_row = self.rows - 1
+            i += 1
 
-    def draw(self, margin_x=0, margin_y=0):
+    def _apply_sgr(self, params):
+        idx = 0
+        while idx < len(params):
+            p = params[idx]
+            if p == 0:
+                self.current_fg = (200, 235, 255)
+            elif 30 <= p <= 37:
+                self.current_fg = ANSI_COLORS.get(p, (200, 235, 255))
+            elif 90 <= p <= 97:
+                self.current_fg = ANSI_COLORS.get(p, (100, 255, 255))
+            elif p == 38:
+                if idx + 4 < len(params) and params[idx + 1] == 2:
+                    r = params[idx + 2]
+                    g = params[idx + 3]
+                    b = params[idx + 4]
+                    self.current_fg = (r, g, b)
+                    idx += 4
+            idx += 1
+
+    def render(self, margin_x, margin_y, fw, fh):
         if not self._initialized_gl:
-            self._init_gl_resources()
+            self.init_gl()
         if not self._initialized_gl or not self.shader_program:
             return
-
         try:
             from OpenGL.GL import (
-                glUseProgram, glBindVertexArray, glUniform4f,
-                glDrawArrays, glBindBuffer, glBufferData,
-                glDisable, GL_DEPTH_TEST, GL_TRIANGLES,
-                GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW, glGetIntegerv, GL_VIEWPORT
+                glUseProgram,
+                glBindVertexArray,
+                glDrawArrays,
+                glBindBuffer,
+                glBufferData,
+                glDisable,
+                glEnable,
+                glBlendFunc,
+                GL_DEPTH_TEST,
+                GL_BLEND,
+                GL_SRC_ALPHA,
+                GL_ONE_MINUS_SRC_ALPHA,
+                GL_TRIANGLES,
+                GL_ARRAY_BUFFER,
+                GL_DYNAMIC_DRAW,
+                glBindTexture,
+                GL_TEXTURE_2D,
+                glTexSubImage2D,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
             )
             import numpy as np
+            from PIL import ImageDraw
 
-            viewport = glGetIntegerv(GL_VIEWPORT)
-            vw = viewport[2] if len(viewport) >= 4 else 1200
-            vh = viewport[3] if len(viewport) >= 3 else 800
+            # Always refresh the complete texture surface every frame for perfect sync
+            if self.image:
+                self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
+                draw = ImageDraw.Draw(self.image)
+                for r in range(self.rows):
+                    y = r * self.char_h
+                    for c in range(self.cols):
+                        ch = self.grid[r][c]
+                        if ch != " ":
+                            x = c * self.char_w
+                            col = self.colors[r][c]
+                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                tex_data = self.image.tobytes("raw", "RGBA", 0, 1)
+                glBindTexture(GL_TEXTURE_2D, self.texture_id)
+                glTexSubImage2D(
+                    GL_TEXTURE_2D, 0, 0, 0, self.img_w, self.img_h, GL_RGBA, GL_UNSIGNED_BYTE, tex_data
+                )
+                glBindTexture(GL_TEXTURE_2D, 0)
+
+            # Integer pixel snapping to eliminate any sub-pixel jitter
+            rx1 = round(margin_x)
+            ry1 = round(margin_y)
+            rx2 = round(margin_x + self.img_w)
+            ry2 = round(margin_y + self.img_h)
+            x1 = (rx1 / fw) * 2.0 - 1.0
+            y1 = 1.0 - (ry1 / fh) * 2.0
+            x2 = (rx2 / fw) * 2.0 - 1.0
+            y2 = 1.0 - (ry2 / fh) * 2.0
+
+            quad = np.array(
+                [
+                    x1,
+                    y1,
+                    0.0,
+                    0.0,
+                    x2,
+                    y1,
+                    1.0,
+                    0.0,
+                    x1,
+                    y2,
+                    0.0,
+                    1.0,
+                    x2,
+                    y1,
+                    1.0,
+                    0.0,
+                    x2,
+                    y2,
+                    1.0,
+                    1.0,
+                    x1,
+                    y2,
+                    0.0,
+                    1.0,
+                ],
+                dtype=np.float32,
+            )
 
             glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
             glUseProgram(self.shader_program)
-            glUniform4f(self.u_color_loc, 0.90, 0.94, 1.0, 0.95)
-
-            vertices = []
-            for r, line in enumerate(self.lines):
-                y = margin_y + r * self.char_h
-                for c, ch in enumerate(line[:self.cols]):
-                    if ch == " " or ch == "":
-                        continue
-                    x = margin_x + c * self.char_w
-                    
-                    x1 = (x / vw) * 2.0 - 1.0
-                    y1 = 1.0 - ((y + 2) / vh) * 2.0
-                    x2 = ((x + self.char_w - 1) / vw) * 2.0 - 1.0
-                    y2 = 1.0 - ((y + self.char_h - 2) / vh) * 2.0
-
-                    vertices.extend([
-                        x1, y1,  x2, y1,  x1, y2,
-                        x2, y1,  x2, y2,  x1, y2
-                    ])
-
-            if vertices:
-                verts_arr = np.array(vertices, dtype=np.float32)
-                glBindVertexArray(self.vao)
-                glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-                glBufferData(GL_ARRAY_BUFFER, verts_arr.nbytes, verts_arr, GL_DYNAMIC_DRAW)
-                glDrawArrays(GL_TRIANGLES, 0, len(vertices) // 2)
-                glBindVertexArray(0)
-
+            glBindVertexArray(self.vao)
+            glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
+            glBufferData(GL_ARRAY_BUFFER, quad.nbytes, quad, GL_DYNAMIC_DRAW)
+            glBindTexture(GL_TEXTURE_2D, self.texture_id)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+            glBindTexture(GL_TEXTURE_2D, 0)
+            glBindVertexArray(0)
             glUseProgram(0)
         except Exception as e:
-            print(f"DEBUG Overlay draw error: {e}", flush=True)
+            print(f"Overlay draw error: {e}", flush=True)
+
+
+class CustomGlassRenderer(LiquidGlassRendererOpenGL):
+    """Subclass with synchronized VSync enabled and integrated render pass."""
+
+    def __init__(self, overlay, host_ref, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.overlay = overlay
+        self.host_ref = host_ref
+        self._on_key_ref = None
+
+    def open(self):
+        super().open()
+        self._bind_keyboard()
+        if hasattr(self._glfw, "glfwSwapInterval") and self._window:
+            self._glfw.glfwSwapInterval(1)
+        return self
+
+    def _bind_keyboard(self):
+        from ctypes import CFUNCTYPE, c_void_p, c_int
+
+        @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
+        def key_callback(_window, key, scancode, action, mods):
+            if action in (1, 2):  # GLFW_PRESS or GLFW_REPEAT
+                char_map = {
+                    65: b"a",
+                    66: b"b",
+                    67: b"c",
+                    68: b"d",
+                    69: b"e",
+                    70: b"f",
+                    71: b"g",
+                    72: b"h",
+                    73: b"i",
+                    74: b"j",
+                    75: b"k",
+                    76: b"l",
+                    77: b"m",
+                    78: b"n",
+                    79: b"o",
+                    80: b"p",
+                    81: b"q",
+                    82: b"r",
+                    83: b"s",
+                    84: b"t",
+                    85: b"u",
+                    86: b"v",
+                    87: b"w",
+                    88: b"x",
+                    89: b"y",
+                    90: b"z",
+                    257: b"\n",  # Enter
+                    259: b"\x7f",  # Backspace
+                    262: b"\x1b[C",  # Right
+                    263: b"\x1b[D",  # Left
+                    264: b"\x1b[B",  # Down
+                    265: b"\x1b[A",  # Up
+                }
+                if key in char_map:
+                    self.host_ref.send_input(char_map[key])
+                elif 32 <= key <= 126:
+                    ch = chr(key).lower()
+                    self.host_ref.send_input(ch.encode("utf-8"))
+
+        self._on_key_ref = key_callback
+        if hasattr(self._glfw, "glfwSetKeyCallback") and self._window:
+            self._glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
+            self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_ref, c_void_p))
+
+    def draw(self, theme_name, opacity=1.0, capture=False):
+        if not self.poll():
+            return None
+        fw, fh = self.framebuffer_size()
+        if fw < 2 or fh < 2:
+            return None
+        if self.window_size() != self._shape_size:
+            self._apply_shape()
+        from OpenGL import GL
+
+        GL.glViewport(0, 0, fw, fh)
+        GL.glClearColor(0.0, 0.0, 0.0, 0.0)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        GL.glUseProgram(self._prog)
+        colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
+        win = self.x11_window() if hasattr(self, "x11_window") else None
+        if factor != 1.0 and win:
+            target_op = int(self.clear_opacity * factor * 1000)
+            if getattr(self, "_last_dyn_opacity", None) != target_op:
+                self._last_dyn_opacity = target_op
+                self._set_opacity(win, self.clear_opacity * factor)
+        a = _rgb01(colors[0])
+        b = _rgb01(colors[1])
+        c = _rgb01(colors[2])
+        aspect = float(fw) / max(1.0, float(fh))
+        u = self._u_locs
+        GL.glUniform4f(u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect)
+        GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
+        GL.glUniform4f(u["u_bezel"], float(self.bezel_px), float(self.radius_px), 0.0, 1.0)
+        p0 = self.panels[0]
+        p1 = self.panels[1]
+        GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]), float(p0[2]), float(p0[3]))
+        GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]), float(p1[2]), float(p1[3]))
+        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+        tex_id = self._load_skin_texture(skin_key)
+        if tex_id:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            if u.get("u_skinTex", -1) != -1:
+                GL.glUniform1i(u["u_skinTex"], 0)
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 1.0)
+        else:
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 0.0)
+        GL.glBindVertexArray(self._vao)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
+        # Render overlay locked to bezel with integer snapping
+        self.overlay.render(self.bezel_px, self.bezel_px, fw, fh)
+        pixels = None
+        if capture:
+            raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+            pixels = self._format_capture(fw, fh, raw)
+        self._glfw.glfwSwapBuffers(self._window)
+        return pixels
 
 
 class OpenGLGlassHost:
-    """macOS OpenGL liquid-glass host for MP Audio Player."""
+    """macOS OpenGL liquid-glass host with input forwarding and anchored layout."""
 
-    def __init__(self, argv, mode="NORMAL", cli_theme=None):
-        self.argv = list(argv)
+    def __init__(self, mode="NORMAL", cli_theme=None):
         self.mode = mode.upper()
         self.cli_theme = cli_theme
         self.renderer = None
         self.child_pid = 0
+        self.master_fd = None
         self._target_cols = COLS
         self._target_rows = ROWS
         self.overlay = TerminalOverlay(COLS, ROWS)
+
+    def send_input(self, data: bytes):
+        if self.master_fd is not None:
+            try:
+                os.write(self.master_fd, data)
+            except OSError:
+                pass
 
     def _sync_panels(self):
         if self.renderer is None:
@@ -554,20 +813,16 @@ class OpenGLGlassHost:
         )
 
     def run(self):
-        char_w, char_h = 9, 18
-        margin = LiquidGlassRendererOpenGL.bezel_px
-        init_w = self._target_cols * char_w + 2 * margin
-        init_h = self._target_rows * char_h + 2 * margin
-
-        title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
-        self.renderer = LiquidGlassRendererOpenGL(width=init_w, height=init_h, title=title)
-        self.renderer.open()
-        self._sync_panels()
-
-        master_fd, slave_fd = pty.openpty()
+        self.master_fd, slave_fd = pty.openpty()
+        winsize = struct.pack("HHHH", ROWS, COLS, 0, 0)
+        fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
+        extra = []
+        if self.cli_theme:
+            extra.extend(["--theme", self.cli_theme])
+        command = player_argv(mode=self.mode, extra_args=extra)
         pid = os.fork()
         if pid == 0:
-            os.close(master_fd)
+            os.close(self.master_fd)
             os.setsid()
             os.dup2(slave_fd, 0)
             os.dup2(slave_fd, 1)
@@ -575,74 +830,67 @@ class OpenGLGlassHost:
             if slave_fd > 2:
                 os.close(slave_fd)
             env = _child_env()
-            os.execvpe(self.argv[0], self.argv, env)
+            os.execvpe(command[0], command, env)
             sys.exit(1)
-
         os.close(slave_fd)
         self.child_pid = pid
+        char_w, char_h = 9, 18
+        margin = LiquidGlassRendererOpenGL.bezel_px
+        init_w = self._target_cols * char_w + 2 * margin
+        init_h = self._target_rows * char_h + 2 * margin
+        title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
+        self.renderer = CustomGlassRenderer(
+            overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
+        )
 
+        self.renderer.open()
+        self._sync_panels()
         theme = read_player_theme()
         theme_at = 0.0
-
         print("DEBUG: Entering OpenGL event loop...", flush=True)
-
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
                     theme_at = now
-
+                if self.master_fd is not None:
+                    r, _, _ = select.select([self.master_fd], [], [], 0.01)
+                    if self.master_fd in r:
+                        try:
+                            data = os.read(self.master_fd, 4096)
+                            if data:
+                                self.overlay.feed(data)
+                        except OSError:
+                            pass
                 self.renderer.poll()
                 self._sync_panels()
                 self.renderer.draw(theme)
-
-                # Draw terminal content on top of the glass panels
-                self.overlay.draw(margin, margin)
-
                 pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
                 if pid_res == self.child_pid:
                     break
-
-                r, _, _ = select.select([master_fd], [], [], 0.016)
-                if master_fd in r:
-                    try:
-                        data = os.read(master_fd, 4096)
-                        if not data:
-                            break
-                        self.overlay.feed(data)
-                    except OSError:
-                        break
-
                 time.sleep(0.015)
         finally:
-            self.close(master_fd)
-
+            if self.master_fd is not None:
+                try:
+                    os.close(self.master_fd)
+                except OSError:
+                    pass
+            if self.child_pid:
+                try:
+                    os.kill(self.child_pid, signal.SIGTERM)
+                    time.sleep(0.05)
+                    os.kill(self.child_pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if self.renderer:
+                self.renderer.close()
+                self.renderer = None
         return True
-
-    def close(self, master_fd=None):
-        if master_fd is not None:
-            try:
-                os.close(master_fd)
-            except OSError:
-                pass
-        pid = self.child_pid
-        self.child_pid = 0
-        if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.05)
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-        if self.renderer:
-            self.renderer.close()
-            self.renderer = None
 
 
 def main():
     theme_arg = None
-    cleaned_argv = []
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
@@ -650,15 +898,8 @@ def main():
             theme_arg = sys.argv[i + 1]
             i += 2
             continue
-        cleaned_argv.append(arg)
         i += 1
-
-    extra = []
-    if theme_arg:
-        extra.extend(["--theme", theme_arg])
-
-    command = player_argv(mode="NORMAL", extra_args=extra)
-    host = OpenGLGlassHost(command, mode="NORMAL", cli_theme=theme_arg)
+    host = OpenGLGlassHost(mode="NORMAL", cli_theme=theme_arg)
     host.run()
 
 
@@ -669,6 +910,7 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as exc:
         import traceback
+
         traceback.print_exc()
-        print(f"OpenGL Glass Error: {exc}", file=sys.stderr)
         sys.exit(1)
+
