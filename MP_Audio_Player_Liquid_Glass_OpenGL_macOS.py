@@ -329,7 +329,6 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self.char_width_cache = {}  # Added for caching character widths
 
         try:
             from PIL import Image, ImageFont
@@ -626,16 +625,7 @@ class TerminalOverlay:
                         if ch != " ":
                             x = c * self.char_w
                             col = self.colors[r][c]
-                            # Use font.getbbox() for better character positioning
-                            try:
-                                bbox = self.font.getbbox(ch)
-                                char_width = bbox[2] - bbox[0]
-                                # Adjust x position to center the character in its cell
-                                adjusted_x = x + (self.char_w - char_width) // 2
-                                draw.text((adjusted_x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
-                            except Exception:
-                                # Fallback to original positioning if bbox fails
-                                draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(
@@ -739,48 +729,206 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         if self.window_size() != self._shape_size:
             self._apply_shape()
 
-        try:
-            from OpenGL.GL import (
-                glUseProgram,
-                glBindVertexArray,
-                glDrawArrays,
-                glBindBuffer,
-                glBufferData,
-                glDisable,
-                glEnable,
-                glBlendFunc,
-                GL_DEPTH_TEST,
-                GL_BLEND,
-                GL_SRC_ALPHA,
-                GL_ONE_MINUS_SRC_ALPHA,
-                GL_TRIANGLES,
-                GL_ARRAY_BUFFER,
-                GL_DYNAMIC_DRAW,
-                glBindTexture,
-                GL_TEXTURE_2D,
-                glTexImage2D,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
+        from OpenGL import GL
+
+        GL.glViewport(0, 0, fw, fh)
+        GL.glClearColor(0.0, 0.0, 0.0, 0.0)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        GL.glUseProgram(self._prog)
+
+        colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
+        win = self.x11_window() if hasattr(self, "x11_window") else None
+        if factor != 1.0 and win:
+            target_op = int(self.clear_opacity * factor * 1000)
+            if getattr(self, "_last_dyn_opacity", None) != target_op:
+                self._last_dyn_opacity = target_op
+                self._set_opacity(win, self.clear_opacity * factor)
+
+        a = _rgb01(colors[0])
+        b = _rgb01(colors[1])
+        c = _rgb01(colors[2])
+        aspect = float(fw) / max(1.0, float(fh))
+        u = self._u_locs
+
+        GL.glUniform4f(u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect)
+        GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
+        GL.glUniform4f(u["u_bezel"], float(self.bezel_px), float(self.radius_px), 0.0, 1.0)
+
+        p0 = self.panels[0]
+        p1 = self.panels[1]
+        GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]), float(p0[2]), float(p0[3]))
+        GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]), float(p1[2]), float(p1[3]))
+
+        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+        tex_id = self._load_skin_texture(skin_key)
+        if tex_id:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            if u.get("u_skinTex", -1) != -1:
+                GL.glUniform1i(u["u_skinTex"], 0)
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 1.0)
+        else:
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 0.0)
+
+        GL.glBindVertexArray(self._vao)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
+
+        self.overlay.render(fw, fh)
+
+        pixels = None
+        if capture:
+            raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+            pixels = self._format_capture(fw, fh, raw)
+
+        self._glfw.glfwSwapBuffers(self._window)
+        return pixels
+
+
+class OpenGLGlassHost:
+    def __init__(self, mode="NORMAL", cli_theme=None):
+        self.mode = mode.upper()
+        self.cli_theme = cli_theme
+        self.renderer = None
+        self.child_pid = 0
+        self.master_fd = None
+        self._target_cols = COLS
+        self._target_rows = ROWS
+        self.overlay = TerminalOverlay(COLS, ROWS)
+
+    def send_input(self, data: bytes):
+        if self.master_fd is not None:
+            try:
+                os.write(self.master_fd, data)
+            except OSError:
+                pass
+
+    def _sync_panels(self):
+        if self.renderer is None:
+            return
+        char_w = CHAR_W
+        char_h = CHAR_H
+        margin = self.renderer.bezel_px
+        self.renderer.set_panels(
+            player_panel_rects(
+                self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
             )
-            import numpy as np
+        )
 
-            # ... rest of the draw method remains unchanged ...
+    def run(self):
+        self.master_fd, slave_fd = pty.openpty()
+        winsize = struct.pack("HHHH", ROWS, COLS, 0, 0)
+        fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
 
-        except Exception as e:
-            print(f"Draw error: {e}", flush=True)
-            return None
+        extra = []
+        if self.cli_theme:
+            extra.extend(["--theme", self.cli_theme])
+        command = player_argv(mode=self.mode, extra_args=extra)
 
+        pid = os.fork()
+        if pid == 0:
+            os.close(self.master_fd)
+            os.setsid()
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            try:
+                err_log = open(str(ROOT / "player_stderr.log"), "w")
+                os.dup2(err_log.fileno(), 2)
+            except Exception:
+                os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
+            env = _child_env()
+            os.execvpe(command[0], command, env)
+            sys.exit(1)
 
-class OpenGLRenderer(LiquidGlassRendererOpenGL):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        os.close(slave_fd)
+        self.child_pid = pid
 
-    def draw(self, theme_name, opacity=1.0, capture=False):
-        # ... existing implementation ...
+        char_w = CHAR_W
+        char_h = CHAR_H
+        margin = LiquidGlassRendererOpenGL.bezel_px
+        init_w = self._target_cols * char_w + 2 * margin
+        init_h = self._target_rows * char_h + 2 * margin
+        title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
+
+        self.renderer = CustomGlassRenderer(
+            overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
+        )
+        self.renderer.open()
+        self._sync_panels()
+
+        theme = read_player_theme()
+        theme_at = 0.0
+        print("DEBUG: Entering OpenGL event loop...", flush=True)
+
+        try:
+            while not self.renderer.should_close:
+                now = time.monotonic()
+                if now - theme_at > 0.4:
+                    theme = read_player_theme()
+                    theme_at = now
+
+                if self.master_fd is not None:
+                    r, _, _ = select.select([self.master_fd], [], [], 0.0)
+                    if self.master_fd in r:
+                        try:
+                            data = os.read(self.master_fd, 16384)
+                            if data:
+                                self.overlay.feed(data)
+                        except OSError:
+                            pass
+
+                self.renderer.poll()
+                self.renderer.draw(theme)
+
+                pid_res, _ = os.waitpid(self.child_pid, os.WNOHANG)
+                if pid_res == self.child_pid:
+                    break
+        finally:
+            if self.master_fd is not None:
+                try:
+                    os.close(self.master_fd)
+                except OSError:
+                    pass
+            if self.child_pid:
+                try:
+                    os.kill(self.child_pid, signal.SIGTERM)
+                    time.sleep(0.05)
+                    os.kill(self.child_pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            if self.renderer:
+                self.renderer.close()
+                self.renderer = None
+
+        return True
 
 
 def main():
-    # ... existing main function ...
+    theme_arg = None
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ("--theme", "-t") and i + 1 < len(sys.argv):
+            theme_arg = sys.argv[i + 1]
+            i += 2
+            continue
+        i += 1
+
+    host = OpenGLGlassHost(mode="NORMAL", cli_theme=theme_arg)
+    host.run()
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
