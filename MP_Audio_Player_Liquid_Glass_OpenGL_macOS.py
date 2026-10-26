@@ -480,7 +480,6 @@ class TerminalOverlay:
                         self.dirty = True
                 self.cursor_col += 1
                 if self.cursor_col >= self.cols:
-                    # FIX: Clamp column at right edge (no auto-wrap shifting rows down)
                     self.cursor_col = self.cols - 1
                 self.dirty = True
             i += 1
@@ -512,7 +511,7 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
-    def render(self, fw, fh):
+    def render(self, fw, fh, bezel_px=14.0):
         if not self._initialized_gl:
             self.init_gl()
 
@@ -551,8 +550,8 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            rx1 = 18.0
-            ry1 = 18.0
+            rx1 = float(bezel_px)
+            ry1 = float(bezel_px)
             rx2 = rx1 + float(self.img_w)
             ry2 = ry1 + float(self.img_h)
 
@@ -702,8 +701,8 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER STABLE TERMINAL OVERLAY
-        self.overlay.render(fw, fh)
+        # RENDER STABLE TERMINAL OVERLAY WITH SYNCED BEZEL MARGIN
+        self.overlay.render(fw, fh, bezel_px=self.bezel_px)
 
         pixels = None
         if capture:
