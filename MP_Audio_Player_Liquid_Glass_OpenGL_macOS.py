@@ -265,7 +265,7 @@ def _child_env():
     return env
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay - no text drift."""
+    """Fixed absolute coordinate terminal overlay - 100% rigid, stationary text layout."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -438,6 +438,8 @@ class TerminalOverlay:
                     elif cmd == "G":
                         self.cursor_col = (params[0] if params else 1) - 1
                         self._clamp_cursor()
+                    elif cmd in ("L", "M", "S", "T", "r"):
+                        pass
                     elif cmd == "J":
                         if not params or params[0] == 2:
                             for r in range(self.rows):
@@ -465,11 +467,6 @@ class TerminalOverlay:
                 self.cursor_col = 0
                 if self.cursor_row >= self.rows:
                     self.cursor_row = self.rows - 1
-                    # Smooth vertical scrolling only on explicit bottom-row newline
-                    self.grid.pop(0)
-                    self.grid.append([" " for _ in range(self.cols)])
-                    self.colors.pop(0)
-                    self.colors.append([self.current_fg for _ in range(self.cols)])
                 self.dirty = True
             elif ch == "\r":
                 self.cursor_col = 0
@@ -483,10 +480,8 @@ class TerminalOverlay:
                         self.dirty = True
                 self.cursor_col += 1
                 if self.cursor_col >= self.cols:
-                    self.cursor_col = 0
-                    self.cursor_row += 1
-                    if self.cursor_row >= self.rows:
-                        self.cursor_row = self.rows - 1  # FIXED: Clamp on auto-wrap, do NOT scroll buffer
+                    # FIX: Clamp column at right edge (no auto-wrap shifting rows down)
+                    self.cursor_col = self.cols - 1
                 self.dirty = True
             i += 1
             consumed = i
@@ -707,7 +702,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER TERMINAL OVERLAY
+        # RENDER STABLE TERMINAL OVERLAY
         self.overlay.render(fw, fh)
 
         pixels = None
@@ -767,7 +762,11 @@ class OpenGLGlassHost:
             os.setsid()
             os.dup2(slave_fd, 0)
             os.dup2(slave_fd, 1)
-            os.dup2(slave_fd, 2)
+            try:
+                err_log = open(str(ROOT / "player_stderr.log"), "w")
+                os.dup2(err_log.fileno(), 2)
+            except Exception:
+                os.dup2(slave_fd, 2)
             if slave_fd > 2:
                 os.close(slave_fd)
             env = _child_env()
