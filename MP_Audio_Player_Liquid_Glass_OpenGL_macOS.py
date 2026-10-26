@@ -361,7 +361,7 @@ class TerminalOverlay:
             self.vbo = glGenBuffers(1)
             glBindVertexArray(self.vao)
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-            glBufferData(GL_ARRAY_BUFFER, 6 * 4 * 4, None, GL_DYNAMIC_DRAW)
+            glBufferData(GL_ARRAY_BUFFER, 12 * 4 * 4, None, GL_DYNAMIC_DRAW)
             glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(0))
             glEnableVertexAttribArray(0)
             glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))
@@ -511,7 +511,7 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
-    def render(self, fw, fh, bezel_px=14.0):
+    def render(self, fw, fh, bezel_px=14.0, panels=None):
         if not self._initialized_gl:
             self.init_gl()
 
@@ -538,7 +538,6 @@ class TerminalOverlay:
                     row_text = "".join(self.grid[r])
                     trimmed_row = row_text.rstrip()
 
-                    # Corrected text alignment block for header and body
                     if r == 0 and "MP AUDIO PLAYER" in row_text:
                         line_str = trimmed_row
                         total_text_w = len(line_str) * self.char_w
@@ -565,24 +564,63 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            rx1 = float(bezel_px)
-            ry1 = float(bezel_px)
-            rx2 = rx1 + float(self.img_w)
-            ry2 = ry1 + float(self.img_h)
+            if panels and len(panels) >= 2:
+                p0, p1 = panels
+                
+                # Panel 0 quad mapping (Rows 0 to 4)
+                px1, py1, pw1, ph1 = p0
+                px2, py2 = px1 + pw1, py1 + ph1
+                nx1 = (px1 / float(fw)) * 2.0 - 1.0
+                ny1 = 1.0 - (py1 / float(fh)) * 2.0
+                nx2 = (px2 / float(fw)) * 2.0 - 1.0
+                ny2 = 1.0 - (py2 / float(fh)) * 2.0
+                p0_uv_y2 = (4 * self.char_h) / float(self.img_h)
 
-            x1 = (rx1 / float(fw)) * 2.0 - 1.0
-            y1 = 1.0 - (ry1 / float(fh)) * 2.0
-            x2 = (rx2 / float(fw)) * 2.0 - 1.0
-            y2 = 1.0 - (ry2 / float(fh)) * 2.0
+                # Panel 1 quad mapping (Rows 21 to ROWS)
+                qx1, qy1, qw1, qh1 = p1
+                qx2, qy2 = qx1 + qw1, qy1 + qh1
+                mx1 = (qx1 / float(fw)) * 2.0 - 1.0
+                my1 = 1.0 - (qy1 / float(fh)) * 2.0
+                mx2 = (qx2 / float(fw)) * 2.0 - 1.0
+                my2 = 1.0 - (qy2 / float(fh)) * 2.0
+                p1_uv_y1 = (21 * self.char_h) / float(self.img_h)
 
-            quad_data = np.array([
-                x1, y1, 0.0, 0.0,
-                x2, y1, 1.0, 0.0,
-                x1, y2, 0.0, 1.0,
-                x2, y1, 1.0, 0.0,
-                x2, y2, 1.0, 1.0,
-                x1, y2, 0.0, 1.0,
-            ], dtype=np.float32)
+                quad_data = np.array([
+                    # Panel 0 Quad
+                    nx1, ny1, 0.0, 0.0,
+                    nx2, ny1, 1.0, 0.0,
+                    nx1, ny2, 0.0, p0_uv_y2,
+                    nx2, ny1, 1.0, 0.0,
+                    nx2, ny2, 1.0, p0_uv_y2,
+                    nx1, ny2, 0.0, p0_uv_y2,
+
+                    # Panel 1 Quad
+                    mx1, my1, 0.0, p1_uv_y1,
+                    mx2, my1, 1.0, p1_uv_y1,
+                    mx1, my2, 0.0, 1.0,
+                    mx2, my1, 1.0, p1_uv_y1,
+                    mx2, my2, 1.0, 1.0,
+                    mx1, my2, 0.0, 1.0,
+                ], dtype=np.float32)
+            else:
+                rx1 = float(bezel_px)
+                ry1 = float(bezel_px)
+                rx2 = rx1 + float(self.img_w)
+                ry2 = ry1 + float(self.img_h)
+
+                x1 = (rx1 / float(fw)) * 2.0 - 1.0
+                y1 = 1.0 - (ry1 / float(fh)) * 2.0
+                x2 = (rx2 / float(fw)) * 2.0 - 1.0
+                y2 = 1.0 - (ry2 / float(fh)) * 2.0
+
+                quad_data = np.array([
+                    x1, y1, 0.0, 0.0,
+                    x2, y1, 1.0, 0.0,
+                    x1, y2, 0.0, 1.0,
+                    x2, y1, 1.0, 0.0,
+                    x2, y2, 1.0, 1.0,
+                    x1, y2, 0.0, 1.0,
+                ], dtype=np.float32)
 
             glDisable(GL_DEPTH_TEST)
             glEnable(GL_BLEND)
@@ -593,7 +631,8 @@ class TerminalOverlay:
             glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data,
                         GL_DYNAMIC_DRAW)
             glBindTexture(GL_TEXTURE_2D, self.texture_id)
-            glDrawArrays(GL_TRIANGLES, 0, 6)
+            vertex_count = 12 if (panels and len(panels) >= 2) else 6
+            glDrawArrays(GL_TRIANGLES, 0, vertex_count)
             glBindTexture(GL_TEXTURE_2D, 0)
             glBindVertexArray(0)
             glUseProgram(0)
@@ -716,8 +755,8 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER STABLE TERMINAL OVERLAY WITH SYNCED BEZEL MARGIN
-        self.overlay.render(fw, fh, bezel_px=self.bezel_px)
+        # RENDER STABLE TERMINAL OVERLAY WITH EXACT PANEL RECT MAPPING
+        self.overlay.render(fw, fh, bezel_px=self.bezel_px, panels=self.panels)
 
         pixels = None
         if capture:
