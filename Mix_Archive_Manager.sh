@@ -295,14 +295,12 @@ printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} 
 frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
 
 RESIZE) 
-    # Force full geometry re-evaluation
     update_terminal_geometry 1
     _TERM_RESIZED=0
     last_term_lines=0
     _last_menu_frame=""
     cached_header_block=""
-    
-    # Re-evaluate box widths and headers immediately
+
     if declare -F _set_menu_box_width >/dev/null; then
         _set_menu_box_width box_w "${_TERM_COLS:-80}"
         _CURRENT_BOX_W="$box_w"
@@ -310,11 +308,11 @@ RESIZE)
     if declare -F build_header_block >/dev/null; then
         build_header_block
     fi
-    printf '\033[2J\033[H\033[?25l\033[?12l\033[?7l'
-    continue ;; 
+    # Removed \033[2J to prevent screen flashing
+    printf '\033[H\033[?25l\033[?12l\033[?7l'
+    continue ;;
 TICK) 
     local _now_s="${SECONDS:-0}"
-    # Continuously check for pending resizes on every tick to catch window drags/maximizations instantly
     if _resize_pending; then
         update_terminal_geometry 1
         _TERM_RESIZED=0
@@ -328,7 +326,8 @@ TICK)
         if declare -F build_header_block >/dev/null; then
             build_header_block
         fi
-        printf '\033[2J\033[H\033[?25l\033[?12l\033[?7l'
+        # Removed \033[2J here as well
+        printf '\033[H\033[?25l\033[?12l\033[?7l'
     fi
     if [ "$_now_s" != "${_LAST_MENU_TICK_S:-}" ]; then 
         _LAST_MENU_TICK_S="$_now_s"
@@ -730,7 +729,7 @@ toggle_manager_fullscreen() {
         printf '\033[10;1t\033[9;1t' 2>/dev/null || true
     fi
 
-    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
+    if [ "$new_title" != "${_LAST_SET_TITLE:-}" ]; then
         printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
         _LAST_SET_TITLE="$new_title"
     fi
