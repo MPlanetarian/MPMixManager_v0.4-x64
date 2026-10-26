@@ -265,7 +265,7 @@ def _child_env():
     return env
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay using independent dual textures for clean, full-scale card mapping."""
+    """Fixed absolute coordinate terminal overlay using independent dual textures mapped to exact panel dimensions."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -537,17 +537,17 @@ class TerminalOverlay:
                 return
 
             if self.dirty:
-                # Panel 0 Texture (Header rows 0 to 3)
-                p0_rows = 4
-                img_p0_w = self.cols * self.char_w
-                img_p0_h = p0_rows * self.char_h
+                # --- PANEL 0 TEXTURE (Top Card: Header / Now Playing) ---
+                img_p0_w, img_p0_h = int(pw1), int(ph1)
                 self.img_p0 = Image.new("RGBA", (img_p0_w, img_p0_h), (0, 0, 0, 0))
                 draw_p0 = ImageDraw.Draw(self.img_p0)
 
-                for r in range(p0_rows):
+                p0_max_rows = int(ph1 // self.char_h)
+                for r in range(min(p0_max_rows, self.rows)):
                     y = r * self.char_h
                     row_text = "".join(self.grid[r])
                     trimmed_row = row_text.rstrip()
+
                     if r == 0 and "MP AUDIO PLAYER" in row_text:
                         line_str = trimmed_row
                         total_text_w = len(line_str) * self.char_w
@@ -558,33 +558,35 @@ class TerminalOverlay:
                                 draw_p0.text((start_x + (idx * self.char_w), y), ch,
                                              fill=(col[0], col[1], col[2], 255), font=self.font)
                     else:
-                        for c in range(self.cols):
+                        for c in range(2, self.cols):
                             ch = self.grid[r][c]
                             if ch != " ":
-                                x = c * self.char_w
+                                x = (c - 2) * self.char_w
                                 col = self.colors[r][c]
                                 draw_p0.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
-                # Panel 1 Texture (Tracklist / Body rows starting from 'before')
+                # --- PANEL 1 TEXTURE (Bottom Card: Tracklist / Playlist) ---
                 viz_rows = 7 if self.rows >= 34 else (5 if self.rows >= 28 else 3)
                 before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
-                body_row_count = max(1, self.rows - before)
-                
-                img_p1_w = self.cols * self.char_w
-                img_p1_h = body_row_count * self.char_h
+
+                img_p1_w, img_p1_h = int(qw1), int(qh1)
                 self.img_p1 = Image.new("RGBA", (img_p1_w, img_p1_h), (0, 0, 0, 0))
                 draw_p1 = ImageDraw.Draw(self.img_p1)
 
-                for r_idx, r in enumerate(range(before, self.rows)):
+                p1_max_rows = int(qh1 // self.char_h)
+                for r_idx in range(p1_max_rows):
+                    r = before + r_idx
+                    if r >= self.rows:
+                        break
                     y = r_idx * self.char_h
-                    for c in range(self.cols):
+                    for c in range(2, self.cols):
                         ch = self.grid[r][c]
                         if ch != " ":
-                            x = c * self.char_w
+                            x = (c - 2) * self.char_w
                             col = self.colors[r][c]
                             draw_p1.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
-                # Upload Textures
+                # Upload Textures to GPU
                 glBindTexture(GL_TEXTURE_2D, self.tex_p0)
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, img_p0_w, img_p0_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, self.img_p0.tobytes("raw", "RGBA", 0, 1))
 
@@ -594,13 +596,13 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            # Panel 0 NDC Mapping
+            # Screen NDC Coordinate Mapping for Panel 0
             nx1 = (px1 / float(fw)) * 2.0 - 1.0
             ny1 = 1.0 - (py1 / float(fh)) * 2.0
             nx2 = ((px1 + pw1) / float(fw)) * 2.0 - 1.0
             ny2 = 1.0 - ((py1 + ph1) / float(fh)) * 2.0
 
-            # Panel 1 NDC Mapping
+            # Screen NDC Coordinate Mapping for Panel 1
             mx1 = (qx1 / float(fw)) * 2.0 - 1.0
             my1 = 1.0 - (qy1 / float(fh)) * 2.0
             mx2 = ((qx1 + qw1) / float(fw)) * 2.0 - 1.0
@@ -632,11 +634,11 @@ class TerminalOverlay:
             glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
             glBufferData(GL_ARRAY_BUFFER, quad_data.nbytes, quad_data, GL_DYNAMIC_DRAW)
 
-            # Draw Panel 0 (Header Card)
+            # Draw Panel 0
             glBindTexture(GL_TEXTURE_2D, self.tex_p0)
             glDrawArrays(GL_TRIANGLES, 0, 6)
 
-            # Draw Panel 1 (Tracklist Card)
+            # Draw Panel 1
             glBindTexture(GL_TEXTURE_2D, self.tex_p1)
             glDrawArrays(GL_TRIANGLES, 6, 6)
 
@@ -762,7 +764,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        # RENDER DUAL INDEPENDENT TEXTURES OVER THE GLASS CARDS
+        # RENDER PERFECT-SCALE INDEPENDENT TEXTURES OVER THE GLASS CARDS
         self.overlay.render(fw, fh, bezel_px=self.bezel_px, panels=self.panels)
 
         pixels = None
