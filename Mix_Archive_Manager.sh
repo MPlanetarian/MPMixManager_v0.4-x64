@@ -1468,6 +1468,17 @@ local now="$SECONDS"; if [ $(( now - _CACHED_PLAYER_CHECK_TIME )) -lt 1 ] && [ -
 manage_mp_audio_player() {
     local py_script="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$py_script" ] && py_script="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+    if [ ! -f "$py_script" ]; then
+        for _c in "$PWD" "$HOME/MP_Mix_Manager_v0.4" "/var/home/mplanetarian/MP_Mix_Manager_v0.4" "$MP_MIX_MANAGER_DIR"; do
+            if [ -n "$_c" ] && [ -f "$_c/MP_Audio_Player.py" ]; then
+                py_script="$_c/MP_Audio_Player.py"
+                break
+            elif [ -n "$_c" ] && [ -f "$_c/scripts/MP_Audio_Player.py" ]; then
+                py_script="$_c/scripts/MP_Audio_Player.py"
+                break
+            fi
+        done
+    fi
     
     if [ -f "$py_script" ]; then
         # Activate virtual environment if it exists
