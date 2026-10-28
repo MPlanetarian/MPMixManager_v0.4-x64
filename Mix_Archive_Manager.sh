@@ -961,9 +961,28 @@ launch_mp_audio_player_liquid_glass() {
     local py=""
     local backend_name="OpenGL"
 
+    # Robust BASE_DIR candidate search (matching launch-liquid-glass)
+    local BASE_DIR="$SCRIPT_DIR"
+    if [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then
+        for _c in \
+            "${MP_MIX_MANAGER_DIR:-}" \
+            "$PWD" \
+            "$HOME/MP_Mix_Manager_v0.4" \
+            "$HOME/MP_Mix_Manager_v0.3" \
+            "/home/mplanetarian/MP_Mix_Manager_v0.4" \
+            "/home/mplanetarian/MP_Mix_Manager_v0.3" \
+            "/var/home/mplanetarian/MP_Mix_Manager_v0.4" \
+            "/var/home/mplanetarian/MP_Mix_Manager_v0.3"; do
+            if [ -n "$_c" ] && { [ -f "$_c/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass_macOS.py" ]; }; then
+                BASE_DIR="$_c"
+                break
+            fi
+        done
+    fi
+
     if [ "$os_type" = "Darwin" ]; then
-        py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
-        [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+        py="$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+        [ ! -f "$py" ] && py="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
         backend_name="OpenGL (macOS)"
         if [ ! -f "$py" ]; then
             if [ "$arch_type" != "arm64" ]; then
@@ -971,24 +990,24 @@ launch_mp_audio_player_liquid_glass() {
                 manage_mp_audio_player
                 return
             fi
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
+            py="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
+            [ ! -f "$py" ] && py="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
             backend_name="Metal (Apple Silicon)"
         fi
     elif [ "$os_type" = "Linux" ] || [[ "$os_type" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
         local backend="${LIQUID_GLASS_BACKEND:-opengl}"
         backend="$(echo "$backend" | tr '[:upper:]' '[:lower:]')"
         if [ "$backend" = "vulkan" ]; then
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+            py="$BASE_DIR/MP_Audio_Player_Liquid_Glass.py"
+            [ ! -f "$py" ] && py="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
             backend_name="Vulkan"
         else
-            py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
-            [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            py="$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            [ ! -f "$py" ] && py="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL.py"
             backend_name="OpenGL"
             if [ ! -f "$py" ]; then
-                py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"
-                [ ! -f "$py" ] && py="$SCRIPT_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
+                py="$BASE_DIR/MP_Audio_Player_Liquid_Glass.py"
+                [ ! -f "$py" ] && py="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
                 backend_name="Vulkan"
             fi
         fi
@@ -1018,7 +1037,7 @@ launch_mp_audio_player_liquid_glass() {
 
     nohup "$py_bin" "$py" "${py_args[@]}" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
     disown
-
+    
     # Automatically start MP Liquid Visualizer with a random preset if not already running
     if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
         local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
@@ -1029,6 +1048,7 @@ launch_mp_audio_player_liquid_glass() {
         fi
     fi
 }
+
 launch_mp_liquid_visualizer() {
     local preset_arg="${1:-}"
     local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
