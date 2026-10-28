@@ -301,7 +301,7 @@ def _child_env():
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
     env["MP_LIQUID_GLASS"] = "0"
-    env["MP_LIQUID_GLASS_BACKEND"] = "none"  # Force child to run headless text mode only
+    env["MP_LIQUID_GLASS_BACKEND"] = "none"
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -641,12 +641,13 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            # Match exact logical sizing coverage mapped to window points
+            # Exact layout box match matching Linux dimensions without viewport scaling mismatch
             x1 = -1.0
             y1 = -1.0
             x2 = -1.0 + (2.0 * self.img_w / fw)
             y2 = -1.0 + (2.0 * self.img_h / fh)
 
+            # Correct UV mapping matching top-left text origin with vertical orientation fix
             quad_data = np.array(
                 [
                     x1, y1, 0.0, 1.0,
@@ -779,8 +780,9 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         from OpenGL import GL
 
         GL.glViewport(0, 0, fw, fh)
-        GL.glClearColor(0.0, 0.0, 0.0, 0.0)
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        # CRITICAL FIX: Clear alpha channel fully to 1.0 to prevent frame-smearing/ghost trails
+        GL.glClearColor(0.0, 0.0, 0.0, 1.0)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         GL.glUseProgram(self._prog)
 
         colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
