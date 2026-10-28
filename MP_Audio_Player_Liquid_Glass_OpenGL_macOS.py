@@ -647,14 +647,15 @@ class TerminalOverlay:
             x2 = -1.0 + (2.0 * self.img_w / fw)
             y2 = -1.0 + (2.0 * self.img_h / fh)
 
+            # Inverted V coordinates (0.0 <-> 1.0) to flip text right-side up on macOS
             quad_data = np.array(
                 [
-                    x1, y1, 0.0, 0.0,
-                    x2, y1, 1.0, 0.0,
-                    x1, y2, 0.0, 1.0,
-                    x2, y1, 1.0, 0.0,
-                    x2, y2, 1.0, 1.0,
-                    x1, y2, 0.0, 1.0,
+                    x1, y1, 0.0, 1.0,
+                    x2, y1, 1.0, 1.0,
+                    x1, y2, 0.0, 0.0,
+                    x2, y1, 1.0, 1.0,
+                    x2, y2, 1.0, 0.0,
+                    x1, y2, 0.0, 0.0,
                 ],
                 dtype=np.float32,
             )
@@ -851,8 +852,8 @@ class OpenGLGlassHost:
         char_w = CHAR_W
         char_h = CHAR_H
         margin = LiquidGlassRendererOpenGL.bezel_px
-        init_w = self._target_cols * char_w + 2 * margin
-        init_h = self._target_rows * char_h + 2 * margin
+        init_w = self._target_cols * char_w + (2 * margin)
+        init_h = self._target_rows * char_h + (2 * margin)
         title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
 
         self.renderer = CustomGlassRenderer(

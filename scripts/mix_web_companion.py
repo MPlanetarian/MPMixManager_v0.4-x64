@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MP Mix Manager v0.3 - Studio & DJ Booth Mobile Web Companion
+MP Mix Manager - Studio & DJ Booth Mobile Web Companion
 Lightweight, standalone HTTP & REST server providing a modern, theme-adaptive
 web dashboard accessible from phones, tablets, and remote browsers on the local LAN.
 Displays live mix playback, tracklists, EQ visualizers, and remote playback controls.
