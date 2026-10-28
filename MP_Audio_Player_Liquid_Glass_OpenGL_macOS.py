@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-MP Audio Player - Liquid Glass OpenGL Host (macOS Unified Window Edition)
-Renders a fluid glass UI and embeds the audio player's PTY text stream 
-directly into a single OpenGL window.
+MP Audio Player - Liquid Glass OpenGL Host (macOS Single-Window Edition)
+Renders a fluid glass UI and blits the player's PTY text buffer as an 
+OpenGL texture inside a single, unified window.
 """
 
 import os
@@ -13,12 +13,12 @@ import struct
 import fcntl
 import termios
 import OpenGL
-# Prevent automatic error-checking overhead on macOS OpenGL calls
 OpenGL.ERROR_CHECKING = False
 
 from OpenGL.GL import *
 import glfw
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 # --- macOS Compatibility Patch for Missing Linux GLX Symbols ---
 import ctypes
@@ -26,7 +26,6 @@ import ctypes.util
 try:
     _opengl_lib = ctypes.CDLL(ctypes.util.find_library("OpenGL"))
     if not hasattr(_opengl_lib, "glXGetCurrentContext"):
-        # Mock missing Linux GLX symbols to prevent AttributeError on cross-platform wrappers
         _opengl_lib.glXGetCurrentContext = lambda: None
         _opengl_lib.glXGetCurrentDisplay = lambda: None
 except Exception:
@@ -35,16 +34,16 @@ except Exception:
 # --- Configuration & Layout ---
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
-FONT_SCALE = 1.0
+COLS = 120
+ROWS = 35
 
 class ANSIParser:
-    """Parses standard and truecolor ANSI escape sequences from the audio player PTY stream."""
-    def __init__(self, cols=120, rows=35):
+    """Parses standard ANSI escape sequences from the audio player PTY stream."""
+    def __init__(self, cols=COLS, rows=ROWS):
         self.cols = cols
         self.rows = rows
         self.buffer = [[" " for _ in range(cols)] for _ in range(rows)]
-        self.fg_color = (200, 200, 200, 255)
-        self.bg_color = (20, 20, 30, 200)
+        self.fg_color = (200, 220, 255, 255)
         self.cursor_x = 0
         self.cursor_y = 0
 
@@ -54,7 +53,6 @@ class ANSIParser:
         while i < n:
             char = data[i]
             if char == '\033' and i + 1 < n and data[i+1] == '[':
-                # Parse CSI escape sequence
                 i += 2
                 param_str = ""
                 while i < n and (data[i].isdigit() or data[i] == ';'):
@@ -92,28 +90,23 @@ class ANSIParser:
                 self.buffer = [[" " for _ in range(self.cols)] for _ in range(self.rows)]
                 self.cursor_x = 0
                 self.cursor_y = 0
-        elif cmd == 'm':
-            # Basic SGR color parsing fallback
-            if 30 <= params[0] <= 37:
-                self.fg_color = (150, 220, 255, 255)
-            elif params[0] == 0:
-                self.fg_color = (200, 200, 200, 255)
 
 
 class TerminalOverlay:
-    """Renders the parsed ANSI buffer inside the OpenGL glass window."""
-    def __init__(self, cols=120, rows=35):
+    """Renders the parsed ANSI buffer as a dynamic texture mapped inside the OpenGL glass window."""
+    def __init__(self, cols=COLS, rows=ROWS):
+        self.cols = cols
+        self.rows = rows
         self.parser = ANSIParser(cols, rows)
-        self.master_fd, self.slave_fd = pty.openpty()
         
-        # Set window size for the pseudo-terminal
+        # Setup PTY
+        self.master_fd, self.slave_fd = pty.openpty()
         s = struct.pack('HHHH', rows, cols, 0, 0)
         fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, s)
 
         # Spawn audio player headless backend process via PTY
         self.pid = os.fork()
         if self.pid == 0:
-            # Child process: redirect I/O to slave PTY and execute audio engine
             os.setsid()
             os.dup2(self.slave_fd, 0)
             os.dup2(self.slave_fd, 1)
@@ -124,64 +117,108 @@ class TerminalOverlay:
             env["TERM"] = "xterm-256color"
             env["PYTHONUNBUFFERED"] = "1"
             
-            # Replace with your actual player backend script or command
+            # Change to your actual backend player entry point if needed
             os.execve("/usr/bin/env", ["python3", "player_backend.py"], env)
             os._exit(1)
         else:
             os.close(self.slave_fd)
-            # Set master PTY to non-blocking
             fl = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
             fcntl.fcntl(self.master_fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+        # Setup Pillow Font & Texture Dimensions
+        self.char_w = 8
+        self.char_height = 16
+        try:
+            self.font = ImageFont.truetype("/System/Library/Fonts/SFNSMono.ttf", 13)
+        except IOError:
+            self.font = ImageFont.load_default()
+
+        self.tex_width = cols * self.char_w
+        self.tex_height = rows * self.char_height
+        
+        # Create OpenGL texture handle
+        self.texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
 
     def update(self):
         r, _, _ = select.select([self.master_fd], [], [], 0.0)
         if r:
             try:
-                data = os.read(self.master_fd, 1024).decode('utf-8', errors='ignore')
+                data = os.read(self.master_fd, 4096).decode('utf-8', errors='ignore')
                 if data:
                     self.parser.write(data)
             except OSError:
                 pass
 
     def render_glass_ui(self):
-        """Draws the unified liquid glass UI layout and text buffer."""
         self.update()
-        
-        # Setup orthographic projection for UI overlay
+
+        # 1. Rasterize terminal text grid to an in-memory PIL Image
+        img = Image.new("RGBA", (self.tex_width, self.tex_height), (15, 18, 25, 210))
+        draw = ImageDraw.Draw(img)
+
+        for r_idx, row in enumerate(self.parser.buffer):
+            line_str = "".join(row)
+            draw.text((4, r_idx * self.char_height + 2), line_str, font=self.font, fill=(210, 225, 255, 255))
+
+        img_data = img.tobytes("raw", "RGBA", 0, 1)
+
+        # 2. Upload to GPU texture
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.tex_width, self.tex_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data)
+
+        # 3. Setup Orthographic Projection for 2D Blitting
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         glOrtho(0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, -1, 1)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-        # Draw Glass Panel Background
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        
-        glColor4f(0.08, 0.09, 0.12, 0.85) # Dark translucent glass tint
+
+        # Draw Liquid Glass Panel Frame
+        glColor4f(0.08, 0.09, 0.12, 0.85)
         glBegin(GL_QUADS)
-        glVertex2f(40, 40)
-        glVertex2f(WINDOW_WIDTH - 40, 40)
-        glVertex2f(WINDOW_WIDTH - 40, WINDOW_HEIGHT - 40)
-        glVertex2f(40, WINDOW_HEIGHT - 40)
+        glVertex2f(30, 30)
+        glVertex2f(WINDOW_WIDTH - 30, 30)
+        glVertex2f(WINDOW_WIDTH - 30, WINDOW_HEIGHT - 30)
+        glVertex2f(30, WINDOW_HEIGHT - 30)
         glEnd()
 
-        # Draw subtle glass border frame
-        glColor4f(0.3, 0.4, 0.6, 0.4)
+        # Draw Glass Border Frame
+        glColor4f(0.35, 0.45, 0.7, 0.5)
         glLineWidth(1.5)
         glBegin(GL_LINE_LOOP)
-        glVertex2f(40, 40)
-        glVertex2f(WINDOW_WIDTH - 40, 40)
-        glVertex2f(WINDOW_WIDTH - 40, WINDOW_HEIGHT - 40)
-        glVertex2f(40, WINDOW_HEIGHT - 40)
+        glVertex2f(30, 30)
+        glVertex2f(WINDOW_WIDTH - 30, 30)
+        glVertex2f(WINDOW_WIDTH - 30, WINDOW_HEIGHT - 30)
+        glVertex2f(30, WINDOW_HEIGHT - 30)
         glEnd()
+
+        # 4. Render the Terminal Text Texture inside the Glass Box
+        glEnable(GL_TEXTURE_2D)
+        glBindTexture(GL_TEXTURE_2D, self.texture_id)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+
+        tx1, ty1 = 45, 45
+        tx2, ty2 = tx1 + self.tex_width, ty1 + self.tex_height
+
+        glBegin(GL_QUADS)
+        glTexCoord2f(0.0, 0.0); glVertex2f(tx1, ty1)
+        glTexCoord2f(1.0, 0.0); glVertex2f(tx2, ty1)
+        glTexCoord2f(1.0, 1.0); glVertex2f(tx2, ty2)
+        glTexCoord2f(0.0, 1.0); glVertex2f(tx1, ty2)
+        glEnd()
+        glDisable(GL_TEXTURE_2D)
 
 
 def main():
     if not glfw.init():
         sys.exit(1)
 
-    # Configure modern OpenGL context for macOS
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, GL_TRUE)
@@ -200,11 +237,9 @@ def main():
     while not glfw.window_should_close(window):
         glfw.poll_events()
 
-        # Clear viewport frame
         glClearColor(0.03, 0.03, 0.05, 1.0)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # Render unified glass interface and update background PTY stream
         overlay.render_glass_ui()
 
         glfw.swap_buffers(window)
