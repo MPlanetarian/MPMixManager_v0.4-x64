@@ -1240,22 +1240,49 @@ class AudioEngine:
                 try: fn()
                 except Exception: pass
 
-    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         attempts, seen = [], set()
         def add(d, r, e):
             k = (d if d is None else int(d), int(r), e is not None)
-            if r > 0 and k not in seen: seen.add(k); attempts.append((d, int(r), e))
-        if sd is None: return attempts
-        if sys.platform == "win32":
-            try:
-                for h in sd.query_hostapis():
-                    if "WASAPI" in str(h.get("name", "")).upper() and (dev := h.get("default_output_device", -1)) is not None and int(dev) >= 0:
-                        ex, nat = sd.WasapiSettings(exclusive=False, auto_convert=True), int(sd.query_devices(int(dev)).get("default_samplerate") or 48000)
-                        for r in (nat, 48000, 44100): add(int(dev), r, ex)
-            except Exception: pass
-        try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
-        except Exception: pass
-        for r in (48000, 44100): add(None, r, None)
+            if r > 0 and k not in seen: 
+                seen.add(k)
+                attempts.append((d, int(r), e))
+        
+        if sd is None: 
+            return attempts
+
+        # Explicitly query available sounddevice output devices to avoid generic "Manufacturer" handles
+        try:
+            default_out_idx = sd.default.device[1]
+            if default_out_idx is not None and default_out_idx >= 0:
+                dev_info = sd.query_devices(default_out_idx)
+                native_rate = int(dev_info.get("default_samplerate") or 44100)
+                add(int(default_out_idx), native_rate, None)
+                for r in (44100, 48000, 96000):
+                    add(int(default_out_idx), r, None)
+        except Exception: 
+            pass
+
+        # Scan all devices for valid physical output endpoints
+        try:
+            for idx, dev in enumerate(sd.query_devices()):
+                if dev.get("max_output_channels", 0) > 0:
+                    r = int(dev.get("default_samplerate", 44100))
+                    add(idx, r, None)
+                    add(idx, 44100, None)
+                    add(idx, 48000, None)
+        except Exception: 
+            pass
+
+        # Fallbacks
+        try: 
+            add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
+        except Exception: 
+            pass
+            
+        for r in (48000, 44100, 96000): 
+            add(None, r, None)
+            
         return attempts
 
     def _open_output_stream(self) -> bool:
