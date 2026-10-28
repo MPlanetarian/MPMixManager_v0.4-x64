@@ -1281,30 +1281,42 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
 
         return attempts
 
-    def _open_output_stream(self) -> bool:
-        if sd is None: self.stream_error = "sounddevice is not installed"; return False
+def _open_output_stream(self) -> bool:
+        if sd is None: 
+            self.stream_error = "sounddevice is not installed"
+            return False
         errors = []
         for dev, rate, extra in self._stream_attempts():
             s = None
             try:
                 kw = dict(samplerate=rate, channels=2, dtype="float32", callback=self._audio_callback, blocksize=1024, latency="high")
-                if extra: kw["extra_settings"] = extra
-                if dev is not None: kw["device"] = dev
-                s = sd.OutputStream(**kw); s.start()
+                if extra: 
+                    kw["extra_settings"] = extra
+                if dev is not None: 
+                    kw["device"] = dev
+                s = sd.OutputStream(**kw)
+                s.start()
                 nr = int(round(float(s.samplerate)))
-                if nr != self.output_rate: self.resampler.reset()
+                if nr != self.output_rate: 
+                    self.resampler.reset()
                 self.output_rate, self.stream, self.stream_error = nr or rate, s, None
-                try: self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
-                except Exception: self.output_device_name = "default"
+                try: 
+                    self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
+                except Exception: 
+                    self.output_device_name = "default"
                 if self.bt_router:
-                    try: threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
-                    except Exception: pass
+                    try: 
+                        threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
+                    except Exception: 
+                        pass
                 return True
             except Exception as exc:
                 errors.append(f"{dev}@{rate}: {exc}")
                 if s:
-                    try: s.close()
-                    except Exception: pass
+                    try: 
+                        s.close()
+                    except Exception: 
+                        pass
         self.stream, self.stream_error = None, "; ".join(errors)[-400:] if errors else "no output device"
         return False
 
