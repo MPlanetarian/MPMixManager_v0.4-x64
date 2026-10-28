@@ -1256,19 +1256,14 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
                         for r in (nat, 48000, 44100): add(int(dev), r, ex)
             except Exception: pass
 
-        # Safe macOS / cross-platform native rate query
+        # macOS / Linux / General: Query default output device native sample rate first
         try:
-            default_out = getattr(sd.default, 'device', None)
-            default_out_idx = None
-            if isinstance(default_out, (list, tuple)) and len(default_out) > 1:
-                default_out_idx = default_out[1]
-            elif isinstance(default_out, int):
-                default_out_idx = default_out
-
-            dev_info = sd.query_devices(default_out_idx, 'output') if default_out_idx is not None else sd.query_devices(kind='output')
+            default_out_idx = sd.default.device[1] if isinstance(sd.default.device, (list, tuple)) and len(sd.default.device) > 1 else None
+            dev_info = sd.query_devices(default_out_idx, 'output')
             native_rate = int(dev_info.get("default_samplerate") or 48000)
             dev_idx = int(default_out_idx) if default_out_idx is not None and default_out_idx >= 0 else None
-            for r in (native_rate, 44100, 48000, 96000, 88200):
+            # Try native rate first, followed by high-res and standard rates
+            for r in (native_rate, 44100, 48000, 96000, 88200, 32000, 22050):
                 add(dev_idx, r, None)
         except Exception: pass
 
@@ -1277,12 +1272,12 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
             add(None, int(gen_out.get("default_samplerate") or 48000), None)
         except Exception: pass
 
-        for r in (44100, 48000, 96000, 88200): 
+        for r in (44100, 48000, 96000, 88200, 32000, 22050): 
             add(None, r, None)
 
         return attempts
 
-def _open_output_stream(self) -> bool:
+    def _open_output_stream(self) -> bool:
         if sd is None: self.stream_error = "sounddevice is not installed"; return False
         errors = []
         for dev, rate, extra in self._stream_attempts():
@@ -1309,19 +1304,19 @@ def _open_output_stream(self) -> bool:
         self.stream, self.stream_error = None, "; ".join(errors)[-400:] if errors else "no output device"
         return False
 
-def _ensure_stream(self) -> bool:
+    def _ensure_stream(self) -> bool:
         if self._stream_alive(): return True
         if time.time() < self._next_stream_retry: return False
         self._close_stream()
         if not (ok := self._open_output_stream()): self._next_stream_retry = time.time() + 1.5
         return ok
 
- def _acquire_sf(self):
+    def _acquire_sf(self):
         with self._sf_lock:
             if self.sf_file: self._sf_refs += 1
             return self.sf_file
 
- def _release_sf(self):
+    def _release_sf(self):
         with self._sf_lock:
             if self._sf_refs > 0: self._sf_refs -= 1
             closing, self._sf_retired = (self._sf_retired, []) if self._sf_refs == 0 and self._sf_retired else ([], self._sf_retired)
@@ -1329,7 +1324,7 @@ def _ensure_stream(self) -> bool:
             try: old.close()
             except Exception: pass
 
-def _retire_sf(self, old_sf):
+    def _retire_sf(self, old_sf):
         if not old_sf: return
         with self._sf_lock:
             if self._sf_refs == 0: closing = [old_sf]
@@ -1338,7 +1333,7 @@ def _retire_sf(self, old_sf):
             try: old.close()
             except Exception: pass
 
-def _stop_feeder(self):
+    def _stop_feeder(self):
         if f := self.feeder:
             self.feeder = None
             try: f.stop()
@@ -1351,7 +1346,7 @@ def _stop_feeder(self):
             try: s.close()
             except Exception: pass
 
-def load_track(self, index: int, start_playing: bool = True, start_position: float = 0.0) -> bool:
+    def load_track(self, index: int, start_playing: bool = True, start_position: float = 0.0) -> bool:
         if not self.playlist or not (0 <= index < len(self.playlist)): return False
         self.current_index, self.current_track = index, self.playlist[index]
         self._stop_feeder()
@@ -1387,7 +1382,7 @@ def load_track(self, index: int, start_playing: bool = True, start_position: flo
             except Exception: pass
             return False
 
-def _sync_state_file(self):
+    def _sync_state_file(self):
         try:
             tmp = STATE_FILE.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.get_status_dict(), default=float), encoding="utf-8")
@@ -1415,11 +1410,11 @@ def _sync_state_file(self):
                 res_tmp.replace(RESUME_STATE_FILE)
         except Exception: pass
 
-def _audio_callback(self, outdata, frames, time_info, status):
+    def _audio_callback(self, outdata, frames, time_info, status):
         try: self._render_audio(outdata, frames)
         except Exception as exc: self.stream_error = str(exc); outdata.fill(0)
 
-def _render_audio(self, outdata, frames):
+    def _render_audio(self, outdata, frames):
         buf = self.audio_buffer
         if buf is None or self.state != "playing": outdata.fill(0); return
         out_rate = float(self.output_rate or 48000)
@@ -1451,7 +1446,7 @@ def _render_audio(self, outdata, frames):
             except Exception: pass
         self._compute_fft_spectrum(sd_arr[:ncopy], mono[:ncopy])
 
-def _compute_fft_spectrum(self, stereo_data: np.ndarray, mono_data: np.ndarray):
+    def _compute_fft_spectrum(self, stereo_data: np.ndarray, mono_data: np.ndarray):
         try:
             n = len(mono_data)
             if n >= 1024:
@@ -1481,14 +1476,14 @@ def _compute_fft_spectrum(self, stereo_data: np.ndarray, mono_data: np.ndarray):
             self.peak_db = 20.0 * math.log10(max(1e-5, float(np.max(np.abs(m)))))
         except Exception: pass
 
-def check_track_end(self):
+    def check_track_end(self):
         if self.track_ended:
             self.track_ended = False
             if self.repeat_mode == "one": self.seek(0)
             elif self.repeat_mode == "all" or bool(self.play_queue) or self.current_index < len(self.playlist) - 1: self.next_track()
             else: self.stop_playback(reset_position=True)
 
-def play(self):
+    def play(self):
         if self.audio_source is None or self.feeder is None or self.state == "stopped": self.load_track(self.current_index, True)
         else:
             self.state = "playing"; self._ensure_stream()
@@ -1497,10 +1492,10 @@ def play(self):
                 except Exception: pass
             self._sync_state_file()
 
-def pause(self): self.state = "paused"; self._sync_state_file()
-def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
+    def pause(self): self.state = "paused"; self._sync_state_file()
+    def toggle_play_pause(self): self.pause() if self.state == "playing" else self.play()
 
-def stop_playback(self, reset_position: bool = False):
+    def stop_playback(self, reset_position: bool = False):
         self.state = "stopped"
         if reset_position: self.position_sec = 0.0
         self._stop_feeder()
@@ -1509,7 +1504,7 @@ def stop_playback(self, reset_position: bool = False):
         for a in (self.smoothed_levels, self.smoothed_levels_left, self.smoothed_levels_right, self.peaks, self.peaks_left, self.peaks_right): a.fill(0)
         self._sync_state_file()
 
-def queue_track(self, track_or_path: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def queue_track(self, track_or_path: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         with self._queue_lock:
             td = dict(track_or_path) if isinstance(track_or_path, dict) else None
             if td is None and isinstance(track_or_path, str) and track_or_path:
@@ -1522,20 +1517,20 @@ def queue_track(self, track_or_path: Union[str, Dict[str, Any]]) -> Dict[str, An
                 return {"queued": True, "track": td, "queue_len": len(self.play_queue)}
             return {"queued": False, "queue_len": len(self.play_queue)}
 
-def dequeue_next(self) -> Optional[Dict[str, Any]]:
+    def dequeue_next(self) -> Optional[Dict[str, Any]]:
         with self._queue_lock:
             if self.play_queue:
                 t = self.play_queue.pop(0); self._sync_state_file(); return t
         return None
 
-def clear_queue(self) -> int:
+    def clear_queue(self) -> int:
         with self._queue_lock:
             n = len(self.play_queue); self.play_queue.clear(); self._sync_state_file(); return n
 
-def get_queue(self) -> List[Dict[str, Any]]:
+    def get_queue(self) -> List[Dict[str, Any]]:
         with self._queue_lock: return list(self.play_queue)
 
-def _step_track(self, direction: int):
+    def _step_track(self, direction: int):
         if direction > 0 and (qi := self.dequeue_next()):
             qp = qi.get("path")
             for i, t in enumerate(self.playlist):
@@ -1550,19 +1545,17 @@ def _step_track(self, direction: int):
             idx = random.choice([i for i in range(n) if i != self.current_index]) if (self.shuffle and n > 1) else (self.current_index + s * direction) % n
             if self.load_track(idx, True): return
 
-def next_track(self): self._step_track(1)
-def prev_track(self): self.seek(0) if self.position_sec > 5.0 else self._step_track(-1)
+    def next_track(self): self._step_track(1)
+    def prev_track(self): self.seek(0) if self.position_sec > 5.0 else self._step_track(-1)
 
-def seek(self, target_sec: float):
+    def seek(self, target_sec: float):
         if self.duration_sec > 0:
             self.position_sec = target = max(0.0, min(self.duration_sec - 1.0, float(target_sec)))
             if self.feeder and self.sample_rate > 0: self.feeder.request_seek(int(target * self.sample_rate))
             self.resampler.reset()
 
     def seek_relative(self, delta_sec: float): self.seek(self.position_sec + delta_sec)
-    def set_volume(self, vol_pct: int): 
-        self.volume, self.muted = max(0.0, min(1.0, float(vol_pct) / 100.0)), 
-        False; self._sync_state_file()
+    def set_volume(self, vol_pct: int): self.volume, self.muted = max(0.0, min(1.0, float(vol_pct) / 100.0)), False; self._sync_state_file()
     def change_volume(self, delta_pct: int): self.set_volume(int(self.volume * 100) + delta_pct)
     def toggle_mute(self): self.muted = not self.muted; self._sync_state_file()
     def toggle_shuffle(self): self.shuffle = not self.shuffle; self._sync_state_file()
