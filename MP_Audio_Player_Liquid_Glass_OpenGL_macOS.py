@@ -329,27 +329,8 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self.img_w = self.cols * self.char_w
-        self.img_h = self.rows * self.char_h
-
-        try:
-            from PIL import Image, ImageFont
-
-            for font_path in [
-                "/System/Library/Fonts/SFNSMono.ttf",
-                "/System/Library/Fonts/Monaco.ttf",
-                "/System/Library/Fonts/Helvetica.ttc",
-                "/Library/Fonts/Courier New.ttf",
-            ]:
-                if os.path.exists(font_path):
-                    self.font = ImageFont.truetype(font_path, 13)
-                    break
-            if not self.font:
-                self.font = ImageFont.load_default()
-
-            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
-        except Exception:
-            pass
+        self.img_w = 0
+        self.img_h = 0
 
     def init_gl(self):
         if self._initialized_gl:
@@ -444,7 +425,6 @@ class TerminalOverlay:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
             glBindTexture(GL_TEXTURE_2D, 0)
 
             self._initialized_gl = True
@@ -613,19 +593,44 @@ class TerminalOverlay:
                 GL_UNSIGNED_BYTE,
             )
             import numpy as np
-            from PIL import ImageDraw
+            from PIL import Image, ImageDraw, ImageFont
+
+            if self.image is None or self.img_w != fw or self.img_h != fh:
+                self.img_w = fw
+                self.img_h = fh
+                self.image = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
+                scale_y = fh / (self.rows * self.char_h)
+                font_size = max(10, int(13 * scale_y))
+                self.font = None
+                for font_path in [
+                    "/System/Library/Fonts/SFNSMono.ttf",
+                    "/System/Library/Fonts/Monaco.ttf",
+                    "/System/Library/Fonts/Helvetica.ttc",
+                    "/Library/Fonts/Courier New.ttf",
+                ]:
+                    if os.path.exists(font_path):
+                        self.font = ImageFont.truetype(font_path, font_size)
+                        break
+                if not self.font:
+                    self.font = ImageFont.load_default()
+                self.dirty = True
 
             if self.dirty and self.image:
                 self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
                 draw = ImageDraw.Draw(self.image)
+                scale_x = fw / (self.cols * self.char_w)
+                scale_y = fh / (self.rows * self.char_h)
+
                 for r in range(self.rows):
-                    y = r * self.char_h
+                    y = int(r * self.char_h * scale_y)
                     for c in range(self.cols):
                         ch = self.grid[r][c]
                         if ch != " ":
-                            x = c * self.char_w
+                            x = int(c * self.char_w * scale_x)
                             col = self.colors[r][c]
                             draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+
+                render_image = self.image.transpose(Image.FLIP_TOP_BOTTOM)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(
@@ -637,12 +642,11 @@ class TerminalOverlay:
                     0,
                     GL_RGBA,
                     GL_UNSIGNED_BYTE,
-                    self.image.tobytes("raw", "RGBA", 0, 1),
+                    render_image.tobytes("raw", "RGBA", 0, 1),
                 )
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            # Full NDC window coverage with V flipped (0.0 <-> 1.0) to display top-left PIL image right-side up
             x1 = -1.0
             y1 = -1.0
             x2 = 1.0
@@ -650,12 +654,12 @@ class TerminalOverlay:
 
             quad_data = np.array(
                 [
-                    x1, y1, 0.0, 1.0,
-                    x2, y1, 1.0, 1.0,
-                    x1, y2, 0.0, 0.0,
-                    x2, y1, 1.0, 1.0,
-                    x2, y2, 1.0, 0.0,
-                    x1, y2, 0.0, 0.0,
+                    x1, y1, 0.0, 0.0,
+                    x2, y1, 1.0, 0.0,
+                    x1, y2, 0.0, 1.0,
+                    x2, y1, 1.0, 0.0,
+                    x2, y2, 1.0, 1.0,
+                    x1, y2, 0.0, 1.0,
                 ],
                 dtype=np.float32,
             )
@@ -682,16 +686,46 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self.overlay = overlay
         self.host_ref = host_ref
         self._on_key_ref = None
+        self._on_mouse_btn_ref = None
+        self._on_cursor_pos_ref = None
+        self._dragging = False
+        self._drag_start_x = 0.0
+        self._drag_start_y = 0.0
 
     def open(self):
         super().open()
-        self._bind_keyboard()
+        self._bind_callbacks()
         if hasattr(self._glfw, "glfwSwapInterval") and self._window:
             self._glfw.glfwSwapInterval(1)
         return self
 
-    def _bind_keyboard(self):
-        from ctypes import CFUNCTYPE, c_void_p, c_int
+    def _bind_callbacks(self):
+        from ctypes import CFUNCTYPE, c_void_p, c_int, c_double, POINTER
+
+        @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)
+        def mouse_button_callback(_window, button, action, mods):
+            if button == 0:  # Left mouse button
+                if action == 1:  # Pressed
+                    self._dragging = True
+                    xpos = c_double()
+                    ypos = c_double()
+                    if hasattr(self._glfw, "glfwGetCursorPos"):
+                        self._glfw.glfwGetCursorPos(_window, ctypes.byref(xpos), ctypes.byref(ypos))
+                    self._drag_start_x = xpos.value
+                    self._drag_start_y = ypos.value
+                elif action == 0:  # Released
+                    self._dragging = False
+
+        @CFUNCTYPE(None, c_void_p, c_double, c_double)
+        def cursor_pos_callback(_window, xpos, ypos):
+            if self._dragging:
+                dx = xpos - self._drag_start_x
+                dy = ypos - self._drag_start_y
+                x_win = c_int()
+                y_win = c_int()
+                if hasattr(self._glfw, "glfwGetWindowPos") and hasattr(self._glfw, "glfwSetWindowPos"):
+                    self._glfw.glfwGetWindowPos(_window, ctypes.byref(x_win), ctypes.byref(y_win))
+                    self._glfw.glfwSetWindowPos(_window, int(x_win.value + dx), int(y_win.value + dy))
 
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)
         def key_callback(_window, key, scancode, action, mods):
@@ -714,10 +748,28 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                         char_byte = char_byte.lower()
                     self.host_ref.send_input(char_byte)
 
+        self._on_mouse_btn_ref = mouse_button_callback
+        self._on_cursor_pos_ref = cursor_pos_callback
         self._on_key_ref = key_callback
-        if hasattr(self._glfw, "glfwSetKeyCallback") and self._window:
-            self._glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
-            self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_ref, c_void_p))
+
+        if self._window:
+            if hasattr(self._glfw, "glfwSetMouseButtonCallback"):
+                self._glfw.glfwSetMouseButtonCallback.argtypes = [c_void_p, c_void_p]
+                self._glfw.glfwSetMouseButtonCallback(self._window, ctypes.cast(self._on_mouse_btn_ref, c_void_p))
+            if hasattr(self._glfw, "glfwSetCursorPosCallback"):
+                self._glfw.glfwSetCursorPosCallback.argtypes = [c_void_p, c_void_p]
+                self._glfw.glfwSetCursorPosCallback(self._window, ctypes.cast(self._on_cursor_pos_ref, c_void_p))
+            if hasattr(self._glfw, "glfwSetKeyCallback"):
+                self._glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
+                self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_ref, c_void_p))
+
+            # Set correct argtypes for cursor/window position getters/setters to prevent crashes
+            if hasattr(self._glfw, "glfwGetCursorPos"):
+                self._glfw.glfwGetCursorPos.argtypes = [c_void_p, POINTER(c_double), POINTER(c_double)]
+            if hasattr(self._glfw, "glfwGetWindowPos"):
+                self._glfw.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+            if hasattr(self._glfw, "glfwSetWindowPos"):
+                self._glfw.glfwSetWindowPos.argtypes = [c_void_p, c_int, c_int]
 
     def draw(self, theme_name, opacity=1.0, capture=False):
         if not self.poll():
