@@ -645,10 +645,11 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
+            # Span the full window NDC space (-1.0 to 1.0) to correctly scale on Retina displays
             x1 = -1.0
             y1 = -1.0
-            x2 = -1.0 + (2.0 * self.img_w / fw)
-            y2 = -1.0 + (2.0 * self.img_h / fh)
+            x2 = 1.0
+            y2 = 1.0
 
             # Standard UV coordinates matching glass panel layout positions
             quad_data = np.array(
