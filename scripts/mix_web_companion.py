@@ -544,20 +544,16 @@ def get_base_dir() -> Path:
 
 
 def get_current_theme_id(cli_theme: Optional[str] = None) -> str:
-    """Detect current theme with priority: CLI arg -> Env var -> Manager config -> Default."""
-    # 1. Explicit CLI override
     if cli_theme:
         k = cli_theme.strip().lower()
         if k in THEME_ALIASES: return THEME_ALIASES[k]
         if k in THEMES: return k
 
-    # 2. Environment variable (set by Manager launch)
     env_theme = os.environ.get("CURRENT_THEME", "").strip().lower()
     if env_theme:
         if env_theme in THEME_ALIASES: return THEME_ALIASES[env_theme]
         if env_theme in THEMES: return env_theme
 
-    # 3. Manager persistent saved theme: ~/.config/mix-manager/theme
     theme_file = Path.home() / ".config" / "mix-manager" / "theme"
     if theme_file.is_file():
         try:
@@ -576,7 +572,6 @@ def get_theme_palette(cli_theme: Optional[str] = None) -> Dict[str, Any]:
 
 
 def get_local_ip() -> str:
-    """Detect LAN IP address."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(('10.255.255.255', 1))
@@ -619,7 +614,6 @@ PID_FILE = CONFIG_DIR / "mp_player.pid"
 
 
 def query_mp_player_socket() -> Optional[Dict[str, Any]]:
-    """Query live state directly from MP Audio Player IPC socket."""
     has_unix = hasattr(socket, "AF_UNIX")
     if (has_unix and not SOCKET_PATH.exists()) or (not has_unix and not PORT_FILE.exists()):
         return None
@@ -640,7 +634,6 @@ def query_mp_player_socket() -> Optional[Dict[str, Any]]:
 
 
 def read_mp_player_state_file() -> Optional[Dict[str, Any]]:
-    """Read state from JSON state file if present and recent."""
     if not STATE_FILE.is_file():
         return None
     try:
@@ -654,7 +647,6 @@ def read_mp_player_state_file() -> Optional[Dict[str, Any]]:
 
 
 def send_mp_player_command(cmd: str, **kwargs) -> bool:
-    """Send playback control command to MP Audio Player via IPC."""
     has_unix = hasattr(socket, "AF_UNIX")
     if (has_unix and not SOCKET_PATH.exists()) or (not has_unix and not PORT_FILE.exists()):
         return False
@@ -675,13 +667,10 @@ def send_mp_player_command(cmd: str, **kwargs) -> bool:
 
 
 def is_mp_player_active() -> Tuple[bool, Optional[Dict[str, Any]]]:
-    """Check whether MP Audio Player is running and retrieve its state."""
-    # 1. Try socket IPC
     st = query_mp_player_socket()
     if st and is_pid_alive(st.get("pid")):
         return True, st
 
-    # 2. Try state file + PID validation
     st = read_mp_player_state_file()
     if st:
         pid = st.get("pid")
@@ -698,7 +687,6 @@ def is_mp_player_active() -> Tuple[bool, Optional[Dict[str, Any]]]:
 # TRACKLIST RESOLUTION & METADATA PARSING
 # ------------------------------------------------------------------------------
 def find_tracklist_for_mix(mix_file: str) -> str:
-    """Find matching tracklist .txt file with smart caching."""
     if not mix_file:
         return ""
     if mix_file in _tracklist_cache:
@@ -708,7 +696,6 @@ def find_tracklist_for_mix(mix_file: str) -> str:
     base = get_base_dir()
     stem = p.stem
 
-    # Exact stem match in same directory
     exact = p.parent / f"{stem}.txt"
     if exact.is_file():
         _tracklist_cache[mix_file] = str(exact)
@@ -730,7 +717,6 @@ def find_tracklist_for_mix(mix_file: str) -> str:
                 _tracklist_cache[mix_file] = str(c)
                 return str(c)
 
-    # Match by mix number (e.g. 033, 089)
     m = re.search(r'[_\ -](\d{2,3})([_\ -]|$)', stem)
     mix_num = m.group(1) if m else None
 
@@ -740,8 +726,7 @@ def find_tracklist_for_mix(mix_file: str) -> str:
                 try:
                     for f in d.iterdir():
                         if f.is_file() and f.suffix.lower() == ".txt":
-                            fname = f.name
-                            if mix_num in fname:
+                            if mix_num in f.name:
                                 _tracklist_cache[mix_file] = str(f)
                                 return str(f)
                 except Exception:
@@ -755,7 +740,6 @@ _parsed_tracklist_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def parse_tracklist_file(tracklist_path: str) -> Dict[str, Any]:
-    """Parse artist, title, album, and track items from tracklist .txt."""
     if not tracklist_path or not os.path.isfile(tracklist_path):
         return {"metadata": {}, "tracks": []}
     if tracklist_path in _parsed_tracklist_cache:
@@ -796,45 +780,33 @@ def parse_tracklist_file(tracklist_path: str) -> Dict[str, Any]:
 
 
 def clean_track_title(raw_title: str, raw_path: str, tl_meta: Dict[str, str]) -> Tuple[str, str, str]:
-    """Derive clean display title, artist, and album."""
-    # 1. Use tracklist metadata if present
     if tl_meta.get("title"):
-        title = tl_meta["title"]
-        artist = tl_meta.get("artist", "MPlanetarian")
-        album = tl_meta.get("album", "Stream of Frequency")
-        return title, artist, album
+        return tl_meta["title"], tl_meta.get("artist", "MPlanetarian"), tl_meta.get("album", "Stream of Frequency")
 
     if not raw_title and raw_path:
         raw_title = Path(raw_path).name
 
     stem = Path(raw_title).stem
-    clean = re.sub(r'[\uf000-\uf8ff]', ':', stem).strip()
-    clean = clean.replace('_', ' ')
+    clean = re.sub(r'[\uf000-\uf8ff]', ':', stem).strip().replace('_', ' ')
     clean = re.sub(r'\s+', ' ', clean).strip()
 
-    artist = "MPlanetarian"
-    album = "Stream of Frequency"
-    title = clean
-
+    artist, album, title = "MPlanetarian", "Stream of Frequency", clean
     if " - " in clean:
         parts = clean.split(" - ", 1)
-        artist = parts[0].strip()
-        title = parts[1].strip()
+        artist, title = parts[0].strip(), parts[1].strip()
 
     return title, artist, album
 
 
-# ------------------------------------------------------------------------------
-# STATUS & PLAYBACK ENGINE
-# ------------------------------------------------------------------------------
 def get_eq_status() -> Dict[str, Any]:
-    """Ultra-lightweight real-time visualizer and status telemetry (<1ms)."""
     mp_active, mp_data = is_mp_player_active()
     if mp_active and mp_data:
         return {
             "state": str(mp_data.get("state", "stopped")).lower(),
             "position": str(mp_data.get("position_fmt", "00:00")),
             "duration": str(mp_data.get("duration_fmt", "--:--")),
+            "position_sec": float(mp_data.get("position_sec", 0.0)),
+            "duration_sec": float(mp_data.get("duration_sec", 0.0)),
             "progress_pct": float(mp_data.get("progress_pct", 0.0)),
             "volume": int(mp_data.get("volume", 85)),
             "pitch_percent": int(mp_data.get("pitch_percent", 0)),
@@ -844,52 +816,24 @@ def get_eq_status() -> Dict[str, Any]:
             "peaks": mp_data.get("peaks", [0.0] * 24),
         }
     return {
-        "state": "stopped",
-        "position": "00:00",
-        "duration": "--:--",
-        "progress_pct": 0.0,
-        "volume": 85,
-        "pitch_percent": 0,
-        "shuffle": False,
-        "repeat": "all",
-        "levels": [0.0] * 24,
-        "peaks": [0.0] * 24,
+        "state": "stopped", "position": "00:00", "duration": "--:--",
+        "position_sec": 0.0, "duration_sec": 0.0, "progress_pct": 0.0,
+        "volume": 85, "pitch_percent": 0, "shuffle": False, "repeat": "all",
+        "levels": [0.0] * 24, "peaks": [0.0] * 24,
     }
 
 
 def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
-    """Query player status prioritizing MP Audio Player, then MPRIS/playerctl, then Audacious."""
     active_theme = get_theme_palette(cli_theme)
     status: Dict[str, Any] = {
-        "player": "None",
-        "state": "stopped",
-        "title": "No Mix Playing",
-        "raw_title": "",
-        "artist": "MPlanetarian",
-        "album": "",
-        "position": "00:00",
-        "duration": "00:00",
-        "position_sec": 0.0,
-        "duration_sec": 0.0,
-        "progress_pct": 0.0,
-        "active_file": "",
-        "format": "",
-        "sample_rate": "",
-        "channels": "",
-        "volume": 85,
-        "pitch_percent": 0,
-        "pitch_factor": 1.0,
-        "shuffle": False,
-        "repeat": "all",
-        "levels": [0.0] * 24,
-        "peaks": [0.0] * 24,
-        "mini_eq": "",
-        "tracklist": [],
-        "tracklist_total": 0,
-        "theme": active_theme
+        "player": "None", "state": "stopped", "title": "No Mix Playing", "raw_title": "",
+        "artist": "MPlanetarian", "album": "", "position": "00:00", "duration": "00:00",
+        "position_sec": 0.0, "duration_sec": 0.0, "progress_pct": 0.0, "active_file": "",
+        "format": "", "sample_rate": "", "channels": "", "volume": 85, "pitch_percent": 0,
+        "pitch_factor": 1.0, "shuffle": False, "repeat": "all", "levels": [0.0] * 24,
+        "peaks": [0.0] * 24, "mini_eq": "", "tracklist": [], "tracklist_total": 0, "theme": active_theme
     }
 
-    # 1. Check MP Audio Player first
     mp_active, mp_data = is_mp_player_active()
     if mp_active and mp_data:
         status["player"] = "MP Audio Player"
@@ -919,7 +863,6 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
         if active_path:
             status["format"] = Path(active_path).suffix.lstrip(".").upper()
 
-        # Parse tracklist and metadata
         tl_path = find_tracklist_for_mix(active_path)
         tl_info = parse_tracklist_file(tl_path) if tl_path else {"metadata": {}, "tracks": []}
         title, artist, album = clean_track_title(raw_title, active_path, tl_info.get("metadata", {}))
@@ -930,45 +873,10 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
         status["tracklist_total"] = len(status["tracklist"])
         return status
 
-    # 2. Try playerctl if available
-    if shutil.which("playerctl"):
-        try:
-            p_state = subprocess.check_output(["playerctl", "status"], stderr=subprocess.DEVNULL).decode('utf-8').strip().lower()
-            p_title = subprocess.check_output(["playerctl", "metadata", "title"], stderr=subprocess.DEVNULL).decode('utf-8').strip()
-            p_artist = subprocess.check_output(["playerctl", "metadata", "artist"], stderr=subprocess.DEVNULL).decode('utf-8').strip()
-            p_pos = float(subprocess.check_output(["playerctl", "position"], stderr=subprocess.DEVNULL).decode('utf-8').strip() or 0)
-            status["state"] = p_state
-            status["title"] = p_title or "DJ Mix Session"
-            status["artist"] = p_artist or "MPlanetarian"
-            status["player"] = "MPRIS / playerctl"
-            status["position"] = f"{int(p_pos // 60):02d}:{int(p_pos % 60):02d}"
-            status["position_sec"] = p_pos
-            try:
-                shuf_out = subprocess.check_output(["playerctl", "shuffle"], stderr=subprocess.DEVNULL).decode('utf-8').strip().lower()
-                status["shuffle"] = (shuf_out == "on")
-            except Exception:
-                pass
-            return status
-        except Exception:
-            pass
-
-    # 3. Try audacious / qdbus
-    if shutil.which("qdbus"):
-        try:
-            aud_state = subprocess.check_output(["qdbus", "org.mpris.MediaPlayer2.audacious", "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player.PlaybackStatus"], stderr=subprocess.DEVNULL).decode('utf-8').strip().lower()
-            if aud_state:
-                status["player"] = "Audacious"
-                status["state"] = aud_state
-                status["title"] = "Audacious Active Mix"
-                return status
-        except Exception:
-            pass
-
     return status
 
 
 def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -> bool:
-    """Send playback control commands routing to MP Audio Player IPC or playerctl."""
     params = params or {}
     mp_active, _ = is_mp_player_active()
 
@@ -1013,33 +921,26 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
         elif action == "reset_pitch":
             return send_mp_player_command("reset_pitch")
 
-    # Fallback to playerctl
-    if shutil.which("playerctl"):
-        if action in ["play-pause", "play", "pause", "next", "previous"]:
-            subprocess.run(["playerctl", action], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        elif action in ("shuffle", "toggle_shuffle"):
-            subprocess.run(["playerctl", "shuffle", "Toggle"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        elif action in ("repeat", "cycle_repeat"):
-            subprocess.run(["playerctl", "loop", "Track"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        elif action == "seek_forward":
-            subprocess.run(["playerctl", "position", "30+"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        elif action == "seek_backward":
-            subprocess.run(["playerctl", "position", "30-"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-
     return False
 
 
 # ------------------------------------------------------------------------------
-# DYNAMIC HTML TEMPLATE
+# DYNAMIC HTML TEMPLATE (LIVE THEME POLLING & ANIMATED RAINBOW GLASS)
 # ------------------------------------------------------------------------------
 def render_html_page(theme: Dict[str, Any]) -> str:
-    """Render companion HTML pre-injected with current Manager theme variables."""
     t = theme
+    is_rainbow = t.get("is_dynamic_rainbow", False) or t['id'] == "dynamic_rainbow_liquid_glass"
+    
+    rainbow_anim_css = """
+        @keyframes rainbowShift {
+            0% { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+        .rainbow-animated {
+            animation: rainbowShift 12s linear infinite;
+        }
+    """ if is_rainbow else ""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1067,6 +968,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             --eq-bar: {t['eq_bar']};
             --eq-peak: {t['eq_peak']};
         }}
+        {rainbow_anim_css}
         * {{
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
@@ -1081,7 +983,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
-            transition: background-color 0.35s ease, color 0.35s ease;
         }}
         .header {{
             text-align: center;
@@ -1097,8 +998,20 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             letter-spacing: 1.5px;
             text-transform: uppercase;
         }}
+        .app-version {{
+            font-size: 0.75rem;
+            color: var(--accent-secondary);
+            font-weight: 700;
+            vertical-align: middle;
+            background: rgba(255, 255, 255, 0.08);
+            padding: 2px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+            margin-left: 6px;
+            display: inline-block;
+        }}
         .header p {{
-            margin: 4px 0 8px 0;
+            margin: 6px 0 8px 0;
             font-size: 0.85rem;
             color: var(--text-dim);
             font-weight: 500;
@@ -1113,7 +1026,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             border: 1px solid var(--card-border);
             letter-spacing: 0.5px;
             font-weight: 600;
-            transition: all 0.3s ease;
         }}
         .card {{
             background-color: var(--card-bg);
@@ -1124,7 +1036,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             box-shadow: var(--card-shadow);
             border: 1px solid var(--card-border);
             margin-bottom: 16px;
-            transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease;
         }}
         .badges-row {{
             display: flex;
@@ -1143,7 +1054,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             text-transform: uppercase;
             letter-spacing: 1px;
             border: 1px solid var(--badge-color);
-            transition: all 0.25s ease;
         }}
         .badge-source {{
             background: rgba(255, 255, 255, 0.06);
@@ -1185,7 +1095,77 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.05);
         }}
-        /* Visualizer */
+        .mobile-audio-banner {{
+            display: none;
+            background: linear-gradient(135deg, rgba(0, 245, 255, 0.12), rgba(176, 88, 255, 0.12));
+            border: 1px solid var(--accent-primary);
+            border-radius: 12px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            text-align: center;
+        }}
+        .mobile-audio-banner h4 {{
+            margin: 0;
+            font-size: 0.82rem;
+            color: var(--accent-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }}
+        .mobile-audio-banner p {{
+            margin: 3px 0 0 0;
+            font-size: 0.72rem;
+            color: var(--text-dim);
+        }}
+        /* Mobile Stream Activation Modal Overlay */
+        #streamOverlay {{
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 4, 15, 0.92);
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            text-align: center;
+        }}
+        .overlay-card {{
+            background: var(--card-bg);
+            border: 2px solid var(--accent-primary);
+            border-radius: 20px;
+            padding: 28px 20px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 16px 50px rgba(0, 0, 0, 0.9), 0 0 30px rgba(176, 88, 255, 0.3);
+        }}
+        .overlay-card h2 {{
+            margin: 0 0 10px 0;
+            font-size: 1.4rem;
+            background: var(--header-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 900;
+        }}
+        .overlay-card p {{
+            font-size: 0.88rem;
+            color: var(--text-dim);
+            margin: 0 0 20px 0;
+            line-height: 1.4;
+        }}
+        .btn-activate-stream {{
+            background: var(--btn-gradient);
+            color: #fff;
+            border: none;
+            padding: 16px 28px;
+            border-radius: 14px;
+            font-size: 1.05rem;
+            font-weight: 800;
+            cursor: pointer;
+            width: 100%;
+            box-shadow: var(--btn-shadow);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }}
         .visualizer-container {{
             width: 100%;
             height: 56px;
@@ -1198,7 +1178,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             background: rgba(0, 0, 0, 0.35);
             border-radius: 10px;
             border: 1px solid rgba(255, 255, 255, 0.06);
-            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
             position: relative;
         }}
         .v-col {{
@@ -1214,8 +1193,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             height: 4%;
             background: linear-gradient(180deg, var(--eq-peak) 0%, var(--eq-bar) 28%, var(--accent-primary) 100%);
             border-radius: 2px 2px 0 0;
-            box-shadow: 0 0 6px var(--eq-bar);
-            will-change: height;
             position: relative;
         }}
         .v-peak {{
@@ -1225,12 +1202,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             height: 2px;
             background: var(--eq-peak);
             border-radius: 1px;
-            box-shadow: 0 0 6px var(--eq-peak);
             bottom: 4%;
-            will-change: bottom;
             pointer-events: none;
         }}
-        /* Progress Bar */
         .progress-box {{
             width: 100%;
             margin-bottom: 16px;
@@ -1258,10 +1232,8 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-size: 0.8rem;
             color: var(--text-dim);
             font-weight: 600;
-            font-variant-numeric: tabular-nums;
             margin-top: 6px;
         }}
-        /* Controls */
         .controls-row {{
             display: flex;
             justify-content: center;
@@ -1290,58 +1262,24 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             border: 1px solid var(--card-border);
             color: var(--text-dim);
             border-radius: 10px;
-            transition: all 0.2s ease;
         }}
         .btn-mode.active {{
             background: var(--badge-bg);
             color: var(--text-main);
             border-color: var(--accent-primary);
-            box-shadow: 0 0 12px var(--badge-bg);
             font-weight: 800;
-        }}
-        .btn-mode.active .mode-icon {{
-            transform: scale(1.18);
-        }}
-        .mode-icon {{
-            font-size: 1rem;
-            display: inline-block;
-            transition: transform 0.2s ease;
         }}
         .badge-shuffle {{
             background: rgba(255, 255, 255, 0.05);
             color: var(--text-dim);
             border-color: rgba(255, 255, 255, 0.12);
             cursor: pointer;
-            transition: all 0.2s ease;
         }}
         .badge-shuffle.active {{
             background: var(--badge-bg);
             color: var(--badge-color);
             border-color: var(--badge-color);
-            box-shadow: 0 0 10px var(--badge-bg);
             font-weight: 800;
-        }}
-        .shortcuts-hint {{
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            font-size: 0.72rem;
-            color: var(--text-dim);
-            margin-top: 12px;
-            opacity: 0.8;
-            user-select: none;
-        }}
-        .shortcuts-hint kbd, .btn-mode kbd {{
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 4px;
-            padding: 1px 4px;
-            font-family: inherit;
-            font-size: 0.7rem;
-            font-weight: 700;
-            color: var(--accent-tertiary);
         }}
         button {{
             background: rgba(255, 255, 255, 0.07);
@@ -1352,13 +1290,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-size: 1rem;
             font-weight: 700;
             cursor: pointer;
-            transition: transform 0.1s ease, background-color 0.15s ease, box-shadow 0.15s ease;
-            user-select: none;
-        }}
-        button:active {{
-            transform: scale(0.94);
-            background: var(--accent-primary);
-            color: #000;
         }}
         .btn-main {{
             background: var(--btn-gradient);
@@ -1370,11 +1301,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             flex-grow: 1;
             max-width: 180px;
         }}
-        .btn-sub {{
-            padding: 10px 14px;
-            font-size: 0.88rem;
-        }}
-        /* Secondary Controls */
         .sec-controls {{
             display: flex;
             justify-content: space-between;
@@ -1397,14 +1323,12 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-weight: 700;
             min-width: 52px;
             text-align: center;
-            font-variant-numeric: tabular-nums;
         }}
         .btn-mini {{
             padding: 6px 10px;
             font-size: 0.78rem;
             border-radius: 8px;
         }}
-        /* Tracklist Section */
         .tracklist-card {{
             max-height: 280px;
             display: flex;
@@ -1423,15 +1347,6 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-size: 0.92rem;
             color: var(--accent-secondary);
             font-weight: 800;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }}
-        .tl-count {{
-            font-size: 0.72rem;
-            color: var(--text-dim);
-            font-weight: 700;
         }}
         .tl-items {{
             overflow-y: auto;
@@ -1446,13 +1361,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             margin-bottom: 4px;
             border-radius: 6px;
             font-size: 0.82rem;
-            line-height: 1.35;
             color: var(--text-main);
             background: rgba(255, 255, 255, 0.02);
             border-left: 3px solid var(--accent-primary);
-        }}
-        .tl-item:nth-child(even) {{
-            background: rgba(255, 255, 255, 0.04);
         }}
         .footer {{
             margin-top: auto;
@@ -1462,46 +1373,36 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             opacity: 0.75;
             padding: 10px 0;
         }}
-        @keyframes dynamicRainbowHue {{
-            0% {{ filter: hue-rotate(0deg); }}
-            100% {{ filter: hue-rotate(360deg); }}
-        }}
-        @keyframes dynamicRainbowBreath {{
-            0%, 100% {{
-                opacity: 0.91;
-            }}
-            50% {{
-                opacity: 1.09;
-            }}
-        }}
-        body.dynamic-rainbow-glass-active {{
-            background: radial-gradient(circle at 50% 20%, #17112b 0%, #06050e 100%);
-            animation: dynamicRainbowHue 18s linear infinite;
-        }}
-        body.dynamic-rainbow-glass-active .card {{
-            background: rgba(22, 16, 42, 0.70);
-            backdrop-filter: blur(24px) saturate(200%);
-            -webkit-backdrop-filter: blur(24px) saturate(200%);
-            border: 1px solid rgba(176, 88, 255, 0.55);
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85), 0 0 24px rgba(176, 88, 255, 0.35);
-            animation: dynamicRainbowBreath 6s ease-in-out infinite;
-        }}
-        body.dynamic-rainbow-glass-active .badge {{
-            animation: dynamicRainbowBreath 6s ease-in-out infinite;
-        }}
     </style>
 </head>
-<body class="{'dynamic-rainbow-glass-active' if t.get('is_dynamic_rainbow') else ''}">
+<body>
+    <!-- Mobile Audio Stream Activation Overlay -->
+    <div id="streamOverlay">
+        <div class="overlay-card">
+            <h2>🎧 MP Mix Stream</h2>
+            <p>Tap below to start routing the live high-resolution studio audio stream to your mobile device.</p>
+            <button class="btn-activate-stream" onclick="activateMobileStream()">Engage Audio Stream</button>
+        </div>
+    </div>
+
     <div class="header">
-        <h1>MP MIX MANAGER <span style="font-size: 0.45em; opacity: 0.75; font-weight: normal; vertical-align: middle;">v{html.escape(VERSION)}</span></h1>
-        <p>Studio & DJ Booth Mobile Companion</p>
-        <div id="themeBadge" class="theme-pill">🎨 {html.escape(t['name'])}</div>
+        <h1>MP MIX MANAGER <span class="app-version">v{html.escape(VERSION)}</span></h1>
+        <p>Studio & DJ Booth Mobile Web Companion</p>
+        <div id="themeBadge" class="theme-pill">🎨 <span id="themeNameText">{html.escape(t['name'])}</span></div>
     </div>
 
     <div class="card now-playing">
+        <div id="mobileAudioBanner" class="mobile-audio-banner">
+            <h4>📱 Mobile Audio Stream Active</h4>
+            <p>Direct low-latency audio stream routing engaged</p>
+        </div>
+
+        <!-- Hidden background audio routing element -->
+        <audio id="mobileAudioStream" preload="auto" style="display: none;"></audio>
+
         <div class="badges-row">
             <div id="playBadge" class="badge">STANDBY</div>
-            <div id="shuffleBadge" class="badge badge-shuffle" onclick="sendAction('shuffle')" title="Click or Press 'S' to Toggle Shuffle">🔀 SHUFFLE OFF</div>
+            <div id="shuffleBadge" class="badge badge-shuffle" onclick="sendAction('shuffle')">🔀 SHUFFLE OFF</div>
             <div id="sourceBadge" class="badge badge-source">CHECKING...</div>
         </div>
 
@@ -1515,7 +1416,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             </div>
         </div>
 
-        <!-- 24-Bar Audio Visualizer with Peak Hold Physics -->
+        <!-- 24-Bar Audio Visualizer -->
         <div class="visualizer-container" id="visContainer">
             {"".join(f'<div class="v-col"><div class="v-bar" id="vb{i}"></div><div class="v-peak" id="vp{i}"></div></div>' for i in range(24))}
         </div>
@@ -1533,45 +1434,37 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 
         <!-- Primary Controls -->
         <div class="controls-row">
-            <button class="btn-sub" onclick="sendAction('seek_backward')" title="Rewind 30s [Left Arrow]">⏪ 30s</button>
-            <button onclick="sendAction('previous')" title="Previous Track [P]">⏮</button>
-            <button class="btn-main" id="btnPlayPause" onclick="sendAction('play-pause')" title="Play / Pause [Space]">⏯ Play</button>
-            <button onclick="sendAction('next')" title="Next Track [N]">⏭</button>
-            <button class="btn-sub" onclick="sendAction('seek_forward')" title="Forward 30s [Right Arrow]">30s ⏩</button>
+            <button class="btn-sub" onclick="sendAction('seek_backward')">⏪ 30s</button>
+            <button onclick="sendAction('previous')">⏮</button>
+            <button class="btn-main" id="btnPlayPause" onclick="handlePlayPauseClick()">⏯ Play</button>
+            <button onclick="sendAction('next')">⏭</button>
+            <button class="btn-sub" onclick="sendAction('seek_forward')">30s ⏩</button>
         </div>
 
-        <!-- Mode Controls: Shuffle & Repeat -->
+        <!-- Mode Controls -->
         <div class="mode-controls-row">
-            <button class="btn-sub btn-mode" id="btnShuffle" onclick="sendAction('shuffle')" title="Toggle Shuffle Mode [S]">
-                <span class="mode-icon">🔀</span> Shuffle: <span id="shufText">OFF</span> <kbd>[S]</kbd>
+            <button class="btn-sub btn-mode" id="btnShuffle" onclick="sendAction('shuffle')">
+                <span>🔀</span> Shuffle: <span id="shufText">OFF</span>
             </button>
-            <button class="btn-sub btn-mode" id="btnRepeat" onclick="sendAction('repeat')" title="Cycle Repeat Mode [Y]">
-                <span class="mode-icon">🔁</span> Repeat: <span id="repText">ALL</span> <kbd>[Y]</kbd>
+            <button class="btn-sub btn-mode" id="btnRepeat" onclick="sendAction('repeat')">
+                <span>🔁</span> Repeat: <span id="repText">ALL</span>
             </button>
         </div>
 
-        <!-- Secondary Controls: Volume & Pitch -->
+        <!-- Secondary Controls -->
         <div class="sec-controls">
             <div class="control-group">
-                <button class="btn-mini" onclick="sendAction('vol_down')" title="Volume Down [Down Arrow]">🔉 -</button>
+                <button class="btn-mini" onclick="sendAction('vol_down')">🔉 -</button>
                 <span class="control-pill" id="volPill">Vol: 85%</span>
-                <button class="btn-mini" onclick="sendAction('vol_up')" title="Volume Up [Up Arrow]">+ 🔊</button>
-                <button class="btn-mini" onclick="sendAction('mute')" title="Mute Audio [M / U]">🔇</button>
+                <button class="btn-mini" onclick="sendAction('vol_up')">+ 🔊</button>
+                <button class="btn-mini" onclick="sendAction('mute')">🔇</button>
             </div>
             <div class="control-group">
-                <button class="btn-mini" onclick="sendAction('pitch_down')" title="Pitch Down 1%">[-]</button>
+                <button class="btn-mini" onclick="sendAction('pitch_down')">[-]</button>
                 <span class="control-pill" id="pitchPill">Pitch: 0%</span>
-                <button class="btn-mini" onclick="sendAction('pitch_up')" title="Pitch Up 1%">[+]</button>
-                <button class="btn-mini" onclick="sendAction('reset_pitch')" title="Reset Pitch [0]">0</button>
+                <button class="btn-mini" onclick="sendAction('pitch_up')">[+]</button>
+                <button class="btn-mini" onclick="sendAction('reset_pitch')">0</button>
             </div>
-        </div>
-
-        <div class="shortcuts-hint">
-            <span><kbd>S</kbd> Shuffle</span> &bull;
-            <span><kbd>Space</kbd> Play/Pause</span> &bull;
-            <span><kbd>M</kbd> Mute</span> &bull;
-            <span><kbd>N</kbd>/<kbd>P</kbd> Track</span> &bull;
-            <span><kbd>&larr;</kbd>/<kbd>&rarr;</kbd> Seek</span>
         </div>
     </div>
 
@@ -1593,8 +1486,60 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         let currentDurationSec = 0;
         let lastLoadedMix = "";
         let isPlayerActive = false;
+        let audioStreamConfigured = false;
+        let pendingActiveFile = "";
+        let pendingPositionSec = 0;
+        let lastKnownServerPos = 0;
 
-        // Visualizer 60 FPS Physics & Ballistics Engine
+        function isMobileDevice() {{
+            const ua = navigator.userAgent || navigator.vendor || window.opera;
+            return /android|iphone|ipad|ipod/i.test(ua.toLowerCase());
+        }}
+
+        window.addEventListener('DOMContentLoaded', () => {{
+            if (isMobileDevice()) {{
+                const banner = document.getElementById('mobileAudioBanner');
+                if (banner) banner.style.display = 'block';
+                
+                const overlay = document.getElementById('streamOverlay');
+                if (overlay) overlay.style.display = 'flex';
+            }}
+            if (currentThemeId === 'dynamic_rainbow_liquid_glass') {{
+                document.body.classList.add('rainbow-animated');
+            }}
+        }});
+
+        function activateMobileStream() {{
+            const overlay = document.getElementById('streamOverlay');
+            if (overlay) overlay.style.display = 'none';
+
+            const audioEl = document.getElementById('mobileAudioStream');
+            if (audioEl && pendingActiveFile) {{
+                audioEl.src = '/api/stream?file=' + encodeURIComponent(pendingActiveFile);
+                if (pendingPositionSec > 0) {{
+                    audioEl.currentTime = pendingPositionSec;
+                }}
+                audioEl.load();
+                audioEl.play().catch(e => {{
+                    console.log("Stream play execution caught:", e);
+                }});
+                audioStreamConfigured = true;
+            }}
+        }}
+
+        function handlePlayPauseClick() {{
+            const audioEl = document.getElementById('mobileAudioStream');
+            if (audioEl) {{
+                if (!audioEl.paused) {{
+                    audioEl.pause();
+                }} else {{
+                    audioEl.play().catch(e => {{}});
+                }}
+            }}
+            sendAction('play-pause');
+        }}
+
+        // Visualizer 60 FPS Physics
         const BANDS = 24;
         const currentLevels = new Float32Array(BANDS).fill(0.04);
         const targetLevels = new Float32Array(BANDS).fill(0.04);
@@ -1602,9 +1547,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         const peakVels = new Float32Array(BANDS).fill(0.0);
 
         function animLoop() {{
-            const attack = 0.52;      // Fast response on bass kicks & transients
-            const decay = 0.88;       // Smooth exponential falloff
-            const gravity = 0.0022;   // Peak drop gravity acceleration
+            const attack = 0.52;
+            const decay = 0.88;
+            const gravity = 0.0022;
 
             for (let i = 0; i < BANDS; i++) {{
                 const bar = document.getElementById('vb' + i);
@@ -1634,37 +1579,24 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 const peakPct = Math.min(98, Math.max(barPct, Math.round(currentPeaks[i] * 100)));
 
                 bar.style.height = barPct + '%';
-                if (peakEl) {{
-                    peakEl.style.bottom = peakPct + '%';
-                }}
+                if (peakEl) peakEl.style.bottom = peakPct + '%';
             }}
             requestAnimationFrame(animLoop);
         }}
         requestAnimationFrame(animLoop);
 
-        function applyTheme(themeObj) {{
-            if (!themeObj || !themeObj.id || themeObj.id === currentThemeId) return;
-            currentThemeId = themeObj.id;
-            const root = document.documentElement;
-            const vars = themeObj.vars || themeObj;
-            for (const [k, v] of Object.entries(vars)) {{
-                if (typeof v === 'string') {{
-                    root.style.setProperty('--' + k.replace(/_/g, '-'), v);
-                }}
-            }}
-            const badge = document.getElementById('themeBadge');
-            if (badge && themeObj.name) {{
-                badge.innerText = '🎨 ' + themeObj.name;
-            }}
-            document.body.classList.toggle('dynamic-rainbow-glass-active', !!(themeObj.is_dynamic_rainbow || themeObj.id === 'dynamic_rainbow_liquid_glass'));
-        }}
-
-        function seekClick(e) {{
+        async function seekClick(e) {{
             if (!currentDurationSec || currentDurationSec <= 0) return;
             const rect = e.currentTarget.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const pct = Math.max(0, Math.min(1, clickX / rect.width));
             const seekPos = pct * currentDurationSec;
+            
+            const audioEl = document.getElementById('mobileAudioStream');
+            if (audioEl && audioEl.duration) {{
+                audioEl.currentTime = seekPos;
+            }}
+
             sendAction('seek_to', {{ position: seekPos.toFixed(1) }});
         }}
 
@@ -1673,41 +1605,59 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             const txt = document.getElementById('shufText');
             const badge = document.getElementById('shuffleBadge');
             if (btn && txt) {{
-                if (isShuf) {{
-                    btn.classList.add('active');
-                    txt.innerText = 'ON';
-                }} else {{
-                    btn.classList.remove('active');
-                    txt.innerText = 'OFF';
-                }}
+                btn.classList.toggle('active', isShuf);
+                txt.innerText = isShuf ? 'ON' : 'OFF';
             }}
             if (badge) {{
-                if (isShuf) {{
-                    badge.innerText = '🔀 SHUFFLE ON';
-                    badge.classList.add('active');
-                }} else {{
-                    badge.innerText = '🔀 SHUFFLE OFF';
-                    badge.classList.remove('active');
-                }}
+                badge.innerText = isShuf ? '🔀 SHUFFLE ON' : '🔀 SHUFFLE OFF';
+                badge.classList.toggle('active', isShuf);
             }}
         }}
 
         function updateRepeatUI(repMode) {{
             const btn = document.getElementById('btnRepeat');
             const txt = document.getElementById('repText');
-            if (txt) {{
-                txt.innerText = String(repMode || 'ALL').toUpperCase();
-            }}
-            if (btn) {{
-                if (repMode && repMode !== 'off') {{
-                    btn.classList.add('active');
-                }} else {{
-                    btn.classList.remove('active');
-                }}
-            }}
+            if (txt) txt.innerText = String(repMode || 'ALL').toUpperCase();
+            if (btn) btn.classList.toggle('active', Boolean(repMode && repMode !== 'off'));
         }}
 
-        // Fast Visualizer & Telemetry Polling (every 100ms)
+        async function fetchTheme() {{
+            try {{
+                const res = await fetch('/api/theme');
+                const th = await res.json();
+                if (th && th.id && th.id !== currentThemeId) {{
+                    currentThemeId = th.id;
+                    document.getElementById('themeNameText').innerText = th.name;
+
+                    const r = document.querySelector(':root');
+                    r.style.setProperty('--bg', th.bg);
+                    r.style.setProperty('--card-bg', th.card_bg);
+                    r.style.setProperty('--card-border', th.card_border);
+                    r.style.setProperty('--card-shadow', th.card_shadow);
+                    r.style.setProperty('--text-main', th.text_main);
+                    r.style.setProperty('--text-dim', th.text_dim);
+                    r.style.setProperty('--accent-primary', th.accent_primary);
+                    r.style.setProperty('--accent-secondary', th.accent_secondary);
+                    r.style.setProperty('--accent-tertiary', th.accent_tertiary);
+                    r.style.setProperty('--accent-crimson', th.accent_crimson);
+                    r.style.setProperty('--header-gradient', th.header_gradient);
+                    r.style.setProperty('--btn-gradient', th.btn_gradient);
+                    r.style.setProperty('--btn-shadow', th.btn_shadow);
+                    r.style.setProperty('--progress-fill', th.progress_fill);
+                    r.style.setProperty('--badge-bg', th.badge_bg);
+                    r.style.setProperty('--badge-color', th.badge_color);
+                    r.style.setProperty('--eq-bar', th.eq_bar);
+                    r.style.setProperty('--eq-peak', th.eq_peak);
+
+                    if (th.id === 'dynamic_rainbow_liquid_glass') {{
+                        document.body.classList.add('rainbow-animated');
+                    }} else {{
+                        document.body.classList.remove('rainbow-animated');
+                    }}
+                }}
+            }} catch (e) {{}}
+        }}
+
         async function fetchEq() {{
             try {{
                 const res = await fetch('/api/eq');
@@ -1719,86 +1669,100 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                         targetLevels[i] = isPlayerActive ? Math.max(0.04, Math.min(1.0, data.levels[i])) : 0.04;
                     }}
                 }}
-                if (data.peaks && data.peaks.length) {{
-                    for (let i = 0; i < BANDS && i < data.peaks.length; i++) {{
-                        if (isPlayerActive && data.peaks[i] > currentPeaks[i]) {{
-                            currentPeaks[i] = Math.min(1.0, data.peaks[i]);
-                            peakVels[i] = 0.0;
-                        }}
-                    }}
-                }}
-
                 if (data.position) document.getElementById('posTime').innerText = data.position;
                 if (data.duration) document.getElementById('durTime').innerText = data.duration;
                 if (data.progress_pct !== undefined) {{
-                    const pct = Math.max(0, Math.min(100, data.progress_pct));
-                    document.getElementById('progressBar').style.width = pct + '%';
+                    document.getElementById('progressBar').style.width = Math.max(0, Math.min(100, data.progress_pct)) + '%';
                 }}
-
+                if (data.position_sec !== undefined) {{
+                    const audioEl = document.getElementById('mobileAudioStream');
+                    if (audioEl && !audioEl.paused && audioStreamConfigured) {{
+                        if (Math.abs(audioEl.currentTime - data.position_sec) > 3.0) {{
+                            audioEl.currentTime = data.position_sec;
+                        }}
+                    }}
+                    lastKnownServerPos = data.position_sec;
+                }}
                 if (data.volume !== undefined) {{
                     document.getElementById('volPill').innerText = 'Vol: ' + data.volume + '%';
+                    const audioEl = document.getElementById('mobileAudioStream');
+                    if (audioEl) audioEl.volume = Math.max(0, Math.min(1, data.volume / 100.0));
                 }}
                 if (data.pitch_percent !== undefined) {{
                     const p = data.pitch_percent;
                     document.getElementById('pitchPill').innerText = 'Pitch: ' + (p > 0 ? '+' : '') + p + '%';
                 }}
-
                 updateShuffleUI(Boolean(data.shuffle));
                 if (data.repeat) updateRepeatUI(data.repeat);
             }} catch (e) {{}}
         }}
 
-        // Full Metadata, Tracklist & Theme Polling (every 2000ms)
         async function fetchStatus() {{
             try {{
                 const res = await fetch('/api/status');
                 const data = await res.json();
 
-                // 1. Dynamic theme sync
-                if (data.theme && data.theme.id !== currentThemeId) {{
-                    applyTheme(data.theme);
-                }}
-
-                // 2. Playback identity
                 document.getElementById('trackTitle').innerText = data.title || "No Mix Playing";
-                const artistStr = data.album ? (data.artist + " • " + data.album) : (data.artist || "MPlanetarian");
-                document.getElementById('trackArtist').innerText = artistStr;
+                document.getElementById('trackArtist').innerText = data.album ? (data.artist + " • " + data.album) : (data.artist || "MPlanetarian");
 
-                // 3. Status Badges
                 const badge = document.getElementById('playBadge');
                 const state = (data.state || "stopped").toLowerCase();
                 badge.innerText = state.toUpperCase();
+                
+                const audioEl = document.getElementById('mobileAudioStream');
                 if (state === 'playing') {{
                     badge.style.background = 'var(--badge-bg)';
                     badge.style.color = 'var(--badge-color)';
                     badge.style.borderColor = 'var(--badge-color)';
                     document.getElementById('btnPlayPause').innerText = '⏸ Pause';
+                    
+                    if (audioEl && audioEl.paused && audioStreamConfigured) {{
+                        audioEl.play().catch(e => {{}});
+                    }}
                 }} else {{
                     badge.style.background = 'rgba(255, 170, 0, 0.15)';
                     badge.style.color = '#ffaa00';
                     badge.style.borderColor = '#ffaa00';
                     document.getElementById('btnPlayPause').innerText = '⏯ Play';
+                    
+                    if (audioEl && !audioEl.paused) {{
+                        audioEl.pause();
+                    }}
                 }}
 
-                const srcBadge = document.getElementById('sourceBadge');
-                srcBadge.innerText = (data.player || "None").toUpperCase();
-
-                // 4. Progress & Time
+                document.getElementById('sourceBadge').innerText = (data.player || "None").toUpperCase();
                 currentDurationSec = data.duration_sec || 0;
 
-                // 5. Specs chips
+                if (isMobileDevice() && data.active_file) {{
+                    pendingActiveFile = data.active_file;
+                    pendingPositionSec = data.position_sec || 0;
+
+                    if (!audioStreamConfigured) {{
+                        if (audioEl) {{
+                            audioEl.src = '/api/stream?file=' + encodeURIComponent(data.active_file);
+                            if (data.position_sec > 0) {{
+                                audioEl.currentTime = data.position_sec;
+                            }}
+                            audioEl.load();
+
+                            audioEl.play().then(() => {{
+                                audioStreamConfigured = true;
+                                const overlay = document.getElementById('streamOverlay');
+                                if (overlay) overlay.style.display = 'none';
+                            }}).catch(err => {{}});
+                        }}
+                    }}
+                }}
+
                 document.getElementById('specFormat').innerText = data.format || "AUDIO";
                 document.getElementById('specRate').innerText = data.sample_rate || "48.0 kHz";
                 document.getElementById('specChannels').innerText = data.channels || "Stereo";
 
-                // 6. Modes
                 updateShuffleUI(Boolean(data.shuffle));
                 if (data.repeat) updateRepeatUI(data.repeat);
 
-                // 7. Tracklist population
                 if (data.tracklist && data.tracklist.length > 0) {{
-                    const tlCard = document.getElementById('tlCard');
-                    tlCard.style.display = 'flex';
+                    document.getElementById('tlCard').style.display = 'flex';
                     document.getElementById('tlCount').innerText = data.tracklist.length + ' Tracks';
                     const key = (data.active_file || data.title);
                     if (key !== lastLoadedMix) {{
@@ -1830,48 +1794,12 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }} catch (e) {{}}
         }}
 
-        // Global Desktop & Tablet Keyboard Shortcuts (Matching Manager)
-        document.addEventListener('keydown', (e) => {{
-            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
-            const k = e.key.toLowerCase();
-            if (k === 's') {{
-                e.preventDefault();
-                sendAction('shuffle');
-            }} else if (k === ' ' || e.code === 'Space') {{
-                e.preventDefault();
-                sendAction('play-pause');
-            }} else if (k === 'n') {{
-                e.preventDefault();
-                sendAction('next');
-            }} else if (k === 'p') {{
-                e.preventDefault();
-                sendAction('prev');
-            }} else if (k === 'm' || k === 'u') {{
-                e.preventDefault();
-                sendAction('mute');
-            }} else if (k === 'l') {{
-                e.preventDefault();
-                sendAction('repeat');
-            }} else if (e.key === 'ArrowLeft') {{
-                e.preventDefault();
-                sendAction('seek_backward');
-            }} else if (e.key === 'ArrowRight') {{
-                e.preventDefault();
-                sendAction('seek_forward');
-            }} else if (e.key === 'ArrowUp') {{
-                e.preventDefault();
-                sendAction('vol_up');
-            }} else if (e.key === 'ArrowDown') {{
-                e.preventDefault();
-                sendAction('vol_down');
-            }}
-        }});
-
-        // Polling Timers: High-rate 100ms for visualizer, 2000ms for metadata
         setInterval(fetchEq, 100);
         setInterval(fetchStatus, 2000);
+        setInterval(fetchTheme, 3000);
         fetchEq();
         fetchStatus();
+        fetchTheme();
     </script>
 </body>
 </html>
@@ -1889,11 +1817,10 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
-        elif url.path in ("/api/status", "/api/theme", "/api/eq", "/api/levels", "/api/visualizer"):
+        elif url.path in ("/api/status", "/api/theme", "/api/eq"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
         else:
             self.send_response(404)
@@ -1901,6 +1828,8 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
+        parsed_query = urllib.parse.parse_qs(url.query)
+
         if url.path in ("/", "/index.html"):
             current_theme = get_theme_palette(CLI_THEME)
             html_content = render_html_page(current_theme)
@@ -1909,12 +1838,11 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(html_content.encode("utf-8"))
-        elif url.path in ("/api/eq", "/api/levels", "/api/visualizer"):
+        elif url.path == "/api/eq":
             eq_data = get_eq_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(json.dumps(eq_data).encode("utf-8"))
         elif url.path == "/api/status":
@@ -1922,7 +1850,6 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
             self.wfile.write(json.dumps(status).encode("utf-8"))
         elif url.path == "/api/theme":
@@ -1932,6 +1859,23 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(theme).encode("utf-8"))
+        elif url.path == "/api/stream":
+            file_path = parsed_query.get("file", [""])[0]
+            if file_path and os.path.isfile(file_path):
+                try:
+                    file_size = os.path.getsize(file_path)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/flac")
+                    self.send_header("Content-Length", str(file_size))
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    with open(file_path, "rb") as f:
+                        shutil.copyfileobj(f, self.wfile)
+                    return
+                except Exception:
+                    pass
+            self.send_response(404)
+            self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
@@ -1952,7 +1896,7 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # Quiet logging for mobile polling
+        pass
 
 
 def main():
@@ -1961,9 +1905,9 @@ def main():
     default_port = int(os.environ.get("WEB_COMPANION_PORT", str(PORT)))
 
     parser = argparse.ArgumentParser(description="MP Mix Manager Mobile Web Companion")
-    parser.add_argument("--host", "-H", type=str, default=default_host, help=f"Server host address to bind (default: {default_host})")
-    parser.add_argument("--port", "-p", type=int, default=default_port, help=f"Server port (default: {default_port})")
-    parser.add_argument("--theme", "-t", type=str, default=None, help="Theme name override (e.g. cosmic_supernova, dreamworlds, dracula, matrix, nord)")
+    parser.add_argument("--host", "-H", type=str, default=default_host)
+    parser.add_argument("--port", "-p", type=int, default=default_port)
+    parser.add_argument("--theme", "-t", type=str, default=None)
     args = parser.parse_args()
 
     CLI_THEME = args.theme
@@ -1975,15 +1919,12 @@ def main():
     try:
         httpd = http.server.ThreadingHTTPServer(server_address, CompanionHandler)
     except OSError as err:
-        if err.errno in (98, 48, 10048):  # EADDRINUSE on Linux (98), macOS/BSD (48), Windows (10048)
+        if err.errno in (98, 48, 10048):
             print(f"\n======================================================================")
-            print(f"  🌌 MP MIX ARCHIVE MANAGER — MOBILE WEB COMPANION")
+            print(f"  🌌 MP MIX ARCHIVE MANAGER — MOBILE WEB COMPANION (ACTIVE)")
             print(f"======================================================================")
-            print(f"  • Status:         ALREADY ACTIVE & RUNNING on port {args.port}")
             print(f"  • Local Machine:  http://localhost:{args.port}")
             print(f"  • Phone / Tablet: http://{host_display}:{args.port}")
-            if args.host not in ("0.0.0.0", "127.0.0.1", "localhost"):
-                print(f"  • Bound Host:     {args.host}")
             print(f"======================================================================\n")
             return 0
         raise
@@ -1994,11 +1935,9 @@ def main():
     print(f"  • Active Theme:   {active_theme['name']} ({active_theme['id']})")
     print(f"  • Local Machine:  http://localhost:{args.port}")
     print(f"  • Phone / Tablet: http://{host_display}:{args.port}")
-    if args.host not in ("0.0.0.0", "127.0.0.1", "localhost"):
-        print(f"  • Bound Host:     {args.host}")
     print(f"======================================================================\n")
-    print("Press Ctrl+C to stop the companion server.\n")
 
+    print("Press Ctrl+C to stop the companion server.\n")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
