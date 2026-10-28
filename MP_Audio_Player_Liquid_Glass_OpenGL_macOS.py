@@ -627,6 +627,9 @@ class TerminalOverlay:
                             col = self.colors[r][c]
                             draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
+                # Vertically flip the image to match macOS/OpenGL framebuffer orientation while preserving panel alignment
+                render_image = self.image.transpose(Image.FLIP_TOP_BOTTOM)
+
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(
                     GL_TEXTURE_2D,
@@ -637,7 +640,7 @@ class TerminalOverlay:
                     0,
                     GL_RGBA,
                     GL_UNSIGNED_BYTE,
-                    self.image.tobytes("raw", "RGBA", 0, 1),
+                    render_image.tobytes("raw", "RGBA", 0, 1),
                 )
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
@@ -647,15 +650,15 @@ class TerminalOverlay:
             x2 = -1.0 + (2.0 * self.img_w / fw)
             y2 = -1.0 + (2.0 * self.img_h / fh)
 
-            # Inverted V coordinates (0.0 <-> 1.0) to flip text right-side up on macOS
+            # Standard UV coordinates matching glass panel layout positions
             quad_data = np.array(
                 [
-                    x1, y1, 0.0, 1.0,
-                    x2, y1, 1.0, 1.0,
-                    x1, y2, 0.0, 0.0,
-                    x2, y1, 1.0, 1.0,
-                    x2, y2, 1.0, 0.0,
-                    x1, y2, 0.0, 0.0,
+                    x1, y1, 0.0, 0.0,
+                    x2, y1, 1.0, 0.0,
+                    x1, y2, 0.0, 1.0,
+                    x2, y1, 1.0, 0.0,
+                    x2, y2, 1.0, 1.0,
+                    x1, y2, 0.0, 1.0,
                 ],
                 dtype=np.float32,
             )
