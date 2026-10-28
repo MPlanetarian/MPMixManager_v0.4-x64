@@ -1256,14 +1256,19 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
                         for r in (nat, 48000, 44100): add(int(dev), r, ex)
             except Exception: pass
 
-        # macOS / Linux / General: Query default output device native sample rate first
+        # Safe macOS / cross-platform native rate query
         try:
-            default_out_idx = sd.default.device[1] if isinstance(sd.default.device, (list, tuple)) and len(sd.default.device) > 1 else None
-            dev_info = sd.query_devices(default_out_idx, 'output')
+            default_out = getattr(sd.default, 'device', None)
+            default_out_idx = None
+            if isinstance(default_out, (list, tuple)) and len(default_out) > 1:
+                default_out_idx = default_out[1]
+            elif isinstance(default_out, int):
+                default_out_idx = default_out
+
+            dev_info = sd.query_devices(default_out_idx, 'output') if default_out_idx is not None else sd.query_devices(kind='output')
             native_rate = int(dev_info.get("default_samplerate") or 48000)
             dev_idx = int(default_out_idx) if default_out_idx is not None and default_out_idx >= 0 else None
-            # Try native rate first, followed by high-res and standard rates
-            for r in (native_rate, 44100, 48000, 96000, 88200, 32000, 22050):
+            for r in (native_rate, 44100, 48000, 96000, 88200):
                 add(dev_idx, r, None)
         except Exception: pass
 
@@ -1272,7 +1277,7 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
             add(None, int(gen_out.get("default_samplerate") or 48000), None)
         except Exception: pass
 
-        for r in (44100, 48000, 96000, 88200, 32000, 22050): 
+        for r in (44100, 48000, 96000, 88200): 
             add(None, r, None)
 
         return attempts
