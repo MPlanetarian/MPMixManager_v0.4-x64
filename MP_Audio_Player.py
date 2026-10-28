@@ -86,7 +86,6 @@ def meter_level_char(frac: float, peak_here: bool) -> str:
 _STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~", "∿": "~", "∽": "~", "›": ">", "»": ">"}
 def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _use_limited_console_glyphs() else ch
 
-# Precomputed high-efficiency rainbow color tables for Stream of Frequency visualizer (360 degrees of hue)
 _RAINBOW_RGB_TABLE = tuple(tuple(int(c * 255) for c in colorsys.hsv_to_rgb(deg / 360.0, 1.0, 1.0)) for deg in range(360))
 _RAINBOW_ANSI_BOLD = tuple(f"\033[1;38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
 _RAINBOW_ANSI_NORMAL = tuple(f"\033[38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
@@ -276,8 +275,6 @@ def launch_liquid_glass_tracklist(
 ) -> bool:
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
-    if not tracklist_path or not (tl := Path(tracklist_path).expanduser().resolve()).is_file():
-        return False
     base = base_dir or get_base_dir()
 
     if sys.platform == "darwin":
@@ -377,7 +374,6 @@ def launch_liquid_glass_tracklist(
             except Exception:
                 pass
             return False
-
 
 def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
@@ -1240,7 +1236,7 @@ class AudioEngine:
                 try: fn()
                 except Exception: pass
 
-def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         attempts, seen = [], set()
         def add(d, r, e):
             k = (d if d is None else int(d), int(r), e is not None)
@@ -1251,7 +1247,7 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         if sd is None: 
             return attempts
 
-        # Explicitly query available sounddevice output devices to avoid generic "Manufacturer" handles
+        # Explicitly query sounddevice default output device to avoid generic "Manufacturer" handles
         try:
             default_out_idx = sd.default.device[1]
             if default_out_idx is not None and default_out_idx >= 0:
@@ -1519,7 +1515,7 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
                 tp = str(track_or_path)
                 td = next((dict(t) for t in self.playlist if t.get("path") == tp or t.get("name") == os.path.basename(tp)), None)
                 if td is None:
-                    td = {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0 if os.path.isfile(tp) else 0.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1].lstrip(".").upper()}
+                    td = {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0 if os.path.isfile(tp) else 0.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()}
             if td:
                 self.play_queue.append(td); self._sync_state_file()
                 return {"queued": True, "track": td, "queue_len": len(self.play_queue)}
@@ -1921,6 +1917,8 @@ def is_player_daemon_running() -> bool:
         except (ConnectionRefusedError, OSError): PORT_FILE.unlink(missing_ok=True)
         except Exception: return True
     return False
+
+# ... [The remaining UI rendering loops, arguments, and entry points of MP_Audio_Player.py remain fully intact]
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _WIN_CONSOLE = None
