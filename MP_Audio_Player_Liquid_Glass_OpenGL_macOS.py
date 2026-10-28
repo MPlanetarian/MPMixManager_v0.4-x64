@@ -278,10 +278,10 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origi
         return box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7))
     else:
         iw = max(20, cols - 6)
-        viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
-        body_rows = max(1, rows - (before + 1) - 4)
-        return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows + 2)
+        # Playlist container box positioned at row 16 with height increased by 6 lines (21 rows total)
+        before = 16
+        body_rows = 21
+        return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows)
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -744,10 +744,22 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self._dragging = False
         self._drag_start_x = 0.0
         self._drag_start_y = 0.0
+        
+        # Window transparency reduced by 20% (Default clear opacity set to 0.60 instead of 0.80)
+        self.clear_opacity = 0.60
+        self.slider_val = 0.60
+        self._slider_dragging = False
 
     def open(self):
         super().open()
         self._bind_callbacks()
+        # Apply initial 60% opacity to macOS window via GLFW
+        if hasattr(self, "_glfw") and hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
+            try:
+                self._glfw.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
+                self._glfw.glfwSetWindowOpacity(self._window, ctypes.c_float(self.clear_opacity))
+            except Exception:
+                pass
         if hasattr(self._glfw, "glfwSwapInterval") and self._window:
             self._glfw.glfwSwapInterval(1)
         return self
@@ -755,23 +767,40 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def _bind_callbacks(self):
         from ctypes import CFUNCTYPE, c_void_p, c_int, c_double, POINTER
 
+        if hasattr(self._glfw, "glfwSetWindowOpacity"):
+            self._glfw.glfwSetWindowOpacity.argtypes = [c_void_p, ctypes.c_float]
+
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)
         def mouse_button_callback(_window, button, action, mods):
             if button == 0:  # Left mouse button
-                if action == 1:  # Pressed
-                    self._dragging = True
-                    xpos = c_double()
-                    ypos = c_double()
-                    if hasattr(self._glfw, "glfwGetCursorPos"):
-                        self._glfw.glfwGetCursorPos(_window, ctypes.byref(xpos), ctypes.byref(ypos))
-                    self._drag_start_x = xpos.value
-                    self._drag_start_y = ypos.value
-                elif action == 0:  # Released
-                    self._dragging = False
+                xpos = c_double()
+                ypos = c_double()
+                if hasattr(self._glfw, "glfwGetCursorPos"):
+                    self._glfw.glfwGetCursorPos(_window, ctypes.byref(xpos), ctypes.byref(ypos))
+                
+                ww, wh = self.window_size()
+                # Check if click is inside the bottom slider bar region (bottom 35 pixels)
+                if wh - ypos.value <= 35 and 40 <= xpos.value <= ww - 40:
+                    if action == 1:  # Pressed
+                        self._slider_dragging = True
+                        self._update_slider(xpos.value, ww)
+                    elif action == 0:
+                        self._slider_dragging = False
+                else:
+                    if action == 1:  # Pressed
+                        self._dragging = True
+                        self._drag_start_x = xpos.value
+                        self._drag_start_y = ypos.value
+                    elif action == 0:  # Released
+                        self._dragging = False
+                        self._slider_dragging = False
 
         @CFUNCTYPE(None, c_void_p, c_double, c_double)
         def cursor_pos_callback(_window, xpos, ypos):
-            if self._dragging:
+            ww, wh = self.window_size()
+            if self._slider_dragging:
+                self._update_slider(xpos, ww)
+            elif self._dragging:
                 dx = xpos - self._drag_start_x
                 dy = ypos - self._drag_start_y
                 x_win = c_int()
@@ -822,6 +851,27 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                 self._glfw.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
             if hasattr(self._glfw, "glfwSetWindowPos"):
                 self._glfw.glfwSetWindowPos.argtypes = [c_void_p, c_int, c_int]
+
+    def _update_slider(self, xpos, ww):
+        slider_left = 40.0
+        slider_right = max(80.0, float(ww) - 40.0)
+        t = max(0.0, min(1.0, (xpos - slider_left) / (slider_right - slider_left)))
+        
+        # Map t (0.0 to 1.0) to opacity range 40% to 80% (0.40 to 0.80)
+        self.slider_val = 0.40 + t * (0.80 - 0.40)
+        self.clear_opacity = self.slider_val
+
+        # Update macOS native window opacity via GLFW
+        if hasattr(self, "_glfw") and hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
+            try:
+                self._glfw.glfwSetWindowOpacity(self._window, ctypes.c_float(self.clear_opacity))
+            except Exception:
+                pass
+
+        # Fallback for X11 / Linux environments if applicable
+        win = self.x11_window() if hasattr(self, "x11_window") else None
+        if win:
+            self._set_opacity(win, self.clear_opacity)
 
     def draw(self, theme_name, opacity=1.0, capture=False):
         if not self.poll():
@@ -886,6 +936,9 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
         self.overlay.render(fw, fh, ww, wh)
+        
+        # Draw interactive bottom slider bar for transparency control (40% to 80%)
+        self._draw_transparency_slider(fw, fh, ww, wh)
 
         pixels = None
         if capture:
@@ -894,6 +947,99 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
         self._glfw.glfwSwapBuffers(self._window)
         return pixels
+
+    def _draw_transparency_slider(self, fw, fh, ww, wh):
+        try:
+            from OpenGL.GL import (
+                glUseProgram, glGenVertexArrays, glBindVertexArray, glGenBuffers,
+                glBindBuffer, glBufferData, glVertexAttribPointer, glEnableVertexAttribArray,
+                glDrawArrays, glDisable, glEnable, glBlendFunc, GL_BLEND, GL_SRC_ALPHA,
+                GL_ONE_MINUS_SRC_ALPHA, GL_TRIANGLES, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW,
+                GL_FLOAT, GL_FALSE, glUniform4f, glCreateShader, glShaderSource,
+                glCompileShader, glCreateProgram, glAttachShader, glLinkProgram,
+                GL_VERTEX_SHADER, GL_FRAGMENT_SHADER
+            )
+            import numpy as np
+
+            if not hasattr(self, "_slider_prog"):
+                vs_src = b"""
+                #version 410 core
+                layout(location = 0) in vec2 a_pos;
+                void main() {
+                    gl_Position = vec4(a_pos, 0.0, 1.0);
+                }
+                """
+                fs_src = b"""
+                #version 410 core
+                uniform vec4 u_color;
+                out vec4 fragColor;
+                void main() {
+                    fragColor = u_color;
+                }
+                """
+                vs = glCreateShader(GL_VERTEX_SHADER)
+                glShaderSource(vs, vs_src)
+                glCompileShader(vs)
+                fs = glCreateShader(GL_FRAGMENT_SHADER)
+                glShaderSource(fs, fs_src)
+                glCompileShader(fs)
+                self._slider_prog = glCreateProgram()
+                glAttachShader(self._slider_prog, vs)
+                glAttachShader(self._slider_prog, fs)
+                glLinkProgram(self._slider_prog)
+                self._slider_vao = glGenVertexArrays(1)
+                self._slider_vbo = glGenBuffers(1)
+
+            x_left = 40.0
+            x_right = float(ww) - 40.0
+            y_track = 18.0
+            
+            ndc_x1 = (x_left / ww) * 2.0 - 1.0
+            ndc_x2 = (x_right / ww) * 2.0 - 1.0
+            ndc_y1 = ((wh - y_track - 4.0) / wh) * -2.0 + 1.0
+            ndc_y2 = ((wh - y_track + 4.0) / wh) * -2.0 + 1.0
+
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glUseProgram(self._slider_prog)
+            glBindVertexArray(self._slider_vao)
+            glBindBuffer(GL_ARRAY_BUFFER, self._slider_vbo)
+
+            track_quad = np.array([
+                ndc_x1, ndc_y1,  ndc_x2, ndc_y1,  ndc_x1, ndc_y2,
+                ndc_x2, ndc_y1,  ndc_x2, ndc_y2,  ndc_x1, ndc_y2
+            ], dtype=np.float32)
+
+            from OpenGL.GL import glGetUniformLocation
+            u_col_loc = glGetUniformLocation(self._slider_prog, "u_color")
+            
+            glUniform4f(u_col_loc, 0.2, 0.4, 0.6, 0.6)
+            glBufferData(GL_ARRAY_BUFFER, track_quad.nbytes, track_quad, GL_DYNAMIC_DRAW)
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * 4, ctypes.c_void_p(0))
+            glEnableVertexAttribArray(0)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            t = (self.slider_val - 0.40) / (0.80 - 0.40)
+            thumb_x = x_left + t * (x_right - x_left)
+            
+            t_x1 = ((thumb_x - 6.0) / ww) * 2.0 - 1.0
+            t_x2 = ((thumb_x + 6.0) / ww) * 2.0 - 1.0
+            t_y1 = ((wh - y_track - 10.0) / wh) * -2.0 + 1.0
+            t_y2 = ((wh - y_track + 10.0) / wh) * -2.0 + 1.0
+
+            thumb_quad = np.array([
+                t_x1, t_y1,  t_x2, t_y1,  t_x1, t_y2,
+                t_x2, t_y1,  t_x2, t_y2,  t_x1, t_y2
+            ], dtype=np.float32)
+
+            glUniform4f(u_col_loc, 0.6, 0.8, 1.0, 0.9)
+            glBufferData(GL_ARRAY_BUFFER, thumb_quad.nbytes, thumb_quad, GL_DYNAMIC_DRAW)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            glBindVertexArray(0)
+            glUseProgram(0)
+        except Exception as e:
+            print(f"Slider draw error: {e}", flush=True)
 
 
 class OpenGLGlassHost:
