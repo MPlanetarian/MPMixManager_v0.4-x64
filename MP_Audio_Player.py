@@ -1240,14 +1240,12 @@ class AudioEngine:
                 try: fn()
                 except Exception: pass
 
-def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         attempts, seen = [], set()
         def add(d, r, e):
             k = (d if d is None else int(d), int(r), e is not None)
             if r > 0 and k not in seen: seen.add(k); attempts.append((d, int(r), e))
         if sd is None: return attempts
-
-        # Windows WASAPI specific handling
         if sys.platform == "win32":
             try:
                 for h in sd.query_hostapis():
@@ -1255,26 +1253,9 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
                         ex, nat = sd.WasapiSettings(exclusive=False, auto_convert=True), int(sd.query_devices(int(dev)).get("default_samplerate") or 48000)
                         for r in (nat, 48000, 44100): add(int(dev), r, ex)
             except Exception: pass
-
-        # macOS / Linux / General: Query default output device native sample rate first
-        try:
-            default_out_idx = sd.default.device[1] if isinstance(sd.default.device, (list, tuple)) and len(sd.default.device) > 1 else None
-            dev_info = sd.query_devices(default_out_idx, 'output')
-            native_rate = int(dev_info.get("default_samplerate") or 48000)
-            dev_idx = int(default_out_idx) if default_out_idx is not None and default_out_idx >= 0 else None
-            # Try native rate first, followed by high-res and standard rates
-            for r in (native_rate, 44100, 48000, 96000, 88200, 32000, 22050):
-                add(dev_idx, r, None)
+        try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
         except Exception: pass
-
-        try: 
-            gen_out = sd.query_devices(kind="output")
-            add(None, int(gen_out.get("default_samplerate") or 48000), None)
-        except Exception: pass
-
-        for r in (44100, 48000, 96000, 88200, 32000, 22050): 
-            add(None, r, None)
-
+        for r in (48000, 44100): add(None, r, None)
         return attempts
 
     def _open_output_stream(self) -> bool:
