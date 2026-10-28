@@ -86,6 +86,7 @@ def meter_level_char(frac: float, peak_here: bool) -> str:
 _STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~", "∿": "~", "∽": "~", "›": ">", "»": ">"}
 def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _use_limited_console_glyphs() else ch
 
+# Precomputed high-efficiency rainbow color tables for Stream of Frequency visualizer (360 degrees of hue)
 _RAINBOW_RGB_TABLE = tuple(tuple(int(c * 255) for c in colorsys.hsv_to_rgb(deg / 360.0, 1.0, 1.0)) for deg in range(360))
 _RAINBOW_ANSI_BOLD = tuple(f"\033[1;38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
 _RAINBOW_ANSI_NORMAL = tuple(f"\033[38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
@@ -275,6 +276,8 @@ def launch_liquid_glass_tracklist(
 ) -> bool:
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
+    if not tracklist_path or not (tl := Path(tracklist_path).expanduser().resolve()).is_file():
+        return False
     base = base_dir or get_base_dir()
 
     if sys.platform == "darwin":
@@ -374,6 +377,7 @@ def launch_liquid_glass_tracklist(
             except Exception:
                 pass
             return False
+
 
 def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
@@ -1236,98 +1240,56 @@ class AudioEngine:
                 try: fn()
                 except Exception: pass
 
-def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         attempts, seen = [], set()
         def add(d, r, e):
             k = (d if d is None else int(d), int(r), e is not None)
-            if r > 0 and k not in seen:
-                seen.add(k)
-                attempts.append((d, int(r), e))
-
-        if sd is None:
-            return attempts
-
-        # 1. Direct query of system default output device index
-        try:
-            default_out_idx = sd.default.device[1]
-            if default_out_idx is not None and default_out_idx >= 0:
-                dev_info = sd.query_devices(default_out_idx)
-                native_rate = int(dev_info.get("default_samplerate") or 44100)
-                add(int(default_out_idx), native_rate, None)
-                for r in (44100, 48000, 96000):
-                    add(int(default_out_idx), r, None)
-        except Exception:
-            pass
-
-        # 2. Iterate and filter for physical output channels (> 0)
-        try:
-            for idx, dev in enumerate(sd.query_devices()):
-                if dev.get("max_output_channels", 0) > 0:
-                    r = int(dev.get("default_samplerate", 44100))
-                    add(idx, r, None)
-                    add(idx, 44100, None)
-                    add(idx, 48000, None)
-        except Exception:
-            pass
-
-        # 3. Fallbacks
-        try:
-            add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
-        except Exception:
-            pass
-
-        for r in (48000, 44100, 96000):
-            add(None, r, None)
-
+            if r > 0 and k not in seen: seen.add(k); attempts.append((d, int(r), e))
+        if sd is None: return attempts
+        if sys.platform == "win32":
+            try:
+                for h in sd.query_hostapis():
+                    if "WASAPI" in str(h.get("name", "")).upper() and (dev := h.get("default_output_device", -1)) is not None and int(dev) >= 0:
+                        ex, nat = sd.WasapiSettings(exclusive=False, auto_convert=True), int(sd.query_devices(int(dev)).get("default_samplerate") or 48000)
+                        for r in (nat, 48000, 44100): add(int(dev), r, ex)
+            except Exception: pass
+        try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
+        except Exception: pass
+        for r in (48000, 44100): add(None, r, None)
         return attempts
 
-def _open_output_stream(self) -> bool:
-        if sd is None:
-            self.stream_error = "sounddevice is not installed"
-            return False
+    def _open_output_stream(self) -> bool:
+        if sd is None: self.stream_error = "sounddevice is not installed"; return False
         errors = []
         for dev, rate, extra in self._stream_attempts():
             s = None
             try:
                 kw = dict(samplerate=rate, channels=2, dtype="float32", callback=self._audio_callback, blocksize=1024, latency="high")
-                if extra:
-                    kw["extra_settings"] = extra
-                if dev is not None:
-                    kw["device"] = dev
-                s = sd.OutputStream(**kw)
-                s.start()
+                if extra: kw["extra_settings"] = extra
+                if dev is not None: kw["device"] = dev
+                s = sd.OutputStream(**kw); s.start()
                 nr = int(round(float(s.samplerate)))
-                if nr != self.output_rate:
-                    self.resampler.reset()
+                if nr != self.output_rate: self.resampler.reset()
                 self.output_rate, self.stream, self.stream_error = nr or rate, s, None
-                try:
-                    self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
-                except Exception:
-                    self.output_device_name = "default"
+                try: self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
+                except Exception: self.output_device_name = "default"
                 if self.bt_router:
-                    try:
-                        threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
-                    except Exception:
-                        pass
+                    try: threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
+                    except Exception: pass
                 return True
             except Exception as exc:
                 errors.append(f"{dev}@{rate}: {exc}")
                 if s:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
+                    try: s.close()
+                    except Exception: pass
         self.stream, self.stream_error = None, "; ".join(errors)[-400:] if errors else "no output device"
         return False
 
     def _ensure_stream(self) -> bool:
-        if self._stream_alive():
-            return True
-        if time.time() < self._next_stream_retry:
-            return False
+        if self._stream_alive(): return True
+        if time.time() < self._next_stream_retry: return False
         self._close_stream()
-        if not (ok := self._open_output_stream()):
-            self._next_stream_retry = time.time() + 1.5
+        if not (ok := self._open_output_stream()): self._next_stream_retry = time.time() + 1.5
         return ok
 
     def _acquire_sf(self):
@@ -1530,7 +1492,7 @@ def _open_output_stream(self) -> bool:
                 tp = str(track_or_path)
                 td = next((dict(t) for t in self.playlist if t.get("path") == tp or t.get("name") == os.path.basename(tp)), None)
                 if td is None:
-                    td = {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0 if os.path.isfile(tp) else 0.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()}
+                    td = {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0 if os.path.isfile(tp) else 0.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1].lstrip(".").upper()}
             if td:
                 self.play_queue.append(td); self._sync_state_file()
                 return {"queued": True, "track": td, "queue_len": len(self.play_queue)}
@@ -1932,8 +1894,6 @@ def is_player_daemon_running() -> bool:
         except (ConnectionRefusedError, OSError): PORT_FILE.unlink(missing_ok=True)
         except Exception: return True
     return False
-
-# ... [The remaining UI rendering loops, arguments, and entry points of MP_Audio_Player.py remain fully intact]
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _WIN_CONSOLE = None

@@ -1,0 +1,1194 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple, Union
+for _s in (sys.stdout, sys.stderr):
+    try:
+        if _s and hasattr(_s, "reconfigure"):
+            _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+s_dir = Path(__file__).resolve().parent
+for c in (s_dir / "VERSION", s_dir.parent / "VERSION"):
+    if c.is_file():
+    try: return c.read_text(encoding="utf-8").strip()
+    except Exception: pass
+    return "0.4.0 Stable"
+    VERSION = _get_app_version()
+    try:
+    from mp_activity_tracker import record_activity
+    from mp_logging import log_error as mp_log_error
+    except ImportError:
+    try:
+    from scripts.mp_activity_tracker import record_activity
+    from scripts.mp_logging import log_error as mp_log_error
+    except ImportError:
+        def record_activity(*a, **k): pass
+        def mp_log_error(*a, **k): pass
+np = sf = sd = None
+def _ensure_numpy():
+    global np
+    if np is None:
+        try:
+            import numpy as _np
+            np = _np
+        except ImportError:
+            sys.exit("Error: numpy is required for MP_Audio_Player.py")
+    return np
+def _ensure_audio_backends():
+    global np, sf, sd
+    if np is not None and sf is not None and sd is not None:
+        return
+    try:
+        import numpy as _np
+        np = _np
+    except Exception:
+        pass
+    try:
+        import soundfile as _sf
+        sf = _sf
+    except Exception:
+        pass
+    try:
+        import sounddevice as _sd
+        sd = _sd
+    except Exception:
+        pass
+def _use_limited_console_glyphs() -> bool: return _LIMITED_GLYPHS
+def prism_level_glyph(eighth: int) -> str: return (_PRISM_LEVELS_LIMITED if _use_limited_console_glyphs() else _PRISM_LEVELS_FULL)[max(0, min(8, int(eighth)))]
+def prism_peak_glyph(hot: bool, column: int = 0) -> str:
+    return ("\u25b2" if hot else "\u2500") if _use_limited_console_glyphs() else (("\u2726" if column % 2 == 0 else "\u25c6") if hot else "\u2501")
+def meter_peak_glyph() -> str: return "\u2500" if _use_limited_console_glyphs() else "\u2594"
+def meter_level_char(frac: float, peak_here: bool) -> str:
+    return "█" if frac >= 1.0 else (prism_level_glyph(max(1, min(8, int(frac * 8)))) if frac > 0.0 else (meter_peak_glyph() if peak_here else " "))
+_STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~", "∿": "~", "∽": "~", "›": ">", "»": ">"}
+def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _use_limited_console_glyphs() else ch
+_RAINBOW_RGB_TABLE = tuple(tuple(int(c * 255) for c in colorsys.hsv_to_rgb(deg / 360.0, 1.0, 1.0)) for deg in range(360))
+_RAINBOW_ANSI_BOLD = tuple(f"\033[1;38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_NORMAL = tuple(f"\033[38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_DIM = tuple(f"\033[38;2;{r//2};{g//2};{b//2}m" for r, g, b in _RAINBOW_RGB_TABLE)
+_RAINBOW_ANSI_FAINT = tuple(f"\033[38;2;{max(20, int(r*0.35))};{max(20, int(g*0.35))};{max(20, int(b*0.35))}m" for r, g, b in _RAINBOW_RGB_TABLE)
+ _DUST_CHOICES_LIM = {"hot": ["•", "°", "·", "˙", "+"], "mid": ["•", "°", "·", "˙", ".", "*"], "low": ["·", "˙", ".", "*", "'", ","]}
+_DUST_CHOICES_FULL = {"hot": ["✦", "✧", "⋆", "•", "°"], "mid": ["•", "°", "·", "˙", "⠄", "⠂"], "low": ["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"]}
+def stardust_dust_choices(tier: str) -> List[str]: return (_DUST_CHOICES_LIM if _use_limited_console_glyphs() else _DUST_CHOICES_FULL)[tier]
+ def music_library_label(folder_name: str) -> str:
+    n = str(folder_name or "ALL").strip() or "ALL"
+    return "All Music Folders" if n.upper() in ("ALL", "ALL_MUSIC_FOLDERS") else n
+ def is_cloud_or_remote_path(p: Union[str, Path, None]) -> bool:
+    if not p: return False
+    s = str(p)
+    return s.startswith(("\\\\", "//", "smb://")) or any(k in s for k in ("GoogleDrive", "google3:", "MUSIC_SMB", "/run/media/", "/mnt/", "/media/", "/gvfs/smb-share:"))
+ @functools.lru_cache(maxsize=1)
+def get_base_dir() -> Path:
+    p = Path(__file__).resolve()
+    return p.parent.parent if p.parent.name == "scripts" else p.parent
+ try:
+    _sd_dir = str(get_base_dir() / "scripts")
+    if _sd_dir not in sys.path: sys.path.insert(0, _sd_dir)
+    from monitor_bluetooth_audio import BluetoothAudioRouter, get_bluetooth_audio_status
+except Exception:
+    BluetoothAudioRouter = get_bluetooth_audio_status = None
+ def parse_env_file(filepath: Path) -> Dict[str, str]:
+    env = {}
+    if filepath.is_file():
+        try:
+            for l in filepath.read_text(encoding="utf-8", errors="ignore").splitlines():
+                l = l.strip()
+                if l and not l.startswith("#") and "=" in l:
+                    k, v = l.split("=", 1)
+                    env[k.strip()] = v.strip().strip('"\'')
+        except Exception: pass
+    return env
+ def format_seconds(seconds: float) -> str:
+    if seconds < 0 or math.isnan(seconds): return "00:00"
+    s = int(seconds)
+    h, m, sec = s // 3600, (s % 3600) // 60, s % 60
+    return f"{h:02d}:{m:02d}:{sec:02d}" if h > 0 else f"{m:02d}:{sec:02d}"
+ def _run_bg(cmd: Union[List[str], str]) -> bool:
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=str(get_base_dir()),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True
+        )
+        return True
+    except Exception: return False
+ def _run_checked(cmd: List[str], timeout: float = 2.0) -> bool:
+    try: return subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=timeout).returncode == 0
+    except Exception: return False
+ def _normalize_reveal_path(target_path: Union[str, Path, None]) -> Optional[str]:
+    if target_path is None: return None
+    raw = str(target_path).strip().strip('"')
+    if not raw: return None
+    if raw.lower().startswith("file:"):
+        from urllib.parse import unquote, urlparse
+        raw = unquote(urlparse(raw).path or "")
+        if os.name == "nt" and len(raw) >= 3 and raw[0] == "/" and raw[2] == ":": raw = raw[1:]
+    raw = os.path.expanduser(raw)
+    if os.name == "nt":
+        if (m := re.match(r"^/([a-zA-Z])/(.*)$", raw.replace("\\", "/"))) and not os.path.exists(raw):
+            raw = f"{m.group(1).upper()}:\\{m.group(2).replace('/', '\\')}"
+        return os.path.normpath(raw)
+    return os.path.abspath(raw)
+ def choose_file_manager_target(current_path: Union[str, Path, None], selected_path: Union[str, Path, None] = None) -> Optional[str]:
+    for c in (current_path, selected_path):
+        if (n := _normalize_reveal_path(c)) and os.path.exists(n): return n
+    return None
+ def windows_explorer_select_command(path: str) -> str:
+    s = path.replace('"', "")
+    return f'explorer.exe /select,"{os.path.normpath(s) if os.name == "nt" else s}"'
+ def _windows_shell_select(path: str) -> bool:
+    if os.name != "nt": return False
+    try:
+        import ctypes
+        sh, ole = ctypes.windll.shell32, ctypes.windll.ole32
+        ole.CoInitialize(None)
+        sh.ILCreateFromPathW.argtypes, sh.ILCreateFromPathW.restype = [ctypes.c_wchar_p], ctypes.c_void_p
+        sh.ILFree.argtypes, sh.ILFree.restype = [ctypes.c_void_p], None
+        sh.SHOpenFolderAndSelectItems.argtypes, sh.SHOpenFolderAndSelectItems.restype = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_ulong], ctypes.c_long
+        if not (pidl := sh.ILCreateFromPathW(os.path.normpath(path))): return False
+        try: return int(sh.SHOpenFolderAndSelectItems(pidl, 0, None, 0)) == 0
+        finally: sh.ILFree(pidl)
+    except Exception: return False
+ def _file_uri(path: str) -> str:
+    from urllib.parse import quote
+    t = str(path).replace("\\", "/")
+    return ("file:///" if re.match(r"^[a-zA-Z]:/", t) else "file://") + quote(t if t.startswith("/") or re.match(r"^[a-zA-Z]:/", t) else "/" + t, safe="/:")
+ def _reveal_folder(path: str, is_file: bool) -> str:
+    if not is_file: return path
+    t = str(path).rstrip("\\/")
+    c = max(t.rfind("/"), t.rfind("\\"))
+    return t[:c] if c > 0 else t
+ def reveal_launch_plan(path: str, platform: str, is_file: Optional[bool] = None) -> List[Tuple[str, Union[List[str], str]]]:
+    k = platform.lower()
+    target = str(path) if k in ("linux", "freebsd", "darwin") else (_normalize_reveal_path(path) or str(path))
+    ft = os.path.isfile(target) if is_file is None else bool(is_file)
+    folder = _reveal_folder(target, ft)
+    if k == "darwin": return [("bg", ["open", "-R", target] if ft else ["open", folder])]
+    if k == "win32": return [("bg", windows_explorer_select_command(target) if ft else ["explorer.exe", folder])]
+    if k == "wsl": return [("wsl", target if ft else folder), ("bg", ["wslview", folder])]
+    plan: List[Tuple[str, Union[List[str], str]]] = []
+    if ft:
+        uri, name = _file_uri(target), target[len(folder) + 1:] if folder and target.startswith(folder) else os.path.basename(target)
+        plan.extend([
+            ("checked", ["dbus-send", "--session", "--type=method_call", "--dest=org.freedesktop.FileManager1", "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems", f"array:string:{uri}", "string:"]),
+            ("checked", ["gdbus", "call", "--session", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1", "--method", "org.freedesktop.FileManager1.ShowItems", f"['{uri}']", ""]),
+            ("checked", ["dbus-send", "--session", "--type=method_call", "--dest=org.xfce.FileManager", "/org/xfce/FileManager", "org.xfce.FileManager.DisplayFolderAndSelect", f"string:{folder}", f"string:{name}", "string:"]),
+            ("bg", ["dolphin", "--select", target]), ("bg", ["nautilus", "--select", target]), ("bg", ["nemo", target]), ("bg", ["caja", target])
+        ])
+    plan.extend([("bg", [p, folder]) for p in ("thunar", "pcmanfm-qt", "pcmanfm")] + [("bg", ["gio", "open", folder]), ("bg", ["xdg-open", folder])])
+    return plan
+ def _execute_reveal_plan(plan: List[Tuple[str, Union[List[str], str]]], which=None) -> bool:
+    finder = which or shutil.which
+    for mode, cmd in plan:
+        if mode == "wsl":
+            if not (finder("wslpath") and finder("explorer.exe")): continue
+            try: conv = subprocess.run(["wslpath", "-w", str(cmd)], capture_output=True, text=True, timeout=2).stdout.strip()
+            except Exception: conv = ""
+            if conv and _run_bg(["cmd.exe", "/c", windows_explorer_select_command(conv) if os.path.isfile(str(cmd)) else f'explorer.exe "{conv}"']): return True
+        elif isinstance(cmd, str):
+            if mode == "bg" and _run_bg(cmd): return True
+        elif finder(cmd[0]) and (_run_checked(cmd) if mode == "checked" else _run_bg(cmd)):
+            return True
+    return False
+ def open_in_file_manager(target_path: Union[str, Path, None]) -> bool:
+    if not (norm := _normalize_reveal_path(target_path)) or not os.path.exists(norm): return False
+    if sys.platform == "win32" and os.path.isfile(norm) and _windows_shell_select(norm): return True
+    if sys.platform in ("darwin", "win32"): plat = sys.platform
+    elif Path("/proc/version").exists() and "microsoft" in Path("/proc/version").read_text(errors="ignore").lower(): plat = "wsl"
+    else: plat = "freebsd" if sys.platform.startswith("freebsd") else "linux"
+    return _execute_reveal_plan(reveal_launch_plan(norm, plat))
+ def find_tracklist_for_mix(mix_file: Union[str, Path, None]) -> Optional[str]:
+    if not mix_file or not (p := Path(mix_file).expanduser().resolve()).exists(): return None
+    if (exact := p.parent / f"{p.stem}.txt").is_file(): return str(exact)
+    base = get_base_dir()
+    c_dirs = [d for d in {p.parent, p.parent / "FLAC_CONVERTED_OUTPUTS", p.parent.parent / "FLAC_CONVERTED_OUTPUTS", base / "FLAC_CONVERTED_OUTPUTS", base, p.parent.parent} if d.is_dir()]
+    for d in c_dirs:
+        if (c := d / f"{p.stem}.txt").is_file(): return str(c)
+    tokens = [m.group(1) for m in (re.search(r'[_\ -](\d{2,3})([_\ -]|$)', p.stem), re.search(r'(\d{4}-\d{2}-\d{2})', p.stem)) if m]
+    words = [w.lower() for w in re.sub(r'[_\ -]+', ' ', re.sub(r'MPlanetarian|Stream|of|Frequency|Part|WMI|Mix', '', p.stem, flags=re.I)).split() if len(w) >= 4]
+    for d in c_dirs:
+        try:
+            for f in d.iterdir():
+                if f.is_file() and f.suffix.lower() == ".txt":
+                    fn = f.name.lower()
+                    if any(t in fn for t in tokens) or any(w in fn for w in words): return str(f)
+        except Exception: pass
+    if (sh := base / "Mix_Archive_Manager.sh").is_file():
+        try:
+            out = subprocess.run(["bash", "-c", f'source "{sh}" 2>/dev/null; find_mix_tracklist "{p}" 2>/dev/null'], capture_output=True, text=True, timeout=1.5).stdout.strip()
+            if out and os.path.isfile(out): return out
+        except Exception: pass
+    return None
+ def launch_liquid_glass_tracklist(
+    tracklist_path: Union[str, Path],
+    audio_path: Optional[Union[str, Path]] = None,
+    theme: Optional[str] = None,
+    base_dir: Optional[Path] = None,
+) -> bool:
+    if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
+        return False
+    base = base_dir or get_base_dir()
+     if sys.platform == "darwin":
+        candidates = [
+            base / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
+            base / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            base / "scripts" / "MP_Audio_Player_Liquid_Glass_macOS.py",
+            Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_macOS.py",
+        ]
+    else:
+        backend = os.environ.get("MP_LIQUID_GLASS_BACKEND", "").strip().lower() or os.environ.get("LIQUID_GLASS_BACKEND", "").strip().lower()
+        if not backend:
+            for cfg in (base / "config.env", CONFIG_DIR / "config.env", Path(__file__).resolve().parent / "config.env"):
+                if cfg.is_file():
+                    if val := parse_env_file(cfg).get("LIQUID_GLASS_BACKEND"):
+                        backend = val.strip().lower()
+                        break
+        if not backend:
+            backend = "opengl"
+         if backend == "vulkan":
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+            ]
+        else:
+            candidates = [
+                base / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+                base / "MP_Audio_Player_Liquid_Glass.py",
+                base / "scripts" / "MP_Audio_Player_Liquid_Glass.py",
+                Path(__file__).resolve().parent / "MP_Audio_Player_Liquid_Glass.py",
+            ]
+     script_path = None
+    for cand in candidates:
+        if cand.is_file():
+            script_path = cand
+            break
+     if not script_path:
+        return False
+     cmd = [sys.executable, str(script_path), "--tracklist", str(tl)]
+    if audio_path and os.path.exists(str(audio_path)):
+        cmd.extend(["--audio", str(Path(audio_path).expanduser().resolve())])
+    if theme:
+        cmd.extend(["--theme", str(theme)])
+     log_dir = Path.home() / ".config" / "mix-manager"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_file = log_dir / "liquid_glass_tracklist.log"
+     extra_kwargs = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        extra_kwargs["start_new_session"] = True
+     try:
+        with open(log_file, "a") as log_fd:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=log_fd,
+                stderr=log_fd,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+    except Exception:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(base),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                **extra_kwargs,
+            )
+            return proc.pid > 0
+        except Exception as exc:
+            try:
+                mp_log_error("MP_Audio_Player", f"Failed launching Liquid Glass tracklist viewer: {exc}", exc)
+            except Exception:
+                pass
+            return False
+ def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
+    if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
+    base = get_base_dir()
+    v_sh = base / "scripts" / "view_tracklist_console.sh"
+    if not v_sh.is_file(): v_sh = base / "view_tracklist_console.sh"
+    t_str, v_str, title = str(tl), str(v_sh), "Mix Tracklist Viewer"
+    a_str = str(Path(audio_path).expanduser().resolve()) if audio_path and os.path.exists(str(audio_path)) else ""
+    if a_str: os.environ["MP_TRACKLIST_AUDIO_FILE"] = a_str
+    active_theme = (theme or "").strip()
+    if not active_theme:
+        try:
+            th_file = CONFIG_DIR / "theme"
+            if th_file.is_file(): active_theme = th_file.read_text(encoding="utf-8").strip()
+        except Exception: pass
+    if not active_theme:
+        active_theme = os.environ.get("MP_TRACKLIST_THEME") or os.environ.get("CURRENT_THEME") or ""
+    if active_theme:
+        os.environ["MP_TRACKLIST_THEME"] = active_theme
+        os.environ["CURRENT_THEME"] = active_theme
+     if os.environ.get("MP_LIQUID_GLASS") == "1" or os.environ.get("TRACKLIST_VIEWER") in ("liquid_glass", "glass"):
+        if launch_liquid_glass_tracklist(tl, audio_path=a_str, theme=active_theme, base_dir=base):
+            return True
+    sh_args = [v_str] + (["--theme", active_theme] if active_theme else []) + [t_str] + ([a_str] if a_str else [])
+    if (cust := os.environ.get("TRACKLIST_VIEWER")) and cust not in ("console", "auto") and shutil.which(cust) and _run_bg([cust, t_str]): return True
+    if sys.platform.startswith(("linux", "freebsd")):
+        if shutil.which("konsole") and v_sh.is_file() and _run_bg(["konsole", "--hide-menubar", "--hide-tabbar", "--separate", "--qwindowtitle", title, "-p", f"tabtitle={title}", "-p", "TerminalMargin=0", "-p", "TerminalColumns=95", "-p", "TerminalRows=35", "-e", "bash"] + sh_args):
+            threading.Thread(target=lambda: (time.sleep(0.15), shutil.which("xprop") and subprocess.run(["xprop", "-name", title, "-f", "_MOTIF_WM_HINTS", "32c", "-set", "_MOTIF_WM_HINTS", "0x2, 0x0, 0x0, 0x0, 0x0"], capture_output=True)), daemon=True).start()
+            return True
+        xfce_cmd = f"bash '{v_str}'" + (f" --theme '{active_theme}'" if active_theme else "") + f" '{t_str}'" + (f" '{a_str}'" if a_str else "")
+        for term, args in [("gnome-terminal", [f"--title={title}", "--hide-menubar", "--", "bash"] + sh_args), ("xfce4-terminal", [f"--title={title}", "--hide-menubar", "--hide-borders", "-e", xfce_cmd]), ("alacritty", ["--title", title, "-e", "bash"] + sh_args), ("foot", ["-T", title, "bash"] + sh_args), ("xterm", ["-title", title, "-bd", "0", "-geometry", "95x35", "-e", "bash"] + sh_args), ("xdg-open", [t_str])]:
+            if shutil.which(term) and _run_bg([term] + args): return True
+    elif sys.platform == "darwin":
+        if v_sh.is_file():
+            mac_args = f'\\"{v_str}\\"' + (f' --theme \\"{active_theme}\\"' if active_theme else "") + f' \\"{t_str}\\"' + (f' \\"{a_str}\\"' if a_str else "")
+            if _run_bg(["osascript", "-e", f'tell application "Terminal" to do script "bash {mac_args}"']): return True
+        return _run_bg(["open", t_str])
+    elif sys.platform == "win32":
+        try: os.startfile(t_str); return True
+        except Exception: pass
+    return False
+ def export_playlist_m3u(mixes: List[Dict[str, Any]], target_path: Union[str, Path, None]) -> Tuple[bool, str]:
+    if not target_path: return False, "Destination path cannot be empty"
+    try:
+        tp = Path(str(target_path).strip()).expanduser()
+        if tp.suffix.lower() != ".m3u": tp = tp.with_suffix(".m3u")
+        tp.parent.mkdir(parents=True, exist_ok=True)
+        tp.write_text("#EXTM3U\n" + "".join(f"#EXTINF:-1,{m.get('name', Path(m.get('path', '')).stem)}\n{m.get('path')}\n" for m in mixes), encoding="utf-8")
+        return True, str(tp.resolve())
+    except Exception as e: return False, str(e)
+ def open_image_viewer(image_path: Union[str, Path]) -> bool:
+    if not (ip := Path(image_path).expanduser().resolve()).is_file(): return False
+    t_str = str(ip)
+    if sys.platform.startswith(("linux", "freebsd")):
+        return any(shutil.which(v) and _run_bg([v, t_str]) for v in ("gwenview", "loupe", "eog", "feh", "xdg-open"))
+    if sys.platform == "darwin": return _run_bg(["open", "-a", "Preview", t_str]) or _run_bg(["open", t_str])
+    if sys.platform == "win32":
+        try: os.startfile(t_str); return True
+        except Exception: pass
+    return False
+ def notify_desktop(title: str, message: str) -> None:
+    title, message = str(title or "MP Audio Player"), str(message or "")
+    if not message: return
+    try:
+        if sys.platform.startswith(("linux", "freebsd")) and shutil.which("notify-send"):
+            _run_bg(["notify-send", "-a", "MP Audio Player", title, message])
+        elif sys.platform == "darwin":
+            esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
+            _run_bg(["osascript", "-e", f'display notification "{esc(message)}" with title "{esc(title)}"'])
+    except Exception:
+        pass
+ def _resolve_sub_dir(sub_name: str, base_dir: Optional[Path] = None) -> Path:
+    base = base_dir or get_base_dir()
+    mix_arc = os.environ.get("MIX_ARCHIVE_DIR")
+    if not mix_arc:
+        for cfg in (base / "config.env", CONFIG_DIR / "config.env"):
+            if val := parse_env_file(cfg).get("MIX_ARCHIVE_DIR"):
+                if os.path.isdir(val): mix_arc = val; break
+    for d in ([Path(mix_arc) / sub_name] if mix_arc and os.path.isdir(mix_arc) else []) + [base / sub_name, CONFIG_DIR / sub_name]:
+        try: d.mkdir(parents=True, exist_ok=True); return d.resolve()
+        except Exception: pass
+    fb = base / sub_name
+    fb.mkdir(parents=True, exist_ok=True)
+    return fb.resolve()
+ def get_default_spek_dir(base_dir: Optional[Path] = None, mode: str = "MIX_ARCHIVE", audio_path: Optional[str] = None) -> Path:
+    return _resolve_sub_dir("SPEK_OUTPUTS", base_dir)
+ def get_recording_output_dir(base_dir: Optional[Path] = None) -> Path:
+    return _resolve_sub_dir("MP_AUDIOWAV_REC_OUTPUT", base_dir)
+ def find_existing_spek(audio_path: Optional[Union[str, Path]], mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None) -> Optional[str]:
+    if not audio_path: return None
+    p = Path(audio_path).expanduser()
+    stem, clean = p.stem, re.sub(r'[\/\\:\*\?"<>\|]', '_', p.stem)
+    base = get_base_dir()
+    c_dirs = ([Path(output_dir)] if output_dir else []) + [get_default_spek_dir(base, mode, str(audio_path))]
+    if p.parent.is_dir():
+        c_dirs.extend([p.parent / "SPEK_OUTPUTS", p.parent])
+        if p.parent.parent.is_dir(): c_dirs.append(p.parent.parent / "SPEK_OUTPUTS")
+    c_dirs.append(base / "SPEK_OUTPUTS")
+    names = list(dict.fromkeys(f"{s}{ext}" for s in (clean, stem) for ext in ("_spectrogram.png", ".spek.png", ".spek", "_spectrogram.jpg")))
+    seen = set()
+    for d in c_dirs:
+        rd = str(d.resolve()) if d.exists() else str(d)
+        if rd in seen or not d.is_dir(): continue
+        seen.add(rd)
+        for n in names:
+            c = d / n
+            try:
+                if c.is_file() and c.stat().st_size > 0: return str(c.resolve())
+            except Exception: pass
+    return None
+ def generate_track_spek(audio_path: str, mode: str = "MIX_ARCHIVE", output_dir: Optional[Union[str, Path]] = None, force: bool = False) -> Tuple[bool, str]:
+    if not audio_path or not os.path.isfile(audio_path): return False, "Audio file not found"
+    if not force and (ex := find_existing_spek(audio_path, mode, output_dir)): return True, ex
+    out_dir = Path(output_dir) if output_dir else get_default_spek_dir(get_base_dir(), mode, audio_path)
+    try: out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e: return False, f"Failed to create SPEK output directory: {e}"
+    clean_stem = re.sub(r'[\\/:\*\?"<>\|]', '_', Path(audio_path).stem)
+    spek_file = out_dir / f"{clean_stem}_spectrogram.png"
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(audio_path),
+             "-lavfi", "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log:legend=1:saturation=1.2",
+             "-frames:v", "1", str(spek_file)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        if proc.returncode == 0 and spek_file.is_file() and spek_file.stat().st_size > 0:
+            return True, str(spek_file.resolve())
+        err = (proc.stderr or "").strip().splitlines()
+        return False, (err[-1][:180] if err else "FFmpeg failed to produce spectrogram image")
+    except Exception as exc: return False, f"Spectrogram generation error: {exc}"
+ def choose_export_m3u_gui() -> Optional[str]:
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")): return None
+    dt = os.path.join(os.path.expanduser("~/Desktop" if os.path.isdir(os.path.expanduser("~/Desktop")) else "~"), "MP_Archive_Playlist.m3u")
+    for cmd in (["kdialog", "--title", "Export MP Mix Archive Playlist (.m3u)", "--getsavefilename", dt, "*.m3u | M3U Playlist (*.m3u)"], ["zenity", "--file-selection", "--save", "--confirm-overwrite", f"--filename={dt}", "--file-filter=M3U Playlist (*.m3u) | *.m3u"]):
+        if shutil.which(cmd[0]):
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else ""
+            except Exception: pass
+    return None
+ def choose_audio_file_gui() -> Optional[str]:
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms')|Out-Null;$f=New-Object System.Windows.Forms.OpenFileDialog;$f.Filter='Audio Files (*.flac;*.wav;*.mp3;*.ogg;*.aac;*.m4a)|*.flac;*.wav;*.mp3;*.ogg;*.aac;*.m4a|All Files (*.*)|*.*';$f.Title='Open Audio File in MP Audio Player';if($f.ShowDialog() -eq 'OK'){Write-Host $f.FileName}"], capture_output=True, text=True, timeout=120).stdout.strip()
+            return out if out and os.path.isfile(out) else ("" if out == "" else None)
+        except Exception: pass
+    elif sys.platform == "darwin":
+        try:
+            if res := subprocess.run(["osascript", "-e", 'choose file of type {"public.audio", "wav", "flac", "mp3", "ogg", "aac", "m4a"} with prompt "Open Audio File in MP Audio Player"'], capture_output=True, text=True, timeout=120).stdout.strip():
+                p = subprocess.run(["osascript", "-e", f'POSIX path of "{res}"'], capture_output=True, text=True, timeout=10).stdout.strip()
+                if p and os.path.isfile(p): return p
+            return ""
+        except Exception: pass
+    elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        h = os.path.expanduser("~")
+        for cmd in (["kdialog", "--title", "Open Audio File in MP Audio Player", "--getopenfilename", h, "*.flac *.wav *.mp3 *.ogg *.aac *.m4a *.aiff | Audio Files (*.flac *.wav *.mp3 *.ogg *.aac *.m4a *.aiff)"], ["zenity", "--file-selection", "--title=Open Audio File in MP Audio Player", f"--filename={h}/", "--file-filter=Audio Files (*.flac, *.wav, *.mp3, *.ogg, *.aac, *.m4a) | *.flac *.wav *.mp3 *.ogg *.aac *.m4a *.FLAC *.WAV *.MP3"]):
+            if shutil.which(cmd[0]):
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else ""
+                except Exception: pass
+    return None
+ class MixArchiveScanner:
+    def __init__(self, base_dir: Union[Path, str]):
+        self.base_dir = Path(base_dir)
+        self.mixes: List[Dict[str, Any]] = []
+        self._load_and_scan()
+     def _get_archive_dirs(self) -> List[Path]:
+        dirs, seen = [], set()
+        def add(p_str):
+            if not p_str: return
+            try:
+                p = Path(os.path.expanduser(str(p_str).strip().strip('"\''))).resolve()
+                if p.is_dir() and str(p) not in seen: seen.add(str(p)); dirs.append(p)
+            except Exception: pass
+        def parse(ex):
+            if ex:
+                for pt in re.split(r'[;\n,]|(?<!^[a-zA-Z]):(?![\\/])', ex): add(pt)
+        add(os.environ.get("MIX_ARCHIVE_DIR"))
+        parse(os.environ.get("EXTRA_MIX_ARCHIVE_DIRS") or os.environ.get("MIX_ARCHIVE_DIRS"))
+        efs = [self.base_dir / "config.env", CONFIG_DIR / "config.env", Path(__file__).resolve().parent / "config.env"]
+        if sys.platform == "win32": efs.append(Path("B:/MIX_ARCHIVE/config.env"))
+        for ef in efs:
+            cfg = parse_env_file(ef)
+            add(cfg.get("MIX_ARCHIVE_DIR"))
+            parse(cfg.get("EXTRA_MIX_ARCHIVE_DIRS") or cfg.get("MIX_ARCHIVE_DIRS"))
+        for n in ("MIX_ARCHIVE", "MP_SAMPLES", "FLAC_CONVERTED_OUTPUTS", "MP3_CONVERTED_OUTPUTS", "WAV_CONVERTED_OUTPUTS"): add(self.base_dir / n)
+        if sys.platform == "win32":
+            for d in ("B:/MIX_ARCHIVE", "B:/MIX_ARCHIVE/FLAC_CONVERTED_OUTPUTS", "X:/MIX_ARCHIVE"): add(d)
+            for l in "BDEFGNVXZ": add(f"{l}:/MIX_ARCHIVE")
+        else:
+            for p in ("/run/media/mplanetarian/WD BLACK B/MIX_ARCHIVE", "/run/media/mplanetarian/DATA/MIX_ARCHIVE2/FLAC_CONVERTED_OUTPUTS", os.path.expanduser("~/GoogleDrive/MIX_ARCHIVE")): add(p)
+        if not dirs:
+            for fb in (self.base_dir / "MIX_ARCHIVE", self.base_dir / "FLAC_CONVERTED_OUTPUTS", self.base_dir, Path.home() / "Music"):
+                if fb not in (Path.home(), Path("/")): add(fb)
+        return dirs
+     def _load_and_scan(self):
+        seen, collected, home_p, skip = set(), [], Path.home(), {'__pycache__', 'node_modules', '.git', 'venv', '.venv'}
+        for ad in self._get_archive_dirs():
+            if not ad.is_dir() or ad in (home_p, Path("/")): continue
+            for root, subdirs, files in os.walk(ad):
+                subdirs[:] = [d for d in subdirs if not d.startswith('.') and d not in skip]
+                for f in files:
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in AUDIO_EXTENSIONS and (fp := os.path.join(root, f)) not in seen:
+                        seen.add(fp)
+                        try:
+                            st = os.stat(fp)
+                            collected.append({"name": f, "path": fp, "size_mb": st.st_size / 1048576.0, "mtime": st.st_mtime, "ext": ext[1:].upper()})
+                        except OSError: pass
+        self.mixes = sorted(collected, key=lambda x: x["mtime"], reverse=True)
+     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
+        if not (q := query.lower()): return self.mixes
+        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower()]
+     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
+ class MusicFolderPlaylistScanner:
+    def __init__(self, folder_name: Union[str, Path, None] = "ALL", playlist_path: Union[str, Path, None] = None):
+        if folder_name and (str(folder_name).endswith((".json", ".m3u", ".m3u8")) or os.path.exists(str(folder_name))):
+            playlist_path, folder_name = folder_name, "ALL"
+            if (m := re.match(r'^DJ_Tracks_(.+)\.(?:json|m3u8?)$', os.path.basename(str(playlist_path)), re.I)) and m.group(1).upper() != "ALL_MUSIC_FOLDERS":
+                folder_name = m.group(1)
+        self.folder_name = str(folder_name or "ALL").upper()
+        self.base_dir = get_base_dir()
+        self.mixes: List[Dict[str, Any]] = []
+        self.playlist_path = Path(playlist_path) if playlist_path else None
+        self._load_playlist()
+     def _load_playlist(self):
+        pl_dir = self.base_dir / "PLAYLISTS_GENERATED"
+        if not self.playlist_path or not self.playlist_path.is_file():
+            for c in (pl_dir / f"DJ_Tracks_{self.folder_name}.json", pl_dir / f"DJ_Tracks_{self.folder_name}.m3u8", pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.json", pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8"):
+                if c.is_file(): self.playlist_path = c; break
+        if not self.playlist_path or not self.playlist_path.is_file(): return
+        if str(self.playlist_path).endswith(".json"):
+            try:
+                data = json.loads(self.playlist_path.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for m in data: m.setdefault("duration_fmt", "00:00")
+                    self.mixes = data
+                    return
+            except Exception: pass
+        try:
+            cur_t, cur_d, now = "", "00:00", time.time()
+            for line in self.playlist_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                if not (line := line.strip()): continue
+                if line.startswith("#EXTINF:"):
+                    p = line[8:]
+                    if "," in p:
+                        dp, cur_t = p.split(",", 1)
+                        try: cur_d = format_seconds(float(dp.strip())) if float(dp.strip()) > 0 else "00:00"
+                        except ValueError: cur_d = "00:00"
+                    else: cur_t, cur_d = p, "00:00"
+                elif not line.startswith("#"):
+                    ext, bname = os.path.splitext(line)[1].lower(), os.path.basename(line)
+                    self.mixes.append({"name": bname, "title": cur_t or os.path.splitext(bname)[0], "path": line, "ext": ext[1:].upper() if ext else "AUDIO", "size_mb": 0.0, "duration_fmt": cur_d, "mtime": now, "folder": self.folder_name})
+                    cur_t, cur_d = "", "00:00"
+        except Exception: pass
+     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
+        if not (q := query.lower()): return self.mixes
+        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower() or q in m.get("title", "").lower()]
+     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
+ class AudioResampler:
+    def __init__(self):
+        _ensure_numpy()
+        self.reset()
+     def reset(self):
+        self.buffer = np.zeros((0, 2), dtype=np.float32)
+        self.in_pos = 0.0
+     def _to_stereo(self, arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 1 or arr.shape[1] == 1:
+            c = arr if arr.ndim == 1 else arr[:, 0]
+            return np.column_stack((c, c)).astype(np.float32, copy=False)
+        return arr[:, :2].astype(np.float32, copy=False)
+     def process(self, read_func, out_frames: int, speed_ratio: float) -> np.ndarray:
+        if abs(speed_ratio - 1.0) < 1e-4 and self.in_pos == 0.0 and len(self.buffer) == 0:
+            raw = read_func(out_frames)
+            return np.zeros((0, 2), dtype=np.float32) if len(raw) == 0 else self._to_stereo(raw)
+        t_out = self.in_pos + np.arange(out_frames, dtype=np.float64) * speed_ratio
+        needed = int(math.ceil(t_out[-1])) + 4
+        while len(self.buffer) < needed:
+            more = read_func(max(1024, needed - len(self.buffer)))
+            if len(more) == 0: break
+            sm = self._to_stereo(more)
+            self.buffer = np.vstack((self.buffer, sm)) if len(self.buffer) else sm
+        if len(self.buffer) == 0: return np.zeros((0, 2), dtype=np.float32)
+        self.in_pos = t_out[-1] + speed_ratio
+        if len(self.buffer) <= int(math.ceil(t_out[-1])):
+            self.buffer = np.vstack((self.buffer, np.zeros((int(math.ceil(t_out[-1])) + 4 - len(self.buffer), 2), dtype=np.float32)))
+        t_in = np.arange(len(self.buffer), dtype=np.float64)
+        out = np.column_stack((np.interp(t_out, t_in, self.buffer[:, 0]), np.interp(t_out, t_in, self.buffer[:, 1]))).astype(np.float32)
+        if (discard := int(math.floor(self.in_pos))) > 0:
+            self.buffer = self.buffer[discard:]
+            self.in_pos -= discard
+        return out
+ class AudioSource:
+    def read(self, frames: int) -> np.ndarray: raise NotImplementedError
+    def seek(self, frame: int): raise NotImplementedError
+    def tell(self) -> int: raise NotImplementedError
+    def total_frames(self) -> int: raise NotImplementedError
+    def close(self): raise NotImplementedError
+ class SoundFileAudioSource(AudioSource):
+    def __init__(self, path: str, initial_sf: Optional[Any] = None):
+        _ensure_audio_backends()
+        self.path, self.sf, self._current_frame = str(path), initial_sf, 0
+        if self.sf is None: self._open_with_retry(4)
+        self.samplerate, self.channels, self.frames = int(self.sf.samplerate), int(self.sf.channels), int(getattr(self.sf, "frames", 0))
+     def _open_with_retry(self, max_retries: int = 4, target_frame: int = 0):
+        _ensure_audio_backends()
+        last_exc = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.close()
+                self.sf = sf.SoundFile(self.path)
+                if target_frame > 0:
+                    try: self.sf.seek(target_frame)
+                    except Exception: pass
+                try: self._current_frame = int(self.sf.tell())
+                except Exception: self._current_frame = target_frame
+                return
+            except Exception as e:
+                last_exc = e
+                if attempt < max_retries: time.sleep(0.25 * attempt)
+        if last_exc: raise last_exc
+     def read(self, frames: int) -> np.ndarray:
+        for attempt in range(1, 4):
+            try:
+                if self.sf is None: self._open_with_retry(3, self._current_frame)
+                data = self.sf.read(frames, dtype='float32')
+                self._current_frame += len(data)
+                return data
+            except Exception as e:
+                try: mp_log_error("MP_Audio_Player", f"SoundFile read glitch: {self.path}", e)
+                except Exception: pass
+                try: self._open_with_retry(3, self._current_frame)
+                except Exception: pass
+                if attempt < 3: time.sleep(0.15 * attempt)
+        return np.zeros((0, self.channels), dtype=np.float32)
+     def seek(self, frame: int):
+        target = max(0, min(frame, max(0, self.frames - 1) if self.frames > 0 else frame))
+        for attempt in range(1, 4):
+            try:
+                if self.sf is None: self._open_with_retry(2, target); return
+                self.sf.seek(target)
+                try: self._current_frame = int(self.sf.tell())
+                except Exception: self._current_frame = target
+                return
+            except Exception:
+                try: self._open_with_retry(2, target); return
+                except Exception:
+                    if attempt == 3: self._current_frame = target
+     def tell(self) -> int:
+        try:
+            if self.sf: self._current_frame = int(self.sf.tell())
+        except Exception: pass
+        return self._current_frame
+     def total_frames(self) -> int: return self.frames
+    def close(self):
+        if self.sf:
+            try: self.sf.close()
+            except Exception: pass
+            self.sf = None
+ class FFmpegAudioSource(AudioSource):
+    def __init__(self, path: str, target_samplerate: int = 44100):
+        _ensure_audio_backends()
+        self.path, self.samplerate, self.channels, self._current_frame, self.proc = str(path), target_samplerate, 2, 0, None
+        self.frames = self._probe_frames()
+        self._start_ffmpeg(0.0)
+     def _probe_frames(self) -> int:
+        try:
+            out = subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate:format=duration", "-of", "default=noprint_wrappers=1:nokey=1", self.path], stderr=subprocess.DEVNULL, timeout=6).decode().splitlines()
+            if len(out) >= 2 and out[0].strip().isdigit(): self.samplerate = int(out[0].strip())
+            dur = float(out[-1].strip()) if out else 0.0
+            return int(dur * self.samplerate)
+        except Exception: return 0
+     def _start_ffmpeg(self, start_sec: float = 0.0):
+        self.close()
+        cmd = ["ffmpeg", "-v", "error"] + (["-ss", f"{start_sec:.3f}"] if start_sec > 0 else []) + ["-i", self.path, "-vn", "-f", "f32le", "-ac", "2", "-ar", str(self.samplerate), "pipe:1"]
+        try:
+            self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=131072)
+            self._current_frame = int(start_sec * self.samplerate)
+        except Exception as e:
+            try: mp_log_error("MP_Audio_Player", f"Failed starting FFmpeg reader: {self.path}", e)
+            except Exception: pass
+     def read(self, frames: int) -> np.ndarray:
+        if not self.proc or not self.proc.stdout: return np.zeros((0, 2), dtype=np.float32)
+        try:
+            if not (raw := self.proc.stdout.read(frames * 8)): return np.zeros((0, 2), dtype=np.float32)
+            arr = np.frombuffer(raw, dtype=np.float32)
+            nf = len(arr) // 2
+            self._current_frame += nf
+            return arr[:nf * 2].reshape((nf, 2))
+        except Exception: return np.zeros((0, 2), dtype=np.float32)
+     def seek(self, frame: int): self._start_ffmpeg(float(frame) / float(self.samplerate) if self.samplerate > 0 else 0.0)
+    def tell(self) -> int: return self._current_frame
+    def total_frames(self) -> int: return self.frames
+    def close(self):
+        if self.proc:
+            try: self.proc.terminate(); self.proc.wait(timeout=0.3)
+            except Exception:
+                try: self.proc.kill()
+                except Exception: pass
+            self.proc = None
+ def open_audio_source(path: str) -> AudioSource:
+    ext = os.path.splitext(str(path))[1].lower()
+    for cls in ([FFmpegAudioSource, SoundFileAudioSource] if ext in ('.m4a', '.aac', '.wma', '.alac') else [SoundFileAudioSource, FFmpegAudioSource]):
+        try: return cls(path)
+        except Exception as e: last_exc = e
+    raise last_exc
+ class AudioPrefetchBuffer:
+    def __init__(self, sample_rate: int, buffer_sec: float = 12.0):
+        self.sample_rate, self.max_frames = sample_rate, int(buffer_sec * sample_rate)
+        self.chunks, self.chunk_offset, self.available_frames, self.eof = collections.deque(), 0, 0, False
+        self.lock = threading.Lock()
+        self.not_empty, self.not_full = threading.Condition(self.lock), threading.Condition(self.lock)
+     def clear(self):
+        with self.lock:
+            self.chunks.clear()
+            self.chunk_offset = self.available_frames = 0
+            self.eof = False
+            self.not_full.notify_all()
+     def set_eof(self):
+        with self.lock: self.eof = True; self.not_empty.notify_all()
+    def is_empty(self) -> bool:
+        with self.lock: return self.available_frames == 0
+    def health_sec(self) -> float:
+        with self.lock: return float(self.available_frames) / float(self.sample_rate) if self.sample_rate > 0 else 0.0
+     def _to_stereo(self, arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 1: return np.column_stack((arr, arr)).astype(np.float32, copy=False)
+        if arr.shape[1] == 1: return np.column_stack((arr[:, 0], arr[:, 0])).astype(np.float32, copy=False)
+        return arr[:, :2].astype(np.float32, copy=False)
+     def write(self, data: np.ndarray, timeout: float = 0.5) -> bool:
+        if len(data) == 0: return True
+        ds = self._to_stereo(data)
+        n = len(ds)
+        with self.lock:
+            while self.available_frames + n > self.max_frames:
+                if not self.not_full.wait(timeout=timeout): return False
+            self.chunks.append(ds)
+            self.available_frames += n
+            self.not_empty.notify_all()
+            return True
+     def read(self, frames: int) -> np.ndarray:
+        with self.lock:
+            if self.available_frames == 0: return np.zeros((0, 2), dtype=np.float32)
+            n, parts, col = min(frames, self.available_frames), [], 0
+            while col < n and self.chunks:
+                front = self.chunks[0]
+                avail, needed = len(front) - self.chunk_offset, n - col
+                if avail <= needed:
+                    parts.append(front[self.chunk_offset:])
+                    col += avail
+                    self.chunks.popleft()
+                    self.chunk_offset = 0
+                else:
+                    parts.append(front[self.chunk_offset:self.chunk_offset + needed])
+                    self.chunk_offset += needed
+                    col += needed
+                    break
+            self.available_frames -= col
+            self.not_full.notify_all()
+            return parts[0] if len(parts) == 1 else (np.vstack(parts) if parts else np.zeros((0, 2), dtype=np.float32))
+ class AudioFeederThread(threading.Thread):
+    def __init__(self, source: AudioSource, audio_buffer: AudioPrefetchBuffer, engine: Any, chunk_frames: int = 16384):
+        super().__init__(name="AudioFeederThread", daemon=True)
+        self.source, self.audio_buffer, self.engine, self.chunk_frames = source, audio_buffer, engine, chunk_frames
+        self._running, self._seek_target, self.current_frame = True, None, 0
+        self._seek_lock, self._wake_cond = threading.Lock(), threading.Condition(threading.Lock())
+     def request_seek(self, frame: int):
+        with self._seek_lock: self._seek_target = frame
+        with self._wake_cond: self._wake_cond.notify_all()
+        with self.audio_buffer.lock: self.audio_buffer.not_full.notify_all()
+     def stop(self):
+        self._running = False
+        with self._wake_cond: self._wake_cond.notify_all()
+        with self.audio_buffer.lock:
+            self.audio_buffer.not_full.notify_all()
+            self.audio_buffer.not_empty.notify_all()
+     def run(self):
+        cs = self.chunk_frames
+        while self._running:
+            with self._seek_lock:
+                st, self._seek_target = self._seek_target, None
+            if st is not None:
+                try: self.source.seek(st); self.current_frame = st; self.audio_buffer.clear()
+                except Exception as e:
+                    try: mp_log_error("MP_Audio_Player", f"Feeder seek error: {e}", e)
+                    except Exception: pass
+            if self.audio_buffer.available_frames >= self.audio_buffer.max_frames:
+                with self._wake_cond: self._wake_cond.wait(timeout=0.08)
+                continue
+            try: chunk = self.source.read(cs)
+            except Exception: time.sleep(0.2); continue
+            if len(chunk) > 0:
+                self.current_frame = self.source.tell()
+                while self._running and self._seek_target is None and not self.audio_buffer.write(chunk, timeout=0.1): pass
+            else:
+                cur_pos, tot = self.source.tell(), self.source.total_frames()
+                if tot > 0 and cur_pos < (tot - cs * 2): time.sleep(0.15); continue
+                got = False
+                for _ in range(4):
+                    time.sleep(0.1)
+                    try:
+                        if len(vc := self.source.read(cs)) > 0:
+                            self.audio_buffer.write(vc); self.current_frame = self.source.tell(); got = True; break
+                    except Exception: pass
+                if got: continue
+                if tot <= 0 or cur_pos >= (tot - cs * 2):
+                    self.audio_buffer.set_eof()
+                    while self._running and self._seek_target is None:
+                        with self._wake_cond: self._wake_cond.wait(timeout=0.2)
+ EQ_BAND_FREQS: List[float] = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0]
+EQ_BAND_LABELS: List[str] = ["31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz"]
+EQ_PRESET_FILE = CONFIG_DIR / "eq_preset"
+EQ_CUSTOM_FILE = CONFIG_DIR / "custom_eq_presets.json"
+EQ_ACTIVE_BANDS_FILE = CONFIG_DIR / "eq_active_bands.json"
+ DEFAULT_EQ_PRESETS: Dict[str, List[float]] = {
+    "Flat": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    "Ambient": [3.0, 2.5, 1.5, 0.0, -1.0, -1.5, -0.5, 1.0, 2.0, 2.5],
+    "Trance": [4.0, 5.0, 2.0, -1.5, 0.0, 1.5, 2.5, 3.5, 4.0, 3.0],
+    "Techno": [5.0, 4.5, 2.0, -2.5, -2.0, -0.5, 1.0, 2.5, 3.0, 1.5],
+    "House": [3.5, 4.0, 3.0, -1.0, -1.0, 0.0, 1.5, 2.0, 3.0, 2.0],
+    "Progressive": [3.0, 4.0, 2.5, -1.0, -1.0, 0.0, 1.5, 2.0, 2.5, 3.0],
+    "Vapourwave": [-2.0, 1.0, 2.5, 3.5, 1.5, 0.0, -1.0, -2.5, -4.0, -6.0],
+    "Sensorium Interface": [4.5, 4.0, 1.5, -1.0, 0.5, 1.5, 2.5, 3.5, 4.0, 3.0],
+}
+ EQ_PRESET_ALIASES: Dict[str, str] = {
+    "vaporwave": "Vapourwave",
+    "vapor": "Vapourwave",
+    "vapour": "Vapourwave",
+    "progressive house": "Progressive",
+    "prog": "Progressive",
+    "default": "Flat",
+    "sensorium": "Sensorium Interface",
+    "sensorium interface": "Sensorium Interface",
+    "sensorium_interface": "Sensorium Interface",
+    "earth flipper": "Sensorium Interface",
+    "earth_flipper": "Sensorium Interface",
+}
+  class EqualizerFilter:
+    def __init__(self, num_bands: int = 10, filter_len: int = 256):
+        _ensure_numpy()
+        self.band_freqs = np.array(EQ_BAND_FREQS, dtype=np.float32)
+        self.filter_len = filter_len
+        self.fft_len = 1024 + filter_len
+        self.fft_n = int(2 ** np.ceil(np.log2(self.fft_len)))
+        self.overlap = np.zeros((filter_len - 1, 2), dtype=np.float32)
+        self.H = None
+        self.is_flat = True
+        self.current_sr = 44100
+        self._lock = threading.Lock()
+     def set_gains(self, gains_db: Sequence[float], sr: int = 44100):
+        with self._lock:
+            g = np.array(gains_db, dtype=np.float32)
+            if np.all(np.abs(g) < 0.05):
+                self.is_flat = True
+                self.H = None
+                return
+            self.is_flat = False
+            self.current_sr = int(sr if sr and sr > 0 else 44100)
+            fft_freqs = np.fft.rfftfreq(self.filter_len, 1.0 / self.current_sr)
+            log_bands = np.log10(self.band_freqs)
+            log_fft = np.log10(np.maximum(10.0, fft_freqs))
+            gains_interp_db = np.interp(log_fft, log_bands, g)
+            lin_gain = 10.0 ** (gains_interp_db / 20.0)
+            fir = np.fft.irfft(lin_gain, n=self.filter_len)
+            fir = np.fft.fftshift(fir) * np.hanning(self.filter_len)
+            fir_sum = np.sum(fir)
+            if abs(fir_sum) > 1e-4:
+                fir = fir / fir_sum
+            self.H = np.fft.rfft(fir, n=self.fft_n).astype(np.complex64)[:, None]
+     def process(self, chunk: np.ndarray) -> np.ndarray:
+        with self._lock:
+            if self.is_flat or self.H is None:
+                return chunk
+            n = len(chunk)
+            if n == 0:
+                return chunk
+            if len(self.overlap) != self.filter_len - 1:
+                self.overlap = np.zeros((self.filter_len - 1, 2), dtype=np.float32)
+            ext = np.vstack([self.overlap, chunk])
+            conv = np.fft.irfft(np.fft.rfft(ext, n=self.fft_n, axis=0) * self.H, n=self.fft_n, axis=0)
+            self.overlap = chunk[-(self.filter_len - 1):].copy()
+            delay = (self.filter_len - 1) // 2
+            return np.clip(conv[delay : delay + n], -1.0, 1.0)
+  class EqualizerManager:
+    def __init__(self):
+        self.num_bands = 10
+        self.band_freqs = list(EQ_BAND_FREQS)
+        self.band_labels = list(EQ_BAND_LABELS)
+        self.custom_presets: Dict[str, List[float]] = {}
+        self.active_preset: str = "Flat"
+        self.current_bands: List[float] = [0.0] * 10
+        self._load()
+     def _load(self):
+        if EQ_CUSTOM_FILE.is_file():
+            try:
+                data = json.loads(EQ_CUSTOM_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        if isinstance(v, (list, tuple)) and len(v) == self.num_bands:
+                            self.custom_presets[str(k)] = [max(-12.0, min(12.0, float(x))) for x in v]
+            except Exception: pass
+         preset_name = "Flat"
+        if EQ_PRESET_FILE.is_file():
+            try:
+                saved = EQ_PRESET_FILE.read_text(encoding="utf-8").strip()
+                if saved: preset_name = saved
+            except Exception: pass
+         self.apply_preset(preset_name, save=False)
+        if self.active_preset == "Custom" and EQ_ACTIVE_BANDS_FILE.is_file():
+            try:
+                ab = json.loads(EQ_ACTIVE_BANDS_FILE.read_text(encoding="utf-8"))
+                if isinstance(ab, (list, tuple)) and len(ab) == self.num_bands:
+                    self.current_bands = [max(-12.0, min(12.0, float(x))) for x in ab]
+            except Exception: pass
+     def get_all_presets(self) -> Dict[str, List[float]]:
+        p = dict(DEFAULT_EQ_PRESETS)
+        p.update(self.custom_presets)
+        return p
+     def get_all_preset_names(self) -> List[str]:
+        names = [k for k in DEFAULT_EQ_PRESETS.keys()]
+        for c in sorted(self.custom_presets.keys()):
+            if c not in names:
+                names.append(c)
+        return names
+     def resolve_preset_name(self, name: str) -> Optional[str]:
+        if not name: return None
+        nl = name.strip().lower()
+        if nl in EQ_PRESET_ALIASES:
+            return EQ_PRESET_ALIASES[nl]
+        for k in self.get_all_presets().keys():
+            if k.lower() == nl:
+                return k
+        return None
+     def apply_preset(self, name: str, save: bool = True) -> bool:
+        resolved = self.resolve_preset_name(name)
+        if resolved and resolved in self.get_all_presets():
+            self.active_preset = resolved
+            self.current_bands = list(self.get_all_presets()[resolved])
+            if save:
+                try: EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+                except Exception: pass
+            return True
+        if name.strip().lower() == "custom":
+            self.active_preset = "Custom"
+            return True
+        self.active_preset = "Flat"
+        self.current_bands = list(DEFAULT_EQ_PRESETS["Flat"])
+        if save:
+            try: EQ_PRESET_FILE.write_text("Flat", encoding="utf-8")
+            except Exception: pass
+        return False
+     def cycle_preset(self, direction: int = 1) -> str:
+        names = self.get_all_preset_names()
+        cur = self.active_preset
+        if cur in names:
+            idx = (names.index(cur) + direction) % len(names)
+        else:
+            idx = 0
+        self.apply_preset(names[idx])
+        return self.active_preset
+     def set_band(self, index: int, gain_db: float, step: bool = False) -> bool:
+        if not (0 <= index < self.num_bands): return False
+        new_val = (self.current_bands[index] + gain_db) if step else gain_db
+        new_val = round(max(-12.0, min(12.0, float(new_val))), 1)
+        self.current_bands[index] = new_val
+        self._check_if_preset_matched()
+        try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+     def set_bands(self, gains: Sequence[float]) -> bool:
+        if len(gains) != self.num_bands: return False
+        self.current_bands = [round(max(-12.0, min(12.0, float(x))), 1) for x in gains]
+        self._check_if_preset_matched()
+        try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+     def _check_if_preset_matched(self):
+        for name, preset_gains in self.get_all_presets().items():
+            if all(abs(a - b) < 0.1 for a, b in zip(self.current_bands, preset_gains)):
+                self.active_preset = name
+                try: EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+                except Exception: pass
+                return
+        self.active_preset = "Custom"
+        try: EQ_PRESET_FILE.write_text("Custom", encoding="utf-8")
+        except Exception: pass
+     def save_custom_preset(self, name: str, gains: Optional[Sequence[float]] = None) -> bool:
+        name = str(name).strip()
+        if not name: name = "Custom 1"
+        if name.lower() in ("flat", "ambient", "trance", "techno", "house", "progressive", "vapourwave", "vaporwave"):
+            name = f"{name} (User)"
+        band_vals = [round(max(-12.0, min(12.0, float(x))), 1) for x in (gains if gains is not None else self.current_bands)]
+        self.custom_presets[name] = band_vals
+        self.active_preset = name
+        self.current_bands = list(band_vals)
+        try:
+            EQ_CUSTOM_FILE.write_text(json.dumps(self.custom_presets, indent=2), encoding="utf-8")
+            EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
+            EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+        except Exception: pass
+        return True
+     def delete_custom_preset(self, name: str) -> bool:
+        if name in self.custom_presets:
+            del self.custom_presets[name]
+            try: EQ_CUSTOM_FILE.write_text(json.dumps(self.custom_presets, indent=2), encoding="utf-8")
+            except Exception: pass
+            if self.active_preset == name:
+                self.apply_preset("Flat")
+            return True
+        return False
+     def is_flat(self) -> bool:
+        return all(abs(x) < 0.05 for x in self.current_bands)
+     def get_current_bands(self) -> List[float]:
+        return list(self.current_bands)
+ class AudioEngine:
+    def __init__(self, playlist: List[Dict[str, Any]], auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE"):
+        _ensure_audio_backends()
+        self.mode, self.playlist, self.play_queue, self._queue_lock = str(mode or "MIX_ARCHIVE").upper(), playlist, [], threading.Lock()
+        self.current_index, self.current_track = 0, playlist[0] if playlist else None
+        self.state, self.volume, self.muted, self.shuffle, self.repeat_mode = "stopped", 1.0, False, False, "all"
+        self.position_sec, self.duration_sec, self.sample_rate, self.channels = 0.0, 0.0, 44100, 2
+        self.pitch_percent, self.pitch_factor, self.resampler = 0, 1.0, AudioResampler()
+        self.sf_file = self.stream = self.audio_source = self.audio_buffer = self.feeder = self.stream_error = self.pending_seek_sec = None
+        self.output_rate, self.output_device_name, self._next_stream_retry, self.track_ended = 44100, "", 0.0, False
+        self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
+         self.num_bands = 24
+        self.band_edges = np.logspace(np.log10(28), np.log10(18500), self.num_bands + 1)
+        self.band_boosts = ((1.0 + (1.2 / (1.0 + np.arange(self.num_bands, dtype=np.float32) * 0.28))) * 4.6)
+        for attr in ("levels", "levels_left", "levels_right", "smoothed_levels", "smoothed_levels_left", "smoothed_levels_right", "peaks", "peaks_left", "peaks_right", "peak_decay_timers", "peak_decay_timers_left", "peak_decay_timers_right"):
+            setattr(self, attr, np.zeros(self.num_bands, dtype=np.float32))
+        self.recent_mono_buffer = np.zeros(512, dtype=np.float32)
+        self.rms_level, self.peak_db = 0.0, -60.0
+        self.hanning_window, self.fft_scale = np.hanning(1024).astype(np.float32), 512.0
+        self._setup_fft_bins(44100)
+        self._cached_bt_info, self._last_bt_query = {}, 0.0
+        self.is_recording, self.recording_current_path, self.recording_bytes_written, self.recording_duration_sec = False, "", 0, 0.0
+        self._rec_queue = self._rec_worker_thread = self._rec_dir = None
+        self._rec_lock, self._rec_part_index, self._rec_base_stem, self._rec_samplerate = threading.Lock(), 1, "", 48000
+        self._ensure_stream()
+        self.eq_manager = EqualizerManager()
+        self.eq_filter = EqualizerFilter()
+        self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
+        self.auto_bluetooth, self.bt_router = auto_bluetooth, None
+        if BluetoothAudioRouter is not None:
+            try:
+                self.bt_router = BluetoothAudioRouter(target_pid=os.getpid(), on_route_change=self._on_bt_route_change, auto_switch=self.auto_bluetooth)
+                self.bt_router.start()
+            except Exception: pass
+     def _setup_fft_bins(self, sr: int):
+        freqs = np.fft.rfftfreq(1024, 1.0 / sr)
+        self.band_indices = []
+        for i in range(self.num_bands):
+            idx = np.where((freqs >= self.band_edges[i]) & (freqs < self.band_edges[i + 1]))[0]
+            if len(idx) == 0: idx = np.array([min(len(freqs) - 1, max(0, int(self.band_edges[i] / (sr / 2) * len(freqs))))])
+            self.band_indices.append(idx)
+        self._flat_idx = np.concatenate(self.band_indices)
+        self._reduce_offsets = np.cumsum([0] + [len(x) for x in self.band_indices[:-1]])
+        self._band_counts = np.array([len(x) for x in self.band_indices], dtype=np.float32)
+     def _on_bt_route_change(self, device_name: str, is_bluetooth: bool, action: str, codec: Optional[str] = None):
+        self._ensure_stream()
+        if self.bt_router:
+            try:
+                self._cached_bt_info = self.bt_router.get_status(force_probe=True)
+                self._last_bt_query = time.time()
+                if is_bluetooth and self._cached_bt_info.get("bluetooth_codec"): codec = self._cached_bt_info["bluetooth_codec"]
+            except Exception: pass
+        c_sfx = f" {codec}" if codec else ""
+        self.output_device_name = f"{device_name} [Bluetooth{c_sfx}]" if is_bluetooth else device_name
+        self._sync_state_file()
+     def set_pitch(self, pitch_pct: int):
+        self.pitch_percent = max(-20, min(20, int(pitch_pct)))
+        self.pitch_factor = 1.0 + (self.pitch_percent / 100.0)
+    def change_pitch(self, delta_pct: int = 1): self.set_pitch(self.pitch_percent + delta_pct)
+    def reset_pitch(self): self.set_pitch(0)
+     def _stream_alive(self) -> bool:
+        try: return bool(self.stream and self.stream.active)
+        except Exception: return False
+     def _close_stream(self):
+        s, self.stream = self.stream, None
+        if s:
+            for fn in (s.abort, s.stop, s.close):
+                try: fn()
+                except Exception: pass
+ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+        attempts, seen = [], set()
+        def add(d, r, e):
+            k = (d if d is None else int(d), int(r), e is not None)
+            if r > 0 and k not in seen:
+                seen.add(k)
+                attempts.append((d, int(r), e))
+         if sd is None:
+            return attempts
+         # 1. Direct query of system default output device index
+        try:
+            default_out_idx = sd.default.device[1]
+            if default_out_idx is not None and default_out_idx >= 0:
+                dev_info = sd.query_devices(default_out_idx)
+                native_rate = int(dev_info.get("default_samplerate") or 44100)
+                add(int(default_out_idx), native_rate, None)
+                for r in (44100, 48000, 96000):
+                    add(int(default_out_idx), r, None)
+        except Exception:
+            pass
+         # 2. Iterate and filter for physical output channels (> 0)
+        try:
+            for idx, dev in enumerate(sd.query_devices()):
+                if dev.get("max_output_channels", 0) > 0:
+                    r = int(dev.get("default_samplerate", 44100))
+                    add(idx, r, None)
+                    add(idx, 44100, None)
+                    add(idx, 48000, None)
+        except Exception:
+            pass
+         # 3. Fallbacks
+        try:
+            add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
+        except Exception:
+            pass
+         for r in (48000, 44100, 96000):
+            add(None, r, None)
+         return attempts
+     def _open_output_stream(self) -> bool:
+        if sd is None:
+            self.stream_error = "sounddevice is not installed"
+            return False
+        errors = []
+        for dev, rate, extra in self._stream_attempts():
+            s = None
+            try:
+                kw = dict(samplerate=rate, channels=2, dtype="float32", callback=self._audio_callback, blocksize=1024, latency="high")
+                if extra:
+                    kw["extra_settings"] = extra
+                if dev is not None:
+                    kw["device"] = dev
+                s = sd.OutputStream(**kw)
+                s.start()
+                nr = int(round(float(s.samplerate)))
+                if nr != self.output_rate:
+                    self.resampler.reset()
+                self.output_rate, self.stream, self.stream_error = nr or rate, s, None
+                try:
+                    self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
+                except Exception:
+                    self.output_device_name = "default"
+                if self.bt_router:
+                    try:
+                        threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
+                    except Exception:
+                        pass
+                return True
+            except Exception as exc:
+                errors.append(f"{dev}@{rate}: {exc}")
+                if s:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+        self.stream, self.stream_error = None, "; ".join(errors)[-400:] if errors else "no output device"
+        return False
+     def _ensure_stream(self) -> bool:
+        if self._stream_alive():
+            return True
+        if time.time() < self._next_stream_retry:
+            return False
+        self._close_stream()
+        if not (ok := self._open_output_stream()):
+            self._next_stream_retry = time.time() + 1.5
+        return ok
+ 

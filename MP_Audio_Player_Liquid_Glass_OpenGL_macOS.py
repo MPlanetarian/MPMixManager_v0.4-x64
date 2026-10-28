@@ -278,7 +278,7 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origi
         return box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7))
     else:
         iw = max(20, cols - 6)
-        # Playlist container box positioned at row 16 with height increased by 6 lines (21 rows total)
+        # Playlist container box positioned at row 16 with height 21 rows
         before = 16
         body_rows = 21
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows)
@@ -307,7 +307,7 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay with Retina scaling support."""
+    """Fixed absolute coordinate terminal overlay with Retina scaling and text drop-shadow support."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -679,6 +679,9 @@ class TerminalOverlay:
                         if ch != " ":
                             x = int(c * s_char_w)
                             col = self.colors[r][c]
+                            # Render subtle dark drop-shadow/outline for crystal-clear readability
+                            draw.text((x + 1, y + 1), ch, fill=(0, 0, 0, 240), font=self.font)
+                            # Render main foreground text on top
                             draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
@@ -745,7 +748,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self._drag_start_x = 0.0
         self._drag_start_y = 0.0
         
-        # Window transparency reduced by 20% (Default clear opacity set to 0.60 instead of 0.80)
         self.clear_opacity = 0.60
         self.slider_val = 0.60
         self._slider_dragging = False
@@ -753,7 +755,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def open(self):
         super().open()
         self._bind_callbacks()
-        # Apply initial 60% opacity to macOS window via GLFW
         if hasattr(self, "_glfw") and hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
             try:
                 self._glfw.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
@@ -772,26 +773,25 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
         @CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)
         def mouse_button_callback(_window, button, action, mods):
-            if button == 0:  # Left mouse button
+            if button == 0:
                 xpos = c_double()
                 ypos = c_double()
                 if hasattr(self._glfw, "glfwGetCursorPos"):
                     self._glfw.glfwGetCursorPos(_window, ctypes.byref(xpos), ctypes.byref(ypos))
                 
                 ww, wh = self.window_size()
-                # Check if click is inside the bottom slider bar region (bottom 35 pixels)
                 if wh - ypos.value <= 35 and 40 <= xpos.value <= ww - 40:
-                    if action == 1:  # Pressed
+                    if action == 1:
                         self._slider_dragging = True
                         self._update_slider(xpos.value, ww)
                     elif action == 0:
                         self._slider_dragging = False
                 else:
-                    if action == 1:  # Pressed
+                    if action == 1:
                         self._dragging = True
                         self._drag_start_x = xpos.value
                         self._drag_start_y = ypos.value
-                    elif action == 0:  # Released
+                    elif action == 0:
                         self._dragging = False
                         self._slider_dragging = False
 
@@ -857,18 +857,15 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         slider_right = max(80.0, float(ww) - 40.0)
         t = max(0.0, min(1.0, (xpos - slider_left) / (slider_right - slider_left)))
         
-        # Map t (0.0 to 1.0) to opacity range 40% to 80% (0.40 to 0.80)
         self.slider_val = 0.40 + t * (0.80 - 0.40)
         self.clear_opacity = self.slider_val
 
-        # Update macOS native window opacity via GLFW
         if hasattr(self, "_glfw") and hasattr(self._glfw, "glfwSetWindowOpacity") and self._window:
             try:
                 self._glfw.glfwSetWindowOpacity(self._window, ctypes.c_float(self.clear_opacity))
             except Exception:
                 pass
 
-        # Fallback for X11 / Linux environments if applicable
         win = self.x11_window() if hasattr(self, "x11_window") else None
         if win:
             self._set_opacity(win, self.clear_opacity)
@@ -936,8 +933,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
         self.overlay.render(fw, fh, ww, wh)
-        
-        # Draw interactive bottom slider bar for transparency control (40% to 80%)
         self._draw_transparency_slider(fw, fh, ww, wh)
 
         pixels = None
