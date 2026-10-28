@@ -1246,6 +1246,8 @@ class AudioEngine:
             k = (d if d is None else int(d), int(r), e is not None)
             if r > 0 and k not in seen: seen.add(k); attempts.append((d, int(r), e))
         if sd is None: return attempts
+
+        # Windows WASAPI specific handling
         if sys.platform == "win32":
             try:
                 for h in sd.query_hostapis():
@@ -1253,9 +1255,31 @@ class AudioEngine:
                         ex, nat = sd.WasapiSettings(exclusive=False, auto_convert=True), int(sd.query_devices(int(dev)).get("default_samplerate") or 48000)
                         for r in (nat, 48000, 44100): add(int(dev), r, ex)
             except Exception: pass
-        try: add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
+
+        # Safe macOS / cross-platform native rate query
+        try:
+            default_out = getattr(sd.default, 'device', None)
+            default_out_idx = None
+            if isinstance(default_out, (list, tuple)) and len(default_out) > 1:
+                default_out_idx = default_out[1]
+            elif isinstance(default_out, int):
+                default_out_idx = default_out
+
+            dev_info = sd.query_devices(default_out_idx, 'output') if default_out_idx is not None else sd.query_devices(kind='output')
+            native_rate = int(dev_info.get("default_samplerate") or 48000)
+            dev_idx = int(default_out_idx) if default_out_idx is not None and default_out_idx >= 0 else None
+            for r in (native_rate, 44100, 48000, 96000, 88200):
+                add(dev_idx, r, None)
         except Exception: pass
-        for r in (48000, 44100): add(None, r, None)
+
+        try: 
+            gen_out = sd.query_devices(kind="output")
+            add(None, int(gen_out.get("default_samplerate") or 48000), None)
+        except Exception: pass
+
+        for r in (44100, 48000, 96000, 88200): 
+            add(None, r, None)
+
         return attempts
 
     def _open_output_stream(self) -> bool:
