@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
-# MP_Mix_Manager_v0.4 - Local Launcher (Optimized)
+# MP_Mix_Manager_v0.4 - Local Launcher (Optimized & Non-Blocking)
 
 shopt -s checkwinsize 2>/dev/null
 export PYTHONIOENCODING=utf-8 PYTHONUTF8=1
 
-# Windows Home & Python Path Normalization
+# Fast Windows Home & Python Path Normalization (Non-blocking)
 if command -v cygpath &>/dev/null; then
     if [[ -n "$USERPROFILE" ]] && { [[ -z "$HOME" ]] || [[ ! -d "$HOME" ]] || [[ "$HOME" == "/home/$USER" ]]; }; then
         _h=$(cygpath -u "$USERPROFILE" 2>/dev/null) && [[ -d "$_h" ]] && export HOME="$_h"
     fi
 
-    for _p in "$LOCALAPPDATA/Programs/Python/Python312" "$USERPROFILE/AppData/Local/Programs/Python/Python312" "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" "/c/Program Files/Python312" "/c/Program Files/Python311"; do
-        _pu=$(cygpath -u "$_p" 2>/dev/null || echo "$_p")
-        [[ -x "$_pu/python.exe" ]] && { export PATH="$_pu:$_pu/Scripts:$PATH"; break; }
+    for _p in "$LOCALAPPDATA/Programs/Python/Python312" "$USERPROFILE/AppData/Local/Programs/Python/Python312" "/c/Program Files/Python312"; do
+        if [[ -d "$_p" ]]; then
+            _pu=$(cygpath -u "$_p" 2>/dev/null || echo "$_p")
+            [[ -x "$_pu/python.exe" ]] && { export PATH="$_pu:$_pu/Scripts:$PATH"; break; }
+        fi
     done
 fi
 
-clear
-
-# Resolve script path cleanly with double brackets
+# Resolve script path cleanly
 _RAW="${BASH_SOURCE[0]:-$0}"
 if [[ -z "$_RAW" || "$_RAW" == "bash" || "$_RAW" == "-bash" ]]; then
     _RAW="$PWD/manager.sh"
 fi
 
-# Resolve symlinks so DIR is accurate regardless of invocation path (e.g. ~/.local/bin/manager)
 while [[ -h "$_RAW" ]]; do
     _RESOLVED_DIR="$(cd -P "$(dirname "$_RAW")" >/dev/null 2>&1 && pwd)"
     _RAW="$(readlink "$_RAW")"
@@ -38,14 +37,9 @@ fi
 _RAW="${_RAW//\\//}"
 DIR=$(cd -P -- "$(dirname -- "$_RAW")" 2>/dev/null && pwd)
 
-# Safety fallback if resolved to system32 or empty
+# Fallback directory check if needed
 if [[ "$DIR" == "/c/WINDOWS/system32" || -z "$DIR" ]]; then
-    for _fb in "$PWD" "/var/home/mplanetarian/MP_Mix_Manager_v0.4" "/x/MP_Mix_Manager_v0.4" "$HOME/MP_Mix_Manager_v0.4" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.4" "/x/MP_Mix_Manager_v0.3" "/c/Users/${USER:-Mathe}/Downloads/MP_Mix_Manager_v0.3"; do
-        if [[ -f "$_fb/Mix_Archive_Manager.sh" ]]; then
-            DIR="$_fb"
-            break
-        fi
-    done
+    DIR="$PWD"
 fi
 
 cd "$DIR" || exit 1
@@ -56,4 +50,5 @@ if [[ ! -f "Mix_Archive_Manager.sh" ]]; then
     exit 1
 fi
 
+# Direct, clean execution without hanging wrapper hooks
 exec bash "Mix_Archive_Manager.sh" "$@"

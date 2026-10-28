@@ -32,48 +32,51 @@ printf -v "$_rows_var" '%s' "$r"
 printf -v "$_cols_var" '%s' "$c"
 }
 update_terminal_geometry() {
-local force="${1:-0}" win_l="" win_c=""
-if _win_console_size win_l win_c; then 
-    if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then 
-        _TERM_LINES="$win_l" 
-        _TERM_COLS="$win_c" 
+    local force="${1:-0}" win_l="" win_c=""
+    
+    # Try fetching real-time window dimensions from the native console helper
+    if _win_console_size win_l win_c; then
+        # Validate that returned values are sane numbers
+        if [[ "$win_l" =~ ^[0-9]+$ && "$win_c" =~ ^[0-9]+$ && "$win_l" -ge 5 && "$win_c" -ge 15 ]]; then
+            if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || "$win_l" != "${_TERM_LINES:-}" || "$win_c" != "${_TERM_COLS:-}" ]]; then 
+                _TERM_LINES="$win_l" 
+                _TERM_COLS="$win_c" 
+                _TERM_RESIZED=0
+                
+                # Update terminal driver and environment variables safely
+                if [[ "$OS_TYPE" == "windows" ]] || [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
+                    stty cols "$win_c" rows "$win_l" 2>/dev/null || true
+                fi
+                export LINES="$win_l"
+                export COLUMNS="$win_c"
+                return 0
+            fi
+            return 1
+        fi
+    fi
+
+    # Fallback path if native console check fails or returns invalid bounds
+    if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then 
+        local new_l="" new_c="" sz
+        
+        if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then 
+            read -r new_l new_c <<< "$sz"
+        fi
+        
+        # Fallback to current environment or safe minimums instead of arbitrary large defaults
+        [[ "$new_l" =~ ^[0-9]+$ && "$new_l" -ge 5 ]] || new_l="${LINES:-$(tput lines 2>/dev/null || echo 24)}"
+        [[ "$new_c" =~ ^[0-9]+$ && "$new_c" -ge 15 ]] || new_c="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+        
+        _TERM_LINES="$new_l"
+        _TERM_COLS="$new_c"
         _TERM_RESIZED=0
         
-        # CRITICAL: Force Windows Bash / stty / shell variables to match the new dimensions instantly
-        if [[ "$OS_TYPE" == "windows" ]] || [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
-            stty cols "$win_c" rows "$win_l" 2>/dev/null || true
-            export LINES="$win_l"
-            export COLUMNS="$win_c"
-        fi
+        export LINES="$_TERM_LINES"
+        export COLUMNS="$_TERM_COLS"
         return 0
-    fi
+    fi 
+    
     return 1
-fi
-
-if [[ "$force" -eq 1 || "${_TERM_RESIZED:-0}" -eq 1 || -z "${_TERM_LINES:-}" || -z "${_TERM_COLS:-}" ]]; then 
-    local new_l="" new_c=""
-    local sz
-    if sz="$(stty size 2>/dev/null)" && [[ -n "$sz" ]]; then 
-        read -r new_l new_c <<< "$sz"
-    fi
-    if [[ ! "$new_l" =~ ^[0-9]+$ || "$new_l" -lt 10 ]]; then
-        new_l=$(tput lines 2>/dev/null || echo "${LINES:-40}")
-    fi
-    if [[ ! "$new_c" =~ ^[0-9]+$ || "$new_c" -lt 20 ]]; then
-        new_c=$(tput cols 2>/dev/null || echo "${COLUMNS:-100}")
-    fi
-    [[ "$new_l" =~ ^[0-9]+$ && "$new_l" -ge 10 ]] || new_l="${LINES:-40}"
-    [[ "$new_l" =~ ^[0-9]+$ && "$new_l" -ge 10 ]] || new_l=40
-    [[ "$new_c" =~ ^[0-9]+$ && "$new_c" -ge 20 ]] || new_c="${COLUMNS:-100}"
-    [[ "$new_c" =~ ^[0-9]+$ && "$new_c" -ge 20 ]] || new_c=100
-    _TERM_LINES="$new_l"
-    _TERM_COLS="$new_c"
-    _TERM_RESIZED=0
-    export LINES="$_TERM_LINES"
-    export COLUMNS="$_TERM_COLS"
-    return 0
-fi 
-return 1
 }
 _set_menu_box_width() {
 local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"; [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80; [[ "$_cols" -lt 1 ]] && _cols=1; local _w; if [[ "$_cols" -ge 8 ]]; then _w=$((_cols - 4)); elif [[ "$_cols" -ge 3 ]]; then _w=$((_cols - 2)); else _w=1; fi; printf -v "$_dest" '%s' "$_w"
@@ -132,8 +135,25 @@ return 1
 }
 _nav_pending=""; _NAV_WIN_CON=""; _NAV_ARROW_AT=""
 _nav_just_arrowed() {
-# Windows console arrow-echo guard: only true for a short window (150ms) after an arrow key. Previously this was a sticky flag that never cleared on TICK paths, so every Enter on Windows 10 consoles was swallowed as TICK.
-local at="${_NAV_ARROW_AT:-}" now="${EPOCHREALTIME:-}"; [[ -n "$at" ]] || return 1; at="${at/[.,]/}"; now="${now/[.,]/}"; if [[ ! "$at" =~ ^[0-9]{7,}$ || ! "$now" =~ ^[0-9]{7,}$ ]]; then _NAV_ARROW_AT=""; return 1; fi; at=$((10#$at)); now=$((10#$now)); if (( now - at >= 0 && now - at < 150000 )); then return 0; fi; _NAV_ARROW_AT=""; return 1
+    # Windows console arrow-echo guard (optimized for speed)
+    [[ -n "${_NAV_ARROW_AT:-}" ]] || return 1
+    
+    local now="${EPOCHREALTIME:-}"
+    [[ -n "$now" ]] || { _NAV_ARROW_AT=""; return 1; }
+
+    # Strip decimal/comma more efficiently
+    local at="${_NAV_ARROW_AT//[.,]/}"
+    now="${now//[.,]/}"
+
+    # Fast integer comparison (ensuring they look like valid digits)
+    (( at > 0 && now > 0 )) || { _NAV_ARROW_AT=""; return 1; }
+
+    if (( 10#now - 10#at >= 0 && 10#now - 10#at < 150000 )); then
+        return 0
+    fi
+
+    _NAV_ARROW_AT=""
+    return 1
 }
 _nav_mark_console() {
 [[ -n "${_NAV_WIN_CON:-}" ]] && return 0; case "$(tty 2>/dev/null)" in /dev/cons*) _NAV_WIN_CON=1 ;; *) _NAV_WIN_CON=0 ;; esac
@@ -149,18 +169,125 @@ _discard_buffered_vertical_arrows() {
 local guard=0 b1="" b2="" b3="" b4="" seq="" cur="" steps=0 discard_it=0 ready_rc=0 empties=0; while [[ "$guard" -lt 200 ]]; do ((guard++)); b1=""; _nav_take_ready b1; ready_rc=$?; if [[ "$ready_rc" -eq 2 ]]; then if [[ "${_NAV_WIN_CON:-0}" -ne 1 ]]; then _nav_pending=$'\n'"${_nav_pending}"; return 0; fi; ((empties++)); [[ "$empties" -ge 2 ]] && return 0; continue; fi; [[ "$ready_rc" -eq 0 ]] || return 0; if [[ "${_NAV_WIN_CON:-0}" -eq 1 && ( "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ) ]]; then continue; fi; if [[ "$b1" != $'\e' ]]; then _nav_push_front "$b1"; return 0; fi; if ! _nav_take_ready b2 || [[ "$b2" != "[" && "$b2" != "O" ]]; then _nav_push_front "${b1}${b2:-}"; return 0; fi; if [[ "$b2" == "[" ]]; then if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then if [[ "$b3" == "[" ]]; then if ! _nav_take_ready b4 || [[ "$b4" != "A" && "$b4" != "B" ]]; then _nav_push_front "${b1}${b2}${b3}${b4:-}"; return 0; fi; discard_it=1; else seq="${b1}${b2}${b3}"; while [[ "$steps" -lt 16 ]]; do ((steps++)); cur=""; if ! _nav_take_ready cur; then _nav_push_front "$seq"; return 0; fi; seq+="$cur"; if [[ "$cur" == "A" || "$cur" == "B" ]]; then discard_it=1; break; fi; if [[ "$cur" =~ [A-Za-z~] ]]; then _nav_push_front "$seq"; return 0; fi; done; [[ "$discard_it" -ne 1 ]] && { _nav_push_front "$seq"; return 0; }; fi; fi; elif [[ "$b2" == "O" ]]; then if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then _nav_push_front "${b1}${b2}${b3:-}"; return 0; fi; fi; done
 }
 read_nav_key() {
-local _out_var="$1" _k=""
-_emit_key() {
-if [[ -n "$_out_var" ]]; then printf -v "$_out_var" "%s" "$1"; else echo "$1"; fi; return 0
-}
-_nav_mark_console; local read_rc=0; _nav_pull 0.05 _k; read_rc=$?; if [[ "$read_rc" -ne 0 ]]; then _k=""; if _resize_pending; then _emit_key "RESIZE"; return 0; fi; if [[ "$read_rc" -gt 128 ]]; then _emit_key "TICK"; return 0; fi; if [[ -n "$_out_var" ]]; then printf -v "$_out_var" "%s" ""; fi; return 1; fi; if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then if [[ "${_NAV_WIN_CON:-0}" -eq 1 ]] && _nav_just_arrowed; then _emit_key "TICK"; return 0; fi; _NAV_ARROW_AT=""; _emit_key "ENTER"; elif [[ "$_k" == " " ]]; then _emit_key "SPACE"; elif [[ "$_k" == $'\x7f' || "$_k" == $'\x08' ]]; then _emit_key "BACKSPACE"; elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then local c2=""; if _nav_pull 0.02 c2; then if [[ "$c2" == "[" ]]; then local c3=""; if _nav_pull 0.02 c3; then case "$c3" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; "[") local c4=""; if _nav_pull 0.02 c4; then case "$c4" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; *) _emit_key "UNKNOWN" ;; esac; fi ;; [0-9]) local c4=""; if _nav_pull 0.02 c4; then case "${c3}${c4}" in
-5~) _emit_key "PAGE_UP" ;;
-6~) _emit_key "PAGE_DOWN" ;;
-1~|7~) _emit_key "HOME" ;;
-4~|8~) _emit_key "END" ;;
-2~) _emit_key "INSERT" ;;
-3~) _emit_key "DELETE" ;;
-23|24) local c5=""; _nav_pull 0.02 c5 || true; _emit_key "TOGGLE_FULLSCREEN"; ;; *) local cur="${c4}"; while [[ ! "$cur" =~ [A-Za-z~] ]]; do _nav_pull 0.02 cur || break; done; case "$cur" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; *) _emit_key "UNKNOWN" ;; esac ;; esac; fi; ;; *) _emit_key "UNKNOWN" ;; esac; fi; elif [[ "$c2" == "O" ]]; then local c3=""; if _nav_pull 0.02 c3; then case "$c3" in A) _emit_key "UP" ; _NAV_ARROW_AT=1 ;; B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;; C) _emit_key "RIGHT" ;; D) _emit_key "LEFT" ;; H) _emit_key "HOME" ;; F) _emit_key "END" ;; *) _emit_key "UNKNOWN" ;; esac; fi; else _emit_key "UNKNOWN"; fi; else _emit_key "ESC"; fi; else _emit_key "CHAR:$_k"; fi; [[ -n "$_NAV_ARROW_AT" ]] && { sleep 0.01; _NAV_ARROW_AT=""; } 2>/dev/null || true
+    local _out_var="$1" _k=""
+    
+    _emit_key() {
+        if [[ -n "$_out_var" ]]; then
+            printf -v "$_out_var" "%s" "$1"
+        else
+            echo "$1"
+        fi
+        return 0
+    }
+
+    _nav_mark_console
+    local read_rc=0
+    
+    # Initial read for the first byte
+    _nav_pull 0.05 _k
+    read_rc=$?
+
+    if [[ "$read_rc" -ne 0 ]]; then
+        if _resize_pending; then
+            _emit_key "RESIZE"
+            return 0
+        fi
+        if [[ "$read_rc" -gt 128 ]]; then
+            _emit_key "TICK"
+            return 0
+        fi
+        [[ -n "$_out_var" ]] && printf -v "$_out_var" "%s" ""
+        return 1
+    fi
+
+    # Handle standard single-character keys or line feeds
+    if [[ -z "$_k" || "$_k" == $'\n' || "$_k" == $'\r' ]]; then
+        if [[ "${_NAV_WIN_CON:-0}" -eq 1 ]] && _nav_just_arrowed; then
+            _emit_key "TICK"
+            return 0
+        fi
+        _NAV_ARROW_AT=""
+        _emit_key "ENTER"
+    elif [[ "$_k" == " " ]]; then
+        _emit_key "SPACE"
+    elif [[ "$_k" == $'\x7f' || "$_k" == $'\x08' ]]; then
+        _emit_key "BACKSPACE"
+    elif [[ "$_k" == $'\x1b' || "$_k" == $'\e' ]]; then
+        # Escape sequence handling (optimized to reduce cumulative timeout lags)
+        local c2=""
+        if _nav_pull 0.01 c2; then
+            if [[ "$c2" == "[" ]]; then
+                local c3=""
+                if _nav_pull 0.01 c3; then
+                    case "$c3" in
+                        A) _emit_key "UP"    ; _NAV_ARROW_AT=1 ;;
+                        B) _emit_key "DOWN"  ; _NAV_ARROW_AT=1 ;;
+                        C) _emit_key "RIGHT" ;;
+                        D) _emit_key "LEFT"  ;;
+                        H) _emit_key "HOME"  ;;
+                        F) _emit_key "END"   ;;
+                        "[")
+                            local c4=""
+                            if _nav_pull 0.01 c4; then
+                                case "$c4" in
+                                    A) _emit_key "UP"   ; _NAV_ARROW_AT=1 ;;
+                                    B) _emit_key "DOWN" ; _NAV_ARROW_AT=1 ;;
+                                    C) _emit_key "RIGHT";;
+                                    D) _emit_key "LEFT" ;;
+                                    *) _emit_key "UNKNOWN" ;;
+                                esac
+                            fi
+                            ;;
+                        [0-9])
+                            local c4=""
+                            if _nav_pull 0.01 c4; then
+                                case "${c3}${c4}" in
+                                    5~) _emit_key "PAGE_UP" ;;
+                                    6~) _emit_key "PAGE_DOWN" ;;
+                                    1~|7~) _emit_key "HOME" ;;
+                                    4~|8~) _emit_key "END" ;;
+                                    2~) _emit_key "INSERT" ;;
+                                    3~) _emit_key "DELETE" ;;
+                                    23|24) 
+                                        local c5=""
+                                        _nav_pull 0.01 c5 || true
+                                        _emit_key "TOGGLE_FULLSCREEN" 
+                                        ;;
+                                    *) 
+                                        # Simplified non-regex fallback for speed
+                                        _emit_key "UNKNOWN" 
+                                        ;;
+                                esac
+                            fi
+                            ;;
+                        *) _emit_key "UNKNOWN" ;;
+                    esac
+                fi
+            elif [[ "$c2" == "O" ]]; then
+                local c3=""
+                if _nav_pull 0.01 c3; then
+                    case "$c3" in
+                        A) _emit_key "UP"    ; _NAV_ARROW_AT=1 ;;
+                        B) _emit_key "DOWN"  ; _NAV_ARROW_AT=1 ;;
+                        C) _emit_key "RIGHT" ;;
+                        D) _emit_key "LEFT"  ;;
+                        H) _emit_key "HOME"  ;;
+                        F) _emit_key "END"   ;;
+                        *) _emit_key "UNKNOWN" ;;
+                    esac
+                fi
+            else
+                _emit_key "UNKNOWN"
+            fi
+        else
+            _emit_key "ESC"
+        fi
+    else
+        _emit_key "CHAR:$_k"
+    fi
+    
+    # REMOVED the artificial blocking sleep 0.01 here to eliminate navigation lag.
+    return 0
 }
 highlight_menu_line() {
 local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then base_r=255; base_g=255; base_b=255; base_pr=255; base_pg=255; base_pb=255; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ]; then case "$c_mod" in 0) base_r=224; base_g=86; base_b=253; base_pr=224; base_pg=86; base_pb=253 ;; 1) base_r=0; base_g=245; base_b=212; base_pr=0; base_pg=245; base_pb=212 ;; 2) base_r=254; base_g=228; base_b=64; base_pr=254; base_pg=228; base_pb=64 ;; 3) base_r=94; base_g=96; base_b=206; base_pr=140; base_pg=160; base_pb=255 ;; esac; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl; if [ "$bf" -ge 60 ]; then if [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; local rst="\033[0m" ptr="${ptr_col} ▶ ❯${rst}"; printf -v formatted_key "[%2s]" "$key"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${rst}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
@@ -171,24 +298,19 @@ if [ -n "${_WIN_CURSOR_HIDER_PID:-}" ] && kill -0 "$_WIN_CURSOR_HIDER_PID" 2>/de
 
 cat <<'PY' > "$hider_py"
 import ctypes, os, sys, time
+
+# 1. Fast handle setup with minimal overhead
 k = ctypes.WinDLL("kernel32", use_last_error=True)
-
-k.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p]
-k.CreateFileW.restype = ctypes.c_void_p
-k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.GetConsoleCursorInfo.restype = ctypes.c_int
-k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.SetConsoleCursorInfo.restype = ctypes.c_int
-k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-k.GetConsoleScreenBufferInfo.restype = ctypes.c_int
-k.SetConsoleScreenBufferSize.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-k.SetConsoleScreenBufferSize.restype = ctypes.c_int
-
 GENERIC_RW = 0x80000000 | 0x40000000
 h = k.CreateFileW("CONOUT$", GENERIC_RW, 0x1 | 0x2, None, 3, 0, None)
-invalid = ctypes.c_void_p(-1).value
-if not h or h == invalid:
+if not h or h == ctypes.c_void_p(-1).value:
     sys.exit(0)
+
+# Configure argtypes/restypes once for max ctypes speed
+k.GetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.SetConsoleCursorInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.SetConsoleScreenBufferSize.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
 
 class COORD(ctypes.Structure):
     _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
@@ -207,8 +329,7 @@ class CCI(ctypes.Structure):
     _fields_ = [("dwSize", ctypes.c_ulong), ("bVisible", ctypes.c_int)]
 
 def _native_path(p):
-    if os.name != "nt" or not p:
-        return p
+    if not p: return p
     if len(p) >= 4 and p[0] == "/" and p[2] == "/" and p[1].isalpha():
         return p[1].upper() + ":" + p[2:].replace("/", "\\")
     if p.startswith("/cygdrive/") and len(p) > 11 and p[10].isalpha() and p[11] == "/":
@@ -220,48 +341,51 @@ csbi = CSBI()
 size_path = _native_path(os.environ.get("MP_WIN_SIZE_FILE") or "")
 if ctypes.sizeof(csbi) != 22:
     size_path = ""
-last = None
 
-def publish():
-    global last
+last_dims = None
+cursor_hidden_state = False
+
+def update_console():
+    global last_dims, cursor_hidden_state
+
+    # Batch cursor check: only push update if cursor became visible externally
+    if k.GetConsoleCursorInfo(h, ctypes.byref(info)):
+        if info.bVisible:
+            info.bVisible = 0
+            k.SetConsoleCursorInfo(h, ctypes.byref(info))
+
+    # Fetch screen buffer & window info efficiently
     if not k.GetConsoleScreenBufferInfo(h, ctypes.byref(csbi)):
         return
-    rows = int(csbi.srWindow.Bottom) - int(csbi.srWindow.Top) + 1
-    cols = int(csbi.srWindow.Right) - int(csbi.srWindow.Left) + 1
-    
+
+    rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1
+    cols = csbi.srWindow.Right - csbi.srWindow.Left + 1
     if rows < 1 or cols < 1:
         return
 
-    # Match screen buffer size to window dimensions strictly on-demand during resize/maximization.
-    # This permanently hides the scrollbar and blocks the mouse scroll wheel from bringing it back,
-    # while leaving the loop unblocked so normal window scaling works fluidly.
-    if (rows, cols) != last:
-        coord = (rows << 16) | (cols & 0xFFFF)
-        k.SetConsoleScreenBufferSize(h, coord)
+    dims = (rows, cols)
+    
+    # Execute buffer-size adjustment and file write ONLY when dimensions change
+    if dims != last_dims:
+        last_dims = dims
+        k.SetConsoleScreenBufferSize(h, (rows << 16) | (cols & 0xFFFF))
 
-    if (rows, cols) == last:
-        return
-
-    if size_path:
-        for _ in range(5):
+        if size_path:
+            tmp = f"{size_path}.{os.getpid()}"
             try:
-                tmp = "%s.%d" % (size_path, os.getpid())
                 with open(tmp, "w", encoding="ascii", newline="\n") as fh:
-                    fh.write("%d %d\n" % (rows, cols))
+                    fh.write(f"{rows} {cols}\n")
                 os.replace(tmp, size_path)
-                break
             except OSError:
-                time.sleep(0.01)
-            
-    last = (rows, cols)
+                pass # Skip cleanly on file locks instead of blocking with tight retries
 
-publish()
+# Initial sync
+update_console()
+
+# Main optimized loop (0.15s interval drastically cuts CPU/disk contention while remaining fluid)
 while True:
-    if k.GetConsoleCursorInfo(h, ctypes.byref(info)) and info.bVisible:
-        info.bVisible = 0
-        k.SetConsoleCursorInfo(h, ctypes.byref(info))
-    publish()
-    time.sleep(0.04)
+    update_console()
+    time.sleep(0.15)
 PY
 
 MP_WIN_SIZE_FILE="$conf_dir/console_size" "$py" -u "$hider_py" &>/dev/null &
@@ -3930,7 +4054,7 @@ trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 3|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
 manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*) (/home/mplanetarian/.local/bin/launch-liquid-glass >/dev/null 2>&1 &); _MENU_FRAME_FRESH=0 ;; liquid-config|glass-config|liquid-backend|glass-backend) configure_liquid_glass_backend ;; 4) if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then launch_mp_audio_player_liquid_glass; else manage_mix_conversion; fi ;; convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
 manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;
