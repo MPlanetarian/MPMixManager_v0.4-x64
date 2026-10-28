@@ -925,7 +925,7 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
 
 
 # ------------------------------------------------------------------------------
-# DYNAMIC HTML TEMPLATE (LIVE THEME POLLING & ANIMATED RAINBOW GLASS)
+# DYNAMIC HTML TEMPLATE (SEAMLESS AUDIO STREAMING & SYNCED SEEKING)
 # ------------------------------------------------------------------------------
 def render_html_page(theme: Dict[str, Any]) -> str:
     t = theme
@@ -1116,9 +1116,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-size: 0.72rem;
             color: var(--text-dim);
         }}
-        /* Mobile Stream Activation Modal Overlay */
+        /* Stream Activation Modal */
         #streamOverlay {{
-            display: none;
+            display: flex;
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(5, 4, 15, 0.92);
@@ -1376,11 +1376,11 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     </style>
 </head>
 <body>
-    <!-- Mobile Audio Stream Activation Overlay -->
+    <!-- Stream Activation Modal to Satisfy Mobile Autoplay Policies -->
     <div id="streamOverlay">
         <div class="overlay-card">
             <h2>🎧 MP Mix Stream</h2>
-            <p>Tap below to start routing the live high-resolution studio audio stream to your mobile device.</p>
+            <p>Tap below to engage mobile studio audio streaming and dashboard synchronization.</p>
             <button class="btn-activate-stream" onclick="activateMobileStream()">Engage Audio Stream</button>
         </div>
     </div>
@@ -1394,10 +1394,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     <div class="card now-playing">
         <div id="mobileAudioBanner" class="mobile-audio-banner">
             <h4>📱 Mobile Audio Stream Active</h4>
-            <p>Direct low-latency audio stream routing engaged</p>
+            <p>High-resolution FLAC/WAV streaming active</p>
         </div>
 
-        <!-- Hidden background audio routing element -->
+        <!-- HTML5 Audio Streaming Element -->
         <audio id="mobileAudioStream" preload="auto" style="display: none;"></audio>
 
         <div class="badges-row">
@@ -1487,23 +1487,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         let lastLoadedMix = "";
         let isPlayerActive = false;
         let audioStreamConfigured = false;
-        let pendingActiveFile = "";
-        let pendingPositionSec = 0;
-        let lastKnownServerPos = 0;
-
-        function isMobileDevice() {{
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            return /android|iphone|ipad|ipod/i.test(ua.toLowerCase());
-        }}
+        let activeAudioFile = "";
 
         window.addEventListener('DOMContentLoaded', () => {{
-            if (isMobileDevice()) {{
-                const banner = document.getElementById('mobileAudioBanner');
-                if (banner) banner.style.display = 'block';
-                
-                const overlay = document.getElementById('streamOverlay');
-                if (overlay) overlay.style.display = 'flex';
-            }}
             if (currentThemeId === 'dynamic_rainbow_liquid_glass') {{
                 document.body.classList.add('rainbow-animated');
             }}
@@ -1513,17 +1499,21 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             const overlay = document.getElementById('streamOverlay');
             if (overlay) overlay.style.display = 'none';
 
+            const banner = document.getElementById('mobileAudioBanner');
+            if (banner) banner.style.display = 'block';
+
             const audioEl = document.getElementById('mobileAudioStream');
-            if (audioEl && pendingActiveFile) {{
-                audioEl.src = '/api/stream?file=' + encodeURIComponent(pendingActiveFile);
-                if (pendingPositionSec > 0) {{
-                    audioEl.currentTime = pendingPositionSec;
+            if (audioEl) {{
+                if (activeAudioFile && !audioStreamConfigured) {{
+                    audioEl.src = '/api/stream?file=' + encodeURIComponent(activeAudioFile);
+                    audioStreamConfigured = true;
                 }}
-                audioEl.load();
-                audioEl.play().catch(e => {{
-                    console.log("Stream play execution caught:", e);
+                audioEl.play().then(() => {{
+                    console.log("Audio stream engaged successfully");
+                }}).catch(e => {{
+                    console.log("Stream play blocked:", e);
+                    if (overlay) overlay.style.display = 'flex';
                 }});
-                audioStreamConfigured = true;
             }}
         }}
 
@@ -1533,7 +1523,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 if (!audioEl.paused) {{
                     audioEl.pause();
                 }} else {{
-                    audioEl.play().catch(e => {{}});
+                    audioEl.play().catch(e => {{
+                        const overlay = document.getElementById('streamOverlay');
+                        if (overlay) overlay.style.display = 'flex';
+                    }});
                 }}
             }}
             sendAction('play-pause');
@@ -1677,11 +1670,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 if (data.position_sec !== undefined) {{
                     const audioEl = document.getElementById('mobileAudioStream');
                     if (audioEl && !audioEl.paused && audioStreamConfigured) {{
-                        if (Math.abs(audioEl.currentTime - data.position_sec) > 3.0) {{
+                        if (Math.abs(audioEl.currentTime - data.position_sec) > 2.0) {{
                             audioEl.currentTime = data.position_sec;
                         }}
                     }}
-                    lastKnownServerPos = data.position_sec;
                 }}
                 if (data.volume !== undefined) {{
                     document.getElementById('volPill').innerText = 'Vol: ' + data.volume + '%';
@@ -1709,48 +1701,32 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 const state = (data.state || "stopped").toLowerCase();
                 badge.innerText = state.toUpperCase();
                 
-                const audioEl = document.getElementById('mobileAudioStream');
                 if (state === 'playing') {{
                     badge.style.background = 'var(--badge-bg)';
                     badge.style.color = 'var(--badge-color)';
                     badge.style.borderColor = 'var(--badge-color)';
                     document.getElementById('btnPlayPause').innerText = '⏸ Pause';
-                    
-                    if (audioEl && audioEl.paused && audioStreamConfigured) {{
-                        audioEl.play().catch(e => {{}});
-                    }}
                 }} else {{
                     badge.style.background = 'rgba(255, 170, 0, 0.15)';
                     badge.style.color = '#ffaa00';
                     badge.style.borderColor = '#ffaa00';
                     document.getElementById('btnPlayPause').innerText = '⏯ Play';
-                    
-                    if (audioEl && !audioEl.paused) {{
-                        audioEl.pause();
-                    }}
                 }}
 
                 document.getElementById('sourceBadge').innerText = (data.player || "None").toUpperCase();
                 currentDurationSec = data.duration_sec || 0;
 
-                if (isMobileDevice() && data.active_file) {{
-                    pendingActiveFile = data.active_file;
-                    pendingPositionSec = data.position_sec || 0;
-
-                    if (!audioStreamConfigured) {{
-                        if (audioEl) {{
-                            audioEl.src = '/api/stream?file=' + encodeURIComponent(data.active_file);
-                            if (data.position_sec > 0) {{
-                                audioEl.currentTime = data.position_sec;
-                            }}
-                            audioEl.load();
-
-                            audioEl.play().then(() => {{
-                                audioStreamConfigured = true;
-                                const overlay = document.getElementById('streamOverlay');
-                                if (overlay) overlay.style.display = 'none';
-                            }}).catch(err => {{}});
+                if (data.active_file && activeAudioFile !== data.active_file) {{
+                    activeAudioFile = data.active_file;
+                    audioStreamConfigured = false;
+                    const audioEl = document.getElementById('mobileAudioStream');
+                    if (audioEl) {{
+                        audioEl.src = '/api/stream?file=' + encodeURIComponent(data.active_file);
+                        audioStreamConfigured = true;
+                        if (data.position_sec > 0) {{
+                            audioEl.currentTime = data.position_sec;
                         }}
+                        audioEl.load();
                     }}
                 }}
 
@@ -1807,7 +1783,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 
 
 # ------------------------------------------------------------------------------
-# HTTP SERVER & API HANDLER
+# HTTP SERVER & API HANDLER (WITH RANGE HEADER SUPPORT FOR HTML5 STREAMING)
 # ------------------------------------------------------------------------------
 class CompanionHandler(http.server.BaseHTTPRequestHandler):
     def do_HEAD(self):
@@ -1864,9 +1840,48 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             if file_path and os.path.isfile(file_path):
                 try:
                     file_size = os.path.getsize(file_path)
+                    range_header = self.headers.get("Range")
+                    
+                    ext = Path(file_path).suffix.lower()
+                    content_type = "audio/flac" if ext == ".flac" else ("audio/wav" if ext == ".wav" else "audio/mpeg")
+
+                    if range_header:
+                        m = re.match(r'bytes=(\d+)-(\d*)', range_header)
+                        if m:
+                            start = int(m.group(1))
+                            end = int(m.group(2)) if m.group(2) else file_size - 1
+                            if start >= file_size:
+                                self.send_response(416)
+                                self.send_header("Content-Range", f"bytes */{file_size}")
+                                self.end_headers()
+                                return
+                            length = end - start + 1
+                            self.send_response(206)
+                            self.send_header("Content-Type", content_type)
+                            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                            self.send_header("Content-Length", str(length))
+                            self.send_header("Accept-Ranges", "bytes")
+                            self.send_header("Access-Control-Allow-Origin", "*")
+                            self.end_headers()
+
+                            with open(file_path, "rb") as f:
+                                f.seek(start)
+                                remaining = length
+                                chunk_size = 65536
+                                while remaining > 0:
+                                    to_read = min(chunk_size, remaining)
+                                    data = f.read(to_read)
+                                    if not data:
+                                        break
+                                    self.wfile.write(data)
+                                    remaining -= len(data)
+                            return
+
+                    # Standard full stream / fallback request
                     self.send_response(200)
-                    self.send_header("Content-Type", "audio/flac")
+                    self.send_header("Content-Type", content_type)
                     self.send_header("Content-Length", str(file_size))
+                    self.send_header("Accept-Ranges", "bytes")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
                     with open(file_path, "rb") as f:
