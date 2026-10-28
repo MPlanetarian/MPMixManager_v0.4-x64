@@ -300,9 +300,8 @@ def _child_env():
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
-    env["MP_LIQUID_GLASS"] = "0"  # Prevent child from opening a second standalone window
-    env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
-    env["MP_LIQUID_GLASS_PLATFORM"] = "macos"
+    env["MP_LIQUID_GLASS"] = "0"
+    env["MP_LIQUID_GLASS_BACKEND"] = "none"  # Force child to run headless text mode only
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -329,8 +328,27 @@ class TerminalOverlay:
         self._initialized_gl = False
         self.font = None
         self.image = None
-        self.img_w = 0
-        self.img_h = 0
+        self.img_w = self.cols * self.char_w
+        self.img_h = self.rows * self.char_h
+
+        try:
+            from PIL import Image, ImageFont
+
+            for font_path in [
+                "/System/Library/Fonts/SFNSMono.ttf",
+                "/System/Library/Fonts/Monaco.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/Library/Fonts/Courier New.ttf",
+            ]:
+                if os.path.exists(font_path):
+                    self.font = ImageFont.truetype(font_path, 13)
+                    break
+            if not self.font:
+                self.font = ImageFont.load_default()
+
+            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
+        except Exception:
+            pass
 
     def init_gl(self):
         if self._initialized_gl:
@@ -425,6 +443,7 @@ class TerminalOverlay:
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.img_w, self.img_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, None)
             glBindTexture(GL_TEXTURE_2D, 0)
 
             self._initialized_gl = True
@@ -593,44 +612,19 @@ class TerminalOverlay:
                 GL_UNSIGNED_BYTE,
             )
             import numpy as np
-            from PIL import Image, ImageDraw, ImageFont
-
-            if self.image is None or self.img_w != fw or self.img_h != fh:
-                self.img_w = fw
-                self.img_h = fh
-                self.image = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
-                scale_y = fh / (self.rows * self.char_h)
-                font_size = max(10, int(13 * scale_y))
-                self.font = None
-                for font_path in [
-                    "/System/Library/Fonts/SFNSMono.ttf",
-                    "/System/Library/Fonts/Monaco.ttf",
-                    "/System/Library/Fonts/Helvetica.ttc",
-                    "/Library/Fonts/Courier New.ttf",
-                ]:
-                    if os.path.exists(font_path):
-                        self.font = ImageFont.truetype(font_path, font_size)
-                        break
-                if not self.font:
-                    self.font = ImageFont.load_default()
-                self.dirty = True
+            from PIL import ImageDraw
 
             if self.dirty and self.image:
                 self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
                 draw = ImageDraw.Draw(self.image)
-                scale_x = fw / (self.cols * self.char_w)
-                scale_y = fh / (self.rows * self.char_h)
-
                 for r in range(self.rows):
-                    y = int(r * self.char_h * scale_y)
+                    y = r * self.char_h
                     for c in range(self.cols):
                         ch = self.grid[r][c]
                         if ch != " ":
-                            x = int(c * self.char_w * scale_x)
+                            x = c * self.char_w
                             col = self.colors[r][c]
                             draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
-
-                render_image = self.image.transpose(Image.FLIP_TOP_BOTTOM)
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(
@@ -642,24 +636,25 @@ class TerminalOverlay:
                     0,
                     GL_RGBA,
                     GL_UNSIGNED_BYTE,
-                    render_image.tobytes("raw", "RGBA", 0, 1),
+                    self.image.tobytes("raw", "RGBA", 0, 1),
                 )
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
+            # Match exact logical sizing coverage mapped to window points
             x1 = -1.0
             y1 = -1.0
-            x2 = 1.0
-            y2 = 1.0
+            x2 = -1.0 + (2.0 * self.img_w / fw)
+            y2 = -1.0 + (2.0 * self.img_h / fh)
 
             quad_data = np.array(
                 [
-                    x1, y1, 0.0, 0.0,
-                    x2, y1, 1.0, 0.0,
-                    x1, y2, 0.0, 1.0,
-                    x2, y1, 1.0, 0.0,
-                    x2, y2, 1.0, 1.0,
-                    x1, y2, 0.0, 1.0,
+                    x1, y1, 0.0, 1.0,
+                    x2, y1, 1.0, 1.0,
+                    x1, y2, 0.0, 0.0,
+                    x2, y1, 1.0, 1.0,
+                    x2, y2, 1.0, 0.0,
+                    x1, y2, 0.0, 0.0,
                 ],
                 dtype=np.float32,
             )
@@ -864,20 +859,11 @@ class OpenGLGlassHost:
         char_w = CHAR_W
         char_h = CHAR_H
         margin = self.renderer.bezel_px
-        
-        # Scale panel rects to match Retina framebuffer pixel space
-        ww, wh = self.renderer.window_size()
-        fw, fh = self.renderer.framebuffer_size()
-        rx = (fw / float(ww)) if ww > 0 else 1.0
-        ry = (fh / float(wh)) if wh > 0 else 1.0
-
-        p1, p2 = player_panel_rects(
-            self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
+        self.renderer.set_panels(
+            player_panel_rects(
+                self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
+            )
         )
-        scaled_p1 = (p1[0] * rx, p1[1] * ry, p1[2] * rx, p1[3] * ry)
-        scaled_p2 = (p2[0] * rx, p2[1] * ry, p2[2] * rx, p2[3] * ry)
-
-        self.renderer.set_panels((scaled_p1, scaled_p2))
 
     def run(self):
         self.master_fd, slave_fd = pty.openpty()
