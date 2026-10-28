@@ -961,18 +961,15 @@ launch_mp_audio_player_liquid_glass() {
     local py=""
     local backend_name="OpenGL"
 
-    # Robust BASE_DIR candidate search (matching launch-liquid-glass)
+# Robust BASE_DIR candidate search (v0.4 only)
     local BASE_DIR="$SCRIPT_DIR"
     if [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then
         for _c in \
             "${MP_MIX_MANAGER_DIR:-}" \
             "$PWD" \
             "$HOME/MP_Mix_Manager_v0.4" \
-            "$HOME/MP_Mix_Manager_v0.3" \
             "/home/mplanetarian/MP_Mix_Manager_v0.4" \
-            "/home/mplanetarian/MP_Mix_Manager_v0.3" \
-            "/var/home/mplanetarian/MP_Mix_Manager_v0.4" \
-            "/var/home/mplanetarian/MP_Mix_Manager_v0.3"; do
+            "/var/home/mplanetarian/MP_Mix_Manager_v0.4"; do
             if [ -n "$_c" ] && { [ -f "$_c/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass_macOS.py" ]; }; then
                 BASE_DIR="$_c"
                 break
@@ -995,6 +992,8 @@ launch_mp_audio_player_liquid_glass() {
             backend_name="Metal (Apple Silicon)"
         fi
     elif [ "$os_type" = "Linux" ] || [[ "$os_type" =~ ^(MINGW|MSYS|CYGWIN) ]]; then
+    # Ensure we are in the correct base directory before running the player
+        cd "$BASE_DIR" || cd "$SCRIPT_DIR" || exit 1
         local backend="${LIQUID_GLASS_BACKEND:-opengl}"
         backend="$(echo "$backend" | tr '[:upper:]' '[:lower:]')"
         if [ "$backend" = "vulkan" ]; then
@@ -1024,9 +1023,13 @@ launch_mp_audio_player_liquid_glass() {
     fi
 
     mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
-    echo -e "\n${BOLD}${CYAN}Opening MP Audio Player (Liquid Glass Mode - ${backend_name}) in its own window.${NC}\n"
+    echo -e "\n${BOLD}${CYAN}Launching MP Audio Player (Liquid Glass Mode - ${backend_name})...${NC}\n"
+    sleep 0.5
+    
     local py_bin="python3"
-    if [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
+    if [ -x "$BASE_DIR/venv/bin/python3" ]; then
+        py_bin="$BASE_DIR/venv/bin/python3"
+    elif [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
         py_bin="$SCRIPT_DIR/venv/bin/python3"
     fi
 
@@ -1035,13 +1038,18 @@ launch_mp_audio_player_liquid_glass() {
     [ -n "$seek_pos" ] && [ "$seek_pos" != "0" ] && [ "$seek_pos" != "0.0" ] && py_args+=(--seek-to "$seek_pos")
     [ "$mode" = "MUSIC" ] && py_args+=(--music-mode)
 
-    nohup "$py_bin" "$py" "${py_args[@]}" >> "$HOME/.config/mix-manager/liquid_glass.log" 2>&1 &
-    disown
-    
-    # Automatically start MP Liquid Visualizer with a random preset if not already running
+    # Export environment variables for proper rendering
+    export TERM="${TERM:-xterm-256color}"
+    export LIQUID_GLASS_BACKEND="${backend_name}"
+
+    # Run interactively in the foreground so the terminal TTY UI draws correctly
+    "$py_bin" "$py" "${py_args[@]}"
+
+    # Automatically start MP Liquid Visualizer with a random preset if not already running (optional background companion)
     if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
-        local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
-        [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/scripts/mp_liquid_visualizer_vulkan.py"
+        local vis_py="$BASE_DIR/MP_Liquid_Visualizer.py"
+        [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
+        [ ! -f "$vis_py" ] && vis_py="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
         if [ -f "$vis_py" ]; then
             nohup "$py_bin" "$vis_py" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
             disown
