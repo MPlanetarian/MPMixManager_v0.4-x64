@@ -90,30 +90,9 @@ cosmic_dreamworlds_radioactive|radioactive|cosmic_radioactive|"Cosmic Dreamworld
 RED='\033[38;2;57;255;20m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;255;215;0m'; BLUE='\033[38;2;102;102;255m'; MAGENTA='\033[38;2;166;77;255m'; CYAN='\033[38;2;0;245;212m'; CURRENT_THEME="cosmic_dreamworlds_radioactive" ;;
 orbital_void_reflux|orbital_void|void_reflux|orbital|"Orbital Void Reflux (Liquid Glass Skin)"|"Orbital Void Reflux")
 RED='\033[38;2;255;0;127m'; GREEN='\033[38;2;0;240;255m'; YELLOW='\033[38;2;157;78;221m'; BLUE='\033[38;2;123;44;191m'; MAGENTA='\033[38;2;157;78;221m'; CYAN='\033[38;2;0;240;255m'; CURRENT_THEME="orbital_void_reflux" ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+dynamic_rainbow_liquid_glass|dynamic_liquid_glass_rainbow|dynamic_rainbow|rainbow_liquid_glass|rainbow|"Dynamic Liquid Glass [Rainbow Colours] (New)"|"Dynamic Liquid Glass [Rainbow Colours]"|"Dynamic Liquid Glass")
+RED='\033[38;2;255;45;142m'; GREEN='\033[38;2;0;242;254m'; YELLOW='\033[38;2;255;215;0m'; BLUE='\033[38;2;90;130;255m'; MAGENTA='\033[38;2;176;88;255m'; CYAN='\033[38;2;0;242;254m'; CURRENT_THEME="dynamic_rainbow_liquid_glass" ;;
+dreamworlds_liquid|mp_dreamworlds_liquid_transparency|liquid_transparency|liquid|glass|"MP Dreamworlds Liquid Transparency"|"MP Dreamworlds Liquid Transparency [Special Edition]")
 RED='\033[38;2;255;75;130m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;255;215;0m'; BLUE='\033[38;2;72;149;239m'; MAGENTA='\033[38;2;199;125;255m'; CYAN='\033[38;2;0;245;255m'; CURRENT_THEME="dreamworlds_liquid" ;;
 dreamworlds_ultra|ultra|dreamworlds_ultra_mp_mix_manager|"Dreamworlds Ultra MP Mix Manager")
 RED='\033[38;2;255;0;0m' GREEN='\033[38;2;0;255;0m' YELLOW='\033[38;2;255;153;51m'; BLUE='\033[38;2;102;102;255m' MAGENTA='\033[38;2;166;77;255m' CYAN='\033[38;2;153;153;255m'; CURRENT_THEME="dreamworlds_ultra" ;;
@@ -360,14 +339,7 @@ TICK)
             _maybe_refresh_perf_cache
         fi
         _MENU_FRAME_FRESH=0
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    fi ; local _idle_time=$(( _now_s - _LAST_NAV_TIME )); if [ "$_idle_time" -ge 10 ] && [ "${search_mode:-0}" -ne 1 ] && [ -z "${typed_buffer:-}" ]; then _IS_BREATHING=1; ((_BREATH_TICK_DIV++)); if [ "$_BREATH_TICK_DIV" -ge 2 ]; then _BREATH_TICK_DIV=0; _BREATH_STEP=$(( (_BREATH_STEP + 1) % 32 )); local cur_f="${_BREATH_FACTORS[_BREATH_STEP]}"; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_breath=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_breath "$box_w" "$cur_f"; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_breath"; fi; fi; elif [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_restored=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_restored "$box_w" 100; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_restored"; fi; fi; continue ;; CHAR:/) if [ "$search_mode" -eq 1 ]; then search_query+="/"; _find_menu_search_match "$search_query" 0 1; else search_mode=1; search_query=""; typed_buffer=""; fi; _MENU_FRAME_FRESH=0; continue ;; SPACE) if [ "$search_mode" -eq 1 ]; then search_query+=" "; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; toggle_mp_audio_player; _MENU_FRAME_FRESH=0; continue ;; CHAR:m|CHAR:M) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_window; _MENU_FRAME_FRESH=0; continue ;; CHAR:l|CHAR:L) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_liquid_glass >/dev/null 2>&1; _MENU_FRAME_FRESH=0; continue ;; CHAR:z|CHAR:Z) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_liquid_visualizer >/dev/null 2>&1; _MENU_FRAME_FRESH=0; continue ;;
 CHAR:K) if [ "$search_mode" -eq 1 ]; then search_query+="K"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped"; typed_buffer=""; _last_menu_frame=""; _MENU_FRAME_FRESH=0; continue ;;
 CHAR:n|CHAR:N|CHAR:\>|CHAR:\])
 if [ "$search_mode" -eq 1 ]; then search_query+="n"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --next &>/dev/null &
@@ -398,14 +370,7 @@ if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
 fi
 }
 save_theme() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "stream_of_frequency" ]; then echo "stream_of_frequency_eq" > "$HOME/.config/mix-manager/eq_style" 2>/dev/null || true; elif [ "$new_theme" = "sensorium_interface" ]; then echo "sensorium_interface" > "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true; echo "Sensorium Interface" > "$HOME/.config/mix-manager/eq_preset" 2>/dev/null || true; fi; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ] || [ "$new_theme" = "dreamworlds_liquid" ] || [ "$new_theme" = "dynamic_rainbow_liquid_glass" ] || [ "$new_theme" = "stream_of_frequency" ] || [ "$new_theme" = "sensorium_interface" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"
 }
 _sync_btop_theme() {
 local th="${1:-$CURRENT_THEME}" tn="" bd="$HOME/.config/btop"; [ "$th" = "dreamworlds_ultra" ] && tn="Dreamworlds_Ultra_MP_Mix_Manager"; [ "$th" = "cosmic_supernova" ] && tn="Cosmic_Supernova_MP_Mix_Manager"; [ "$th" = "stream_of_frequency" ] && tn="Stream_of_Frequency_MP_Mix_Manager"; [ "$th" = "sensorium_interface" ] && tn="Sensorium_Interface_MP_Mix_Manager"; [ -z "$tn" ] || [ ! -d "$bd" ] && return 0; mkdir -p "$bd/themes" 2>/dev/null; [ -f "$SCRIPT_DIR/themes/${tn}.theme" ] && cp -p "$SCRIPT_DIR/themes/${tn}.theme" "$bd/themes/" 2>/dev/null; [ -f "$bd/btop.conf" ] && sed -i "s|^color_theme = .*|color_theme = \"${tn}\"|" "$bd/btop.conf" 2>/dev/null
@@ -414,14 +379,7 @@ load_theme; _STOP_AUDIO_ON_EXIT=0; _MP_AUDIO_DAEMON_STOPPED=0
 _mp_player_pid_alive() {
 local pid="$1"; local comm=""; if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then comm=$(ps -W 2>/dev/null | awk -v pid="$pid" '$4 == pid {print $NF; found=1; exit} END {exit !found}') || return 1; else kill -0 "$pid" 2>/dev/null || return 1; return 0; fi; case "$comm" in *[Pp]ython*) return 0 ;; *) return 1 ;; esac
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+is_liquid_glass_open() {
     if pgrep -f "MP_Audio_Player_Liquid_Glass|MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" &>/dev/null; then
         return 0
     fi
@@ -432,27 +390,13 @@ local pid="$1"; local comm=""; if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then 
     fi
     return 1
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+is_liquid_glass_pid() {
     local check_pid="$1"
     [ -z "$check_pid" ] && return 1
     local cmdline=""
     cmdline="$(ps -p "$check_pid" -o command= 2>/dev/null || true)"
     case "$cmdline" in
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+        *MP_Audio_Player_Liquid_Glass*|*liquid_glass*|*liquid-glass*|*MP_Liquid_Visualizer*|*mp_liquid_visualizer_vulkan*)
             return 0
             ;;
     esac
@@ -471,14 +415,7 @@ local pid="$1"; local comm=""; if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then 
 _stop_mp_audio_daemon() {
     local force=0
     [ "${1:-}" = "--force" ] && force=1
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    if [ "$force" -eq 0 ] && type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
         return 0
     fi
     save_playback_resume_state 2>/dev/null || true
@@ -628,14 +565,7 @@ except Exception:
 kill_all_mp_audio_players() {
     local force=0
     [ "${1:-}" = "--force" ] && force=1
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    if [ "$force" -eq 0 ] && type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
         return 0
     fi
     _stop_mp_audio_daemon "$@"
@@ -661,14 +591,7 @@ exit_mix_manager() {
     save_playback_resume_state 2>/dev/null || true
     _STOP_AUDIO_ON_EXIT=1; _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider
     local _lg_open=0
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    if type is_liquid_glass_open &>/dev/null && is_liquid_glass_open; then
         _lg_open=1
     fi
     if [ "$_lg_open" -eq 1 ]; then
@@ -681,14 +604,7 @@ exit_mix_manager() {
     _bg_jobs="$(jobs -p 2>/dev/null || true)"
     if [ -n "$_bg_jobs" ]; then
         for _jp in $_bg_jobs; do
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+            if [ "$_lg_open" -eq 1 ] && type is_liquid_glass_pid &>/dev/null && is_liquid_glass_pid "$_jp"; then
                 continue
             fi
             kill "$_jp" 2>/dev/null || true
@@ -855,22 +771,8 @@ return 0; elif [ "$OS_TYPE" = "wsl" ]; then for viewer in wslview explorer.exe; 
 return 0; fi; done; fi; open_path "$target"
 }
 open_tracklist_window() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+local target="$1" audio_arg="${2:-}"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; [ -n "$audio_arg" ] && export MP_TRACKLIST_AUDIO_FILE="$audio_arg"; [ -n "${CURRENT_THEME:-}" ] && export CURRENT_THEME MP_TRACKLIST_THEME="$CURRENT_THEME"; local viewer_sh="$SCRIPT_DIR/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$SCRIPT_DIR/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/view_tracklist_console.sh"; local tl_title="Mix Tracklist Viewer"; local viewer="${TRACKLIST_VIEWER:-console}"; if [ "$viewer" != "console" ] && [ "$viewer" != "auto" ] && [ -n "$viewer" ] && [ "$viewer" != "liquid_glass" ] && [ "$viewer" != "glass" ]; then if command -v "$viewer" &>/dev/null; then "$viewer" "$target" &>/dev/null &
+return 0; fi; fi; if [ "${MP_LIQUID_GLASS:-0}" = "1" ] || [ "$viewer" = "liquid_glass" ] || [ "$viewer" = "glass" ]; then local lg_py=""; local lg_back="${MP_LIQUID_GLASS_BACKEND:-${LIQUID_GLASS_BACKEND:-opengl}}"; if [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"; elif [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"; elif [ "$lg_back" = "vulkan" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; fi; if [ -n "$lg_py" ]; then python3 "$lg_py" --tracklist "$target" ${audio_arg:+"--audio" "$audio_arg"} ${CURRENT_THEME:+"--theme" "$CURRENT_THEME"} &>/dev/null &
 return 0; fi; fi; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if command -v konsole &>/dev/null; then konsole --hide-menubar --hide-tabbar --separate --qwindowtitle "$tl_title" -p tabtitle="$tl_title" -p TerminalMargin=0 -p TerminalColumns=95 -p TerminalRows=35 -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
 (sleep 0.15; command -v xprop &>/dev/null && xprop -name "$tl_title" -f _MOTIF_WM_HINTS 32c -set _MOTIF_WM_HINTS "0x2, 0x0, 0x0, 0x0, 0x0" 2>/dev/null || true) &
 return 0; elif command -v gnome-terminal &>/dev/null; then gnome-terminal --title="$tl_title" --hide-menubar -- bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
@@ -1050,14 +952,7 @@ launch_mp_audio_player_window() {
         launch_in_terminal "MP Mini Audio Player" "$py_bin \"$mp_py\" --interactive --mini" "window"
     fi
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+launch_mp_audio_player_liquid_glass() {
     local audio_file="${1:-}"
     local seek_pos="${2:-}"
     local mode="${3:-MIX_ARCHIVE}"
@@ -1336,14 +1231,7 @@ manage_mp_liquid_visualizer_presets() {
         esac
     done
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+configure_liquid_glass_backend() {
 while true; do
 clear
 local cur="${LIQUID_GLASS_BACKEND:-opengl}"
@@ -1444,14 +1332,7 @@ if is_mix_archive_configured && { ! is_remote_or_cloud_path "$MIX_ARCHIVE_DIR" |
 ensure_playlists_generated_dirs() {
 local mode="${1:-}"; [ -d "$SCRIPT_DIR/PLAYLISTS_GENERATED" ] || mkdir -p "$SCRIPT_DIR/PLAYLISTS_GENERATED" 2>/dev/null || true; if [ "$mode" != "--all" ]; then local primary="${MIX_ARCHIVE_DIR:-}"; primary="${primary//\\//}"; primary="${primary%/}"; if [ -n "$primary" ] && ! is_remote_or_cloud_path "$primary" && [ -d "$primary" ]; then [ -d "$primary/PLAYLISTS_GENERATED" ] || mkdir -p "$primary/PLAYLISTS_GENERATED" 2>/dev/null || true; fi; return 0; fi; local all_arch_dirs=(); while IFS= read -r adir; do [ -n "$adir" ] && all_arch_dirs+=("$adir"); done < <(get_all_mix_archive_dirs 2>/dev/null); for pdir in "${all_arch_dirs[@]}"; do if is_remote_or_cloud_path "$pdir"; then continue; fi; if [ -d "$pdir" ]; then [ -d "$pdir/PLAYLISTS_GENERATED" ] || mkdir -p "$pdir/PLAYLISTS_GENERATED" 2>/dev/null || true; if [[ "$pdir" =~ (FLAC_CONVERTED_OUTPUTS|CONVERTED_WAV_FILES|MP3_CONVERTED_OUTPUTS)/?$ ]]; then local pparent; pparent="$(dirname "$pdir")"; if [ -d "$pparent" ] && [ ! -d "$pparent/PLAYLISTS_GENERATED" ]; then mkdir -p "$pparent/PLAYLISTS_GENERATED" 2>/dev/null || true; fi; fi; fi; done
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+ensure_playlists_generated_dirs; DEFAULT_AUDIO_PLAYER="${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}"; LIQUID_GLASS_BACKEND="${LIQUID_GLASS_BACKEND:-opengl}"; export LIQUID_GLASS_BACKEND; AUTO_PLAY_ON_STARTUP="${AUTO_PLAY_ON_STARTUP:-true}"; AUTO_SHOW_COVER_ON_STARTUP="${AUTO_SHOW_COVER_ON_STARTUP:-false}"; AUTO_SHOW_TRACKLIST_ON_STARTUP="${AUTO_SHOW_TRACKLIST_ON_STARTUP:-false}"; TRACKLIST_VIEWER="${TRACKLIST_VIEWER:-console}"; AUTO_PLAY_MIX_SELECTION="${AUTO_PLAY_MIX_SELECTION:-latest}"; DEFAULT_VIDEO_PLAYER="${DEFAULT_VIDEO_PLAYER:-vlc}"; AUTO_PLAY_YOUTUBE_ON_STARTUP="${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}"; STARTUP_YOUTUBE_URL="${STARTUP_YOUTUBE_URL:-}"; WEATHER_ENABLED="${WEATHER_ENABLED:-true}"; WEATHER_LOCATION="${WEATHER_LOCATION:-Swansea, UK}"; STARTUP_AUTOPLAY_EXECUTED=0; STARTUP_AUTOPLAY_NOTICE=""; STARTUP_SPEK_NOTICE=""
 DAILY_REPORTS_ENABLED="${DAILY_REPORTS_ENABLED:-true}"; DAILY_REPORTS_TIME="${DAILY_REPORTS_TIME:-10:00}"; MONTHLY_REPORTS_ENABLED="${MONTHLY_REPORTS_ENABLED:-true}"; YEARLY_REPORTS_ENABLED="${YEARLY_REPORTS_ENABLED:-true}"; LAST_DAILY_REPORT_DATE="${LAST_DAILY_REPORT_DATE:-}"; LAST_MONTHLY_REPORT_DATE="${LAST_MONTHLY_REPORT_DATE:-}"; LAST_YEARLY_REPORT_DATE="${LAST_YEARLY_REPORT_DATE:-}"
 save_config_setting() {
 local key="$1" val="${2//\\//}" cfg="${SCRIPT_DIR:-$PWD}/config.env" f line found out; [ ! -f "$cfg" ] && [ ! -w "${cfg%/*}" ] && cfg="$PWD/config.env"; local targets=("$cfg"); [ -d "$HOME/.config/mix-manager" ] && targets+=("$HOME/.config/mix-manager/config.env"); for f in "${targets[@]}"; do found=0; out=""; if [ -f "$f" ]; then while IFS= read -r line || [ -n "$line" ]; do if [[ "$line" =~ ^[[:space:]]*${key}= ]]; then out+="${key}=\"${val}\""$'\n'; found=1; else out+="${line}"$'\n'; fi; done < "$f"; fi; (( !found )) && out+="${key}=\"${val}\""$'\n'; printf '%s' "$out" > "$f" 2>/dev/null || true; done
@@ -1785,14 +1666,7 @@ while true; do
             printf '\r\033[K%s \033[1;36m[♫ Mini Player Launched]\033[0m' "$prompt_msg"
             ;;
         l|L)
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+            launch_mp_audio_player_liquid_glass >/dev/null 2>&1
             printf '\r\033[K%s \033[1;36m[♫ Liquid Glass Player Launched]\033[0m' "$prompt_msg"
             ;;
         K)
@@ -2738,14 +2612,7 @@ garage_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/Native Ins
 ;; 10) launch_traktor ;; 11) launch_traktor_monitor_window; ;; 12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;; 13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
 }
 play_audio_file() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    local player="${1:-${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}}"
     local file="$2"
     local seek_pos="${3:-}"
     local mode="${4:-MIX_ARCHIVE}"
@@ -2754,22 +2621,8 @@ play_audio_file() {
     file="$(realpath "$file" 2>/dev/null \vert{}\vert{} echo "$file")"
     
     case "$player" in
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+        mp_liquid_glass|liquid_glass|liquid|glass)
+            launch_mp_audio_player_liquid_glass "$file" "$seek_pos" "$mode"
             ;;
         mp_audio_player|mp_player|mp-player|mpplayer|mp) 
             local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
@@ -3175,53 +3028,18 @@ try:
         print(f"{p}\t{pos}\t{dur}\tmp_audio_player\t{mode}")
 except Exception: pass
 PY
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_liquid_glass}}"; local player_display="$player"; case "$player" in mp_liquid_glass|liquid_glass|liquid|glass) player_display="MP Liquid Glass Player" ;; mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
 fi; return 0
 }
 configure_audio_player_and_startup() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+while true; do clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}      DEFAULT AUDIO PLAYER & STARTUP AUTOPLAY CONFIGURATION           ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; local audacious_st="Not Installed"; (command -v audacious &>/dev/null || _has_flatpak "org.atheme.audacious") && audacious_st="${GREEN}Installed${NC}"; local cliamp_st="Not Installed"; (command -v cliamp &>/dev/null || [ -x "$SCRIPT_DIR/bin/cliamp" ] || [ -x "$HOME/.local/bin/cliamp" ]) && cliamp_st="${GREEN}Installed${NC}"; local straw_st="Not Installed"; (command -v strawberry &>/dev/null || _has_flatpak "org.strawberrymusicplayer.strawberry") && straw_st="${GREEN}Installed${NC}"; local vlc_st="Not Installed"; (command -v vlc &>/dev/null || _has_flatpak "org.videolan.VLC") && vlc_st="${GREEN}Installed${NC}"; local haruna_st="Not Installed"; (command -v haruna &>/dev/null || _has_flatpak "org.kde.haruna") && haruna_st="${GREEN}Installed${NC}"; local kodi_st="Not Installed"; (command -v kodi &>/dev/null || _has_flatpak "tv.kodi.Kodi") && kodi_st="${GREEN}Installed${NC}"; local audacity_st="Not Installed"; (command -v audacity &>/dev/null || _has_flatpak "org.audacityteam.Audacity") && audacity_st="${GREEN}Installed${NC}"; local mpv_st="Not Installed"; command -v mpv &>/dev/null && mpv_st="${GREEN}Installed${NC}"; local foobar_st="Not Installed"; (command -v foobar2000 &>/dev/null || [ -d "/Applications/foobar2000.app" ] || [ -f "/c/Program Files/foobar2000/foobar2000.exe" ]) && foobar_st="${GREEN}Installed${NC}"; local winamp_st="Not Installed"; ([ -f "/c/Program Files (x86)/Winamp/winamp.exe" ] || [ -f "/c/Program Files/Winamp/winamp.exe" ] || command -v winamp &>/dev/null) && winamp_st="${GREEN}Installed${NC}"; local music_st="Not Installed"; ([ "$OS_TYPE" = "macos" ] && osascript -e 'id of application "Music"' &>/dev/null) && music_st="${GREEN}Installed${NC}"; echo -e "  ${BOLD}Current Settings:${NC}\n  • Default Audio Player:          ${BOLD}${GREEN}${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}${NC}"; local ap_badge="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ] && ap_badge="${GREEN}ENABLED${NC}"; echo -e "  • Auto-Play Mix on Startup:      ${ap_badge}"; local cov_badge="${RED}DISABLED${NC}"; [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ] && cov_badge="${GREEN}ENABLED${NC}"; echo -e "  • Auto-Show Cover Art on Boot:   ${cov_badge}"
+echo -e "  • Tracklist Window Viewer:       ${BOLD}${CYAN}${TRACKLIST_VIEWER:-console}${NC} (Dedicated Window)\n  • Startup Mix Selection Mode:    ${BOLD}${CYAN}${AUTO_PLAY_MIX_SELECTION:-latest}${NC} (Newest converted mix, or Random)\n  • Default Video Player:          ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}"; local yt_badge="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && yt_badge="${GREEN}ENABLED${NC}"; echo -e "  • Startup YouTube Autoplay:      ${yt_badge} ${DIM}(Plays only when mix audio is playing)${NC}"; if [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then echo -e "  • Startup YouTube URL:           ${CYAN}${STARTUP_YOUTUBE_URL}${NC}"; fi; local w_badge="${RED}DISABLED${NC}"; [ "${WEATHER_ENABLED:-true}" = "true" ] && w_badge="${GREEN}ENABLED${NC}"; echo -e "  • Live Weather Banner:           ${w_badge} ${DIM}(${WEATHER_LOCATION:-Swansea, UK})${NC}"; local lg_backend_display="${LIQUID_GLASS_BACKEND:-opengl}"; lg_backend_display="$(echo "$lg_backend_display" | tr '[:lower:]' '[:upper:]')"; local lg_info="[OpenGL Default • AMD Radeon / Intel / NVIDIA / Older Cards]"; [ "$lg_backend_display" = "VULKAN" ] && lg_info="[NVIDIA Vulkan Hardware Pipeline]"; echo -e "  • Liquid Glass Mode Backend:     ${BOLD}${CYAN}${lg_backend_display}${NC} ${DIM}${lg_info}${NC}\n  • Config File Location:          ${DIM}${SCRIPT_DIR}/config.env${NC}\n\n${BOLD}Select Player or Setting to Change:${NC}\n  ${BOLD}${CYAN} 1)${NC} Set Default Player to: ${BOLD}MP Liquid Glass Audio Player${NC} (Liquid Transparent Glass Mode) [${GREEN}Installed • Default${NC}]\n  ${BOLD}${CYAN} 2)${NC} Set Default Player to: ${BOLD}MP Audio Player${NC} (Built-in Console Player, Animated EQ) [${GREEN}Installed${NC}]\n  ${BOLD}${CYAN} 3)${NC} Set Default Player to: ${BOLD}Audacious${NC} (Audio Player) [${audacious_st}]\n  ${BOLD}${CYAN} 4)${NC} Set Default Player to: ${BOLD}cliamp${NC} (Retro Terminal Player) [${cliamp_st}]\n  ${BOLD}${CYAN} 5)${NC} Set Default Player to: ${BOLD}Strawberry${NC} (Music Player) [${straw_st}]\n  ${BOLD}${CYAN} 6)${NC} Set Default Player to: ${BOLD}VLC Media Player${NC} [${vlc_st}]\n  ${BOLD}${CYAN} 7)${NC} Set Default Player to: ${BOLD}Haruna Media Player${NC} [${haruna_st}]\n  ${BOLD}${CYAN} 8)${NC} Set Default Player to: ${BOLD}Kodi Entertainment Center${NC} [${kodi_st}]\n  ${BOLD}${CYAN} 9)${NC} Set Default Player to: ${BOLD}foobar2000${NC} (macOS & Windows) [${foobar_st}]\n  ${BOLD}${CYAN}10)${NC} Set Default Player to: ${BOLD}Winamp${NC} (Windows) [${winamp_st}]\n  ${BOLD}${CYAN}11)${NC} Set Default Player to: ${BOLD}Apple Music${NC} (macOS) [${music_st}]\n  ${BOLD}${CYAN}12)${NC} Set Default Player to: ${BOLD}Audacity Audio Editor${NC} [${audacity_st}]\n  ${BOLD}${CYAN}13)${NC} Set Default Player to: ${BOLD}mpv Video/Audio Player${NC} [${mpv_st}]\n  ${BOLD}${CYAN}14)${NC} Set Custom Audio Player Command / Binary\n  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}15)${NC} Toggle Auto-Play Mix on Startup (${ap_badge})\n  ${BOLD}${CYAN}16)${NC} Toggle Auto-Show Cover Art on Startup (${cov_badge})\n  ${BOLD}${CYAN}17)${NC} Toggle Startup Mix Selection (Latest vs Random)\n  ${BOLD}${CYAN}18)${NC} Test-Play Latest Mix Right Now in Default Player (${DEFAULT_AUDIO_PLAYER})\n  ${BOLD}${CYAN}19)${NC} Configure Tracklist Window Viewer (${BOLD}${TRACKLIST_VIEWER:-console}${NC})\n  ${BOLD}${CYAN}20)${NC} Configure Default Video Player (${BOLD}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}21)${NC} Configure Startup YouTube URL & Autoplay (${yt_badge})\n  ${BOLD}${CYAN}22)${NC} Configure Live Weather Banner & Location (${BOLD}${WEATHER_LOCATION:-Swansea, UK}${NC})\n  ${BOLD}${CYAN}23)${NC} Configure Liquid Glass Backend (${BOLD}${lg_backend_display}${NC} • OpenGL [Default] / Vulkan)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu\n"; read -r -p "Enter choice [0-23]: " set_choice; case "$set_choice" in 1|liquid|glass|mp_liquid_glass|liquid_glass) DEFAULT_AUDIO_PLAYER="mp_liquid_glass"
+save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_liquid_glass"; echo -e "\n${GREEN}✓ Default audio player set to 'mp_liquid_glass' (MP Liquid Glass Audio Player) and saved to config.env!${NC}"; sleep 1 ;; 2|mp|mp_player|mpplayer|p|P) DEFAULT_AUDIO_PLAYER="mp_audio_player"
 save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_audio_player"; echo -e "\n${GREEN}✓ Default audio player set to 'mp_audio_player' (MP Audio Player) and saved to config.env!${NC}"; sleep 1 ;; 3|audacious) DEFAULT_AUDIO_PLAYER="audacious"; save_config_setting "DEFAULT_AUDIO_PLAYER" "audacious"; echo -e "\n${GREEN}✓ Default audio player set to 'audacious' and saved to config.env!${NC}"; sleep 1 ;; 4|cliamp) DEFAULT_AUDIO_PLAYER="cliamp"; save_config_setting "DEFAULT_AUDIO_PLAYER" "cliamp"; echo -e "\n${GREEN}✓ Default audio player set to 'cliamp' and saved to config.env!${NC}"; sleep 1 ;; 5|strawberry) DEFAULT_AUDIO_PLAYER="strawberry"; save_config_setting "DEFAULT_AUDIO_PLAYER" "strawberry"; echo -e "\n${GREEN}✓ Default audio player set to 'strawberry' and saved to config.env!${NC}"; sleep 1 ;; 6|vlc) DEFAULT_AUDIO_PLAYER="vlc"; save_config_setting "DEFAULT_AUDIO_PLAYER" "vlc"; echo -e "\n${GREEN}✓ Default audio player set to 'vlc' and saved to config.env!${NC}"; sleep 1 ;; 7|haruna) DEFAULT_AUDIO_PLAYER="haruna"; save_config_setting "DEFAULT_AUDIO_PLAYER" "haruna"; echo -e "\n${GREEN}✓ Default audio player set to 'haruna' and saved to config.env!${NC}"; sleep 1 ;; 8|kodi) DEFAULT_AUDIO_PLAYER="kodi"; save_config_setting "DEFAULT_AUDIO_PLAYER" "kodi"; echo -e "\n${GREEN}✓ Default audio player set to 'kodi' and saved to config.env!${NC}"; sleep 1 ;; 9|foobar|foobar2000) DEFAULT_AUDIO_PLAYER="foobar2000"; save_config_setting "DEFAULT_AUDIO_PLAYER" "foobar2000"; echo -e "\n${GREEN}✓ Default audio player set to 'foobar2000' and saved to config.env!${NC}"; sleep 1 ;; 10|winamp) DEFAULT_AUDIO_PLAYER="winamp"; save_config_setting "DEFAULT_AUDIO_PLAYER" "winamp"; echo -e "\n${GREEN}✓ Default audio player set to 'winamp' and saved to config.env!${NC}"; sleep 1 ;;
 11|music|"apple music")
 DEFAULT_AUDIO_PLAYER="music"; save_config_setting "DEFAULT_AUDIO_PLAYER" "music"; echo -e "\n${GREEN}✓ Default audio player set to 'music' (Apple Music) and saved to config.env!${NC}"; sleep 1; ;; 12|audacity) DEFAULT_AUDIO_PLAYER="audacity"; save_config_setting "DEFAULT_AUDIO_PLAYER" "audacity"; echo -e "\n${GREEN}✓ Default audio player set to 'audacity' and saved to config.env!${NC}"; sleep 1; ;; 13|mpv) DEFAULT_AUDIO_PLAYER="mpv"; save_config_setting "DEFAULT_AUDIO_PLAYER" "mpv"; echo -e "\n${GREEN}✓ Default audio player set to 'mpv' and saved to config.env!${NC}"; sleep 1; ;; 14) read -r -p "Enter custom audio player executable command: " cust_p; if [ -n "$cust_p" ]; then DEFAULT_AUDIO_PLAYER="$cust_p"; save_config_setting "DEFAULT_AUDIO_PLAYER" "$cust_p"; echo -e "\n${GREEN}✓ Default audio player set to '${cust_p}' and saved to config.env!${NC}"; sleep 1.2; fi ;; 15) if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then AUTO_PLAY_ON_STARTUP="false"; else AUTO_PLAY_ON_STARTUP="true"; fi; save_config_setting "AUTO_PLAY_ON_STARTUP" "$AUTO_PLAY_ON_STARTUP"; echo -e "\n${GREEN}✓ Startup autoplay toggled to: ${AUTO_PLAY_ON_STARTUP}!${NC}"; sleep 1 ;; 16) if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then AUTO_SHOW_COVER_ON_STARTUP="false"; else AUTO_SHOW_COVER_ON_STARTUP="true"; fi; save_config_setting "AUTO_SHOW_COVER_ON_STARTUP" "$AUTO_SHOW_COVER_ON_STARTUP"; echo -e "\n${GREEN}✓ Auto-show cover art toggled to: ${AUTO_SHOW_COVER_ON_STARTUP}!${NC}"; sleep 1 ;; 17) if [ "${AUTO_PLAY_MIX_SELECTION:-latest}" = "latest" ]; then AUTO_PLAY_MIX_SELECTION="random"; else AUTO_PLAY_MIX_SELECTION="latest"; fi; save_config_setting "AUTO_PLAY_MIX_SELECTION" "$AUTO_PLAY_MIX_SELECTION"; echo -e "\n${GREEN}✓ Startup mix selection toggled to: ${AUTO_PLAY_MIX_SELECTION}!${NC}"
 sleep 1 ;; 17) echo -e "\n${BOLD}${YELLOW}Testing startup playback right now with player: ${DEFAULT_AUDIO_PLAYER}...${NC}\n"; execute_startup_autoplay; press_enter; ;; 18) clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}             CONFIGURE DEDICATED TRACKLIST WINDOW VIEWER              ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  Current Viewer: ${BOLD}${GREEN}${TRACKLIST_VIEWER:-console}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} ${BOLD}console${NC} (Default OS Console • Entirely Borderless Window on Bazzite Linux)\n  ${BOLD}${CYAN} 2)${NC} ${BOLD}auto${NC} (External GUI Editor: KWrite/Kate on KDE, TextEdit on macOS, Notepad on Windows)\n  ${BOLD}${CYAN} 3)${NC} ${BOLD}kwrite${NC} (KDE Lightweight Dedicated Editor Window)\n  ${BOLD}${CYAN} 4)${NC} ${BOLD}kate${NC} (KDE Advanced Text Editor - New Window)\n  ${BOLD}${CYAN} 5)${NC} ${BOLD}gedit${NC} (GNOME Text Editor - New Window)\n  ${BOLD}${CYAN} 6)${NC} ${BOLD}mousepad${NC} (XFCE Lightweight Text Editor)\n  ${BOLD}${CYAN} 7)${NC} ${BOLD}konsole${NC} (Standard Konsole Window with less viewer)\n  ${BOLD}${CYAN} 8)${NC} ${BOLD}xdg-open${NC} (Desktop Environment Default MIME Handler)\n  ${BOLD}${CYAN} 9)${NC} Custom Text Viewer / Editor Executable Command\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-9]: " tv_choice; case "$tv_choice" in 1) TRACKLIST_VIEWER="console" ;; 2) TRACKLIST_VIEWER="auto" ;; 3) TRACKLIST_VIEWER="kwrite" ;; 4) TRACKLIST_VIEWER="kate" ;; 5) TRACKLIST_VIEWER="gedit" ;; 6) TRACKLIST_VIEWER="mousepad" ;; 7) TRACKLIST_VIEWER="konsole" ;; 8) TRACKLIST_VIEWER="xdg-open" ;; 9) read -r -p "Enter custom text viewer command: " cust_tv; [ -n "$cust_tv" ] && TRACKLIST_VIEWER="$cust_tv" ;; *) ;; esac; save_config_setting "TRACKLIST_VIEWER" "$TRACKLIST_VIEWER"; echo -e "\n${GREEN}✓ Tracklist window viewer set to '${TRACKLIST_VIEWER}' and saved to config.env!${NC}"; sleep 1.2 ;; 19) clear
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}                CONFIGURE DEFAULT VIDEO PLAYER                        ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  Current Video Player: ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} ${BOLD}vlc${NC} (VLC Media Player • Recommended)\n  ${BOLD}${CYAN} 2)${NC} ${BOLD}mpv${NC} (High-performance minimalist player)\n  ${BOLD}${CYAN} 3)${NC} ${BOLD}haruna${NC} (KDE Qt/QML Video Player)\n  ${BOLD}${CYAN} 4)${NC} ${BOLD}kodi${NC} (Kodi Media Center)\n  ${BOLD}${CYAN} 5)${NC} Custom video player command / executable\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-5]: " vp_choice; case "$vp_choice" in 1) DEFAULT_VIDEO_PLAYER="vlc" ;; 2) DEFAULT_VIDEO_PLAYER="mpv" ;; 3) DEFAULT_VIDEO_PLAYER="haruna" ;; 4) DEFAULT_VIDEO_PLAYER="kodi" ;; 5) read -r -p "Enter custom video player command: " cust_vp; [ -n "$cust_vp" ] && DEFAULT_VIDEO_PLAYER="$cust_vp"; ;; *) ;; esac; save_config_setting "DEFAULT_VIDEO_PLAYER" "$DEFAULT_VIDEO_PLAYER"; echo -e "\n${GREEN}✓ Default video player set to '${DEFAULT_VIDEO_PLAYER}' and saved to config.env!${NC}"; sleep 1.2; ;; 20) clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}        CONFIGURE STARTUP CUSTOM YOUTUBE VIDEO AUTOPLAY               ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; local cur_yt="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && cur_yt="${GREEN}ENABLED${NC}"; echo -e "  • Startup YouTube Autoplay: ${cur_yt}\n  • Note: Autoplays ONLY if a mix is playing already in a music player!\n\n  Current YouTube URL: ${CYAN}${STARTUP_YOUTUBE_URL:-None}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} Toggle Autoplay on/off\n  ${BOLD}${CYAN} 2)${NC} Set / Change Custom YouTube Video URL\n  ${BOLD}${CYAN} 3)${NC} Clear YouTube URL & Disable Autoplay\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-3]: " yt_choice; case "$yt_choice" in 1) if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ]; then AUTO_PLAY_YOUTUBE_ON_STARTUP="false"; else AUTO_PLAY_YOUTUBE_ON_STARTUP="true"; fi; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "$AUTO_PLAY_YOUTUBE_ON_STARTUP"; echo -e "\n${GREEN}✓ Startup YouTube autoplay set to: ${AUTO_PLAY_YOUTUBE_ON_STARTUP}!${NC}"; sleep 1; ;; 2) echo ""; read -r -p "Enter YouTube video URL (e.g. https://www.youtube.com/watch?v=...): " new_yt; if [ -n "$new_yt" ]; then STARTUP_YOUTUBE_URL="$new_yt"; AUTO_PLAY_YOUTUBE_ON_STARTUP="true"; save_config_setting "STARTUP_YOUTUBE_URL" "$STARTUP_YOUTUBE_URL"; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "true"; echo -e "\n${GREEN}✓ Startup YouTube URL updated and enabled!${NC}"; sleep 1.2; fi; ;; 3) STARTUP_YOUTUBE_URL=""; AUTO_PLAY_YOUTUBE_ON_STARTUP="false"; save_config_setting "STARTUP_YOUTUBE_URL" ""; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "false"; echo -e "\n${YELLOW}✓ Startup YouTube URL cleared and disabled.${NC}"; sleep 1.2; ;; *) ;; esac ;; 21) manage_weather_menu; ;; 22|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;; esac; done
 }
 manage_bluetooth_audio() {
 clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}       BLUETOOTH AUDIO & INTELLIGENT STREAM ROUTER  ${NC}\n${BOLD}${MAGENTA}====================================================${NC}\n"; local bt_py="$SCRIPT_DIR/scripts/monitor_bluetooth_audio.py"; [ ! -f "$bt_py" ] && bt_py="$SCRIPT_DIR/monitor_bluetooth_audio.py"; if [ ! -f "$bt_py" ]; then echo -e "${RED}Error: monitor_bluetooth_audio.py not found!${NC}"; press_enter; return 1; fi; python3 "$bt_py" --status; echo ""; echo -e "${BOLD}Select an action:${NC}\n  ${BOLD}${CYAN}1)${NC} Intelligently Route / Switch to Bluetooth Audio Now\n  ${BOLD}${CYAN}2)${NC} Revert Audio to Primary Fallback Output (HDMI / Speakers)\n  ${BOLD}${CYAN}3)${NC} Run Live Bluetooth Audio Monitor in Terminal\n  ${BOLD}${CYAN}0)${NC} Return"; echo ""; read -r -p "Enter choice [0-3]: " bt_opt; case "$bt_opt" in 1) python3 "$bt_py" --route; press_enter; ;; 2) python3 "$bt_py" --revert; press_enter; ;; 3) python3 "$bt_py" --monitor ;; *) return 0; ;; esac
@@ -3234,14 +3052,7 @@ launch_apple_music ;;
 11|podcasts|"apple podcasts")
 launch_apple_podcasts ;; 12|audacity) launch_audacity; ;; 13|midi) list_usb_midi_devices ;; 14|config|setup) configure_audio_player_and_startup; ;; 15|meta|metadata) inspect_playing_audio_file ;;
 16|bt|bluetooth|"bluetooth audio")
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+manage_bluetooth_audio ;; 17|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.5; ;; esac; done
 }
 manage_visual_media_launchers() {
 local vml_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         VISUAL, VIDEO & ART LAUNCHERS SUITE        ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a visual or media application to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch MP_Liquid_Visualizer — 3D Vulkan Audio-Reactive Visualizer (${GREEN}1400x1400 Borderless • Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}2)${NC} Select MP_Liquid_Visualizer Preset (${GREEN}Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Video Playlists (${GREEN}NFT Videos in VLC${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Specific Video in Default Video Player (${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}5)${NC} Launch GIMP Image Editor (${GREEN}gimp / org.gimp.GIMP${NC})\n  ${BOLD}${CYAN}6)${NC} Launch Electric Sheep Generative Screensaver (${GREEN}electricsheep / infinidream${NC})\n  ${BOLD}${CYAN}7)${NC} Launch GeeXLab Demo Launcher (${GREEN}FurMark_linux64/demo_launcher.sh${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-7]: " vml_choice; case "$vml_choice" in 1|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 2|preset|presets) manage_mp_liquid_visualizer_presets ;; 3) launch_video_playlists ;; 4) manage_video_dispatcher ;; 5) launch_gimp ;; 6) launch_electricsheep ;; 7) launch_geexlab_demos ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
@@ -3256,45 +3067,17 @@ run_bash_cli() {
 local cli_choice user_cmd; echo -e "\n${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}             Interactive Bash CLI Runner            ${NC}\n${BOLD}${MAGENTA}====================================================${NC}\n${CYAN}Choose an option:${NC}\n  ${BOLD}${CYAN}1)${NC} Open an interactive Bash shell session ${DIM}(type 'exit' to return to Manager)${NC}\n  ${BOLD}${CYAN}2)${NC} Execute a single Bash command and return\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-2]: " cli_choice; case "$cli_choice" in 1) echo -e "\n${BOLD}${GREEN}Spawning interactive Bash subshell. Type 'exit' to return.${NC}\n"; export PS1="\[\033[01;32m\][MixManager-CLI] \[\033[01;34m\]\w\[\033[00m\]\$ "; bash --norc -i 2>/dev/null || bash -i; echo -e "\n${GREEN}Returned from Bash subshell.${NC}"; sleep 1 ;; 2) echo ""; read -r -p "Enter Bash command to execute: " user_cmd; if [ -n "$user_cmd" ]; then echo -e "\n${BOLD}${YELLOW}Executing:${NC} $user_cmd\n"; eval "$user_cmd"; echo ""; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
 }
 manage_themes() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+while true; do local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13="" m14="" m15="" m16="" m17="" m18="" m19="" m20="" m21=""; case "$CURRENT_THEME" in dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;; dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;; cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;; dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;; nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;; matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;; solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;; tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;; monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;; gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;; emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;; classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;; cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;; retro_terminal)   m14=" ${GREEN}★ ACTIVE (RETRO)${NC}" ;; dreamworlds_liquid) m15=" ${GREEN}★ ACTIVE (LIQUID GLASS)${NC}" ;; dynamic_rainbow_liquid_glass) m16=" ${GREEN}★ ACTIVE (DYNAMIC RAINBOW)${NC}" ;; cosmic_dreamworlds_radioactive) m17=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; cosmic_dreamworlds) m18=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; orbital_void_reflux) m19=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; stream_of_frequency) m20=" ${GREEN}★ ACTIVE (STREAM OF FREQUENCY)${NC}" ;; sensorium_interface) m21=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; esac; local opts=("1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${m1}" "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}" "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}" "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}" "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}" "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}" "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}" "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}" "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}" "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}" "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}" "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}" "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}" "14|Old Style Unix Terminal Retro Mode (White on Black)|[Monochrome VT100: White Text Only on Black Background]${m14}" "15|MP Dreamworlds Liquid Transparency [Special Edition]|[Deep Liquid Ocean Glass, Crystalline Aqua, Seafoam Mint & Liquid Amethyst]${m15}" "16|Dynamic Liquid Glass [Rainbow Colours] (New)|[Dynamic Rainbow Liquid Glass • ±9% Breathing Transparency • 6-Second Cycle]${m16}" "17|Cosmic Dreamworlds Radioactive (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Neon Radioactive & Cosmic Glow]${m17}" "18|Cosmic Dreamworlds (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Cosmic Dreamworlds Pink & Neon Cyan]${m18}" "19|Orbital Void Reflux (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Orbital Void Violet & Reflux Cyan]${m19}" "20|Stream of Frequency [Special Edition]|[Electric Cyan, Frequency Mint, Solar Gold & Stream Indigo]${m20}" "21|Sensorium Interface (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Iridescent Mauve, Cyber Cyan & Earth Flipper Jade]${m21}" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0; local tchoice="$REPLY"; case "$tchoice" in 1|dreamworlds|default) save_theme "dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"; sleep 0.8 ;;
 2|ultra|dreamworlds_ultra|hotpurple|trafficlight|"dreamworlds ultra"|"Dreamworlds Ultra MP Mix Manager")
 save_theme "dreamworlds_ultra"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Dreamworlds Ultra MP Mix Manager!${NC}"; sleep 0.8 ;; 3|cyberpunk) save_theme "cyberpunk"; echo -e "\n${GREEN}✓ Theme switched to Cyberpunk!${NC}"; sleep 0.8; ;; 4|dracula) save_theme "dracula"; echo -e "\n${GREEN}✓ Theme switched to Dracula!${NC}"; sleep 0.8 ;; 5|nord) save_theme "nord"; echo -e "\n${GREEN}✓ Theme switched to Nord!${NC}"; sleep 0.8; ;; 6|matrix) save_theme "matrix"; echo -e "\n${GREEN}✓ Theme switched to The Matrix!${NC}"; sleep 0.8 ;; 7|solarized) save_theme "solarized"; echo -e "\n${GREEN}✓ Theme switched to Solarized!${NC}"; sleep 0.8; ;; 8|tokyo) save_theme "tokyo"; echo -e "\n${GREEN}✓ Theme switched to Tokyo Night!${NC}"; sleep 0.8 ;; 9|monokai) save_theme "monokai"; echo -e "\n${GREEN}✓ Theme switched to Monokai!${NC}"; sleep 0.8; ;; 10|gruvbox) save_theme "gruvbox"; echo -e "\n${GREEN}✓ Theme switched to Gruvbox!${NC}"; sleep 0.8 ;; 11|emerald) save_theme "emerald"; echo -e "\n${GREEN}✓ Theme switched to Emerald Isle!${NC}"; sleep 0.8; ;; 12|classic) save_theme "classic"; echo -e "\n${GREEN}✓ Theme switched to Classic ANSI!${NC}"; sleep 0.8 ;;
 13|cosmic|supernova|cosmic_supernova|"cosmic supernova"|"Cosmic Supernova"|"Cosmic Supernova [Special Edition]"|"Cosmic Supernova MP Mix Manager")
 save_theme "cosmic_supernova"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Cosmic Supernova [Special Edition]!${NC}"; sleep 0.8 ;;
 14|retro|terminal|retro_terminal|unix_terminal|retro_unix|old_style_unix|unix_retro|white_on_black|"Old Style Unix Terminal Retro Mode (White on Black)"|"Old Style Unix Terminal Retro Mode"|"Old Style Unix Terminal")
 save_theme "retro_terminal"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Old Style Unix Terminal Retro Mode (White on Black)!${NC}"; sleep 0.8 ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+15|liquid|glass|dreamworlds_liquid|mp_dreamworlds_liquid_transparency|liquid_transparency|"MP Dreamworlds Liquid Transparency"|"MP Dreamworlds Liquid Transparency [Special Edition]")
 save_theme "dreamworlds_liquid"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MP Dreamworlds Liquid Transparency [Special Edition]!${NC}"; sleep 0.8 ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+16|dynamic_rainbow_liquid_glass|dynamic_liquid_glass_rainbow|dynamic_rainbow|rainbow|"Dynamic Liquid Glass [Rainbow Colours] (New)"|"Dynamic Liquid Glass [Rainbow Colours]")
+save_theme "dynamic_rainbow_liquid_glass"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Dynamic Liquid Glass [Rainbow Colours] (New)!${NC}"; sleep 0.8 ;;
 17|cosmic_dreamworlds_radioactive|radioactive|cosmic_radioactive|"Cosmic Dreamworlds Radioactive (Liquid Glass Skin)"|"Cosmic Dreamworlds Radioactive")
 save_theme "cosmic_dreamworlds_radioactive"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Cosmic Dreamworlds Radioactive (Liquid Glass Skin)!${NC}"; sleep 0.8 ;;
 18|cosmic_dreamworlds|cosmic_dream|cosmic_dreamworld|"Cosmic Dreamworlds (Liquid Glass Skin)"|"Cosmic Dreamworlds")
@@ -4034,14 +3817,7 @@ awk -v act="$action" -v app="$sel_name" -v sc="$norm_shortcut" '
 else printf "[services][%s.desktop]\n_k_friendly_name=%s\n%s=%s,%s,Launch %s\n\n" "$action" "$sel_name" "$action" "$norm_shortcut" "$norm_shortcut" "$sel_name" >> "$kglobal_cfg"; fi; command -v qdbus &>/dev/null && qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig &>/dev/null || true; command -v kbuildsycoca6 &>/dev/null && { kbuildsycoca6 --noincremental &>/dev/null & disown; } || command -v kbuildsycoca5 &>/dev/null && { kbuildsycoca5 --noincremental &>/dev/null & disown; }; clear; echo -e "${BOLD}${MAGENTA}${S70}==\n${GREEN}   ✔  Keyboard Shortcut Successfully Bound!\n${MAGENTA}${S70}==${NC}\n\n  ${BOLD}Application:${NC}       ${GREEN}${BOLD}${sel_name}${NC}\n  ${BOLD}Keyboard Shortcut:${NC} ${CYAN}${BOLD}${norm_shortcut}${NC}\n  ${BOLD}Desktop File:${NC}      ${DIM}${target_desktop}${NC}\n"; press_enter; shortcut_existing_keys[sel]="$norm_shortcut"; done
 }
 manage_visual_media_suite() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+local opts=("1|Visual, Video & Art Launchers Suite|(MP_Liquid_Visualizer 3D Vulkan, NFT Videos, GIMP, Electric Sheep, GeeXLab)" "2|Launch MP_Liquid_Visualizer — 3D Vulkan Visualizer|(1400x1400 Fixed Borderless • Cosmic Dreamworlds / Orbital Void Reflux)" "3|Select MP_Liquid_Visualizer Preset|(Cosmic Dreamworlds / Orbital Void Reflux)" "4|Cut or Split Video File (.mp4 / .mkv)|(Cut_Video.sh / Split_Video_File.sh)" "5|Convert Cover Art & Resize / Byte Target|(1MB Podcast, WebP/JPG/PNG, Sizes)" "6|View Cover Art by Mix Number|(External Viewer)" "7|Procedural Gradient .PPM Cover Art Generator|(Netpbm P6 Binary, Palettes)" "8|Synchronized Mix-Video Companion Player Daemon|(Auto-play Video on Mix Start, Close on Stop)" "9|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts)" "10|Play Startup Loader Video (MP_loader.mp4)|(Test or play startup intro video)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "VISUAL MEDIA, COVER ART & COMPANION VIDEO SUITE" "" opts 0; case "$REPLY" in 1) manage_visual_media_launchers ;; 2|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 3|preset|presets) manage_mp_liquid_visualizer_presets ;; 4) manage_video_cut_and_split ;; 5) manage_cover_converter ;; 6) view_cover; press_enter ;; 7) generate_ppm_cover_menu ;; 8) manage_sync_video_companion_menu ;; 9) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter ;; 10) display_startup_loader_video 1 ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 manage_promo_and_syndication() {
 local opts=("1|Promotional & Publisher Outreach Emails|(Promoters, Publishers, Radio, Labels)" "2|Mix Publishing Schedule & Multi-Platform Syndication|(Apple Podcasts, Spotify, YouTube, SoundCloud, RSS, iCal)" "3|Go Shopping for New Music|(Beatport, Apple Music & Bandcamp Tabs)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "PROMOTIONAL OUTREACH, SYNDICATION & SHOPPING" "" opts 0; case "$REPLY" in 1) manage_promo_outreach ;; 2) manage_publishing_schedule ;; 3) shop_for_new_music_menu ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
@@ -4053,14 +3829,7 @@ manage_network_and_internet() {
 local opts=("1|Manage Network Services|(SSH, Samba, FTP - Start, Stop, Restart All)" "2|Congen - KDE Connect Commands Generator & Remote Control|(Mobile Phone Commands)" "3|Block Internet Access|(LAN Only - block-internet)" "4|Restore / Unblock Internet Access|(unblock-internet)" "5|Studio & DJ Booth Mobile Web Companion Server|(Phone & Tablet browser remote on port 8888)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "NETWORK SERVICES, CONGEN & INTERNET ACCESS CONTROL" "" opts 0; case "$REPLY" in 1) manage_network_services ;; 2) manage_congen ;; 3) block_internet ;; 4) unblock_internet ;; 5) echo -e "\n${BOLD}${BLUE}=== LAUNCHING STUDIO & DJ BOOTH MOBILE WEB COMPANION ===${NC}\n"; launch_in_terminal "DJ Booth Web Companion" "CURRENT_THEME='$CURRENT_THEME' python3 '$SCRIPT_DIR/scripts/mix_web_companion.py' --theme '$CURRENT_THEME'" "window"; press_enter; ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 _m_loop() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+local title="$1" sub="$2"; shift 2; local -a opts=("$@"); while true; do run_interactive_submenu "$title" "$sub" opts 0; case "$REPLY" in 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [zZ]) launch_mp_liquid_visualizer ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) local act="${_MENU_ACT[$REPLY]:-}"; if [[ -n "$act" ]]; then eval "$act"; else printf '\n%bInvalid option!%b\n' "${RED:-}" "${NC:-}"; sleep 1; fi; ;; esac; done
 }
 manage_desktop_and_display() {
 local d1="Switch Desktop to Plasma Wayland" d1_i="(HDR Gaming on Hisense & Steam BPM)"; local d2="Switch Desktop to Plasma X11" d2_i="(Standard Workstation)"; local c1="switch_to_wayland" c2="switch_to_x11"; case "$OS_TYPE" in macos) d1="Open macOS Display Settings"; d1_i="(Displays, Arrangement & HDR)"; d2="Open macOS Audio MIDI Setup"; d2_i="(Sample Rates & Output Devices)"; c1='open /System/Library/PreferencePanes/Displays.prefPane 2>/dev/null || open "x-apple.systempreferences:com.apple.Displays-Settings.extension" 2>/dev/null || true'; c2='open -a "Audio MIDI Setup" 2>/dev/null || true' ;; windows|wsl) d1="Open Windows Display Settings"; d1_i="(ms-settings:display - HDR & Scale)"; d2="Open Windows Sound Settings"; d2_i="(control.exe mmsys.cpl)"; c1='cmd.exe /c start ms-settings:display 2>/dev/null || true'; c2='cmd.exe /c start control.exe mmsys.cpl 2>/dev/null || true' ;; esac; local fs_i="(Currently Windowed - switch to Fullscreen)"; (( ${_IS_FULLSCREEN:-0} == 1 )) && fs_i="(Currently Fullscreen - switch to Windowed)"; local -A _MENU_ACT=([1]="$c1" [2]="$c2" [3]="close_all_desktop_apps" [4]="toggle_manager_fullscreen"); _m_loop "DESKTOP DISPLAY SETTINGS & APP CONTROL" "" "1|${d1}|${d1_i}" "2|${d2}|${d2_i}" "3|Close All Desktop Applications|(Keep Manager Open)" "4|Toggle Fullscreen / Windowed Mode|${fs_i}" "0|Return to Main Menu|(or Esc / q)"
@@ -4075,14 +3844,7 @@ manage_motd_and_tools() {
 local -A _MENU_ACT=([1]="manage_system_motd_menu" [2]="burn_iso_to_usb"); _m_loop "MOTD BANNER MANAGER & SYSTEM UTILITIES" "" "1|Dynamic System MOTD Banner Manager|(Last 3 Mixes, Date/Time, Size, Format & Specs)" "2|Burn ISO Image to USB Drive|(dd / diskutil with safety checks)" "0|Return to Main Menu|(or Esc / q)"
 }
 manage_settings_and_system() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+local rb="systemctl reboot with confirmation"; case "$OS_TYPE" in macos) rb="macOS restart with confirmation" ;; windows|wsl) rb="Windows restart with confirmation" ;; freebsd) rb="FreeBSD restart with confirmation" ;; esac; local -A _MENU_ACT=([1]="manage_themes" [2]="manage_installation_and_config" [3]="configure_daily_reports_settings" [4]="manage_mix_reports_menu" [5]="run_bash_cli" [6]="reboot_system" [7]="configure_liquid_glass_backend"); _m_loop "MANAGER SETTINGS, THEMES & SYSTEM SHELL" "" "1|Manager Themes & Color Palette Switcher|(19 Themes: Dreamworlds, Liquid Glass Skins, Cosmic Supernova...)" "2|Manage Installation & Configuration|(Migrate Path, Backup, Export & Import Config)" "3|Automated Daily Reports & Continuous Telemetry Settings|(Schedule Time, On/Off, Catch-Up)" "4|Daily Mix Reports, Telemetry & Predictive Analytics Suite|(PDF Reports, Multi-Archive Stats, Math Models)" "5|Run Bash CLI Commands|(Interactive Shell & Direct Runner)" "6|Reboot System|(${rb})" "7|Configure Liquid Glass Player Backend|(OpenGL [Default • AMD Radeon/Intel/Older Cards] or Vulkan)" "0|Return to Main Menu|(or Esc / q)"
 }
 render_main_header() {
 local cur_box_w="${1:-}" _hdr_cap; _set_menu_box_width _hdr_cap "${_TERM_COLS:-80}"; [[ -z "$cur_box_w" || "$cur_box_w" -gt "$_hdr_cap" ]] && cur_box_w="$_hdr_cap"; (( cur_box_w < 1 )) && cur_box_w=1;
@@ -4121,14 +3883,7 @@ fi; if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then load_header_cache 2>/dev/null ||
 fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 run_deferred_startup() {
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+[ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; if ! pgrep -f "MP_Audio_Player_Liquid_Glass" &>/dev/null; then (launch_mp_audio_player_liquid_glass &>/dev/null &); fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
 elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon &>/dev/null &
 fi; fi
 if [ -f "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" ]; then
@@ -4152,57 +3907,15 @@ local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ]
 ensure_first_run_sample_track() {
     local flag_file="$HOME/.config/mix-manager/.first_run_sample_loaded"
     [ -f "$flag_file" ] && return 0
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+    local rew_py="$SCRIPT_DIR/scripts/liquid_glass_reward.py"
+    [ ! -f "$rew_py" ] && rew_py="$PWD/scripts/liquid_glass_reward.py"
     if [ -f "$rew_py" ]; then
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+        python3 -c "import sys; sys.path.insert(0, '$SCRIPT_DIR'); from scripts.liquid_glass_reward import setup_first_run_sample_track; setup_first_run_sample_track()" 2>/dev/null || true
     fi
 }
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+ensure_liquid_glass_first_run_reward() {
+    local rew_py="$SCRIPT_DIR/scripts/liquid_glass_reward.py"
+    [ ! -f "$rew_py" ] && rew_py="$PWD/scripts/liquid_glass_reward.py"
     if [ -f "$rew_py" ]; then
         python3 "$rew_py" || true
     fi
@@ -4216,17 +3929,10 @@ _cleanup_mix_manager_exit() {
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
 ensure_first_run_sample_track
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+ensure_liquid_glass_first_run_reward
 _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
-3|liquid|liquid-glass|glass) 
+manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)
     if [ "$(uname -s)" = "Darwin" ]; then
         ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
     else
@@ -4234,13 +3940,7 @@ manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP
     fi
     _MENU_FRAME_FRESH=0 
     ;;
+
 manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;
-3|liquid|liquid-glass|glass) 
-    if [ "$(uname -s)" = "Darwin" ]; then
-        ./venv/bin/python scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py >/dev/null 2>&1 &
-    else
-        ./scripts/launch-liquid-glass >/dev/null 2>&1 &
-    fi
-    _MENU_FRAME_FRESH=0 
-    ;;
+14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; 34|ai|ai-servers|ai-suite|ai-models) manage_ai_and_servers; ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 35) manage_motd_and_tools ;; 36) manage_settings_and_system; ;; ESC) ;; 37|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [zZ]|visualizer|liquid-visualizer|mp-visualizer|mp_liquid_visualizer) launch_mp_liquid_visualizer ;; visualizer-preset|visualizer-presets) manage_mp_liquid_visualizer_presets ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 37, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
 fi
