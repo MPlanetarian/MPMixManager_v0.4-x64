@@ -1321,10 +1321,13 @@ def _open_output_stream(self) -> bool:
         return False
 
     def _ensure_stream(self) -> bool:
-        if self._stream_alive(): return True
-        if time.time() < self._next_stream_retry: return False
+        if self._stream_alive(): 
+            return True
+        if time.time() < self._next_stream_retry: 
+            return False
         self._close_stream()
-        if not (ok := self._open_output_stream()): self._next_stream_retry = time.time() + 1.5
+        if not (ok := self._open_output_stream()): 
+            self._next_stream_retry = time.time() + 1.5
         return ok
 
     def _acquire_sf(self):
