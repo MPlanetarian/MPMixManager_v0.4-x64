@@ -1236,18 +1236,18 @@ class AudioEngine:
                 try: fn()
                 except Exception: pass
 
-    def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
+def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         attempts, seen = [], set()
         def add(d, r, e):
             k = (d if d is None else int(d), int(r), e is not None)
-            if r > 0 and k not in seen: 
+            if r > 0 and k not in seen:
                 seen.add(k)
                 attempts.append((d, int(r), e))
-        
-        if sd is None: 
+
+        if sd is None:
             return attempts
 
-        # Explicitly query sounddevice default output device to avoid generic "Manufacturer" handles
+        # 1. Direct query of system default output device index
         try:
             default_out_idx = sd.default.device[1]
             if default_out_idx is not None and default_out_idx >= 0:
@@ -1256,10 +1256,10 @@ class AudioEngine:
                 add(int(default_out_idx), native_rate, None)
                 for r in (44100, 48000, 96000):
                     add(int(default_out_idx), r, None)
-        except Exception: 
+        except Exception:
             pass
 
-        # Scan all devices for valid physical output endpoints
+        # 2. Iterate and filter for physical output channels (> 0)
         try:
             for idx, dev in enumerate(sd.query_devices()):
                 if dev.get("max_output_channels", 0) > 0:
@@ -1267,18 +1267,18 @@ class AudioEngine:
                     add(idx, r, None)
                     add(idx, 44100, None)
                     add(idx, 48000, None)
-        except Exception: 
+        except Exception:
             pass
 
-        # Fallbacks
-        try: 
+        # 3. Fallbacks
+        try:
             add(None, int(sd.query_devices(kind="output").get("default_samplerate") or 48000), None)
-        except Exception: 
+        except Exception:
             pass
-            
-        for r in (48000, 44100, 96000): 
+
+        for r in (48000, 44100, 96000):
             add(None, r, None)
-            
+
         return attempts
 
     def _open_output_stream(self) -> bool:
