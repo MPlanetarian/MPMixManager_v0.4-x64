@@ -300,7 +300,7 @@ def _child_env():
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
-    env["MP_LIQUID_GLASS"] = "1"
+    env["MP_LIQUID_GLASS"] = "0"  # Prevent child from opening a second standalone window
     env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
     env["MP_LIQUID_GLASS_PLATFORM"] = "macos"
     env["PYTHONUNBUFFERED"] = "1"
@@ -763,7 +763,6 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                 self._glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
                 self._glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key_ref, c_void_p))
 
-            # Set correct argtypes for cursor/window position getters/setters to prevent crashes
             if hasattr(self._glfw, "glfwGetCursorPos"):
                 self._glfw.glfwGetCursorPos.argtypes = [c_void_p, POINTER(c_double), POINTER(c_double)]
             if hasattr(self._glfw, "glfwGetWindowPos"):
@@ -865,11 +864,20 @@ class OpenGLGlassHost:
         char_w = CHAR_W
         char_h = CHAR_H
         margin = self.renderer.bezel_px
-        self.renderer.set_panels(
-            player_panel_rects(
-                self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
-            )
+        
+        # Scale panel rects to match Retina framebuffer pixel space
+        ww, wh = self.renderer.window_size()
+        fw, fh = self.renderer.framebuffer_size()
+        rx = (fw / float(ww)) if ww > 0 else 1.0
+        ry = (fh / float(wh)) if wh > 0 else 1.0
+
+        p1, p2 = player_panel_rects(
+            self._target_cols, self._target_rows, char_w, char_h, margin, margin, mode=self.mode
         )
+        scaled_p1 = (p1[0] * rx, p1[1] * ry, p1[2] * rx, p1[3] * ry)
+        scaled_p2 = (p2[0] * rx, p2[1] * ry, p2[2] * rx, p2[3] * ry)
+
+        self.renderer.set_panels((scaled_p1, scaled_p2))
 
     def run(self):
         self.master_fd, slave_fd = pty.openpty()
