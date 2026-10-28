@@ -307,7 +307,7 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay - 100% rigid, stationary text layout."""
+    """Fixed absolute coordinate terminal overlay with Retina scaling support."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -330,6 +330,8 @@ class TerminalOverlay:
         self.image = None
         self.img_w = self.cols * self.char_w
         self.img_h = self.rows * self.char_h
+        self._last_scale_x = 1.0
+        self._last_scale_y = 1.0
 
         try:
             from PIL import Image, ImageFont
@@ -582,11 +584,62 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
-    def render(self, fw, fh):
+    def render(self, fw, fh, ww, wh):
         if not self._initialized_gl:
             self.init_gl()
         if not self._initialized_gl or not self.shader_program:
             return
+
+        scale_x = float(fw) / float(ww) if ww > 0 else 1.0
+        scale_y = float(fh) / float(wh) if wh > 0 else 1.0
+
+        target_img_w = int(self.cols * self.char_w * scale_x)
+        target_img_h = int(self.rows * self.char_h * scale_y)
+
+        if self.image is None or self.image.size != (target_img_w, target_img_h) or abs(scale_x - self._last_scale_x) > 0.01:
+            self.img_w = target_img_w
+            self.img_h = target_img_h
+            self._last_scale_x = scale_x
+            self._last_scale_y = scale_y
+            scaled_font_size = max(8, int(13 * scale_y))
+            try:
+                from PIL import Image, ImageFont
+
+                font_loaded = False
+                for font_path in [
+                    "/System/Library/Fonts/SFNSMono.ttf",
+                    "/System/Library/Fonts/Monaco.ttf",
+                    "/System/Library/Fonts/Helvetica.ttc",
+                    "/Library/Fonts/Courier New.ttf",
+                ]:
+                    if os.path.exists(font_path):
+                        self.font = ImageFont.truetype(font_path, scaled_font_size)
+                        font_loaded = True
+                        break
+                if not font_loaded:
+                    self.font = ImageFont.load_default()
+            except Exception:
+                pass
+            self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
+            self.dirty = True
+
+            try:
+                from OpenGL.GL import glBindTexture, glTexImage2D, GL_TEXTURE_2D, GL_RGBA, GL_UNSIGNED_BYTE
+                glBindTexture(GL_TEXTURE_2D, self.texture_id)
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGBA,
+                    self.img_w,
+                    self.img_h,
+                    0,
+                    GL_RGBA,
+                    GL_UNSIGNED_BYTE,
+                    None,
+                )
+                glBindTexture(GL_TEXTURE_2D, 0)
+            except Exception:
+                pass
 
         try:
             from OpenGL.GL import (
@@ -617,12 +670,14 @@ class TerminalOverlay:
             if self.dirty and self.image:
                 self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
                 draw = ImageDraw.Draw(self.image)
+                s_char_w = self.char_w * scale_x
+                s_char_h = self.char_h * scale_y
                 for r in range(self.rows):
-                    y = r * self.char_h
+                    y = int(r * s_char_h)
                     for c in range(self.cols):
                         ch = self.grid[r][c]
                         if ch != " ":
-                            x = c * self.char_w
+                            x = int(c * s_char_w)
                             col = self.colors[r][c]
                             draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
 
@@ -641,10 +696,14 @@ class TerminalOverlay:
                 glBindTexture(GL_TEXTURE_2D, 0)
                 self.dirty = False
 
-            x1 = -1.0
-            y1 = -1.0
-            x2 = -1.0 + (2.0 * self.img_w / fw)
-            y2 = -1.0 + (2.0 * self.img_h / fh)
+            bezel = float(getattr(LiquidGlassRendererOpenGL, "bezel_px", 12.0))
+            x_off = bezel * scale_x
+            y_off = bezel * scale_y
+
+            x1 = -1.0 + (2.0 * x_off / fw)
+            x2 = x1 + (2.0 * self.img_w / fw)
+            y2 = 1.0 - (2.0 * y_off / fh)
+            y1 = y2 - (2.0 * self.img_h / fh)
 
             quad_data = np.array(
                 [
@@ -772,13 +831,15 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         if fw < 2 or fh < 2 or ww < 2 or wh < 2:
             return None
 
+        scale_x = float(fw) / float(ww) if ww > 0 else 1.0
+        scale_y = float(fh) / float(wh) if wh > 0 else 1.0
+
         if self.window_size() != self._shape_size:
             self._apply_shape()
 
         from OpenGL import GL
 
         GL.glViewport(0, 0, fw, fh)
-        # Use a transparent clear color combined with color mask to clear color buffer without black corners
         GL.glClearColor(0.0, 0.0, 0.0, 0.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
         GL.glUseProgram(self._prog)
@@ -801,12 +862,12 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
         GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
         GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
-        GL.glUniform4f(u["u_bezel"], float(self.bezel_px), float(self.radius_px), 0.0, 1.0)
+        GL.glUniform4f(u["u_bezel"], float(self.bezel_px) * scale_x, float(self.radius_px) * scale_y, 0.0, 1.0)
 
         p0 = self.panels[0]
         p1 = self.panels[1]
-        GL.glUniform4f(u["u_panel0"], float(p0[0]), float(p0[1]), float(p0[2]), float(p0[3]))
-        GL.glUniform4f(u["u_panel1"], float(p1[0]), float(p1[1]), float(p1[2]), float(p1[3]))
+        GL.glUniform4f(u["u_panel0"], float(p0[0]) * scale_x, float(p0[1]) * scale_y, float(p0[2]) * scale_x, float(p0[3]) * scale_y)
+        GL.glUniform4f(u["u_panel1"], float(p1[0]) * scale_x, float(p1[1]) * scale_y, float(p1[2]) * scale_x, float(p1[3]) * scale_y)
 
         skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
         tex_id = self._load_skin_texture(skin_key)
@@ -824,7 +885,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
-        self.overlay.render(fw, fh)
+        self.overlay.render(fw, fh, ww, wh)
 
         pixels = None
         if capture:
