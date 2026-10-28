@@ -1282,7 +1282,7 @@ def _stream_attempts(self) -> List[Tuple[Optional[int], int, Any]]:
         return attempts
 
 def _open_output_stream(self) -> bool:
-        if sd is None: 
+        if sd is None:
             self.stream_error = "sounddevice is not installed"
             return False
         errors = []
@@ -1290,43 +1290,43 @@ def _open_output_stream(self) -> bool:
             s = None
             try:
                 kw = dict(samplerate=rate, channels=2, dtype="float32", callback=self._audio_callback, blocksize=1024, latency="high")
-                if extra: 
+                if extra:
                     kw["extra_settings"] = extra
-                if dev is not None: 
+                if dev is not None:
                     kw["device"] = dev
                 s = sd.OutputStream(**kw)
                 s.start()
                 nr = int(round(float(s.samplerate)))
-                if nr != self.output_rate: 
+                if nr != self.output_rate:
                     self.resampler.reset()
                 self.output_rate, self.stream, self.stream_error = nr or rate, s, None
-                try: 
+                try:
                     self.output_device_name = str(sd.query_devices(s.device[-1] if isinstance(s.device, (list, tuple)) else s.device)["name"])
-                except Exception: 
+                except Exception:
                     self.output_device_name = "default"
                 if self.bt_router:
-                    try: 
+                    try:
                         threading.Thread(target=self.bt_router.check_and_route, daemon=True).start()
-                    except Exception: 
+                    except Exception:
                         pass
                 return True
             except Exception as exc:
                 errors.append(f"{dev}@{rate}: {exc}")
                 if s:
-                    try: 
+                    try:
                         s.close()
-                    except Exception: 
+                    except Exception:
                         pass
         self.stream, self.stream_error = None, "; ".join(errors)[-400:] if errors else "no output device"
         return False
 
     def _ensure_stream(self) -> bool:
-        if self._stream_alive(): 
+        if self._stream_alive():
             return True
-        if time.time() < self._next_stream_retry: 
+        if time.time() < self._next_stream_retry:
             return False
         self._close_stream()
-        if not (ok := self._open_output_stream()): 
+        if not (ok := self._open_output_stream()):
             self._next_stream_retry = time.time() + 1.5
         return ok
 
