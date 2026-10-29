@@ -14,6 +14,7 @@ import termios
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+from PIL import Image, ImageDraw, ImageFont
 
 faulthandler.enable()
 
@@ -355,8 +356,7 @@ class TerminalOverlay:
         self._glyph_cache: dict[tuple, any] = {}
 
         try:
-            from PIL import Image, ImageFont
-
+            font_loaded = False
             for font_path in [
                 "/System/Library/Fonts/SFNSMono.ttf",
                 "/System/Library/Fonts/Monaco.ttf",
@@ -365,8 +365,9 @@ class TerminalOverlay:
             ]:
                 if os.path.exists(font_path):
                     self.font = ImageFont.truetype(font_path, 13)
+                    font_loaded = True
                     break
-            if not self.font:
+            if not font_loaded:
                 self.font = ImageFont.load_default()
 
             self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
@@ -639,8 +640,6 @@ class TerminalOverlay:
             self._glyph_cache.clear()
             scaled_font_size = max(8, int(13 * scale_y))
             try:
-                from PIL import Image, ImageFont
-
                 font_loaded = False
                 for font_path in [
                     "/System/Library/Fonts/SFNSMono.ttf",
@@ -701,7 +700,6 @@ class TerminalOverlay:
                 GL_UNSIGNED_BYTE,
             )
             import numpy as np
-            from PIL import ImageDraw
 
             if self.dirty and self.image:
                 self.image.paste((0, 0, 0, 0), [0, 0, self.img_w, self.img_h])
