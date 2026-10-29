@@ -1113,7 +1113,6 @@ class OpenGLGlassHost:
 
         theme = read_player_theme()
         theme_at = 0.0
-        print("DEBUG: Entering OpenGL event loop...", flush=True)
 
         try:
             while not self.renderer.should_close:

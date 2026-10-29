@@ -115,7 +115,6 @@ _ONLY_LOCAL_OR_SMB = (
 )
 
 def _normalize_extended_path(s: str) -> str:
-    """Turns \\\\?\\UNC\\server\\share and \\\\?\\C:\\... into ordinary paths."""
     t = s.replace("/", "\\")
     upper = t.upper()
     if upper.startswith("\\\\?\\UNC\\"):
@@ -134,7 +133,6 @@ def _looks_like_windows_local(s: str) -> bool:
     return bool(re.match(r'^%[A-Za-z0-9_]+%([\\/]|$)', s))
 
 def _windows_remote_unc(path: str) -> Optional[str]:
-    """If a Windows drive letter is mapped to an SMB share, return that UNC path."""
     if not IS_WINDOWS:
         return None
     drive, rest = os.path.splitdrive(path)
@@ -157,7 +155,6 @@ def _windows_remote_unc(path: str) -> Optional[str]:
     return remote.rstrip("\\") + (("\\" + tail) if tail else "")
 
 def parse_folder_path(raw: str) -> Dict[str, Any]:
-    """Parses a local drive path or SMB share. Raises ValueError for anything else."""
     s = (raw or "").strip().strip('"').strip("'").strip()
     if not s:
         raise ValueError("No path entered.")
@@ -184,7 +181,6 @@ def parse_folder_path(raw: str) -> Dict[str, Any]:
         raise ValueError(_ONLY_LOCAL_OR_SMB)
     p = os.path.expandvars(os.path.expanduser(s))
     if IS_WINDOWS:
-        # Accept Git Bash / MSYS / Cygwin style paths: /x/Music, /cygdrive/x/Music
         mm = re.match(r'^/(?:cygdrive/)?([a-zA-Z])(?:/(.*))?$', p)
         if mm:
             p = mm.group(1).upper() + ":\\" + (mm.group(2) or "").replace("/", "\\")
@@ -199,13 +195,15 @@ def parse_folder_path(raw: str) -> Dict[str, Any]:
     return {"type": "local", "path": p}
 
 def unc_path(f: Dict[str, Any]) -> str:
-    p = "\\\\" + f["host"] + "\\" + f["share"]
+    host = f.get("host") or load_music_config().get("legacy_host", "nas")
+    share = f.get("share") or f.get("id", "")
+    p = "\\\\" + host + "\\" + share
     if f.get("subpath"):
         p += "\\" + f["subpath"].replace("/", "\\")
     return p
 
 def display_path(f: Dict[str, Any]) -> str:
-    return unc_path(f) if f.get("type") == "smb" else f.get("path", "")
+    return unc_path(f) if f.get("type") == "smb" or f.get("path", "").startswith(str(load_music_config()["mount_root"])) else f.get("path", "")
 
 def folder_key(f: Dict[str, Any]) -> Tuple[str, ...]:
     if f.get("type") == "smb":
@@ -223,12 +221,12 @@ def make_folder_id(name: str, existing: List[Dict[str, Any]]) -> str:
     return fid
 
 def default_folder_name(f: Dict[str, Any]) -> str:
-    if f["type"] == "smb":
+    if f.get("type") == "smb":
         return f["subpath"].rsplit("/", 1)[-1] if f.get("subpath") else f["share"]
-    return os.path.basename(f["path"].rstrip("\\/")) or f["path"]
+    return os.path.basename(f.get("path", "").rstrip("\\/")) or f.get("id", "FOLDER")
 
 # ---------------------------------------------------------------------------
-# Folder list persistence
+# Folder list persistence & Migration
 # ---------------------------------------------------------------------------
 
 def save_folders(folders: List[Dict[str, Any]]) -> None:
@@ -239,7 +237,6 @@ def save_folders(folders: List[Dict[str, Any]]) -> None:
     os.replace(tmp, FOLDERS_FILE)
 
 def _migrate_legacy_folders(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Seeds the folder list from explicit legacy MUSIC_SMB_HOST / MUSIC_SMB_SHARES settings, if present."""
     host, shares_raw = config.get("legacy_host", ""), config.get("legacy_shares", "")
     if not host or not shares_raw:
         return []
@@ -248,7 +245,7 @@ def _migrate_legacy_folders(config: Dict[str, Any]) -> List[Dict[str, Any]]:
         f = {"type": "smb", "host": host, "share": share, "subpath": "", "user": ""}
         f["name"] = share
         f["id"] = make_folder_id(share, folders)
-        f["path"] = display_path(f)
+        f["path"] = str(config["mount_root"] / f["id"])
         folders.append(f)
     return folders
 
@@ -302,7 +299,7 @@ def add_folder(raw_path: str, folders: List[Dict[str, Any]], name: str = "", use
     return f
 
 def remove_folder(f: Dict[str, Any], folders: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
-    if f["type"] == "smb" and not IS_WINDOWS:
+    if not IS_WINDOWS:
         disconnect_folder(f, config)
     folders[:] = [x for x in folders if x["id"] != f["id"]]
     save_folders(folders)
@@ -325,7 +322,6 @@ def _run_with_timeout(fn, timeout: float, default=None):
     return box.get("v", default) if not t.is_alive() else default
 
 def _isdir_timeout(path: str, timeout: float = 6.0) -> Optional[bool]:
-    """os.path.isdir that cannot hang the menu on an unreachable SMB host. None = timed out."""
     def _probe():
         try:
             return os.path.isdir(path)
@@ -352,35 +348,46 @@ def _is_mountpoint(p: Path) -> bool:
         return False
 
 def _posix_existing_smb_paths(f: Dict[str, Any]) -> List[str]:
-    """Shares already mounted by the desktop (gvfs on Linux, Finder on macOS)."""
     sub = f.get("subpath", "")
+    share = f.get("share", f.get("id", ""))
+    host = f.get("host", "")
     cands: List[str] = []
     if IS_MAC:
-        cands.append(os.path.join("/Volumes", f["share"], sub))
+        cands.append(os.path.join("/Volumes", share, sub))
     else:
         uid = os.getuid() if hasattr(os, "getuid") else 0
-        for share in dict.fromkeys((f["share"], f["share"].lower())):
-            cands.append(os.path.join(f"/run/user/{uid}/gvfs", f"smb-share:server={f['host'].lower()},share={share}", sub))
+        for s in dict.fromkeys((share, share.lower())):
+            cands.append(os.path.join(f"/run/user/{uid}/gvfs", f"smb-share:server={host.lower()},share={s}", sub))
     return cands
 
 def access_path(f: Dict[str, Any], config: Dict[str, Any], timeout: float = 6.0) -> Tuple[Optional[str], str]:
-    """Returns (filesystem path usable for scanning/playback or None, status label)."""
-    if f["type"] == "local":
-        ok = _isdir_timeout(f["path"], timeout)
-        return (f["path"], "ONLINE") if ok else (None, "TIMEOUT" if ok is None else "MISSING")
+    mount_root_str = str(config["mount_root"])
+    path_str = f.get("path", "")
+    is_under_mount_root = path_str.startswith(mount_root_str) or f.get("type") == "smb"
+
+    if f["type"] == "local" and not is_under_mount_root:
+        ok = _isdir_timeout(path_str, timeout)
+        return (path_str, "ONLINE") if ok else (None, "TIMEOUT" if ok is None else "MISSING")
+
     if IS_WINDOWS:
-        p = unc_path(f)
+        p = unc_path(f) if f.get("type") == "smb" else path_str
         ok = _isdir_timeout(p, timeout)
         return (p, "ONLINE") if ok else (None, "TIMEOUT" if ok is None else "OFFLINE")
+
     md = smb_mount_dir(f, config)
-    if _is_mountpoint(md):
-        p = os.path.join(str(md), f.get("subpath", ""))
-        if _isdir_timeout(p, timeout):
-            return p, "MOUNTED"
-    for p in _posix_existing_smb_paths(f):
-        if _isdir_timeout(p, timeout):
-            return p, "MOUNTED"
-    return None, "NOT MOUNTED"
+    mounted = _is_mountpoint(md)
+    if not mounted:
+        for p in _posix_existing_smb_paths(f):
+            if _is_mountpoint(Path(p)):
+                mounted = True
+                break
+
+    if not mounted:
+        return None, "OFFLINE"
+
+    p = os.path.join(str(md), f.get("subpath", "")) if f.get("type") == "smb" or path_str.startswith(mount_root_str) else path_str
+    ok = _isdir_timeout(p, timeout)
+    return (p, "ONLINE") if ok else (None, "OFFLINE")
 
 def _smb_credentials(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[str, str]:
     return (f.get("user") or config.get("smb_user", "")), config.get("smb_password", "")
@@ -389,7 +396,11 @@ def _rclone_remote(f: Dict[str, Any], config: Dict[str, Any], with_subpath: bool
     if not shutil.which("rclone"):
         return None
     user, password = _smb_credentials(f, config)
-    opts = [f'host="{f["host"]}"']
+    host = f.get("host") or config.get("legacy_host")
+    share = f.get("share") or f.get("id")
+    if not host or not share:
+        return None
+    opts = [f'host="{host}"']
     if user:
         opts.append(f'user="{user}"')
     if password:
@@ -398,39 +409,34 @@ def _rclone_remote(f: Dict[str, Any], config: Dict[str, Any], with_subpath: bool
             opts.append(f'pass="{res.stdout.strip()}"')
         except Exception:
             pass
-    path = f["share"] + "/" + (f.get("subpath", "") + "/" if with_subpath and f.get("subpath") else "")
+    path = share + "/" + (f.get("subpath", "") + "/" if with_subpath and f.get("subpath") else "")
     return f":smb,{','.join(opts)}:{path}"
 
 def connect_folder(f: Dict[str, Any], config: Dict[str, Any], interactive: bool = True) -> Tuple[bool, str]:
-    """Makes a folder accessible: verifies local paths, connects/mounts SMB shares."""
     p, label = access_path(f, config)
     if p:
         return True, f"{label} ({p})"
-    if f["type"] == "local":
+    if f["type"] == "local" and not f.get("path", "").startswith(str(config["mount_root"])):
         return False, f"Local folder not found: {f['path']}"
 
     if IS_WINDOWS:
-        share_unc = "\\\\" + f["host"] + "\\" + f["share"]
+        share_unc = unc_path(f)
         user, password = _smb_credentials(f, config)
         cmd = ["net", "use", share_unc]
         if password and user:
             cmd += [password, f"/user:{user}"]
         elif user:
             cmd += ["*", f"/user:{user}"]
-        if not interactive and not password:
-            return False, f"{share_unc} is not reachable (connect from the menu to enter credentials)."
-        if interactive:
-            print(f"  {DIM}Connecting to {share_unc} (Windows may prompt for credentials)...{NC}", flush=True)
         try:
             res = subprocess.run(cmd, stdin=None if interactive else subprocess.DEVNULL)
         except Exception as exc:
             return False, f"net use failed: {exc}"
         p, label = access_path(f, config)
-        return (True, f"Connected ({p})") if p else (False, f"Could not connect to {unc_path(f)} (net use exit {res.returncode}).")
+        return (True, f"Connected ({p})") if p else (False, f"Could not connect to {share_unc}.")
 
     remote = _rclone_remote(f, config)
     if not remote:
-        return False, "rclone is not installed. Install rclone or mount the share with your file manager (gvfs / Finder)."
+        return False, "rclone is not installed or SMB host is not configured in config.env."
     md = smb_mount_dir(f, config)
     md.mkdir(parents=True, exist_ok=True)
     cmd = ["rclone", "mount", remote, str(md), "--read-only",
@@ -451,15 +457,13 @@ def connect_folder(f: Dict[str, Any], config: Dict[str, Any], interactive: bool 
     return False, f"Timed out waiting for {display_path(f)} to mount at {md}"
 
 def disconnect_folder(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[bool, str]:
-    if f["type"] != "smb":
-        return True, "Local folder (nothing to disconnect)."
     if IS_WINDOWS:
-        share_unc = "\\\\" + f["host"] + "\\" + f["share"]
+        share_unc = unc_path(f)
         res = subprocess.run(["net", "use", share_unc, "/delete", "/y"], capture_output=True, text=True)
-        return True, ("Disconnected" if res.returncode == 0 else "No active UNC session (mapped drive letters are left untouched)")
+        return True, ("Disconnected" if res.returncode == 0 else "No active UNC session")
     md = smb_mount_dir(f, config)
     if not _is_mountpoint(md):
-        return True, "Not mounted by MP Mix Manager."
+        return True, "Not mounted."
     for cmd in (["fusermount3", "-u", str(md)], ["fusermount", "-u", str(md)], ["umount", str(md)]):
         if shutil.which(cmd[0]):
             res = subprocess.run(cmd, capture_output=True, text=True)
@@ -472,7 +476,6 @@ def ensure_folders_connected(folders: List[Dict[str, Any]], config: Dict[str, An
     return [(f, *connect_folder(f, config, interactive=interactive)) for f in folders]
 
 def folder_statuses(folders: List[Dict[str, Any]], config: Dict[str, Any], timeout: float = 3.0) -> Dict[str, str]:
-    """Checks all folders in parallel so offline SMB hosts don't stall the menu."""
     results: Dict[str, str] = {}
     threads = []
     for f in folders:
@@ -484,21 +487,15 @@ def folder_statuses(folders: List[Dict[str, Any]], config: Dict[str, Any], timeo
     deadline = time.time() + timeout + 0.5
     for t in threads:
         t.join(max(0.0, deadline - time.time()))
-    return {f["id"]: results.get(f["id"], "TIMEOUT") for f in folders}
+    return {f["id"]: results.get(f["id"], "OFFLINE") for f in folders}
 
 # ---------------------------------------------------------------------------
-# Playlists
+# Playlists & Scanning Suite
 # ---------------------------------------------------------------------------
 
 def get_playlist_paths(target: str, config: Dict[str, Any]) -> Tuple[Path, Path]:
     stem = ALL_PLAYLIST_STEM if target.upper() == ALL_TARGET else f"DJ_Tracks_{target.upper()}"
     return config["playlists_dir"] / f"{stem}.m3u8", config["playlists_dir"] / f"{stem}.json"
-
-def get_playlist_m3u_path(target: str, config: Dict[str, Any]) -> Path:
-    return get_playlist_paths(target, config)[0]
-
-def get_playlist_json_path(target: str, config: Dict[str, Any]) -> Path:
-    return get_playlist_paths(target, config)[1]
 
 def check_playlist_status(target: str, config: Dict[str, Any]) -> Dict[str, Any]:
     m3u_path, json_path = get_playlist_paths(target, config)
@@ -583,34 +580,19 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         if not line:
             continue
         base = os.path.basename(line)
-        line_lower = line.lower()
-        if (
-            base.startswith("._")
-            or "/." in ("/" + line)
-            or "$recycle.bin" in line_lower
-            or "logic pro library.bundle" in line_lower
-        ):
-            continue
         if os.path.splitext(base)[1].lower() in AUDIO_EXTENSIONS:
             tracks.append(_track_entry(os.path.join(root, line), line, f["id"]))
             if progress_cb and len(tracks) % 2000 == 0:
                 progress_cb(f"Indexed {len(tracks):,} audio tracks...")
     p.wait()
-    if p.returncode != 0 and not tracks:
-        if progress_cb:
-            err = (p.stderr.read() if p.stderr else "").strip().splitlines()
-            progress_cb(f"rclone could not list {display_path(f)}: {err[-1] if err else 'exit ' + str(p.returncode)}")
-        return None
     return tracks
 
 def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None,
                        interactive: bool = True) -> Optional[List[Dict[str, Any]]]:
-    """Returns the folder's audio tracks, or None if the folder could not be reached."""
     if progress_cb:
         progress_cb(f"Connecting to {display_path(f)}...")
     root, _ = access_path(f, config)
-    if not root and f["type"] == "smb" and not IS_WINDOWS:
-        # Fast path on Linux/macOS: list the share via rclone, tracks resolve to the rclone mount at play time.
+    if not root and not IS_WINDOWS:
         tracks = _scan_rclone(f, config, progress_cb)
         if tracks is not None:
             tracks.sort(key=lambda t: t["subpath"].lower())
@@ -628,24 +610,21 @@ def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=No
 
 def save_playlist_files(tracks: List[Dict[str, Any]], target: str, config: Dict[str, Any],
                         title: str = "") -> Tuple[Path, Path]:
-    """Saves both .m3u8 playlist and structured .json cache for lightning-fast loading."""
     m3u_path, json_path = get_playlist_paths(target, config)
     with open(m3u_path, "w", encoding="utf-8") as f:
         f.write("#EXTM3U\n")
         f.write(f"#PLAYLIST:MP DJ Tracks Database - {title or target.upper()}\n")
         for t in tracks:
-            d_sec = int(t.get("duration_sec", -1)) if t.get("duration_sec") else -1
-            f.write(f"#EXTINF:{d_sec},{t.get('title', t['name'])}\n")
+            f.write(f"#EXTINF:-1,{t.get('title', t['name'])}\n")
             f.write(f"{t['path']}\n")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(tracks, f, indent=2, ensure_ascii=False)
     return m3u_path, json_path
 
 def rebuild_all_playlist(folders: List[Dict[str, Any]], config: Dict[str, Any]) -> int:
-    """Rebuilds the combined ALL playlist from the per-folder caches (no rescan needed)."""
     combined: List[Dict[str, Any]] = []
     for f in folders:
-        jp = get_playlist_json_path(f["id"], config)
+        jp = get_playlist_paths(f["id"], config)[1]
         if jp.is_file():
             try:
                 with open(jp, "r", encoding="utf-8") as fh:
@@ -666,93 +645,58 @@ def rebuild_all_playlist(folders: List[Dict[str, Any]], config: Dict[str, Any]) 
 
 def generate_advance_playlists(target: str = ALL_TARGET, config: Optional[Dict[str, Any]] = None,
                                interactive: bool = True, folders: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """Generates playlists for MUSIC folders in advance and saves them."""
     config = config or load_music_config()
     folders = folders if folders is not None else load_folders(config)
-    if target.upper() == ALL_TARGET:
-        to_process = list(folders)
-    else:
-        f = find_folder(target, folders)
-        if not f:
-            print(f"{RED}Unknown music folder: {target}{NC}")
-            return {}
-        to_process = [f]
+    to_process = list(folders) if target.upper() == ALL_TARGET else [find_folder(target, folders)]
+    to_process = [f for f in to_process if f]
     if not to_process:
-        print(f"\n{YELLOW}No music folders configured. Add a local drive folder or SMB share first.{NC}")
+        print(f"\n{YELLOW}No music folders configured.{NC}")
         return {}
 
     print(f"\n{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}")
     print(f"{BOLD}{COLOR_HOT_PURPLE}    GENERATING PLAYLISTS FOR MUSIC FOLDERS IN ADVANCE                 {NC}")
     print(f"{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}")
-    print(f"  {BOLD}Target Folders:{NC} {WHITE}{', '.join(f['name'] for f in to_process)}{NC}\n")
-    print(f"  {DIM}Scanning folders and pre-caching audio files to eliminate player loading delays...{NC}\n", flush=True)
-
     t_start = time.time()
-    results: Dict[str, Any] = {}
     for f in to_process:
         print(f"  {BOLD}{CYAN}▶ Scanning [{f['id']}] {display_path(f)}...{NC}", flush=True)
-        tracks = scan_folder_tracks(f, config, progress_cb=lambda m: print(f"    {DIM}{m}{NC}", flush=True),
-                                    interactive=interactive)
-        if tracks is None:
-            print(f"  {BOLD}{RED}✖ Could not reach {display_path(f)} - existing playlist kept unchanged.{NC}\n")
-            results[f["id"]] = {"count": None, "error": "unreachable"}
-            continue
-        m3u_p, json_p = save_playlist_files(tracks, f["id"], config, title=f["name"])
-        results[f["id"]] = {"count": len(tracks), "m3u": str(m3u_p), "json": str(json_p)}
-        print(f"  {BOLD}{GREEN}✓ Saved {f['name']} Playlist:{NC} {len(tracks):,} tracks ➔ {m3u_p.name}\n", flush=True)
-
+        tracks = scan_folder_tracks(f, config, progress_cb=lambda m: print(f"    {DIM}{m}{NC}", flush=True), interactive=interactive)
+        if tracks is not None:
+            save_playlist_files(tracks, f["id"], config, title=f["name"])
+            print(f"  {BOLD}{GREEN}✓ Saved {f['name']} Playlist:{NC} {len(tracks):,} tracks\n", flush=True)
     total = rebuild_all_playlist(folders, config)
-    results[ALL_TARGET] = {"count": total}
-    print(f"  {BOLD}{GREEN}✓ Updated Combined ALL Music Folders Playlist:{NC} {total:,} tracks")
-    print(f"\n{BOLD}{COLOR_TRAFFIC_GREEN}✔ Playlist Generation Complete!{NC}")
-    print(f"  Time Elapsed         : {BOLD}{CYAN}{time.time() - t_start:.2f}s{NC}")
-    print(f"  Storage Directory    : {DIM}{config['playlists_dir']}{NC}\n")
-    return results
+    print(f"  {BOLD}{GREEN}✔ Playlist Generation Complete ({total:,} total tracks in ALL){NC}")
+    print(f"  Time Elapsed : {BOLD}{CYAN}{time.time() - t_start:.2f}s{NC}\n")
+    return {}
 
 def launch_mp_audio_player_music_mode(target: str = ALL_TARGET, config: Optional[Dict[str, Any]] = None,
                                       folders: Optional[List[Dict[str, Any]]] = None):
-    """Launches MP Audio Player in MUSIC Mode with the generated playlist."""
     config = config or load_music_config()
     folders = folders if folders is not None else load_folders(config)
-    if target.upper() == ALL_TARGET:
-        involved, target_id = folders, ALL_TARGET
-    else:
-        f = find_folder(target, folders)
-        if not f:
-            print(f"{RED}Unknown music folder: {target}{NC}")
-            return
-        involved, target_id = [f], f["id"]
-    if not involved:
-        print(f"\n{YELLOW}No music folders configured. Add a local drive folder or SMB share first.{NC}")
+    involved, target_id = (folders, ALL_TARGET) if target.upper() == ALL_TARGET else ([find_folder(target, folders)], target)
+    if not involved or not involved[0]:
+        print(f"\n{YELLOW}Folder not found.{NC}")
         return
 
     st = check_playlist_status(target_id, config)
     if not st["exists"] or st["track_count"] == 0:
-        print(f"\n{BOLD}{YELLOW}Notice: Playlist for '{target_id}' has not been generated yet!{NC}")
-        print(f"{DIM}Generating playlist in advance to guarantee zero-latency loading...{NC}\n")
         generate_advance_playlists(target_id, config=config, interactive=True, folders=folders)
         st = check_playlist_status(target_id, config)
-    if st["track_count"] == 0:
-        print(f"{RED}No audio tracks available for '{target_id}'. Check the folder path and connection.{NC}")
-        return
 
     print(f"{DIM}Verifying music folder connections...{NC}", flush=True)
-    for f, ok, msg in ensure_folders_connected(involved, config, interactive=True):
-        if not ok:
-            print(f"  {YELLOW}⚠ {f['name']}: {msg}{NC}")
+    for f, _, _ in ensure_folders_connected(involved, config, interactive=True):
+        pass
 
     playlist_path = st["json_path"] if st["json_path"].is_file() else st["m3u_path"]
     player_py = config["base_dir"] / "MP_Audio_Player.py"
     if not player_py.is_file():
         player_py = config["base_dir"] / "scripts" / "MP_Audio_Player.py"
-    cmd = [sys.executable, str(player_py), "--interactive", "--music-mode",
-           "--music-folder", target_id, "--playlist", str(playlist_path)]
     print(f"{BOLD}{GREEN}Launching MP Audio Player in MUSIC Mode ({st['track_count']:,} tracks)...{NC}", flush=True)
     time.sleep(0.5)
-    subprocess.run(cmd)
+    subprocess.run([sys.executable, str(player_py), "--interactive", "--music-mode",
+                    "--music-folder", target_id, "--playlist", str(playlist_path)])
 
 # ---------------------------------------------------------------------------
-# Interactive menu
+# Interactive Menu & Guides
 # ---------------------------------------------------------------------------
 
 def clear_screen():
@@ -771,25 +715,17 @@ def pause(msg: str = "Press Enter to continue..."):
 
 def _clip(text: str, width: int) -> str:
     text = str(text or "")
-    if len(text) <= width:
-        return text.ljust(width)
-    if width <= 3:
-        return text[:width]
-    return text[:width - 3] + "..."
+    return text if len(text) <= width else text[:width - 3] + "..."
 
 def _status_badge(label: str) -> str:
-    if label in ("ONLINE", "MOUNTED"):
-        return f"{GREEN}● {label}{NC}"
-    if label == "NOT MOUNTED":
-        return f"{YELLOW}○ {label}{NC}"
-    return f"{RED}✖ {label}{NC}"
+    return f"{GREEN}● {label}{NC}" if label == "ONLINE" else f"{RED}○ {label}{NC}"
 
 def _playlist_badge(st: Dict[str, Any]) -> str:
     return f"{GREEN}{st['track_count']:,} Tracks{NC}" if st["exists"] else f"{RED}Not Generated{NC}"
 
 def pick_folder(folders: List[Dict[str, Any]], title: str, allow_all: bool = False) -> Optional[Union[str, Dict[str, Any]]]:
     if not folders:
-        print(f"\n{YELLOW}No music folders configured yet.{NC}")
+        print(f"\n{YELLOW}No music folders configured.{NC}")
         pause()
         return None
     print(f"\n{BOLD}{title}{NC}")
@@ -803,137 +739,39 @@ def pick_folder(folders: List[Dict[str, Any]], title: str, allow_all: bool = Fal
         return ALL_TARGET
     if c in ("", "0", "q", "Q"):
         return None
-    f = find_folder(c, folders)
-    if not f:
-        print(f"{RED}Invalid choice.{NC}")
-        pause()
-    return f
-
-def add_folder_interactive(folders: List[Dict[str, Any]], config: Dict[str, Any]):
-    print(f"\n{BOLD}{COLOR_HOT_PURPLE}=== ADD MUSIC FOLDER (Local Drive or SMB Share) ==={NC}\n")
-    print(f"  {BOLD}Examples:{NC}")
-    if IS_WINDOWS:
-        print(f"    Local drive : {CYAN}D:\\Music{NC}   or   {CYAN}/d/Music{NC}")
-    else:
-        print(f"    Local drive : {CYAN}{Path.home() / 'Music'}{NC}   or   {CYAN}/run/media/{os.environ.get('USER', 'user')}/USB/Music{NC}")
-    print(f"    SMB share   : {CYAN}\\\\192.168.1.138\\music001{NC}   or   {CYAN}smb://nas/share/Subfolder{NC}")
-    print(f"  {DIM}Only local drives and SMB shares can be added. ftp, nfs, http, and cloud URLs are rejected.{NC}")
-    print(f"  {DIM}Leave blank to cancel.{NC}\n")
-    raw = ask("Music folder path: ").strip()
-    if not raw:
-        return
-    try:
-        parsed = parse_folder_path(raw)
-    except ValueError as exc:
-        print(f"{RED}✖ {exc}{NC}")
-        pause()
-        return
-    for existing in folders:
-        if folder_key(existing) == folder_key(parsed):
-            print(f"{YELLOW}That folder is already configured as [{existing['id']}] {existing['name']}.{NC}")
-            pause()
-            return
-
-    probe = dict(parsed, id="__probe__", path=display_path(parsed))
-    print(f"  {DIM}Checking {display_path(parsed)}...{NC}", flush=True)
-    reachable, label = access_path(probe, config, timeout=8.0)
-    user = ""
-    if not reachable and parsed["type"] == "smb":
-        print(f"  {YELLOW}Share is not currently reachable ({label}).{NC}")
-        user = ask("SMB username (blank = current Windows / guest credentials): ").strip()
-        if IS_WINDOWS or ask("Try to connect now? [Y/n]: ").strip().lower() not in ("n", "no"):
-            ok, msg = connect_folder(dict(probe, user=user or parsed.get("user", "")), config, interactive=True)
-            print(f"  {GREEN if ok else YELLOW}{msg}{NC}")
-            reachable = ok
-    if not reachable:
-        if ask(f"{YELLOW}Folder could not be verified. Add it anyway? [y/N]: {NC}").strip().lower() not in ("y", "yes"):
-            return
-    else:
-        print(f"  {GREEN}✔ Folder is accessible.{NC}")
-
-    name = ask(f"Display name [{default_folder_name(parsed)}]: ").strip()
-    try:
-        f = add_folder(raw, folders, name=name, user=user)
-    except ValueError as exc:
-        print(f"{RED}✖ {exc}{NC}")
-        pause()
-        return
-    print(f"\n{GREEN}✔ Added [{f['id']}] {f['name']} ➔ {display_path(f)}{NC}")
-    if reachable and ask("Generate this folder's playlist now? [Y/n]: ").strip().lower() not in ("n", "no"):
-        generate_advance_playlists(f["id"], config=config, interactive=True, folders=folders)
-    pause()
-
-def remove_folder_interactive(folders: List[Dict[str, Any]], config: Dict[str, Any]):
-    f = pick_folder(folders, "Select the music folder to REMOVE:")
-    if not isinstance(f, dict):
-        return
-    if ask(f"{YELLOW}Remove [{f['id']}] {f['name']} ({display_path(f)}) and its cached playlist? [y/N]: {NC}").strip().lower() not in ("y", "yes"):
-        return
-    remove_folder(f, folders, config)
-    print(f"{GREEN}✔ Removed {f['name']}. Your music files were not touched.{NC}")
-    pause()
+    return find_folder(c, folders)
 
 def show_shortcuts_guide():
     print(f"\n{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}")
     print(f"{BOLD}{COLOR_HOT_PURPLE}     TRACK AUDIO INSPECTOR & PLAYER SHORTCUTS GUIDE (MUSIC MODE)      {NC}")
     print(f"{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}\n")
     print(f"  {BOLD}{CYAN}1. Track Audio Inspector HUD (Key I){NC}")
-    print(f"     • Real-time modal HUD displaying full audio specs, format, sample rate,")
-    print(f"       channels, time position, hardware audio output, and source path.")
-    print(f"     • Press [I], [Esc], or [Enter] to toggle or close overlay.")
-    print(f"\n  {BOLD}{CYAN}2. Instant Search & Filtering (Key /){NC}")
+    print(f"     • Real-time modal HUD displaying full audio specs, sample rate, channels, time position, source path.")
+    print(f"  {BOLD}{CYAN}2. Instant Search & Filtering (Key /){NC}")
     print(f"     • Press [/] anywhere to filter tracks instantly by typing.")
-    print(f"     • Use Up/Down arrows to navigate search matches and Enter to play.")
-    print(f"\n  {BOLD}{CYAN}3. Playback Controls & Navigation{NC}")
-    print(f"     • [Space] Play / Pause toggle.")
-    print(f"     • [n] / [p] Next / Previous track in playlist.")
-    print(f"     • [+/-] Fine pitch adjust (±1%), [0] Pitch reset.")
-    print(f"     • [v] / [V] Volume adjust (±5%), [m] Mute toggle.")
-    print(f"\n  {BOLD}{CYAN}4. Equalizer Visualizer & Themes{NC}")
-    print(f"     • [e] Cycle through 10+ animated Equalizer visualizer styles.")
-    print(f"     • [c] Cycle through 12+ vibrant color themes.")
-    print(f"     • [a] Route audio to connected Bluetooth headphones/speakers.")
+    print(f"  {BOLD}{CYAN}3. Playback Controls{NC}")
+    print(f"     • [Space] Play/Pause, [n]/[p] Next/Previous, [+/-] Pitch, [v]/[V] Volume, [m] Mute.")
     pause("Press Enter to return to menu...")
 
-def _player_py() -> Optional[Path]:
-    base_dir = get_base_dir()
-    for p in (base_dir / "MP_Audio_Player.py", base_dir / "scripts" / "MP_Audio_Player.py"):
-        if p.is_file():
-            return p
-    return None
-
-def _stop_player_on_exit():
-    if not os.environ.get("MANAGER_START_EPOCH"):
-        pp = _player_py()
-        if pp:
-            try:
-                subprocess.run([sys.executable, str(pp), "--stop"], capture_output=True, timeout=1.5)
-            except Exception:
-                pass
-
-atexit.register(_stop_player_on_exit)
-
 def run_music_folders_menu():
-    """Interactive TUI menu for managing MUSIC folders."""
     config = load_music_config()
     while True:
         folders = load_folders(config)
         clear_screen()
         print(f"{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}")
-        print(f"{BOLD}{COLOR_HOT_PURPLE}  Play Tracks from MUSIC Folders using MP Audio Player                {NC}")
-        print(f"{BOLD}{COLOR_HOT_PURPLE}             (Music Library • Local Drives & SMB Shares)              {NC}")
+        print(f"{BOLD}{COLOR_HOT_PURPLE} Play Tracks from MUSIC Folders using MP Audio Player                {NC}")
+        print(f"{BOLD}{COLOR_HOT_PURPLE} (Music Library • Local Drives & SMB Shares)              {NC}")
         print(f"{BOLD}{COLOR_HOT_PURPLE}{BANNER}{NC}")
         print(f"  {BOLD}Configured Music Folders:{NC} {DIM}({FOLDERS_FILE}){NC}")
         if folders:
-            print(f"  {DIM}Checking folder status...{NC}", end="\r", flush=True)
             statuses = folder_statuses(folders, config)
             for i, f in enumerate(folders, 1):
-                kind = "SMB  " if f["type"] == "smb" else "LOCAL"
+                kind = "SMB  " if f.get("type") == "smb" else "LOCAL"
                 print(f"    {BOLD}{CYAN}[{i}]{NC} {WHITE}{_clip(f['name'], 16)}{NC} {DIM}{kind}{NC} {_clip(display_path(f), 40)} "
                       f"{_status_badge(statuses[f['id']])}  {_playlist_badge(check_playlist_status(f['id'], config))}")
             print(f"    {BOLD}ALL Music Folders playlist:{NC} {_playlist_badge(check_playlist_status(ALL_TARGET, config))}")
         else:
-            print(f"    {YELLOW}No music folders configured yet - choose option 4 to add a local drive folder or SMB share.{NC}")
+            print(f"    {YELLOW}No music folders configured yet - choose option 4 to add a folder.{NC}")
         print(LINE + "\n")
 
         print(f"{BOLD}Select an Option:{NC}")
@@ -943,115 +781,116 @@ def run_music_folders_menu():
         print(f"  {BOLD}{CYAN}4){NC} Add Music Folder {DIM}(Local Drive Path or SMB Share){NC}")
         print(f"  {BOLD}{CYAN}5){NC} Remove Music Folder")
         print(f"  {BOLD}{CYAN}6){NC} View Track Audio Inspector & Player Shortcuts Guide")
+        print(f"  {BOLD}{CYAN}7){NC} Mount All Configured SMB / Library Folders")
         print(f"  {BOLD}{CYAN}r){NC} Refresh Status")
         print(f"  {BOLD}{CYAN}0){NC} Return to Main Menu\n")
 
         try:
-            raw_choice = input("Enter choice [0-6]: ")
+            choice = ask("Enter choice [0-7]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
-        choice = raw_choice.strip()
 
-        if choice in ("m", "M"):
-            pp = _player_py()
-            if pp:
-                subprocess.Popen([sys.executable, str(pp), "--new-window"])
-            continue
-        if raw_choice == " " or choice.lower() == "space":
-            pp = _player_py()
-            if pp:
-                subprocess.Popen([sys.executable, str(pp), "--toggle", "--only-if-running"])
-            continue
-
-        if choice in ("1", "all", "ALL"):
+        if choice == "1":
             if not folders:
                 print(f"\n{YELLOW}Add a music folder first (option 4).{NC}")
                 pause()
                 continue
             launch_mp_audio_player_music_mode(ALL_TARGET, config, folders)
         elif choice == "2":
-            f = pick_folder(folders, "Select the music folder to play:")
+            f = pick_folder(folders, "Select music folder to play:")
             if isinstance(f, dict):
                 launch_mp_audio_player_music_mode(f["id"], config, folders)
         elif choice == "3":
             t = pick_folder(folders, "Select target for playlist generation:", allow_all=True)
             if t:
-                generate_advance_playlists(t if isinstance(t, str) else t["id"], config=config,
-                                           interactive=True, folders=folders)
+                generate_advance_playlists(t if isinstance(t, str) else t["id"], config=config, folders=folders)
                 pause()
         elif choice == "4":
-            add_folder_interactive(folders, config)
+            print(f"\n{BOLD}{COLOR_HOT_PURPLE}=== ADD MUSIC FOLDER ==={NC}\n")
+            raw = ask("Music folder path: ").strip()
+            if raw:
+                try:
+                    f = add_folder(raw, folders)
+                    print(f"\n{GREEN}✔ Added [{f['id']}] {f['name']} ➔ {display_path(f)}{NC}")
+                    if ask("Generate playlist now? [Y/n]: ").strip().lower() not in ("n", "no"):
+                        generate_advance_playlists(f["id"], config=config, folders=load_folders(config))
+                except ValueError as e:
+                    print(f"{RED}✖ {e}{NC}")
+                pause()
         elif choice == "5":
-            remove_folder_interactive(folders, config)
+            f = pick_folder(folders, "Select music folder to remove:")
+            if isinstance(f, dict):
+                if ask(f"{YELLOW}Remove [{f['id']}] {f['name']}? [y/N]: {NC}").strip().lower() in ("y", "yes"):
+                    remove_folder(f, folders, config)
+                    print(f"{GREEN}✔ Removed {f['name']}.{NC}")
+                    pause()
         elif choice == "6":
             show_shortcuts_guide()
+        elif choice == "7":
+            print(f"\n{BOLD}{CYAN}Attempting to mount all configured library shares...{NC}\n", flush=True)
+            for f, ok, msg in ensure_folders_connected(folders, config, interactive=True):
+                print(f"  {GREEN if ok else RED}➔ [{f['id']}] {f['name']}: {msg}{NC}")
+            pause()
         elif choice.lower() in ("r", ""):
             continue
-        elif choice in ("0", "q", "Q", "exit", "ESC"):
+        elif choice in ("0", "q", "Q"):
             break
 
 # ---------------------------------------------------------------------------
-# CLI
+# CLI Argument Parser Suite
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Music Folders (Local Drives & SMB Shares) & MP Audio Player Suite")
-    parser.add_argument("--menu", action="store_true", help="Launch interactive Music Folders menu")
+    parser = argparse.ArgumentParser(description="Music Folders & MP Audio Player Suite")
+    parser.add_argument("--menu", action="store_true", help="Launch interactive menu")
     parser.add_argument("--list", action="store_true", help="List configured music folders")
-    parser.add_argument("--add", metavar="PATH", help="Add a music folder (local path, \\\\host\\share or smb://host/share)")
+    parser.add_argument("--add", metavar="PATH", help="Add a music folder")
     parser.add_argument("--name", default="", help="Display name for --add")
-    parser.add_argument("--user", default="", help="SMB username for --add (optional)")
-    parser.add_argument("--remove", metavar="ID", help="Remove a music folder by ID, number, name or path")
-    parser.add_argument("--mount", "--connect", dest="mount", action="store_true", help="Connect / mount all SMB music shares")
-    parser.add_argument("--unmount", "--disconnect", dest="unmount", action="store_true", help="Disconnect / unmount all SMB music shares")
-    parser.add_argument("--status", action="store_true", help="Show music folders & playlists status as JSON")
-    parser.add_argument("--generate", nargs="?", const=ALL_TARGET, help="Generate playlists in advance (ALL or folder ID)")
-    parser.add_argument("--play", nargs="?", const=ALL_TARGET, help="Launch MP Audio Player in MUSIC mode (ALL or folder ID)")
+    parser.add_argument("--user", default="", help="SMB username for --add")
+    parser.add_argument("--remove", metavar="ID", help="Remove music folder by ID or name")
+    parser.add_argument("--mount", "--connect", dest="mount", action="store_true", help="Mount all SMB shares")
+    parser.add_argument("--unmount", "--disconnect", dest="unmount", action="store_true", help="Unmount all SMB shares")
+    parser.add_argument("--status", action="store_true", help="Show status as JSON")
+    parser.add_argument("--generate", nargs="?", const=ALL_TARGET, help="Generate playlists")
+    parser.add_argument("--play", nargs="?", const=ALL_TARGET, help="Launch player in MUSIC mode")
     args = parser.parse_args()
 
     config = load_music_config()
     folders = load_folders(config)
 
     if args.list:
-        if not folders:
-            print("No music folders configured.")
         for i, f in enumerate(folders, 1):
-            print(f"[{i}] {f['id']:<16} {f['type']:<5} {display_path(f)}  ({f['name']})")
+            print(f"[{i}] {f['id']:<16} {f.get('type'):<5} {display_path(f)} ({f['name']})")
         sys.exit(0)
     if args.add:
         try:
             f = add_folder(args.add, folders, name=args.name, user=args.user)
-        except ValueError as exc:
-            print(f"Error: {exc}")
+            print(f"Added [{f['id']}] {f['name']} -> {display_path(f)}")
+        except ValueError as e:
+            print(f"Error: {e}")
             sys.exit(1)
-        label = access_path(f, config)[1]
-        print(f"Added [{f['id']}] {f['name']} -> {display_path(f)} ({label})")
         sys.exit(0)
     if args.remove:
         f = find_folder(args.remove, folders)
         if not f:
-            print(f"Error: no music folder matches '{args.remove}'")
+            print(f"Error: folder not found '{args.remove}'")
             sys.exit(1)
         remove_folder(f, folders, config)
         print(f"Removed [{f['id']}] {f['name']}")
         sys.exit(0)
     if args.mount:
-        for f, ok, msg in ensure_folders_connected([x for x in folders if x["type"] == "smb"], config, interactive=False):
+        for f, ok, msg in ensure_folders_connected(folders, config, interactive=False):
             print(f"{f['id']}: {'OK' if ok else 'FAIL'} - {msg}")
         sys.exit(0)
     if args.unmount:
-        for f in [x for x in folders if x["type"] == "smb"]:
+        for f in folders:
             ok, msg = disconnect_folder(f, config)
             print(f"{f['id']}: {'OK' if ok else 'FAIL'} - {msg}")
         sys.exit(0)
     if args.status:
         statuses = folder_statuses(folders, config)
-        print(json.dumps({
-            "config_file": str(FOLDERS_FILE),
-            "folders": [dict(f, status=statuses[f["id"]]) for f in folders],
-            "playlists": {t: check_playlist_status(t, config) for t in [ALL_TARGET] + [f["id"] for f in folders]},
-        }, indent=2, default=str))
+        print(json.dumps({"folders": [dict(f, status=statuses[f["id"]]) for f in folders]}, indent=2, default=str))
         sys.exit(0)
     if args.generate:
         generate_advance_playlists(args.generate, config=config, interactive=sys.stdin.isatty(), folders=folders)
@@ -1059,6 +898,7 @@ def main():
     if args.play:
         launch_mp_audio_player_music_mode(args.play, config=config, folders=folders)
         sys.exit(0)
+
     run_music_folders_menu()
 
 if __name__ == "__main__":

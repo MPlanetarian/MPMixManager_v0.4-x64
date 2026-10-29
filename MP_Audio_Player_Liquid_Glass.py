@@ -520,8 +520,6 @@ class GlassHost:
             term.set_color_foreground(fg)
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
-        if hasattr(term, "set_allow_bold"):
-            term.set_allow_bold(False)
         try:
             import gi
             gi.require_version("Pango", "1.0")

@@ -21,11 +21,7 @@ if [ ! -f "$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] && [ ! -f "$BASE_
     for _c in \
         "${MP_MIX_MANAGER_DIR:-}" \
         "$PWD" \
-        "/var/home/mplanetarian/MP_Mix_Manager_v0.4" \
-        "$HOME/MP_Mix_Manager_v0.4" \
-        "/home/mplanetarian/MP_Mix_Manager_v0.4" \
-        "/var/home/mplanetarian/MP_Mix_Manager_v0.3" \
-        "$HOME/MP_Mix_Manager_v0.3"; do
+        "$HOME/MPMixManager_v0.4-x64"; do
         if [ -n "$_c" ] && { [ -f "$_c/MP_Audio_Player_Liquid_Glass_OpenGL.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass.py" ] || [ -f "$_c/MP_Audio_Player_Liquid_Glass_macOS.py" ]; }; then
             BASE_DIR="$_c"
             break

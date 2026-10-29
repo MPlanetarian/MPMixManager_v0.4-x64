@@ -665,7 +665,6 @@ class GlassHost:
         term.realize()
         self._pump_gtk(glib)
         self.gtk_window, self.terminal = window, term
-        self.gtk_window.set_opacity(0.60)  # Apply default 60% opacity setting on load[cite: 1]
         self._fit_to_terminal(term)
         self.renderer.poll()
         gdk_win = window.get_window()
@@ -741,8 +740,6 @@ class GlassHost:
             term.set_color_foreground(Gdk.RGBA(1.0, 1.0, 1.0, 1.0))
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
-        if hasattr(term, "set_allow_bold"):
-            term.set_allow_bold(False)
         try:
             import gi
             gi.require_version("Pango", "1.0")

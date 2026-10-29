@@ -280,7 +280,6 @@ class MetalGlassHost:
         theme = read_player_theme()
         theme_at = 0.0
 
-        print("DEBUG: Entering clean event loop...", flush=True)
         # Give the Metal window server a brief moment to settle
         time.sleep(0.05)
 

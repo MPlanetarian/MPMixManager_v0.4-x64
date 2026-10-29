@@ -1,1 +1,0 @@
-scripts/music_folders_manager.py
