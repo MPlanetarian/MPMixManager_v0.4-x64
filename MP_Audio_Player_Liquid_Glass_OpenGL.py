@@ -25,6 +25,8 @@ DEFAULT_FONT = "Monospace 11"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
 VISUALIZER_PID_FILE = CONFIG_DIR / "liquid_visualizer.pid"
+SEARCH_ACTIVE_FLAG = CONFIG_DIR / "search_active.flag"
+PLAYER_PID_FILE = CONFIG_DIR / "mp_player.pid"
 
 _VISUALIZER_PROC = None
 
@@ -444,12 +446,30 @@ class GlassHost:
 
     def _on_key_press(self, _term, event):
         kv = getattr(event, "keyval", 0)
-        if kv in (Gdk.KEY_m, Gdk.KEY_M):
-            self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
-            return False
-        if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
-            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
-            return True
+        state = getattr(event, "state", 0)
+        
+        is_searching = False
+        try:
+            if kv in (Gdk.KEY_slash, Gdk.KEY_question):
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                SEARCH_ACTIVE_FLAG.touch(exist_ok=True)
+            elif kv in (Gdk.KEY_Return, Gdk.KEY_Escape):
+                if SEARCH_ACTIVE_FLAG.is_file():
+                    SEARCH_ACTIVE_FLAG.unlink(missing_ok=True)
+
+            if SEARCH_ACTIVE_FLAG.is_file():
+                is_searching = True
+        except Exception:
+            pass
+
+        if not is_searching:
+            if kv in (Gdk.KEY_m, Gdk.KEY_M):
+                self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
+                return False
+            if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(state & Gdk.ModifierType.SHIFT_MASK)):
+                subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+                return True
+
         return False
 
     def _terminal_in_well(self):
@@ -773,14 +793,38 @@ class GlassHost:
 
     def close(self):
         global _VISUALIZER_PROC
+        
+        # 0. Instantly kill recorded player daemon PID if present to stop audio streams at the root
+        try:
+            if PLAYER_PID_FILE.is_file():
+                p_pid_str = PLAYER_PID_FILE.read_text(encoding="utf-8").strip()
+                if p_pid_str.isdigit():
+                    p_pid = int(p_pid_str)
+                    try:
+                        os.kill(p_pid, signal.SIGKILL)
+                        os.killpg(os.getpgid(p_pid), signal.SIGKILL)
+                    except Exception:
+                        pass
+                PLAYER_PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
         pid, self.child_pid = self.child_pid, 0
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
             except OSError:
                 pass
         
-        # Terminate tracked process handle reference
+        # Clean up search active flag file on exit
+        try:
+            if SEARCH_ACTIVE_FLAG.is_file():
+                SEARCH_ACTIVE_FLAG.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        # 1. Terminate tracked Python process handle reference for visualizers
         if _VISUALIZER_PROC is not None:
             try:
                 if hasattr(_VISUALIZER_PROC, "pid") and _VISUALIZER_PROC.pid:
@@ -794,7 +838,7 @@ class GlassHost:
                 pass
             _VISUALIZER_PROC = None
 
-        # Terminate any recorded PID file
+        # 2. Terminate any PID stored in the persistent visualizer tracking file
         try:
             if VISUALIZER_PID_FILE.is_file():
                 v_pid_str = VISUALIZER_PID_FILE.read_text(encoding="utf-8").strip()
@@ -802,13 +846,14 @@ class GlassHost:
                     v_pid = int(v_pid_str)
                     try:
                         os.kill(v_pid, signal.SIGKILL)
+                        os.killpg(os.getpgid(v_pid), signal.SIGKILL)
                     except Exception:
                         pass
                 VISUALIZER_PID_FILE.unlink(missing_ok=True)
         except Exception:
             pass
 
-        # Python-level direct process scan and termination to guarantee absolute cleanup of all visualizer windows
+        # 3. Aggressive system-wide sweep via /proc to kill all audio backends, visualizers, and players instantly
         try:
             curr_pid = os.getpid()
             for proc_dir in Path("/proc").iterdir():
@@ -820,18 +865,25 @@ class GlassHost:
                         cmdline_path = proc_dir / "cmdline"
                         if cmdline_path.is_file():
                             cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore")
-                            if "MP_Liquid_Visualizer" in cmdline or "mp_liquid_visualizer_vulkan" in cmdline or "MP_Audio_Player" in cmdline:
+                            if any(k in cmdline for k in [
+                                "MP_Liquid_Visualizer", "mp_liquid_visualizer_vulkan",
+                                "MP_Audio_Player", "mpv", "mpg123", "ffplay", "aplay"
+                            ]):
                                 os.kill(p_id, signal.SIGKILL)
+                                try:
+                                    os.killpg(os.getpgid(p_id), signal.SIGKILL)
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
         except Exception:
             pass
 
-        # Fallback shell sweeps
+        # 4. Final safety net shell sweeps
         try:
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run('pkill -9 -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run('pkill -9 -f "mpv|mpg123|ffplay|aplay"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run('pkill -9 -f "mpv|mpg123|ffplay|aplay|sounddevice"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 
@@ -844,11 +896,13 @@ class GlassHost:
         if renderer is not None:
             renderer.close()
 
+        # Hard exit to prevent any lingering daemon threads or event loops from keeping audio open
+        os._exit(0)
+
 
 def ensure_random_visualizer_started() -> bool:
     global _VISUALIZER_PROC
     try:
-        # Check if any visualizer is already running to prevent duplicates on launch
         has_running = False
         try:
             for proc_dir in Path("/proc").iterdir():
