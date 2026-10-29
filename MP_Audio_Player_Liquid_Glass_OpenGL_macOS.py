@@ -1,5 +1,4 @@
 from __future__ import annotations
-from PIL import Image		
 import ctypes
 import ctypes.util
 import faulthandler
@@ -257,6 +256,25 @@ ANSI_COLORS = {
     97: (255, 255, 90),
 }
 
+ANSI_BG_COLORS = {
+    40: (0, 0, 0),
+    41: (220, 50, 50),
+    42: (50, 200, 50),
+    43: (220, 220, 50),
+    44: (50, 100, 220),
+    45: (220, 50, 220),
+    46: (50, 200, 200),
+    47: (230, 230, 230),
+    100: (120, 120, 120),
+    101: (255, 90, 90),
+    102: (90, 255, 90),
+    103: (255, 255, 90),
+    104: (90, 160, 255),
+    105: (255, 90, 255),
+    106: (90, 255, 255),
+    107: (255, 255, 90),
+}
+
 
 def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origin_x=0, origin_y=0, mode="NORMAL"):
     def box(col, row, box_cols, box_rows):
@@ -279,7 +297,6 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origi
         return box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7))
     else:
         iw = max(20, cols - 6)
-        # Playlist container box positioned at row 16 with height 21 rows
         before = 16
         body_rows = 21
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows)
@@ -308,7 +325,7 @@ def _child_env():
 
 
 class TerminalOverlay:
-    """Fixed absolute coordinate terminal overlay with Retina scaling and text drop-shadow support."""
+    """Fixed absolute coordinate terminal overlay with Retina scaling, text drop-shadow, and full background color support."""
 
     def __init__(self, cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H):
         self.cols = cols
@@ -317,9 +334,11 @@ class TerminalOverlay:
         self.char_h = char_h
         self.grid: list[list[str]] = [[" " for _ in range(cols)] for _ in range(rows)]
         self.colors: list[list[tuple]] = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
+        self.bg_colors: list[list[tuple | None]] = [[None for _ in range(cols)] for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
         self.current_fg = (200, 235, 255)
+        self.current_bg = None
         self._buf = bytearray()
         self.dirty = True
         self.texture_id = 0
@@ -333,6 +352,7 @@ class TerminalOverlay:
         self.img_h = self.rows * self.char_h
         self._last_scale_x = 1.0
         self._last_scale_y = 1.0
+        self._glyph_cache: dict[tuple, any] = {}
 
         try:
             from PIL import Image, ImageFont
@@ -518,6 +538,7 @@ class TerminalOverlay:
                             for r in range(self.rows):
                                 for c in range(self.cols):
                                     self.grid[r][c] = " "
+                                    self.bg_colors[r][c] = None
                             self.cursor_row = 0
                             self.cursor_col = 0
                             self.dirty = True
@@ -525,6 +546,7 @@ class TerminalOverlay:
                         if 0 <= self.cursor_row < self.rows:
                             for c in range(self.cursor_col, self.cols):
                                 self.grid[self.cursor_row][c] = " "
+                                self.bg_colors[self.cursor_row][c] = None
                             self.dirty = True
                     i = end + 1
                     consumed = i
@@ -548,9 +570,11 @@ class TerminalOverlay:
                     if (
                         self.grid[self.cursor_row][self.cursor_col] != ch
                         or self.colors[self.cursor_row][self.cursor_col] != self.current_fg
+                        or self.bg_colors[self.cursor_row][self.cursor_col] != self.current_bg
                     ):
                         self.grid[self.cursor_row][self.cursor_col] = ch
                         self.colors[self.cursor_row][self.cursor_col] = self.current_fg
+                        self.bg_colors[self.cursor_row][self.cursor_col] = self.current_bg
                         self.dirty = True
                     self.cursor_col += 1
                     if self.cursor_col >= self.cols:
@@ -572,16 +596,26 @@ class TerminalOverlay:
             p = params[idx]
             if p == 0:
                 self.current_fg = (200, 235, 255)
+                self.current_bg = None
             elif 30 <= p <= 37:
                 self.current_fg = ANSI_COLORS.get(p, (200, 235, 255))
             elif 90 <= p <= 97:
                 self.current_fg = ANSI_COLORS.get(p, (100, 255, 255))
+            elif 40 <= p <= 47 or 100 <= p <= 107:
+                self.current_bg = ANSI_BG_COLORS.get(p, None)
             elif p == 38:
                 if idx + 4 < len(params) and params[idx + 1] == 2:
                     r = params[idx + 2]
                     g = params[idx + 3]
                     b = params[idx + 4]
                     self.current_fg = (r, g, b)
+                    idx += 4
+            elif p == 48:
+                if idx + 4 < len(params) and params[idx + 1] == 2:
+                    r = params[idx + 2]
+                    g = params[idx + 3]
+                    b = params[idx + 4]
+                    self.current_bg = (r, g, b)
                     idx += 4
             idx += 1
 
@@ -602,6 +636,7 @@ class TerminalOverlay:
             self.img_h = target_img_h
             self._last_scale_x = scale_x
             self._last_scale_y = scale_y
+            self._glyph_cache.clear()
             scaled_font_size = max(8, int(13 * scale_y))
             try:
                 from PIL import Image, ImageFont
@@ -673,17 +708,32 @@ class TerminalOverlay:
                 draw = ImageDraw.Draw(self.image)
                 s_char_w = self.char_w * scale_x
                 s_char_h = self.char_h * scale_y
+                tw_base = int(s_char_w) + 2
+                th_base = int(s_char_h) + 2
+
                 for r in range(self.rows):
                     y = int(r * s_char_h)
                     for c in range(self.cols):
                         ch = self.grid[r][c]
-                        if ch != " ":
+                        col = self.colors[r][c]
+                        bg = self.bg_colors[r][c]
+
+                        if bg is not None or ch != " ":
                             x = int(c * s_char_w)
-                            col = self.colors[r][c]
-                            # Render subtle dark drop-shadow/outline for crystal-clear readability
-                            draw.text((x + 1, y + 1), ch, fill=(0, 0, 0, 240), font=self.font)
-                            # Render main foreground text on top
-                            draw.text((x, y), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                            if bg is not None:
+                                draw.rectangle([x, y, x + int(s_char_w) + 1, y + int(s_char_h) + 1], fill=(bg[0], bg[1], bg[2], 255))
+                            if ch != " ":
+                                cache_key = (ch, col[0], col[1], col[2])
+                                if cache_key not in self._glyph_cache:
+                                    if len(self._glyph_cache) > 512:
+                                        self._glyph_cache.clear()
+                                    g_img = Image.new("RGBA", (tw_base, th_base), (0, 0, 0, 0))
+                                    d = ImageDraw.Draw(g_img)
+                                    d.text((1, 1), ch, fill=(0, 0, 0, 240), font=self.font)
+                                    d.text((0, 0), ch, fill=(col[0], col[1], col[2], 255), font=self.font)
+                                    self._glyph_cache[cache_key] = g_img
+
+                                self.image.paste(self._glyph_cache[cache_key], (x, y))
 
                 glBindTexture(GL_TEXTURE_2D, self.texture_id)
                 glTexImage2D(
@@ -1113,6 +1163,7 @@ class OpenGLGlassHost:
 
         theme = read_player_theme()
         theme_at = 0.0
+        print("DEBUG: Entering OpenGL event loop...", flush=True)
 
         try:
             while not self.renderer.should_close:
