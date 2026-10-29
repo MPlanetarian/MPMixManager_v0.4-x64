@@ -605,9 +605,6 @@ class MixArchiveScanner:
         self.mixes = sorted(collected, key=lambda x: x["mtime"], reverse=True)
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-            with open("debug_search.log", "a") as f:
-                f.write(f"Line 669 Query received: {repr(query)}\n")
-
             if not (q := query.lower().strip()): 
                 return self.mixes
             tokens = q.split()
@@ -627,7 +624,6 @@ class MixArchiveScanner:
                     results.append(m)
 
             return results
-
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class MusicFolderPlaylistScanner:
@@ -674,9 +670,6 @@ class MusicFolderPlaylistScanner:
         except Exception: pass
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-            with open("debug_search.log", "a") as f:
-                f.write(f"Line 669 Query received: {repr(query)}\n")
-
             if not (q := query.lower().strip()): 
                 return self.mixes
             tokens = q.split()
@@ -694,9 +687,7 @@ class MusicFolderPlaylistScanner:
             for m, raw_text, clean_text in self._cached_search_data:
                 if all(t in raw_text or t in clean_text for t in tokens):
                     results.append(m)
-
             return results
-
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class AudioResampler:

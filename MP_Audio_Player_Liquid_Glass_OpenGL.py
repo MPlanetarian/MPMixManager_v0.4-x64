@@ -24,11 +24,6 @@ COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
-VISUALIZER_PID_FILE = CONFIG_DIR / "liquid_visualizer.pid"
-SEARCH_ACTIVE_FLAG = CONFIG_DIR / "search_active.flag"
-PLAYER_PID_FILE = CONFIG_DIR / "mp_player.pid"
-
-_VISUALIZER_PROC = None
 
 RECOMMENDED_FONTS = [
     ("Monospace 11", "System Default Monospace (Clean, unbolded standard)"),
@@ -400,9 +395,11 @@ class GlassHost:
         m = self.renderer.bezel_px
         cols, rows = self._target_cols, self._target_rows
         if self.terminal is not None:
-            tc = int(self.terminal.get_column_count() or 0)
+            tc, tr = int(self.terminal.get_column_count() or 0), int(self.terminal.get_row_count() or 0)
             if tc >= 20:
                 cols = tc
+            if tr >= 5:
+                rows = tr
         state = (cols, rows, cw, ch, m, self.mode)
         if state != self._last_panel_state:
             self._last_panel_state = state
@@ -446,30 +443,12 @@ class GlassHost:
 
     def _on_key_press(self, _term, event):
         kv = getattr(event, "keyval", 0)
-        state = getattr(event, "state", 0)
-        
-        is_searching = False
-        try:
-            if kv in (Gdk.KEY_slash, Gdk.KEY_question):
-                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-                SEARCH_ACTIVE_FLAG.touch(exist_ok=True)
-            elif kv in (Gdk.KEY_Return, Gdk.KEY_Escape):
-                if SEARCH_ACTIVE_FLAG.is_file():
-                    SEARCH_ACTIVE_FLAG.unlink(missing_ok=True)
-
-            if SEARCH_ACTIVE_FLAG.is_file():
-                is_searching = True
-        except Exception:
-            pass
-
-        if not is_searching:
-            if kv in (Gdk.KEY_m, Gdk.KEY_M):
-                self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
-                return False
-            if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(state & Gdk.ModifierType.SHIFT_MASK)):
-                subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
-                return True
-
+        if kv in (Gdk.KEY_m, Gdk.KEY_M):
+            self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
+            return False
+        if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
+            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+            return True
         return False
 
     def _terminal_in_well(self):
@@ -665,6 +644,11 @@ class GlassHost:
                     break
                 time.sleep(0.008)
         finally:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except Exception:
+                pass
             self.close()
         return True
 
@@ -792,96 +776,12 @@ class GlassHost:
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def close(self):
-        global _VISUALIZER_PROC
-        
-        # 0. Safely remove player PID file without killing the parent shell script
-        try:
-            if PLAYER_PID_FILE.is_file():
-                PLAYER_PID_FILE.unlink(missing_ok=True)
-        except Exception:
-            pass
-
         pid, self.child_pid = self.child_pid, 0
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
             except OSError:
                 pass
-        
-        # Clean up search active flag file on exit
-        try:
-            if SEARCH_ACTIVE_FLAG.is_file():
-                SEARCH_ACTIVE_FLAG.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-        # 1. Terminate tracked Python process handle reference for visualizers
-        if _VISUALIZER_PROC is not None:
-            try:
-                if hasattr(_VISUALIZER_PROC, "pid") and _VISUALIZER_PROC.pid:
-                    try:
-                        os.killpg(os.getpgid(_VISUALIZER_PROC.pid), signal.SIGKILL)
-                    except Exception:
-                        pass
-                _VISUALIZER_PROC.terminate()
-                _VISUALIZER_PROC.kill()
-            except Exception:
-                pass
-            _VISUALIZER_PROC = None
-
-        # 2. Terminate any PID stored in the persistent visualizer tracking file
-        try:
-            if VISUALIZER_PID_FILE.is_file():
-                v_pid_str = VISUALIZER_PID_FILE.read_text(encoding="utf-8").strip()
-                if v_pid_str.isdigit():
-                    v_pid = int(v_pid_str)
-                    try:
-                        os.kill(v_pid, signal.SIGKILL)
-                        os.killpg(os.getpgid(v_pid), signal.SIGKILL)
-                    except Exception:
-                        pass
-                VISUALIZER_PID_FILE.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-        # 3. Targeted /proc sweep: Target ONLY actual background audio players and visualizers, EXCLUDING shell scripts (.sh)
-        try:
-            curr_pid = os.getpid()
-            for proc_dir in Path("/proc").iterdir():
-                if proc_dir.name.isdigit():
-                    p_id = int(proc_dir.name)
-                    if p_id == curr_pid:
-                        continue
-                    try:
-                        cmdline_path = proc_dir / "cmdline"
-                        if cmdline_path.is_file():
-                            cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore")
-                            # Never target bash scripts or the Mix Archive Manager CLI wrapper
-                            if ".sh" in cmdline or "Mix_Archive_Manager" in cmdline:
-                                continue
-                            if any(k in cmdline for k in [
-                                "MP_Liquid_Visualizer", "mp_liquid_visualizer_vulkan",
-                                "MP_Audio_Player.py", "mpv", "mpg123", "ffplay", "aplay"
-                            ]):
-                                os.kill(p_id, signal.SIGKILL)
-                                try:
-                                    os.killpg(os.getpgid(p_id), signal.SIGKILL)
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # 4. Safe shell safety nets targeting Python worker backends only (leaving .sh scripts untouched)
-        try:
-            subprocess.run('pkill -9 -f "MP_Audio_Player.py"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run('pkill -9 -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run('pkill -9 -f "mpv|mpg123|ffplay|aplay|sounddevice"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-
         window, self.gtk_window, self.terminal = self.gtk_window, None, None
         if window is not None:
             window.destroy()
@@ -891,36 +791,23 @@ class GlassHost:
         if renderer is not None:
             renderer.close()
 
-        # Hard exit to prevent any lingering daemon threads or event loops from keeping audio open
-        os._exit(0)
 
 def ensure_random_visualizer_started() -> bool:
-    global _VISUALIZER_PROC
     try:
-        has_running = False
-        try:
-            for proc_dir in Path("/proc").iterdir():
-                if proc_dir.name.isdigit():
-                    try:
-                        cmdline = (proc_dir / "cmdline").read_text(encoding="utf-8", errors="ignore")
-                        if "MP_Liquid_Visualizer" in cmdline or "mp_liquid_visualizer_vulkan" in cmdline:
-                            has_running = True
-                            break
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        if VISUALIZER_PID_FILE.is_file():
+        if sys.platform == "win32":
             try:
-                v_pid = int(VISUALIZER_PID_FILE.read_text(encoding="utf-8").strip())
-                os.kill(v_pid, 0)
-                has_running = True
+                out = subprocess.check_output(
+                    ["powershell.exe", "-NoProfile", "-Command",
+                     'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*MP_Liquid_Visualizer*" -or $_.CommandLine -like "*mp_liquid_visualizer_vulkan*" } | Select-Object -ExpandProperty ProcessId'],
+                    stderr=subprocess.DEVNULL, text=True,
+                ).strip()
+                if out:
+                    return False
             except Exception:
-                VISUALIZER_PID_FILE.unlink(missing_ok=True)
-
-        if has_running:
-            return False
+                pass
+        elif shutil.which("pgrep"):
+            if subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                return False
 
         vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
         if not vis_script:
@@ -929,9 +816,7 @@ def ensure_random_visualizer_started() -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
-            _VISUALIZER_PROC = subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
-            if _VISUALIZER_PROC.pid:
-                VISUALIZER_PID_FILE.write_text(str(_VISUALIZER_PROC.pid), encoding="utf-8")
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True
     except Exception:
         return False
