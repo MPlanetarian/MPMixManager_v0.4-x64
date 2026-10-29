@@ -118,19 +118,9 @@ THEME_COLORS = {
     "phosphor": ((57, 255, 20), (166, 255, 0), (0, 255, 102)),
     "ice_cold": ((0, 229, 255), (136, 192, 208), (129, 161, 193)),
     "retro_terminal": ((230, 230, 230), (180, 180, 180), (255, 255, 255)),
-    "cosmic_dreamworlds_radioactive": ((57, 255, 20), (0, 245, 212), (166, 77, 255)),
-    "cosmic_dreamworlds": ((232, 13, 104), (0, 245, 212), (176, 88, 255)),
-    "orbital_void_reflux": ((0, 240, 255), (157, 78, 221), (255, 0, 127)),
-    "sensorium_interface": ((0, 245, 255), (240, 168, 216), (184, 72, 196)),
 }
+
 THEME_ALIASES = {
-    "sensorium_interface": "sensorium_interface",
-    "sensorium_interface_(liquid_glass_skin)": "sensorium_interface",
-    "sensorium interface (liquid glass skin)": "sensorium_interface",
-    "sensorium interface": "sensorium_interface",
-    "sensorium": "sensorium_interface",
-    "earth_flipper": "sensorium_interface",
-    "earth flipper": "sensorium_interface",
     "stream_of_frequency": "stream_of_frequency",
     "stream_of_frequency_theme": "stream_of_frequency",
     "stream of frequency": "stream_of_frequency",
@@ -139,30 +129,11 @@ THEME_ALIASES = {
     "frequency": "stream_of_frequency",
     "sof": "stream_of_frequency",
     "frequency_stream": "stream_of_frequency",
-    "cosmic_dreamworlds": "cosmic_dreamworlds",
-    "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
-    "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
-    "cosmic dreamworlds": "cosmic_dreamworlds",
-    "cosmic_dreamworld": "cosmic_dreamworlds",
-    "cosmic dreamworld": "cosmic_dreamworlds",
-    "cosmic_dream": "cosmic_dreamworlds",
-    "cosmic dream": "cosmic_dreamworlds",
-    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
-    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
-    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
-    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
-    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
-    "radioactive": "cosmic_dreamworlds_radioactive",
-    "orbital_void_reflux": "orbital_void_reflux",
-    "orbital_void_reflux_(liquid_glass_skin)": "orbital_void_reflux",
-    "orbital void reflux (liquid glass skin)": "orbital_void_reflux",
-    "orbital void reflux": "orbital_void_reflux",
-    "orbital_void": "orbital_void_reflux",
-    "void_reflux": "orbital_void_reflux",
-    "orbital": "orbital_void_reflux",
-    "dreamworlds": "dreamworlds_ultra",
-    "default": "dreamworlds_ultra",
-    "mplanetarian": "dreamworlds_ultra",
+    "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal", "white_on_black": "retro_terminal", "old_style_unix": "retro_terminal", "terminal": "retro_terminal", "classic": "retro_terminal",
+    "cosmic": "cosmic_supernova", "supernova": "cosmic_supernova",
+    "cyberpunk": "cyber_neon", "cyber": "cyber_neon",
+    "matrix": "phosphor", "nord": "ice_cold", "dracula": "dreamworlds_neon", "gruvbox": "retro_studio",
+    "dreamworlds": "dreamworlds_ultra", "default": "dreamworlds_ultra", "mplanetarian": "dreamworlds_ultra",
     "dynamic_rainbow_liquid_glass": "dynamic_rainbow_liquid_glass",
     "dynamic_liquid_glass_rainbow": "dynamic_rainbow_liquid_glass",
     "dynamic_rainbow": "dynamic_rainbow_liquid_glass",
@@ -173,23 +144,9 @@ THEME_ALIASES = {
     "dynamic_liquid_glass_[rainbow_colours]": "dynamic_rainbow_liquid_glass",
     "dynamic liquid glass [rainbow colours] (new)": "dynamic_rainbow_liquid_glass",
     "dynamic liquid glass [rainbow colours]": "dynamic_rainbow_liquid_glass",
-    "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid",
-    "dreamworlds_liquid_transparency": "dreamworlds_liquid",
-    "liquid_transparency": "dreamworlds_liquid",
-    "liquid": "dreamworlds_liquid",
-    "glass": "dreamworlds_liquid",
-    "liquid_glass": "dreamworlds_liquid",
-    "cosmic": "cosmic_supernova",
-    "supernova": "cosmic_supernova",
-    "cyberpunk": "cyber_neon",
-    "cyber": "cyber_neon",
-    "matrix": "phosphor",
-    "nord": "ice_cold",
-    "dracula": "dreamworlds_neon",
-    "gruvbox": "retro_studio",
-    "unix_terminal": "retro_terminal",
-    "terminal": "retro_terminal",
-    "classic": "retro_terminal",
+    "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid", "dreamworlds_liquid_transparency": "dreamworlds_liquid",
+    "liquid_transparency": "dreamworlds_liquid", "liquid": "dreamworlds_liquid", "glass": "dreamworlds_liquid",
+    "liquid_glass": "dreamworlds_liquid", "mp_liquid": "dreamworlds_liquid",
 }
 
 # GLFW Constants
@@ -473,10 +430,10 @@ void main() {
 """
 
 SKIN_FILES = {
-    "cosmic_dreamworlds_radioactive": ROOT / "assets" / "skins" / "cosmic_dreamworlds_radioactive.png",
-    "cosmic_dreamworlds": ROOT / "assets" / "skins" / "cosmic_dreamworlds.png",
-    "orbital_void_reflux": ROOT / "assets" / "skins" / "orbital_void_reflux.png",
-    "sensorium_interface": ROOT / "assets" / "skins" / "sensorium_interface.png",
+#    "cosmic_dreamworlds_radioactive": ROOT / "assets" / "skins" / "cosmic_dreamworlds_radioactive.png",
+#    "cosmic_dreamworlds": ROOT / "assets" / "skins" / "cosmic_dreamworlds.png",
+#    "orbital_void_reflux": ROOT / "assets" / "skins" / "orbital_void_reflux.png",
+#    "sensorium_interface": ROOT / "assets" / "skins" / "sensorium_interface.png",
 }
 
 
@@ -1422,31 +1379,33 @@ class LiquidGlassRendererOpenGL:
         GL.glBindVertexArray(0)
 
     def _load_skin_texture(self, skin_name):
-        from OpenGL import GL
-        if skin_name in self._skin_textures:
-            return self._skin_textures[skin_name]
-        skin_file = SKIN_FILES.get(skin_name) or (ROOT / "assets" / "skins" / f"{skin_name}.png")
-        if not skin_file.is_file():
-            return 0
-        try:
-            from PIL import Image
-            img = Image.open(skin_file).convert("RGBA")
-            w, h = img.size
-            data = img.tobytes("raw", "RGBA", 0, 1)
+            from OpenGL import GL
+            if not skin_name or skin_name not in SKIN_FILES:
+                return 0
+            if skin_name in self._skin_textures:
+                return self._skin_textures[skin_name]
+            skin_file = SKIN_FILES.get(skin_name)
+            if not skin_file or not skin_file.is_file():
+                return 0
+            try:
+                from PIL import Image
+                img = Image.open(skin_file).convert("RGBA")
+                w, h = img.size
+                data = img.tobytes("raw", "RGBA", 0, 1)
 
-            tex_id = GL.glGenTextures(1)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
-            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, w, h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+                tex_id = GL.glGenTextures(1)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
+                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, w, h, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
 
-            self._skin_textures[skin_name] = tex_id
-            return tex_id
-        except Exception:
-            return 0
+                self._skin_textures[skin_name] = tex_id
+                return tex_id
+            except Exception:
+                return 0    
 
     def _destroy_window(self):
         try:

@@ -1,5 +1,6 @@
+#!/usr/init/env python3
 #!/usr/bin/env python3
-"""OpenGL liquid-glass window hosting the unmodified MP Audio Player."""
+"""OpenGL liquid-glass window hosting the MP Audio Player with theme-matching transparency slider and drop-shadow text."""
 
 from __future__ import annotations
 import ctypes, os, shutil, signal, subprocess, sys, time
@@ -11,7 +12,13 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from liquid_glass_opengl import LiquidGlassRendererOpenGL, read_player_theme  # noqa: E402
+from liquid_glass_opengl import (
+    LiquidGlassRendererOpenGL,
+    read_player_theme,
+    get_dynamic_theme_state,
+    _rgb01,
+    THEME_ALIASES,
+)
 
 COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
@@ -150,6 +157,184 @@ def _mode_grid(mode):
     return COLS, ROWS
 
 
+class CustomGlassRenderer(LiquidGlassRendererOpenGL):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.slider_val = 0.60  # Default 60% opacity setting on load[cite: 1]
+        self._slider_dragging = False
+
+    def draw(self, theme_name, opacity=1.0, capture=False):
+        if not self.poll():
+            return None
+        fw, fh = self.framebuffer_size()
+        ww, wh = self.window_size()
+        if fw < 2 or fh < 2 or ww < 2 or wh < 2:
+            return None
+
+        scale_x = float(fw) / float(ww) if ww > 0 else 1.0
+        scale_y = float(fh) / float(wh) if wh > 0 else 1.0
+
+        if self.window_size() != self._shape_size:
+            self._apply_shape()
+
+        from OpenGL import GL
+
+        GL.glViewport(0, 0, fw, fh)
+        GL.glClearColor(0.0, 0.0, 0.0, 0.0)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        GL.glUseProgram(self._prog)
+
+        colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
+        win = self.x11_window() if hasattr(self, "x11_window") else None
+        if factor != 1.0 and win:
+            target_op = int(self.clear_opacity * factor * 1000)
+            if getattr(self, "_last_dyn_opacity", None) != target_op:
+                self._last_dyn_opacity = target_op
+                self._set_opacity(win, self.clear_opacity * factor)
+
+        a = _rgb01(colors[0])
+        b = _rgb01(colors[1])
+        c = _rgb01(colors[2])
+        aspect = float(fw) / max(1.0, float(fh))
+        u = self._u_locs
+
+        GL.glUniform4f(u["u_res"], float(fw), float(fh), float(time.monotonic() - getattr(self, "_start", 0)), aspect)
+        GL.glUniform4f(u["u_themeA"], a[0], a[1], a[2], float(self.cursor[0]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeB"], b[0], b[1], b[2], float(self.cursor[1]) / max(1.0, float(fw)))
+        GL.glUniform4f(u["u_themeC"], c[0], c[1], c[2], float(effective_opacity))
+        GL.glUniform4f(u["u_bezel"], float(self.bezel_px) * scale_x, float(self.radius_px) * scale_y, 0.0, 1.0)
+
+        p0 = self.panels[0]
+        p1 = self.panels[1]
+        GL.glUniform4f(u["u_panel0"], float(p0[0]) * scale_x, float(p0[1]) * scale_y, float(p0[2]) * scale_x, float(p0[3]) * scale_y)
+        GL.glUniform4f(u["u_panel1"], float(p1[0]) * scale_x, float(p1[1]) * scale_y, float(p1[2]) * scale_x, float(p1[3]) * scale_y)
+
+        skin_key = THEME_ALIASES.get(str(theme_name or "").strip().lower(), str(theme_name or "").strip().lower())
+        tex_id = self._load_skin_texture(skin_key)
+        if tex_id:
+            GL.glActiveTexture(GL.GL_TEXTURE0)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+            if u.get("u_skinTex", -1) != -1:
+                GL.glUniform1i(u["u_skinTex"], 0)
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 1.0)
+        else:
+            if u.get("u_hasSkin", -1) != -1:
+                GL.glUniform1f(u["u_hasSkin"], 0.0)
+
+        GL.glBindVertexArray(self._vao)
+        GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
+
+        if ww > 0 and wh > 0:
+            self._draw_transparency_slider(fw, fh, ww, wh, colors)
+
+        pixels = None
+        if capture:
+            raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+            pixels = self._format_capture(fw, fh, raw)
+
+        self._glfw.glfwSwapBuffers(self._window)
+        return pixels
+
+    def _draw_transparency_slider(self, fw, fh, ww, wh, colors):
+        try:
+            from OpenGL.GL import (
+                glUseProgram, glGenVertexArrays, glBindVertexArray, glGenBuffers,
+                glBindBuffer, glBufferData, glVertexAttribPointer, glEnableVertexAttribArray,
+                glDrawArrays, glEnable, glBlendFunc, GL_BLEND, GL_SRC_ALPHA,
+                GL_ONE_MINUS_SRC_ALPHA, GL_TRIANGLES, GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW,
+                GL_FLOAT, GL_FALSE, glUniform4f, glCreateShader, glShaderSource,
+                glCompileShader, glCreateProgram, glAttachShader, glLinkProgram,
+                GL_VERTEX_SHADER, GL_FRAGMENT_SHADER, glGetUniformLocation
+            )
+            import numpy as np
+
+            if not hasattr(self, "_slider_prog"):
+                vs_src = b"""
+                #version 410 core
+                layout(location = 0) in vec2 a_pos;
+                void main() {
+                    gl_Position = vec4(a_pos, 0.0, 1.0);
+                }
+                """
+                fs_src = b"""
+                #version 410 core
+                uniform vec4 u_color;
+                out vec4 fragColor;
+                void main() {
+                    fragColor = u_color;
+                }
+                """
+                vs = glCreateShader(GL_VERTEX_SHADER)
+                glShaderSource(vs, vs_src)
+                glCompileShader(vs)
+                fs = glCreateShader(GL_FRAGMENT_SHADER)
+                glShaderSource(fs, fs_src)
+                glCompileShader(fs)
+                self._slider_prog = glCreateProgram()
+                glAttachShader(self._slider_prog, vs)
+                glAttachShader(self._slider_prog, fs)
+                glLinkProgram(self._slider_prog)
+                self._slider_vao = glGenVertexArrays(1)
+                self._slider_vbo = glGenBuffers(1)
+
+            x_left = 40.0
+            x_right = max(80.0, float(ww) - 40.0)
+            y_from_bottom = 22.0
+
+            # Derive slider panel and thumb colors dynamically from the active theme palette
+            c0 = _rgb01(colors[0])
+            c1 = _rgb01(colors[1])
+
+            ndc_x1 = (x_left / ww) * 2.0 - 1.0
+            ndc_x2 = (x_right / ww) * 2.0 - 1.0
+            ndc_y1 = (y_from_bottom / wh) * 2.0 - 1.0
+            ndc_y2 = ((y_from_bottom + 8.0) / wh) * 2.0 - 1.0
+
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+            glUseProgram(self._slider_prog)
+            glBindVertexArray(self._slider_vao)
+            glBindBuffer(GL_ARRAY_BUFFER, self._slider_vbo)
+
+            track_quad = np.array([
+                ndc_x1, ndc_y1,  ndc_x2, ndc_y1,  ndc_x1, ndc_y2,
+                ndc_x2, ndc_y1,  ndc_x2, ndc_y2,  ndc_x1, ndc_y2
+            ], dtype=np.float32)
+
+            u_col_loc = glGetUniformLocation(self._slider_prog, "u_color")
+            
+            # Theme-matched subtle background panel strip
+            glUniform4f(u_col_loc, c0[0] * 0.7, c0[1] * 0.7, c0[2] * 0.7, 0.55)
+            glBufferData(GL_ARRAY_BUFFER, track_quad.nbytes, track_quad, GL_DYNAMIC_DRAW)
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * 4, ctypes.c_void_p(0))
+            glEnableVertexAttribArray(0)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            t = (self.slider_val - 0.20) / (0.80 - 0.20)
+            thumb_x = x_left + t * (x_right - x_left)
+
+            t_x1 = ((thumb_x - 6.0) / ww) * 2.0 - 1.0
+            t_x2 = ((thumb_x + 6.0) / ww) * 2.0 - 1.0
+            t_y1 = ((y_from_bottom - 4.0) / wh) * 2.0 - 1.0
+            t_y2 = ((y_from_bottom + 12.0) / wh) * 2.0 - 1.0
+
+            thumb_quad = np.array([
+                t_x1, t_y1,  t_x2, t_y1,  t_x1, t_y2,
+                t_x2, t_y1,  t_x2, t_y2,  t_x1, t_y2
+            ], dtype=np.float32)
+
+            # Theme-matched vibrant accent thumb
+            glUniform4f(u_col_loc, c1[0], c1[1], c1[2], 0.95)
+            glBufferData(GL_ARRAY_BUFFER, thumb_quad.nbytes, thumb_quad, GL_DYNAMIC_DRAW)
+            glDrawArrays(GL_TRIANGLES, 0, 6)
+
+            glBindVertexArray(0)
+            glUseProgram(0)
+        except Exception as e:
+            print(f"Slider draw error: {e}", flush=True)
+
+
 class GlassHost:
     def __init__(self, argv, embed_check=False, mode="NORMAL", cli_theme=None, font=None):
         self.argv = list(argv)
@@ -159,7 +344,7 @@ class GlassHost:
         self.font_name = get_liquid_glass_font(font)
         self.renderer = self.gtk_window = self.terminal = self.glib = self.spawn_error = self._saved_rect = None
         self.child_xid = self.child_pid = self._last_top_click_x = self._last_top_click_y = 0
-        self.child_done = self.is_maximized = self._term_dragging = False
+        self.child_done = self.is_maximized = self._term_dragging = self._slider_dragging = False
         self._last_top_click = 0.0
         self._target_cols, self._target_rows = _mode_grid(self.mode)
         self._last_well = self._last_panel_state = None
@@ -186,7 +371,7 @@ class GlassHost:
         gx, gy = self.renderer.window_pos()
         w, h = self.renderer.window_size()
         m = self.renderer.bezel_px
-        return gx + m, gy + m, max(32, w - 2 * m), max(32, h - 2 * m)
+        return gx + m, gy + m, max(32, w - 2 * m), max(32, h - 2 * m - 44)
 
     def _place_terminal(self, force=False):
         rect = self._well_rect()
@@ -226,7 +411,7 @@ class GlassHost:
         self._target_cols, self._target_rows = cols, rows
         if pos:
             self.renderer.set_window_pos(pos[0], pos[1])
-        self.renderer.set_window_size(*(size or (cols * cw + 2 * m, rows * ch + 2 * m)))
+        self.renderer.set_window_size(*(size or (cols * cw + 2 * m, rows * ch + 2 * m + 44)))
         self.renderer.poll()
         if self.terminal is not None:
             self.terminal.set_size(cols, rows)
@@ -240,10 +425,10 @@ class GlassHost:
         if not self.is_maximized:
             self._saved_rect = (self.renderer.window_pos(), self.renderer.window_size())
             wx, wy, ww, wh = self.renderer.get_workarea()
-            self._apply_grid(max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m) // ch)), (wx, wy), (ww, wh))
+            self._apply_grid(max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m - 44) // ch)), (wx, wy), (ww, wh))
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or ((72, 64), (1280, 820))
+            pos, _ = self._saved_rect or ((72, 64), (1280, 856))
             cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
             self._apply_grid(cols, rows, pos)
             self.is_maximized = False
@@ -295,7 +480,7 @@ class GlassHost:
         if event.button == 1:
             if event.type == getattr(Gdk.EventType, "_2BUTTON_PRESS", 5) and event.y <= 90:
                 self.toggle_maximize()
-                self._term_dragging = False
+                self._term_dragging = self._slider_dragging = False
                 return True
             mods = getattr(Gdk.ModifierType, "MOD1_MASK", 8) | getattr(Gdk.ModifierType, "SUPER_MASK", 0x4000000)
             if (event.y <= 90 or bool(getattr(event, "state", 0) & mods)) and not self.is_maximized:
@@ -320,15 +505,27 @@ class GlassHost:
 
     def _on_term_button_release(self, _term, event):
         if event.button == 1:
-            self._term_dragging = False
+            self._term_dragging = self._slider_dragging = False
         return False
+
+    def _update_slider_val(self, x, w):
+        slider_left = 40.0
+        slider_right = max(80.0, float(w) - 40.0)
+        t = max(0.0, min(1.0, (x - slider_left) / (slider_right - slider_left)))
+        self.renderer.slider_val = 0.20 + t * (0.80 - 0.20)
+        if self.gtk_window is not None:
+            self.gtk_window.set_opacity(float(self.renderer.slider_val))
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
         x, y = self.renderer.cursor
         w, h = self.renderer.window_size()
         down = self.renderer.mouse_down
         if down and not was_down:
-            if self._on_close(x, y, w, h):
+            if y >= h - 44 and 40 <= x <= w - 40:
+                self._slider_dragging = True
+                self._update_slider_val(x, w)
+                dragging = False
+            elif self._on_close(x, y, w, h):
                 self.renderer.request_close()
                 dragging = False
             elif self._on_top_bezel(x, y, w, h):
@@ -346,6 +543,8 @@ class GlassHost:
                 dragging, origin = True, self.renderer.window_pos()
                 rx, ry = self.renderer.root_pointer()
                 press_screen = (rx, ry) if (rx or ry) else (origin[0] + x, origin[1] + y)
+        elif down and self._slider_dragging:
+            self._update_slider_val(x, w)
         elif down and dragging:
             rx, ry = self.renderer.root_pointer()
             nx = origin[0] + (rx - press_screen[0] if (rx or ry) else x - (press_screen[0] - origin[0]))
@@ -353,20 +552,21 @@ class GlassHost:
             self.renderer.set_window_pos(int(nx), int(ny))
         else:
             dragging = False
+            self._slider_dragging = False
         return down, dragging, origin, press_screen
 
     def _fit_to_terminal(self, term):
         cw, ch = self._dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m)
+        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m + 44)
         term.set_size(self._target_cols, self._target_rows)
 
     def run(self):
         m = LiquidGlassRendererOpenGL.bezel_px
-        iw, ih = self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m
+        iw, ih = self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m + 44
         title = "Mix Tracklist Viewer (Liquid Glass - OpenGL)" if self.mode == "TRACKLIST" else "MP Audio Player (Liquid Glass - OpenGL)"
         if sys.platform == "win32":
-            self.renderer = LiquidGlassRendererOpenGL(iw, ih, title)
+            self.renderer = CustomGlassRenderer(iw, ih, title)
             try:
                 return self._run_windows()
             finally:
@@ -374,7 +574,7 @@ class GlassHost:
         glib, gtk, vte = _import_gtk()
         self.glib = glib
         gtk.init([])
-        self.renderer = LiquidGlassRendererOpenGL(iw, ih, title)
+        self.renderer = CustomGlassRenderer(iw, ih, title)
         try:
             return self._run_window(vte, glib)
         finally:
@@ -383,7 +583,7 @@ class GlassHost:
     def _run_windows(self):
         self.renderer.open()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m)
+        self.renderer.set_window_size(self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m + 44)
         self._sync_panels()
         if self.embed_check:
             self.renderer.draw(read_player_theme())
@@ -465,6 +665,7 @@ class GlassHost:
         term.realize()
         self._pump_gtk(glib)
         self.gtk_window, self.terminal = window, term
+        self.gtk_window.set_opacity(0.60)  # Apply default 60% opacity setting on load[cite: 1]
         self._fit_to_terminal(term)
         self.renderer.poll()
         gdk_win = window.get_window()
@@ -566,9 +767,10 @@ class GlassHost:
         except Exception:
             pass
         provider = Gtk.CssProvider()
+        # Mac OS Style Drop Shadows applied to typography
         provider.load_from_data(
             b"vte-terminal, window { background-color: transparent; padding: 0px; margin: 0px; font-weight: normal; "
-            b"text-shadow: 0 0 3px rgba(0, 229, 255, 0.40), 0 0 7px rgba(176, 88, 255, 0.20); letter-spacing: 0.35px; }"
+            b"text-shadow: 1px 2px 3px rgba(0, 0, 0, 0.85), 0 0 5px rgba(0, 229, 255, 0.35); letter-spacing: 0.35px; }"
         )
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
