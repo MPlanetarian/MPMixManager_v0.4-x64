@@ -106,3 +106,4 @@ logs/*
 !Congen/.congen_alert.wav
 *.old
 
+WAN2GP_Monitor_Log.txt
