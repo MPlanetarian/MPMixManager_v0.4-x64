@@ -791,6 +791,7 @@ class GlassHost:
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+<<<<<<< HEAD
     def close(self):
         global _VISUALIZER_PROC
         
@@ -805,6 +806,14 @@ class GlassHost:
                         os.killpg(os.getpgid(p_pid), signal.SIGKILL)
                     except Exception:
                         pass
+=======
+def close(self):
+        global _VISUALIZER_PROC
+        
+        # 0. Safely remove player PID file without killing the parent shell script
+        try:
+            if PLAYER_PID_FILE.is_file():
+>>>>>>> 2fa97de (Resolved an issue where the MP Liquid Player on Linux would accidentally kill mix_archive_manager.sh due to lack of filtering)
                 PLAYER_PID_FILE.unlink(missing_ok=True)
         except Exception:
             pass
@@ -853,7 +862,11 @@ class GlassHost:
         except Exception:
             pass
 
+<<<<<<< HEAD
         # 3. Aggressive system-wide sweep via /proc to kill all audio backends, visualizers, and players instantly
+=======
+        # 3. Targeted /proc sweep: Target ONLY actual background audio players and visualizers, EXCLUDING shell scripts (.sh)
+>>>>>>> 2fa97de (Resolved an issue where the MP Liquid Player on Linux would accidentally kill mix_archive_manager.sh due to lack of filtering)
         try:
             curr_pid = os.getpid()
             for proc_dir in Path("/proc").iterdir():
@@ -865,9 +878,18 @@ class GlassHost:
                         cmdline_path = proc_dir / "cmdline"
                         if cmdline_path.is_file():
                             cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore")
+<<<<<<< HEAD
                             if any(k in cmdline for k in [
                                 "MP_Liquid_Visualizer", "mp_liquid_visualizer_vulkan",
                                 "MP_Audio_Player", "mpv", "mpg123", "ffplay", "aplay"
+=======
+                            # Never target bash scripts or the Mix Archive Manager CLI wrapper
+                            if ".sh" in cmdline or "Mix_Archive_Manager" in cmdline:
+                                continue
+                            if any(k in cmdline for k in [
+                                "MP_Liquid_Visualizer", "mp_liquid_visualizer_vulkan",
+                                "MP_Audio_Player.py", "mpv", "mpg123", "ffplay", "aplay"
+>>>>>>> 2fa97de (Resolved an issue where the MP Liquid Player on Linux would accidentally kill mix_archive_manager.sh due to lack of filtering)
                             ]):
                                 os.kill(p_id, signal.SIGKILL)
                                 try:
@@ -879,9 +901,15 @@ class GlassHost:
         except Exception:
             pass
 
+<<<<<<< HEAD
         # 4. Final safety net shell sweeps
         try:
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+=======
+        # 4. Safe shell safety nets targeting Python worker backends only (leaving .sh scripts untouched)
+        try:
+            subprocess.run('pkill -9 -f "MP_Audio_Player.py"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+>>>>>>> 2fa97de (Resolved an issue where the MP Liquid Player on Linux would accidentally kill mix_archive_manager.sh due to lack of filtering)
             subprocess.run('pkill -9 -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run('pkill -9 -f "mpv|mpg123|ffplay|aplay|sounddevice"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
