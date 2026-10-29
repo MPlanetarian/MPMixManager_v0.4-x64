@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys, re
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -605,8 +605,28 @@ class MixArchiveScanner:
         self.mixes = sorted(collected, key=lambda x: x["mtime"], reverse=True)
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-        if not (q := query.lower()): return self.mixes
-        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower()]
+            with open("debug_search.log", "a") as f:
+                f.write(f"Line 669 Query received: {repr(query)}\n")
+
+            if not (q := query.lower().strip()): 
+                return self.mixes
+            tokens = q.split()
+
+            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
+            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
+                self._cached_search_data = []
+                for m in self.mixes:
+                    raw_text = " ".join(str(v) for v in m.values()).lower()
+                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
+                    self._cached_search_data.append((m, raw_text, clean_text))
+                self._search_cache_initialized = id(self.mixes)
+
+            results = []
+            for m, raw_text, clean_text in self._cached_search_data:
+                if all(t in raw_text or t in clean_text for t in tokens):
+                    results.append(m)
+
+            return results
 
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
@@ -654,8 +674,28 @@ class MusicFolderPlaylistScanner:
         except Exception: pass
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-        if not (q := query.lower()): return self.mixes
-        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower() or q in m.get("title", "").lower()]
+            with open("debug_search.log", "a") as f:
+                f.write(f"Line 669 Query received: {repr(query)}\n")
+
+            if not (q := query.lower().strip()): 
+                return self.mixes
+            tokens = q.split()
+
+            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
+            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
+                self._cached_search_data = []
+                for m in self.mixes:
+                    raw_text = " ".join(str(v) for v in m.values()).lower()
+                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
+                    self._cached_search_data.append((m, raw_text, clean_text))
+                self._search_cache_initialized = id(self.mixes)
+
+            results = []
+            for m, raw_text, clean_text in self._cached_search_data:
+                if all(t in raw_text or t in clean_text for t in tokens):
+                    results.append(m)
+
+            return results
 
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
