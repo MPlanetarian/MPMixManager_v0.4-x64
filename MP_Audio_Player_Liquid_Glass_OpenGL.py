@@ -24,6 +24,9 @@ COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
+VISUALIZER_PID_FILE = CONFIG_DIR / "liquid_visualizer.pid"
+
+_VISUALIZER_PROC = None
 
 RECOMMENDED_FONTS = [
     ("Monospace 11", "System Default Monospace (Clean, unbolded standard)"),
@@ -395,11 +398,9 @@ class GlassHost:
         m = self.renderer.bezel_px
         cols, rows = self._target_cols, self._target_rows
         if self.terminal is not None:
-            tc, tr = int(self.terminal.get_column_count() or 0), int(self.terminal.get_row_count() or 0)
+            tc = int(self.terminal.get_column_count() or 0)
             if tc >= 20:
                 cols = tc
-            if tr >= 5:
-                rows = tr
         state = (cols, rows, cw, ch, m, self.mode)
         if state != self._last_panel_state:
             self._last_panel_state = state
@@ -644,11 +645,6 @@ class GlassHost:
                     break
                 time.sleep(0.008)
         finally:
-            try:
-                if proc.poll() is None:
-                    proc.terminate()
-            except Exception:
-                pass
             self.close()
         return True
 
@@ -776,12 +772,69 @@ class GlassHost:
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def close(self):
+        global _VISUALIZER_PROC
         pid, self.child_pid = self.child_pid, 0
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass
+        
+        # Terminate tracked process handle reference
+        if _VISUALIZER_PROC is not None:
+            try:
+                if hasattr(_VISUALIZER_PROC, "pid") and _VISUALIZER_PROC.pid:
+                    try:
+                        os.killpg(os.getpgid(_VISUALIZER_PROC.pid), signal.SIGKILL)
+                    except Exception:
+                        pass
+                _VISUALIZER_PROC.terminate()
+                _VISUALIZER_PROC.kill()
+            except Exception:
+                pass
+            _VISUALIZER_PROC = None
+
+        # Terminate any recorded PID file
+        try:
+            if VISUALIZER_PID_FILE.is_file():
+                v_pid_str = VISUALIZER_PID_FILE.read_text(encoding="utf-8").strip()
+                if v_pid_str.isdigit():
+                    v_pid = int(v_pid_str)
+                    try:
+                        os.kill(v_pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+                VISUALIZER_PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        # Python-level direct process scan and termination to guarantee absolute cleanup of all visualizer windows
+        try:
+            curr_pid = os.getpid()
+            for proc_dir in Path("/proc").iterdir():
+                if proc_dir.name.isdigit():
+                    p_id = int(proc_dir.name)
+                    if p_id == curr_pid:
+                        continue
+                    try:
+                        cmdline_path = proc_dir / "cmdline"
+                        if cmdline_path.is_file():
+                            cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore")
+                            if "MP_Liquid_Visualizer" in cmdline or "mp_liquid_visualizer_vulkan" in cmdline or "MP_Audio_Player" in cmdline:
+                                os.kill(p_id, signal.SIGKILL)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # Fallback shell sweeps
+        try:
+            subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run('pkill -9 -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run('pkill -9 -f "mpv|mpg123|ffplay|aplay"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
         window, self.gtk_window, self.terminal = self.gtk_window, None, None
         if window is not None:
             window.destroy()
@@ -793,21 +846,33 @@ class GlassHost:
 
 
 def ensure_random_visualizer_started() -> bool:
+    global _VISUALIZER_PROC
     try:
-        if sys.platform == "win32":
+        # Check if any visualizer is already running to prevent duplicates on launch
+        has_running = False
+        try:
+            for proc_dir in Path("/proc").iterdir():
+                if proc_dir.name.isdigit():
+                    try:
+                        cmdline = (proc_dir / "cmdline").read_text(encoding="utf-8", errors="ignore")
+                        if "MP_Liquid_Visualizer" in cmdline or "mp_liquid_visualizer_vulkan" in cmdline:
+                            has_running = True
+                            break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        if VISUALIZER_PID_FILE.is_file():
             try:
-                out = subprocess.check_output(
-                    ["powershell.exe", "-NoProfile", "-Command",
-                     'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*MP_Liquid_Visualizer*" -or $_.CommandLine -like "*mp_liquid_visualizer_vulkan*" } | Select-Object -ExpandProperty ProcessId'],
-                    stderr=subprocess.DEVNULL, text=True,
-                ).strip()
-                if out:
-                    return False
+                v_pid = int(VISUALIZER_PID_FILE.read_text(encoding="utf-8").strip())
+                os.kill(v_pid, 0)
+                has_running = True
             except Exception:
-                pass
-        elif shutil.which("pgrep"):
-            if subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                return False
+                VISUALIZER_PID_FILE.unlink(missing_ok=True)
+
+        if has_running:
+            return False
 
         vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
         if not vis_script:
@@ -816,7 +881,9 @@ def ensure_random_visualizer_started() -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
-            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+            _VISUALIZER_PROC = subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+            if _VISUALIZER_PROC.pid:
+                VISUALIZER_PID_FILE.write_text(str(_VISUALIZER_PROC.pid), encoding="utf-8")
         return True
     except Exception:
         return False
