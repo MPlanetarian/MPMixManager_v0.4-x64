@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys, re
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -605,25 +605,9 @@ class MixArchiveScanner:
         self.mixes = sorted(collected, key=lambda x: x["mtime"], reverse=True)
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-            if not (q := query.lower().strip()): 
-                return self.mixes
-            tokens = q.split()
+        if not (q := query.lower()): return self.mixes
+        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower()]
 
-            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
-            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
-                self._cached_search_data = []
-                for m in self.mixes:
-                    raw_text = " ".join(str(v) for v in m.values()).lower()
-                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
-                    self._cached_search_data.append((m, raw_text, clean_text))
-                self._search_cache_initialized = id(self.mixes)
-
-            results = []
-            for m, raw_text, clean_text in self._cached_search_data:
-                if all(t in raw_text or t in clean_text for t in tokens):
-                    results.append(m)
-
-            return results
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class MusicFolderPlaylistScanner:
@@ -670,24 +654,9 @@ class MusicFolderPlaylistScanner:
         except Exception: pass
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-            if not (q := query.lower().strip()): 
-                return self.mixes
-            tokens = q.split()
+        if not (q := query.lower()): return self.mixes
+        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower() or q in m.get("title", "").lower()]
 
-            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
-            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
-                self._cached_search_data = []
-                for m in self.mixes:
-                    raw_text = " ".join(str(v) for v in m.values()).lower()
-                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
-                    self._cached_search_data.append((m, raw_text, clean_text))
-                self._search_cache_initialized = id(self.mixes)
-
-            results = []
-            for m, raw_text, clean_text in self._cached_search_data:
-                if all(t in raw_text or t in clean_text for t in tokens):
-                    results.append(m)
-            return results
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class AudioResampler:
@@ -2044,6 +2013,13 @@ _THEME_PALETTES = {
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
 _THEME_ALIASES = {
+    "sensorium_interface": "sensorium_interface",
+    "sensorium_interface_(liquid_glass_skin)": "sensorium_interface",
+    "sensorium interface (liquid glass skin)": "sensorium_interface",
+    "sensorium interface": "sensorium_interface",
+    "sensorium": "sensorium_interface",
+    "earth_flipper": "sensorium_interface",
+    "earth flipper": "sensorium_interface",
     "stream_of_frequency": "stream_of_frequency",
     "stream_of_frequency_theme": "stream_of_frequency",
     "stream of frequency": "stream_of_frequency",
@@ -2052,6 +2028,27 @@ _THEME_ALIASES = {
     "frequency": "stream_of_frequency",
     "sof": "stream_of_frequency",
     "frequency_stream": "stream_of_frequency",
+    "cosmic_dreamworlds": "cosmic_dreamworlds",
+    "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
+    "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
+    "cosmic dreamworlds": "cosmic_dreamworlds",
+    "cosmic_dreamworld": "cosmic_dreamworlds",
+    "cosmic dreamworld": "cosmic_dreamworlds",
+    "cosmic_dream": "cosmic_dreamworlds",
+    "cosmic dream": "cosmic_dreamworlds",
+    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
+    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
+    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
+    "radioactive": "cosmic_dreamworlds_radioactive",
+    "orbital_void_reflux": "orbital_void_reflux",
+    "orbital_void_reflux_(liquid_glass_skin)": "orbital_void_reflux",
+    "orbital void reflux (liquid glass skin)": "orbital_void_reflux",
+    "orbital void reflux": "orbital_void_reflux",
+    "orbital_void": "orbital_void_reflux",
+    "void_reflux": "orbital_void_reflux",
+    "orbital": "orbital_void_reflux",
     "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal", "white_on_black": "retro_terminal", "old_style_unix": "retro_terminal", "terminal": "retro_terminal", "classic": "retro_terminal",
     "cosmic": "cosmic_supernova", "supernova": "cosmic_supernova",
     "cyberpunk": "cyber_neon", "cyber": "cyber_neon",

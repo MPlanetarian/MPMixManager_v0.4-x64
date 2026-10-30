@@ -591,12 +591,15 @@ def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=No
                        interactive: bool = True) -> Optional[List[Dict[str, Any]]]:
     if progress_cb:
         progress_cb(f"Connecting to {display_path(f)}...")
-    root, _ = access_path(f, config)
-    if not root and not IS_WINDOWS:
+    
+    # Prefer rclone lsf for SMB/rclone mounts to avoid FUSE truncation/timeouts
+    if not IS_WINDOWS and shutil.which("rclone"):
         tracks = _scan_rclone(f, config, progress_cb)
-        if tracks is not None:
+        if tracks is not None and len(tracks) > 0:
             tracks.sort(key=lambda t: t["subpath"].lower())
             return tracks
+
+    root, _ = access_path(f, config)
     if not root:
         ok, msg = connect_folder(f, config, interactive=interactive)
         if progress_cb:
