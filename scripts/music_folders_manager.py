@@ -527,6 +527,7 @@ def _track_entry(full_path: str, rel: str, folder_id: str, size: int = 0, mtime:
 
 def _scan_filesystem(root: str, folder_id: str, progress_cb=None) -> List[Dict[str, Any]]:
     tracks: List[Dict[str, Any]] = []
+    seen_paths = set()
     stack = [root]
     while stack:
         cur = stack.pop()
@@ -548,6 +549,12 @@ def _scan_filesystem(root: str, folder_id: str, progress_cb=None) -> List[Dict[s
                     continue
                 if os.path.splitext(n)[1].lower() not in AUDIO_EXTENSIONS:
                     continue
+                
+                real_path = os.path.abspath(e.path)
+                if real_path in seen_paths:
+                    continue
+                seen_paths.add(real_path)
+
                 size, mtime = 0, 0.0
                 try:
                     st = e.stat()
@@ -558,8 +565,8 @@ def _scan_filesystem(root: str, folder_id: str, progress_cb=None) -> List[Dict[s
                 tracks.append(_track_entry(e.path, rel, folder_id, size, mtime))
                 if progress_cb and len(tracks) % 2000 == 0:
                     progress_cb(f"Indexed {len(tracks):,} audio tracks...")
-            except OSError:
-                continue
+            except Exception:
+                pass
     return tracks
 
 def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) -> Optional[List[Dict[str, Any]]]:
@@ -575,16 +582,27 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         return None
     root = os.path.join(str(smb_mount_dir(f, config)), f.get("subpath", ""))
     tracks: List[Dict[str, Any]] = []
+    seen_paths = set()
     for line in (p.stdout or []):
         line = line.strip()
         if not line:
             continue
         base = os.path.basename(line)
         if os.path.splitext(base)[1].lower() in AUDIO_EXTENSIONS:
-            tracks.append(_track_entry(os.path.join(root, line), line, f["id"]))
+            full_path = os.path.join(root, line.replace("/", os.sep))
+            if full_path in seen_paths:
+                continue
+            seen_paths.add(full_path)
+            
+            size, mtime = 0, 0.0
+            try:
+                st = os.stat(full_path)
+                size, mtime = st.st_size, st.st_mtime
+            except OSError:
+                pass
+            tracks.append(_track_entry(full_path, line.replace("\\", "/"), f["id"], size, mtime))
             if progress_cb and len(tracks) % 2000 == 0:
                 progress_cb(f"Indexed {len(tracks):,} audio tracks...")
-    p.wait()
     return tracks
 
 def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None,
@@ -626,6 +644,8 @@ def save_playlist_files(tracks: List[Dict[str, Any]], target: str, config: Dict[
 
 def rebuild_all_playlist(folders: List[Dict[str, Any]], config: Dict[str, Any]) -> int:
     combined: List[Dict[str, Any]] = []
+    seen_paths = set()
+    
     for f in folders:
         jp = get_playlist_paths(f["id"], config)[1]
         if jp.is_file():
@@ -633,9 +653,14 @@ def rebuild_all_playlist(folders: List[Dict[str, Any]], config: Dict[str, Any]) 
                 with open(jp, "r", encoding="utf-8") as fh:
                     data = json.load(fh)
                 if isinstance(data, list):
-                    combined.extend(data)
+                    for track in data:
+                        p = track.get("path")
+                        if p and p not in seen_paths:
+                            seen_paths.add(p)
+                            combined.append(track)
             except Exception:
                 pass
+                
     if not folders:
         for p in get_playlist_paths(ALL_TARGET, config):
             try:
@@ -643,6 +668,7 @@ def rebuild_all_playlist(folders: List[Dict[str, Any]], config: Dict[str, Any]) 
             except OSError:
                 pass
         return 0
+        
     save_playlist_files(combined, ALL_TARGET, config, title="ALL MUSIC FOLDERS")
     return len(combined)
 
