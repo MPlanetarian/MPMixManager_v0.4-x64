@@ -4718,7 +4718,12 @@ def main():
             print("✖ No previous mix available to resume.", file=sys.stderr)
             sys.exit(1)
 
-    if args.play is not None:
+    # Liquid Glass always embeds this script with --interactive. A startup resume
+    # also passes --play and --seek-to. Those flags must load the mix inside the
+    # window. Exiting here makes the embedded terminal quit and the glass window closes.
+    ui_session = bool(args.interactive or args.mini or args.micro)
+
+    if args.play is not None and not ui_session:
         ftp = _existing_audio_path(args.play or (args.file or "")) if (args.play or args.file) else ""
         pos = float(args.seek_to) if args.seek_to is not None else None
         res_data = None
@@ -4775,7 +4780,7 @@ def main():
         if daemon_running: send_ipc_command("seek", seconds=args.seek)
         sys.exit(0)
 
-    if args.seek_to is not None and args.play is None and not args.daemon:
+    if args.seek_to is not None and args.play is None and not args.daemon and not ui_session:
         if daemon_running: send_ipc_command("seek_to", position=args.seek_to)
         sys.exit(0)
 
@@ -4863,7 +4868,9 @@ def main():
                     is_music = (current_mode == "MUSIC")
 
         scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
-        mixes, tf = scanner.get_mixes(), (_existing_audio_path(args.file) or None if args.file else None)
+        mixes = scanner.get_mixes()
+        requested = (args.play or args.file or "") if args.play is not None else (args.file or "")
+        tf = (_existing_audio_path(requested) or None) if requested else None
 
         if not daemon_running:
             resume_f, resume_pos = None, 0.0
@@ -4899,7 +4906,12 @@ def main():
                     except Exception: pass
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_f = tf or resume_f or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
-            init_pos = resume_pos if (not tf and resume_f) else 0.0
+            if tf and args.seek_to is not None:
+                init_pos = float(args.seek_to)
+            elif not tf and resume_f:
+                init_pos = resume_pos
+            else:
+                init_pos = 0.0
             spawned_pid = _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos)
             for _ in range(75):
                 time.sleep(0.04)
@@ -4909,7 +4921,10 @@ def main():
             d_data = d_status.get("data", {}) if d_status else {}
             d_state = d_data.get("state", "stopped")
             if tf:
-                send_ipc_command("play", file=tf)
+                play_kw = {"file": tf}
+                if args.seek_to is not None:
+                    play_kw["position"] = float(args.seek_to)
+                send_ipc_command("play", **play_kw)
             elif d_state == "stopped" or not d_data.get("path"):
                 resume_f, resume_pos = None, 0.0
                 if RESUME_STATE_FILE.is_file():
