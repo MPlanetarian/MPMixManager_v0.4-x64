@@ -226,6 +226,12 @@ class TestPlaybackResume(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_play_audio_file_realpath_fallback_is_a_shell_or(self):
+        """The path fallback must be a shell OR. A literal vert{} string launches a second daemon."""
+        text = (BASE_DIR / "Mix_Archive_Manager.sh").read_text(encoding="utf-8", errors="replace")
+        self.assertIn('file="$(realpath "$file" 2>/dev/null || echo "$file")"', text)
+        self.assertNotIn("vert{}", text)
+
     def test_mp_audio_player_resume_flag_syntax(self):
         res = subprocess.run(
             ["python3", "MP_Audio_Player.py", "--help"],

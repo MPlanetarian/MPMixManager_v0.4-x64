@@ -2742,7 +2742,7 @@ play_audio_file() {
     local mode="${4:-MIX_ARCHIVE}"
     
     [ -z "$file" ] && return 1
-    file="$(realpath "$file" 2>/dev/null \vert{}\vert{} echo "$file")"
+    file="$(realpath "$file" 2>/dev/null || echo "$file")"
     
     case "$player" in
         mp_liquid_glass|liquid_glass|liquid|glass)
@@ -2866,9 +2866,9 @@ play_audio_file() {
         reaper) 
             if [ "$OS_TYPE" = "macos" ]; then
                 open -a "REAPER" "$file" &>/dev/null &
-            elif [ "$OS_TYPE" = "windows" ] \vert{}\vert{} [ "$OS_TYPE" = "wsl" ]; then
+            elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
                 local win_p
-                win_p="$(cygpath -w "$file" 2>/dev/null || wslpath -w "$file" 2>/dev/null \vert{}\vert{} echo "$file")"
+                win_p="$(cygpath -w "$file" 2>/dev/null || wslpath -w "$file" 2>/dev/null || echo "$file")"
                 cmd.exe /c start "" "reaper.exe" "$win_p" &>/dev/null &
             elif command -v reaper &>/dev/null; then
                 nohup reaper "$file" &>/dev/null &

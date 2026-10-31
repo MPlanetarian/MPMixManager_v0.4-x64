@@ -16,6 +16,7 @@ import sys
 import time
 import tempfile
 import threading
+import subprocess
 from pathlib import Path
 import numpy as np
 import soundfile as sf
@@ -174,6 +175,43 @@ class TestAudioPlayerResilience(unittest.TestCase):
 
         # is_player_daemon_running should return False
         self.assertFalse(is_player_daemon_running())
+
+    def test_audio_arg_uses_first_existing_path_line(self):
+        """A launcher that joins several paths with newlines must still open the real mix."""
+        good = Path(self.temp_dir.name) / "real_mix.flac"
+        good.write_text("x")
+        raw = f"{good}\n/tmp/vert{{}}vert{{}}\n/tmp/echo\n{good}"
+        found = MP_Audio_Player._existing_audio_path(raw)
+        self.assertEqual(found, str(good.resolve()))
+        self.assertEqual(MP_Audio_Player._existing_audio_path(""), "")
+        self.assertEqual(MP_Audio_Player._existing_audio_path("no-such-file.flac"), "")
+
+    def test_daemon_lock_is_exclusive_across_processes(self):
+        """A second playback daemon must not start, or both rewrite the status file and the playlist flickers."""
+        lock = Path(self.temp_dir.name) / "mp_player.lock"
+        with patch.object(MP_Audio_Player, "DAEMON_LOCK_FILE", lock):
+            self.assertTrue(MP_Audio_Player._acquire_daemon_lock())
+            try:
+                script = (
+                    "import sys\n"
+                    f"sys.path.insert(0, {str(BASE_DIR)!r})\n"
+                    "import MP_Audio_Player\n"
+                    f"MP_Audio_Player.DAEMON_LOCK_FILE = __import__('pathlib').Path({str(lock)!r})\n"
+                    "sys.exit(0 if not MP_Audio_Player._acquire_daemon_lock() else 1)\n"
+                )
+                proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+            finally:
+                MP_Audio_Player._release_daemon_lock()
+
+    def test_choose_daemon_owner_prefers_the_visible_player(self):
+        with patch.object(MP_Audio_Player, "_pid_alive", return_value=True):
+            owner = MP_Audio_Player._choose_daemon_owner([10, 20, 30], prefer_pid=20, pid_file_pid=10, ipc_pid=30)
+            self.assertEqual(owner, 20)
+            owner = MP_Audio_Player._choose_daemon_owner([10, 30], prefer_pid=None, pid_file_pid=10, ipc_pid=30)
+            self.assertEqual(owner, 10)
+            owner = MP_Audio_Player._choose_daemon_owner([30], prefer_pid=99, pid_file_pid=10, ipc_pid=None)
+            self.assertEqual(owner, 30)
 
 
 if __name__ == "__main__":

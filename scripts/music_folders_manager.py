@@ -587,6 +587,12 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         line = line.strip()
         if not line:
             continue
+            
+        # Skip files inside macOS Logic Pro / GarageBand project bundles (.logicx, .band, etc.)
+        lower_line = line.lower()
+        if ".logicx/" in lower_line or ".band/" in lower_line:
+            continue
+            
         base = os.path.basename(line)
         
         # Skip macOS AppleDouble / resource fork shadow files

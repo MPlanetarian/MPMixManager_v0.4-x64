@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys
+import os, re, sys, time, datetime, math, random, json, socket, select, shutil, argparse, threading, subprocess, unicodedata, queue, collections, signal, functools, colorsys, re
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple, Union
 
@@ -65,7 +65,9 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 SOCKET_PATH, PORT_FILE = CONFIG_DIR / "mp_audio_player.sock", CONFIG_DIR / "mp_audio_player.port"
 STATE_FILE, PID_FILE, DURATION_CACHE_FILE = CONFIG_DIR / "mp_player_state.json", CONFIG_DIR / "mp_player.pid", CONFIG_DIR / "track_durations.json"
+DAEMON_LOCK_FILE = CONFIG_DIR / "mp_player.lock"
 RESUME_STATE_FILE = CONFIG_DIR / "playback_resume.json"
+_DAEMON_LOCK_FH = None
 
 AUDIO_EXTENSIONS = ('.flac', '.wav', '.mp3', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
 UNICODE_BLOCKS = [' ', ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
@@ -605,9 +607,25 @@ class MixArchiveScanner:
         self.mixes = sorted(collected, key=lambda x: x["mtime"], reverse=True)
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-        if not (q := query.lower()): return self.mixes
-        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower()]
+            if not (q := query.lower().strip()): 
+                return self.mixes
+            tokens = q.split()
 
+            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
+            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
+                self._cached_search_data = []
+                for m in self.mixes:
+                    raw_text = " ".join(str(v) for v in m.values()).lower()
+                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
+                    self._cached_search_data.append((m, raw_text, clean_text))
+                self._search_cache_initialized = id(self.mixes)
+
+            results = []
+            for m, raw_text, clean_text in self._cached_search_data:
+                if all(t in raw_text or t in clean_text for t in tokens):
+                    results.append(m)
+
+            return results
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class MusicFolderPlaylistScanner:
@@ -654,9 +672,24 @@ class MusicFolderPlaylistScanner:
         except Exception: pass
 
     def get_mixes(self, query: str = "") -> List[Dict[str, Any]]:
-        if not (q := query.lower()): return self.mixes
-        return [m for m in self.mixes if q in m["name"].lower() or q in m["path"].lower() or q in m.get("title", "").lower()]
+            if not (q := query.lower().strip()): 
+                return self.mixes
+            tokens = q.split()
 
+            # Cache the processed search strings on the tracks themselves if it hasn't been done yet
+            if not hasattr(self, '_search_cache_initialized') or self._search_cache_initialized != id(self.mixes):
+                self._cached_search_data = []
+                for m in self.mixes:
+                    raw_text = " ".join(str(v) for v in m.values()).lower()
+                    clean_text = re.sub(r'[^a-z0-9\s]', ' ', raw_text)
+                    self._cached_search_data.append((m, raw_text, clean_text))
+                self._search_cache_initialized = id(self.mixes)
+
+            results = []
+            for m, raw_text, clean_text in self._cached_search_data:
+                if all(t in raw_text or t in clean_text for t in tokens):
+                    results.append(m)
+            return results
     def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
 
 class AudioResampler:
@@ -1389,7 +1422,7 @@ class AudioEngine:
 
     def _sync_state_file(self):
         try:
-            tmp = STATE_FILE.with_suffix(".tmp")
+            tmp = STATE_FILE.with_name(f".{STATE_FILE.name}.{os.getpid()}.tmp")
             tmp.write_text(json.dumps(self.get_status_dict(), default=float), encoding="utf-8")
             tmp.replace(STATE_FILE)
             if self.current_track and self.current_track.get("path") and self.duration_sec > 0:
@@ -1919,6 +1952,143 @@ def is_player_daemon_running() -> bool:
         except Exception: return True
     return False
 
+def _existing_audio_path(raw: Optional[str]) -> str:
+    """Return the first real file named by a player argument.
+
+    A broken launcher can stuff several paths into one argument, separated by
+    newlines. Playing that whole string misses the playlist and starts a
+    second mix at index 0.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    lines = [ln.strip().strip("'\"") for ln in text.replace("\r", "\n").split("\n")]
+    ordered = lines + ([] if text in lines else [text])
+    seen = set()
+    for cand in ordered:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        if os.path.isfile(cand):
+            return os.path.abspath(cand)
+    return ""
+
+def _acquire_daemon_lock() -> bool:
+    """Keep a single playback daemon. A second daemon would overwrite the shared status file and the playlist would flicker."""
+    global _DAEMON_LOCK_FH
+    try:
+        fh = open(DAEMON_LOCK_FILE, "a+", encoding="utf-8")
+    except OSError:
+        return True
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return False
+    try:
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()))
+        fh.flush()
+    except OSError:
+        pass
+    _DAEMON_LOCK_FH = fh
+    return True
+
+def _release_daemon_lock() -> None:
+    global _DAEMON_LOCK_FH
+    fh, _DAEMON_LOCK_FH = _DAEMON_LOCK_FH, None
+    if not fh:
+        return
+    try:
+        fh.close()
+    except OSError:
+        pass
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+def _audio_player_daemon_pids() -> List[int]:
+    me = os.getpid()
+    found: List[int] = []
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return found
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == me:
+            continue
+        try:
+            cmd = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
+        except OSError:
+            continue
+        if "MP_Audio_Player" in cmd and "--daemon" in cmd:
+            found.append(pid)
+    return found
+
+def _choose_daemon_owner(pids: List[int], prefer_pid: Optional[int] = None, pid_file_pid: Optional[int] = None, ipc_pid: Optional[int] = None) -> Optional[int]:
+    alive = [int(p) for p in pids if _pid_alive(p)]
+    if not alive:
+        return None
+    for cand in (prefer_pid, pid_file_pid, ipc_pid):
+        try:
+            if cand is not None and int(cand) in alive:
+                return int(cand)
+        except (TypeError, ValueError):
+            continue
+    return min(alive)
+
+def _retire_extra_player_daemons(prefer_pid: Optional[int] = None) -> None:
+    """Stop every playback daemon except the one the visible player is using.
+
+    Each daemon rewrites mp_player_state.json. The playlist follows that file,
+    so two daemons make the highlight and the now-playing row swap every frame.
+    SIGKILL skips the daemon's exit handler, which would otherwise delete the
+    socket and pid file still used by the daemon we keep.
+    """
+    pids = _audio_player_daemon_pids()
+    if prefer_pid and int(prefer_pid) == os.getpid():
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        return
+    if len(pids) <= 1:
+        return
+    pid_file_pid = None
+    if PID_FILE.is_file():
+        try:
+            pid_file_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            pid_file_pid = None
+    ipc_pid = None
+    status = send_ipc_command("status")
+    if status and isinstance(status.get("data"), dict):
+        try:
+            ipc_pid = int(status["data"].get("pid") or 0) or None
+        except (TypeError, ValueError):
+            ipc_pid = None
+    owner = _choose_daemon_owner(pids, prefer_pid, pid_file_pid, ipc_pid)
+    for pid in pids:
+        if pid != owner:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _WIN_CONSOLE = None
 
@@ -2013,13 +2183,6 @@ _THEME_PALETTES = {
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
 _THEME_ALIASES = {
-    "sensorium_interface": "sensorium_interface",
-    "sensorium_interface_(liquid_glass_skin)": "sensorium_interface",
-    "sensorium interface (liquid glass skin)": "sensorium_interface",
-    "sensorium interface": "sensorium_interface",
-    "sensorium": "sensorium_interface",
-    "earth_flipper": "sensorium_interface",
-    "earth flipper": "sensorium_interface",
     "stream_of_frequency": "stream_of_frequency",
     "stream_of_frequency_theme": "stream_of_frequency",
     "stream of frequency": "stream_of_frequency",
@@ -2028,27 +2191,6 @@ _THEME_ALIASES = {
     "frequency": "stream_of_frequency",
     "sof": "stream_of_frequency",
     "frequency_stream": "stream_of_frequency",
-    "cosmic_dreamworlds": "cosmic_dreamworlds",
-    "cosmic_dreamworlds_(liquid_glass_skin)": "cosmic_dreamworlds",
-    "cosmic dreamworlds (liquid glass skin)": "cosmic_dreamworlds",
-    "cosmic dreamworlds": "cosmic_dreamworlds",
-    "cosmic_dreamworld": "cosmic_dreamworlds",
-    "cosmic dreamworld": "cosmic_dreamworlds",
-    "cosmic_dream": "cosmic_dreamworlds",
-    "cosmic dream": "cosmic_dreamworlds",
-    "cosmic_dreamworlds_radioactive": "cosmic_dreamworlds_radioactive",
-    "cosmic_dreamworlds_radioactive_(liquid_glass_skin)": "cosmic_dreamworlds_radioactive",
-    "cosmic dreamworlds radioactive (liquid glass skin)": "cosmic_dreamworlds_radioactive",
-    "cosmic dreamworlds radioactive": "cosmic_dreamworlds_radioactive",
-    "cosmic_radioactive": "cosmic_dreamworlds_radioactive",
-    "radioactive": "cosmic_dreamworlds_radioactive",
-    "orbital_void_reflux": "orbital_void_reflux",
-    "orbital_void_reflux_(liquid_glass_skin)": "orbital_void_reflux",
-    "orbital void reflux (liquid glass skin)": "orbital_void_reflux",
-    "orbital void reflux": "orbital_void_reflux",
-    "orbital_void": "orbital_void_reflux",
-    "void_reflux": "orbital_void_reflux",
-    "orbital": "orbital_void_reflux",
     "unix_terminal": "retro_terminal", "retro_unix": "retro_terminal", "white_on_black": "retro_terminal", "old_style_unix": "retro_terminal", "terminal": "retro_terminal", "classic": "retro_terminal",
     "cosmic": "cosmic_supernova", "supernova": "cosmic_supernova",
     "cyberpunk": "cyber_neon", "cyber": "cyber_neon",
@@ -4308,7 +4450,9 @@ class TerminalPlayerUI:
         _present_frame(lines, w, h)
 
 def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None) -> Optional[int]:
-    if not is_player_daemon_running(): _cleanup_stale_daemon_files()
+    if is_player_daemon_running():
+        return None
+    _cleanup_stale_daemon_files()
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"] + ([] if auto_bluetooth else ["--no-bluetooth-auto"])
     if mode == "MUSIC":
         cmd.append("--music-mode")
@@ -4316,11 +4460,11 @@ def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool =
         if playlist_path: cmd.extend(["--playlist", str(playlist_path)])
     if seek_to is not None and float(seek_to) > 0:
         cmd.extend(["--seek-to", str(seek_to)])
-    if file_path: cmd.append(os.path.abspath(file_path) if os.path.exists(file_path) else str(file_path))
+    cleaned = _existing_audio_path(file_path) if file_path else ""
+    if cleaned:
+        cmd.append(cleaned)
     try:
         proc = subprocess.Popen(cmd, cwd=str(get_base_dir()), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        try: PID_FILE.write_text(str(proc.pid))
-        except OSError: pass
         # Auto-start Traktor S4 MIDI controller service if configured
         try:
             s4_script = Path(__file__).resolve().parent / "scripts" / "traktor_s4_midi.py"
@@ -4575,7 +4719,7 @@ def main():
             sys.exit(1)
 
     if args.play is not None:
-        ftp = os.path.abspath(args.play or (args.file or "")) if (args.play or args.file) else ""
+        ftp = _existing_audio_path(args.play or (args.file or "")) if (args.play or args.file) else ""
         pos = float(args.seek_to) if args.seek_to is not None else None
         res_data = None
         if RESUME_STATE_FILE.is_file():
@@ -4719,7 +4863,7 @@ def main():
                     is_music = (current_mode == "MUSIC")
 
         scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
-        mixes, tf = scanner.get_mixes(), (os.path.abspath(args.file) if args.file else None)
+        mixes, tf = scanner.get_mixes(), (_existing_audio_path(args.file) or None if args.file else None)
 
         if not daemon_running:
             resume_f, resume_pos = None, 0.0
@@ -4756,11 +4900,12 @@ def main():
             latest = scanner.get_latest_mix() if not is_music else (mixes[0] if mixes else None)
             init_f = tf or resume_f or (latest["path"] if latest else (mixes[0]["path"] if mixes else None))
             init_pos = resume_pos if (not tf and resume_f) else 0.0
-            _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos)
+            spawned_pid = _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos)
             for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running(): break
         else:
+            spawned_pid = None
             d_data = d_status.get("data", {}) if d_status else {}
             d_state = d_data.get("state", "stopped")
             if tf:
@@ -4780,6 +4925,7 @@ def main():
                     send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
                 elif latest := scanner.get_latest_mix():
                     send_ipc_command("play", file=latest["path"])
+        _retire_extra_player_daemons(prefer_pid=spawned_pid)
 
         ui_mode = "MICRO" if args.micro else ("MINI" if args.mini else "NORMAL")
         def _term_sig(s, f):
@@ -4796,8 +4942,11 @@ def main():
         sys.exit(0)
 
     if args.daemon:
+        if not _acquire_daemon_lock():
+            sys.exit(0)
         try: PID_FILE.write_text(str(os.getpid()))
         except OSError: pass
+        _retire_extra_player_daemons(prefer_pid=os.getpid())
         _install_windows_console_close()
         def _sig(s, f):
             try:
@@ -4810,20 +4959,22 @@ def main():
                 except Exception: pass
 
     scanner = MusicFolderPlaylistScanner(folder_name=folder_target, playlist_path=args.playlist) if is_music else MixArchiveScanner(base_dir)
-    mixes, init_idx = scanner.get_mixes(), 0
+    mixes, init_idx, explicit_missing = scanner.get_mixes(), 0, False
     if args.file:
-        tp = os.path.abspath(args.file)
-        for i, m in enumerate(mixes):
-            if m["path"] == tp: init_idx = i; break
+        tp = _existing_audio_path(args.file)
+        if not tp:
+            explicit_missing = True
         else:
-            if os.path.isfile(tp):
+            for i, m in enumerate(mixes):
+                if m["path"] == tp: init_idx = i; break
+            else:
                 mixes.insert(0, {"name": os.path.basename(tp), "path": tp, "size_mb": os.path.getsize(tp) / 1048576.0, "mtime": time.time(), "ext": os.path.splitext(tp)[1][1:].upper()})
                 init_idx = 0
 
     init_pos = float(args.seek_to) if args.seek_to is not None else 0.0
     engine = AudioEngine(mixes, auto_bluetooth=auto_bt, mode=current_mode)
     PlayerIPCServer(engine).start()
-    if mixes: engine.load_track(init_idx, True, start_position=init_pos)
+    if mixes and not explicit_missing: engine.load_track(init_idx, True, start_position=init_pos)
 
     try:
         while True:
