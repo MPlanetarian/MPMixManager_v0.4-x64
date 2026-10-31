@@ -588,6 +588,11 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         if not line:
             continue
         base = os.path.basename(line)
+        
+        # Skip macOS AppleDouble / resource fork shadow files
+        if base.startswith("._"):
+            continue
+            
         if os.path.splitext(base)[1].lower() in AUDIO_EXTENSIONS:
             full_path = os.path.join(root, line.replace("/", os.sep))
             if full_path in seen_paths:
