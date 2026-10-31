@@ -4009,6 +4009,22 @@ fi; if [[ -z "${_CACHED_STATS_CORE:-}" ]]; then load_header_cache 2>/dev/null ||
   ${DIM}⚡ Loading archive statistics in background...${NC}"
 fi; hdr+=$'\n\n'"${_CACHED_STATS_CORE}"; [[ -n "${_CACHED_NOW_PLAYING:-}" ]] && hdr+=$'\n'"${_CACHED_NOW_PLAYING}"; hdr+=$'\n'"${BLUE}===================================${NC}"; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
+# True only when the Traktor application itself is running.
+# Do not search the full command line: traktor_s4_midi.py and traktor_monitor
+# contain the same word. Do not grep for "true": AppleScript prints "false".
+traktor_app_is_running() {
+    if pgrep -x "Traktor" >/dev/null 2>&1 || pgrep -x "Traktor.exe" >/dev/null 2>&1; then
+        return 0
+    fi
+    if ! command -v osascript >/dev/null 2>&1; then
+        return 1
+    fi
+    local running=""
+    running="$(osascript -e 'tell application "System Events" to (name of every process whose name contains "Traktor") is not {}' 2>/dev/null || true)"
+    running="${running//$'\r'/}"
+    running="${running//$'\n'/}"
+    [ "$running" = "true" ]
+}
 run_deferred_startup() {
 [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; if ! pgrep -f "MP_Audio_Player_Liquid_Glass" &>/dev/null; then (launch_mp_audio_player_liquid_glass &>/dev/null &); fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
 elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon &>/dev/null &
@@ -4021,7 +4037,7 @@ if [ "${MIDI_CONTROL_ENABLED:-true}" = "true" ]; then
 local _s4_py="$SCRIPT_DIR/scripts/traktor_s4_midi.py"; [ ! -f "$_s4_py" ] && _s4_py="$SCRIPT_DIR/traktor_s4_midi.py"; [ -f "$_s4_py" ] && (python3 "$_s4_py" --start &>/dev/null &)
 fi
 if [ "${OS_TYPE:-}" = "macos" ] || [ "${UNAME_S:-}" = "Darwin" ] || [[ "${OSTYPE:-}" == darwin* ]]; then
-if pgrep -i -f "Traktor" &>/dev/null || (osascript -e 'application "Traktor" is running' 2>/dev/null | grep -qi "true"); then
+if traktor_app_is_running; then
 local _t_mon=""; if [ -x "$SCRIPT_DIR/scripts/traktor_monitor.sh" ]; then _t_mon="$SCRIPT_DIR/scripts/traktor_monitor.sh"; elif [ -x "$SCRIPT_DIR/traktor_monitor.sh" ]; then _t_mon="$SCRIPT_DIR/traktor_monitor.sh"; elif [ -f "$SCRIPT_DIR/scripts/traktor_monitor.py" ]; then _t_mon="python3 \"$SCRIPT_DIR/scripts/traktor_monitor.py\""; elif [ -f "$PWD/scripts/traktor_monitor.py" ]; then _t_mon="python3 \"$PWD/scripts/traktor_monitor.py\""; elif command -v traktor-monitor &>/dev/null; then _t_mon="$(command -v traktor-monitor)"; fi; [ -n "$_t_mon" ] && launch_in_terminal "Traktor Live Monitor" "$_t_mon" "tab" &>/dev/null &
 fi; fi
 }
