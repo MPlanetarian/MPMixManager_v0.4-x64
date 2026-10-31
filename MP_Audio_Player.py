@@ -3446,9 +3446,10 @@ def launch_liquid_visualizer(
             return False
 
 class TerminalPlayerUI:
-    def __init__(self, engine: Optional[AudioEngine], scanner: Union[MixArchiveScanner, MusicFolderPlaylistScanner], is_remote: bool = False, default_style: Optional[str] = None, default_theme: Optional[str] = None, mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", ui_size_mode: str = "NORMAL"):
+    def __init__(self, engine: Optional[AudioEngine], scanner: Union[MixArchiveScanner, MusicFolderPlaylistScanner], is_remote: bool = False, default_style: Optional[str] = None, default_theme: Optional[str] = None, mode: str = "MIX_ARCHIVE", folder_name: str = "ALL", ui_size_mode: str = "NORMAL", keep_library: bool = False):
         self.engine, self.scanner, self.is_remote = engine, scanner, is_remote
         self.mode, self.folder_name, self.ui_size_mode = str(mode or "MIX_ARCHIVE").upper(), str(folder_name or "ALL").upper(), str(ui_size_mode or "NORMAL").upper()
+        self.keep_library = bool(keep_library)
         self.visualizer = EqualizerVisualizer(default_style=default_style, default_theme=default_theme)
         self.eq_manager = getattr(engine, "eq_manager", None) or EqualizerManager()
         self.equalizer_hud_active = False
@@ -3528,6 +3529,10 @@ class TerminalPlayerUI:
 
     def _sync_mode_scanner(self, new_mode: Optional[str]):
         if not new_mode:
+            return
+        # Option 2 opens this window on a music library. The mix daemon's status
+        # must not replace that library with the mix archive playlist.
+        if self.keep_library and self.mode == "MUSIC":
             return
         nm = str(new_mode).upper()
         if nm != self.mode:
@@ -4526,6 +4531,7 @@ def main():
     args, _ = p.parse_known_args()
     base_dir = get_base_dir()
     is_music = bool(args.music_mode or args.playlist or (args.music_folder and args.music_folder != "ALL"))
+    requested_music = is_music
     current_mode, folder_target, auto_bt = ("MUSIC" if is_music else "MIX_ARCHIVE"), (args.music_folder if is_music else "ALL"), not args.no_bluetooth_auto
 
     if args.get_latest_mix:
@@ -4925,6 +4931,8 @@ def main():
                 if args.seek_to is not None:
                     play_kw["position"] = float(args.seek_to)
                 send_ipc_command("play", **play_kw)
+            elif requested_music and str(d_data.get("mode") or "").upper() != "MUSIC":
+                send_ipc_command("load_playlist", mode="MUSIC", folder_name=folder_target, playlist_path=args.playlist, play=True)
             elif d_state == "stopped" or not d_data.get("path"):
                 resume_f, resume_pos = None, 0.0
                 if RESUME_STATE_FILE.is_file():
@@ -4953,7 +4961,7 @@ def main():
             if sig:
                 try: signal.signal(sig, _term_sig)
                 except Exception: pass
-        TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme, mode=current_mode, folder_name=folder_target, ui_size_mode=ui_mode).run()
+        TerminalPlayerUI(None, scanner, is_remote=True, default_style=args.style, default_theme=args.theme, mode=current_mode, folder_name=folder_target, ui_size_mode=ui_mode, keep_library=bool(requested_music and current_mode == "MUSIC")).run()
         sys.exit(0)
 
     if args.daemon:

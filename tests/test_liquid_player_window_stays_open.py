@@ -74,7 +74,13 @@ def _child():
     player._retire_extra_player_daemons = lambda *args, **kwargs: None
 
     def fake_spawn(file_path=None, auto_bluetooth=True, mode="MIX_ARCHIVE", music_folder=None, playlist_path=None, seek_to=None):
-        result["spawn"] = {"file": file_path, "seek_to": seek_to, "mode": mode}
+        result["spawn"] = {
+            "file": file_path,
+            "seek_to": seek_to,
+            "mode": mode,
+            "music_folder": music_folder,
+            "playlist_path": playlist_path,
+        }
         return 4242
 
     player._spawn_player_daemon = fake_spawn
@@ -91,6 +97,8 @@ def _child():
     class FakeUI:
         def __init__(self, *args, **kwargs):
             result["ui_mode"] = kwargs.get("ui_size_mode")
+            result["keep_library"] = kwargs.get("keep_library")
+            result["mode"] = kwargs.get("mode")
 
         def run(self):
             result["ui"] = True
@@ -162,6 +170,71 @@ class TestLiquidPlayerStaysOpen(unittest.TestCase):
         self.assertEqual(data["exit"], 0)
         self.assertEqual(data["spawn"]["file"], data["audio"])
         self.assertEqual(data["spawn"]["seek_to"], 88.5)
+
+    def test_music_folder_launch_loads_the_library_while_a_mix_is_playing(self):
+        data = _run_player(
+            ["--interactive", "--music-mode", "--music-folder", "ALL", "--playlist", "/libraries/ALL.json"],
+            daemon=True,
+            status={
+                "status": "ok",
+                "data": {
+                    "state": "playing",
+                    "path": "/mixes/current_mix.flac",
+                    "mode": "MIX_ARCHIVE",
+                    "running": True,
+                },
+            },
+        )
+        self.assertTrue(data["ui"], data)
+        self.assertEqual(data["mode"], "MUSIC")
+        self.assertTrue(data["keep_library"])
+        self.assertIsNone(data["spawn"])
+        loads = [item for item in data["ipc"] if item["cmd"] == "load_playlist"]
+        self.assertEqual(len(loads), 1, data)
+        self.assertEqual(loads[0]["kwargs"]["mode"], "MUSIC")
+        self.assertEqual(loads[0]["kwargs"]["folder_name"], "ALL")
+        self.assertEqual(loads[0]["kwargs"]["playlist_path"], "/libraries/ALL.json")
+        self.assertTrue(loads[0]["kwargs"]["play"])
+        self.assertNotIn("play", [item["cmd"] for item in data["ipc"]])
+
+    def test_music_folder_launch_does_not_restart_music_already_playing(self):
+        data = _run_player(
+            ["--interactive", "--music-mode", "--music-folder", "ALL", "--playlist", "/libraries/ALL.json"],
+            daemon=True,
+            status={
+                "status": "ok",
+                "data": {
+                    "state": "playing",
+                    "path": "/music/track.flac",
+                    "mode": "MUSIC",
+                    "running": True,
+                },
+            },
+        )
+        self.assertTrue(data["ui"], data)
+        self.assertTrue(data["keep_library"])
+        self.assertNotIn("load_playlist", [item["cmd"] for item in data["ipc"]])
+        self.assertNotIn("play", [item["cmd"] for item in data["ipc"]])
+
+    def test_music_window_keeps_its_library_when_mix_status_arrives(self):
+        import MP_Audio_Player as player
+        from unittest import mock
+
+        library = player.MusicFolderPlaylistScanner.__new__(player.MusicFolderPlaylistScanner)
+        ui = player.TerminalPlayerUI.__new__(player.TerminalPlayerUI)
+        ui.mode = "MUSIC"
+        ui.keep_library = True
+        ui.scanner = library
+        ui.folder_name = "ALL"
+        ui._sync_mode_scanner("MIX_ARCHIVE")
+        self.assertIs(ui.scanner, library)
+        self.assertEqual(ui.mode, "MUSIC")
+
+        ui.keep_library = False
+        with mock.patch.object(player, "MixArchiveScanner", return_value="archive-scanner"):
+            ui._sync_mode_scanner("MIX_ARCHIVE")
+        self.assertEqual(ui.scanner, "archive-scanner")
+        self.assertEqual(ui.mode, "MIX_ARCHIVE")
 
     def test_interactive_attach_does_not_restart_current_playback(self):
         data = _run_player(
