@@ -247,6 +247,86 @@ EOF
         self.assertIn("PLAY_FAILED", res.stdout)
         self.assertNotIn("PLAY_OK", res.stdout)
 
+    def test_stale_borderless_binary_does_not_wait_for_swiftc(self):
+        """A newer Swift file must not stall startup on swiftc."""
+        script = r"""
+        set -e
+        export OS_TYPE="macos"
+        export HOME="$(mktemp -d)"
+        source scripts/display_loader_video.sh
+        fake="$(mktemp -d)"
+        cat > "$fake/swiftc" << 'EOF'
+#!/bin/sh
+echo $$ > /tmp/mp_loader_swiftc_pid.txt
+echo "SWIFTC_STARTED" >> /tmp/mp_loader_swiftc_test.txt
+sleep 30
+exit 0
+EOF
+        chmod +x "$fake/swiftc"
+        cache="$HOME/.cache/mix-manager"
+        mkdir -p "$cache"
+        cat > "$cache/macos_borderless_loader" << 'EOF'
+#!/bin/sh
+echo $$ > /tmp/mp_loader_player_pid.txt
+echo "PLAYER:$*" > /tmp/mp_loader_player_test.txt
+sleep 30
+EOF
+        chmod +x "$cache/macos_borderless_loader"
+        # Older than scripts/macos_borderless_loader.swift so a rebuild is due.
+        touch -t 202001010000 "$cache/macos_borderless_loader"
+        export PATH="$fake:/usr/bin:/bin"
+        hash -r
+        rm -f /tmp/mp_loader_swiftc_test.txt /tmp/mp_loader_player_test.txt \
+            /tmp/mp_loader_swiftc_pid.txt /tmp/mp_loader_player_pid.txt
+        path=$(find_loader_video_path)
+        start=$(date +%s)
+        if play_macos_borderless_loader "$path"; then
+            echo "PLAY_OK"
+        else
+            echo "PLAY_FAILED"
+        fi
+        end=$(date +%s)
+        echo "ELAPSED:$((end - start))"
+        echo "PLAYER_MARK:$(cat /tmp/mp_loader_player_test.txt 2>/dev/null || true)"
+        # Give the background compiler a moment to start, then stop only this test.
+        sleep 0.4
+        _kill_tree() {
+            local p="$1" kids="" k=""
+            [ -n "$p" ] || return 0
+            kids=$(pgrep -P "$p" 2>/dev/null || true)
+            for k in $kids; do
+                _kill_tree "$k"
+            done
+            kill "$p" 2>/dev/null || true
+        }
+        _kill_tree "$(cat /tmp/mp_loader_player_pid.txt 2>/dev/null || true)"
+        _kill_tree "$(cat /tmp/mp_loader_swiftc_pid.txt 2>/dev/null || true)"
+        if [ -f "$cache/macos_borderless_loader.compile.pid" ]; then
+            _kill_tree "$(cat "$cache/macos_borderless_loader.compile.pid" 2>/dev/null || true)"
+        fi
+        echo "SWIFTC_MARK:$(cat /tmp/mp_loader_swiftc_test.txt 2>/dev/null || true)"
+        rm -f /tmp/mp_loader_swiftc_test.txt /tmp/mp_loader_player_test.txt \
+            /tmp/mp_loader_swiftc_pid.txt /tmp/mp_loader_player_pid.txt
+        rm -rf "$fake" "$HOME"
+        """
+        res = subprocess.run(
+            [BASH_BIN, "-c", script],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("PLAY_OK", res.stdout)
+        self.assertIn("PLAYER_MARK:PLAYER:", res.stdout)
+        self.assertIn(str(BASE_DIR / "MP_loader.mp4"), res.stdout)
+        elapsed = 0
+        for line in res.stdout.splitlines():
+            if line.startswith("ELAPSED:"):
+                elapsed = int(line.split(":", 1)[1])
+        self.assertLess(elapsed, 5, res.stdout)
+        self.assertIn("SWIFTC_MARK:SWIFTC_STARTED", res.stdout)
+
     def test_loader_script_uses_borderless_window_not_quicktime(self):
         text = SCRIPT.read_text(encoding="utf-8")
         swift = (BASE_DIR / "scripts" / "macos_borderless_loader.swift").read_text(encoding="utf-8")

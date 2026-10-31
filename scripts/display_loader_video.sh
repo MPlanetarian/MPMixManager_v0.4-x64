@@ -166,9 +166,32 @@ play_macos_borderless_loader() {
 
     if [ -n "$swiftc_bin" ] && [ -x "$swiftc_bin" ]; then
         mkdir -p "$cache_dir" 2>/dev/null || true
+        # swiftc of this AppKit player can take well over 20 seconds.
+        # Waiting here leaves the manager on the loading card, so a missing
+        # or stale binary is rebuilt in the background and this launch
+        # uses the binary that is already on disk.
         if [ ! -x "$bin" ] || [ "$src" -nt "$bin" ]; then
-            if ! "$swiftc_bin" -o "$bin" "$src" >"$log" 2>&1; then
-                rm -f "$bin"
+            local pidf="$cache_dir/macos_borderless_loader.compile.pid"
+            local oldp="" compiling=0
+            if [ -f "$pidf" ]; then
+                IFS= read -r oldp < "$pidf" 2>/dev/null || oldp=""
+                if [[ "$oldp" =~ ^[0-9]+$ ]] && kill -0 "$oldp" 2>/dev/null; then
+                    compiling=1
+                fi
+            fi
+            if [ "$compiling" -eq 0 ]; then
+                (
+                    tmp="${bin}.new.$$"
+                    if "$swiftc_bin" -o "$tmp" "$src" >"$log" 2>&1; then
+                        chmod +x "$tmp" 2>/dev/null || true
+                        mv -f "$tmp" "$bin"
+                    else
+                        rm -f "$tmp"
+                    fi
+                    rm -f "$pidf"
+                ) >/dev/null 2>&1 &
+                echo $! > "$pidf"
+                disown 2>/dev/null || true
             fi
         fi
         if [ -x "$bin" ]; then
