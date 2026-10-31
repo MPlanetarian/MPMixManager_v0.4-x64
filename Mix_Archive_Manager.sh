@@ -1089,6 +1089,38 @@ launch_mp_audio_player_window() {
         launch_in_terminal "MP Mini Audio Player" "env -u LINES -u COLUMNS $py_bin \"$mp_py\" --interactive --mini" "window"
     fi
 }
+# One Liquid Glass window. mkdir is atomic, so startup autoplay and the
+# fallback launch cannot both pass before either process exists.
+_liquid_glass_claim_launch() {
+    local lockdir="${HOME}/.config/mix-manager/liquid_glass_launch.lock"
+    local oldp="" self_pid="${BASHPID:-$$}"
+    # $$ does not change inside ( ). Two startup jobs would look like one owner.
+    if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+        return 1
+    fi
+    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
+    if [ -d "$lockdir" ]; then
+        IFS= read -r oldp < "$lockdir/pid" 2>/dev/null || oldp=""
+        if [[ "$oldp" =~ ^[0-9]+$ ]] && kill -0 "$oldp" 2>/dev/null; then
+            [ "$oldp" = "$self_pid" ] && return 0
+            return 1
+        fi
+        rm -rf "$lockdir" 2>/dev/null || true
+    fi
+    if ! mkdir "$lockdir" 2>/dev/null; then
+        return 1
+    fi
+    echo "$self_pid" > "$lockdir/pid" 2>/dev/null || true
+    return 0
+}
+_liquid_glass_release_launch() {
+    local lockdir="${HOME}/.config/mix-manager/liquid_glass_launch.lock"
+    local oldp="" self_pid="${BASHPID:-$$}"
+    IFS= read -r oldp < "$lockdir/pid" 2>/dev/null || oldp=""
+    if [ "$oldp" = "$self_pid" ]; then
+        rm -rf "$lockdir" 2>/dev/null || true
+    fi
+}
 launch_mp_audio_player_liquid_glass() {
     local audio_file="${1:-}"
     local seek_pos="${2:-}"
@@ -1159,6 +1191,10 @@ launch_mp_audio_player_liquid_glass() {
         return
     fi
 
+    if ! _liquid_glass_claim_launch; then
+        return 0
+    fi
+
     mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
     echo -e "\n${BOLD}${CYAN}Launching MP Audio Player (Liquid Glass Mode - ${backend_name})...${NC}\n"
     sleep 0.5
@@ -1181,7 +1217,11 @@ launch_mp_audio_player_liquid_glass() {
 
     # Run interactively in the foreground so the terminal TTY UI draws correctly.
     # The player starts the visualizer and closes that window when it exits.
+    _LG_WINDOW_STARTED=1
     "$py_bin" "$py" "${py_args[@]}"
+    local _lg_rc=$?
+    _liquid_glass_release_launch
+    return $_lg_rc
 }
 
 launch_mp_liquid_visualizer() {
@@ -4025,8 +4065,31 @@ traktor_app_is_running() {
     running="${running//$'\n'/}"
     [ "$running" = "true" ]
 }
+# Autoplay and the startup window used to launch Liquid Glass together.
+# On macOS that opened two player windows. Autoplay goes first when it is
+# the Liquid Glass player. A second window is opened only if that did not.
+_open_startup_audio_windows() {
+    local _player="${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}"
+    case "$_player" in
+        mp_liquid_glass|liquid_glass|liquid|glass)
+            if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
+                execute_startup_autoplay
+                if [ "${_LG_WINDOW_STARTED:-0}" != 1 ] && ! pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+                    launch_mp_audio_player_liquid_glass
+                fi
+                return 0
+            fi
+            ;;
+    esac
+    if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
+        (execute_startup_autoplay &>/dev/null &)
+    fi
+    if ! pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+        launch_mp_audio_player_liquid_glass
+    fi
+}
 run_deferred_startup() {
-[ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then (execute_startup_autoplay &>/dev/null &); _AUTOPLAY_PID=$!; fi; if ! pgrep -f "MP_Audio_Player_Liquid_Glass" &>/dev/null; then (launch_mp_audio_player_liquid_glass &>/dev/null &); fi; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
+[ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 1 ] && return 0; STARTUP_AUTOPLAY_EXECUTED=1; ensure_manager_windowed; (_open_startup_audio_windows &>/dev/null &); _AUTOPLAY_PID=$!; _LAST_HDR_REFRESH_SPAWN="${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}"; (refresh_header_cache_worker --force &>/dev/null &); if [ -f "$HOME/.config/mix-manager/scheduled_mixes.json" ] && grep -q '"status": "pending"' "$HOME/.config/mix-manager/scheduled_mixes.json" 2>/dev/null; then if [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.py" ]; then python3 "$SCRIPT_DIR/scripts/schedule_mix_playback.py" --ensure-daemon &>/dev/null &
 elif [ -f "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" ]; then "$SCRIPT_DIR/scripts/schedule_mix_playback.sh" --ensure-daemon &>/dev/null &
 fi; fi
 if [ -f "$SCRIPT_DIR/scripts/mp_scheduled_reporter.sh" ]; then

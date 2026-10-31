@@ -155,6 +155,62 @@ class TestLauncherIntegrations(unittest.TestCase):
         self.assertIn("Metal (Apple Silicon)", content)
         self.assertIn("Intel Macs are not supported", content)
 
+    def test_startup_opens_one_liquid_glass_window(self):
+        """Autoplay and the startup window must not each open a Liquid Glass player."""
+        script = r"""
+        set -e
+        export HOME="$(mktemp -d)"
+        eval "$(sed -n '/^_liquid_glass_claim_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
+        eval "$(sed -n '/^_liquid_glass_release_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
+        eval "$(sed -n '/^_open_startup_audio_windows() {/,/^}/p' Mix_Archive_Manager.sh)"
+        pgrep() { return 1; }
+        log="$HOME/launches"
+        : > "$log"
+        launch_mp_audio_player_liquid_glass() {
+            if ! _liquid_glass_claim_launch; then
+                echo SKIP >> "$log"
+                return 0
+            fi
+            echo LAUNCH >> "$log"
+            _LG_WINDOW_STARTED=1
+            _liquid_glass_release_launch
+        }
+        execute_startup_autoplay() { launch_mp_audio_player_liquid_glass; }
+        export AUTO_PLAY_ON_STARTUP=true
+        export DEFAULT_AUDIO_PLAYER=mp_liquid_glass
+        _LG_WINDOW_STARTED=0
+        _open_startup_audio_windows
+        execute_startup_autoplay() { echo EARLY >> "$log"; }
+        _LG_WINDOW_STARTED=0
+        _open_startup_audio_windows
+        # A second claim while the first holder is alive must fail.
+        _liquid_glass_claim_launch
+        if _liquid_glass_claim_launch; then echo REENTRY:YES; else echo REENTRY:NO; fi
+        (
+            if _liquid_glass_claim_launch; then echo OTHER:YES; else echo OTHER:NO; fi
+        )
+        _liquid_glass_release_launch
+        echo "LOG_START"
+        cat "$log"
+        echo "LOG_END"
+        rm -rf "$HOME"
+        """
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        log = res.stdout.split("LOG_START", 1)[1].split("LOG_END", 1)[0]
+        # Autoplay opens the window, then a startup that finds no window opens one.
+        self.assertEqual(log.count("LAUNCH"), 2, res.stdout)
+        self.assertNotIn("SKIP", log)
+        self.assertIn("EARLY", log)
+        self.assertIn("REENTRY:YES", res.stdout)
+        self.assertIn("OTHER:NO", res.stdout)
+
     def test_execution_on_linux_reports_apple_silicon_requirement(self):
         # When running the macOS player on Linux, it must gracefully exit 1 with an informative message
         result = subprocess.run(
