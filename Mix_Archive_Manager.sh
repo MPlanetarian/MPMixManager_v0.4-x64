@@ -43,12 +43,15 @@ update_terminal_geometry() {
                 _TERM_COLS="$win_c" 
                 _TERM_RESIZED=0
                 
-                # Update terminal driver and environment variables safely
+                # Update the terminal driver. LINES and COLUMNS stay shell-local.
                 if [[ "$OS_TYPE" == "windows" ]] || [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then
                     stty cols "$win_c" rows "$win_l" 2>/dev/null || true
                 fi
-                export LINES="$win_l"
-                export COLUMNS="$win_c"
+                LINES="$win_l"
+                COLUMNS="$win_c"
+                # Keep these in the shell only. An exported size freezes
+                # Python's shutil.get_terminal_size, so the player cannot resize.
+                export -n LINES COLUMNS 2>/dev/null || true
                 return 0
             fi
             return 1
@@ -71,8 +74,11 @@ update_terminal_geometry() {
         _TERM_COLS="$new_c"
         _TERM_RESIZED=0
         
-        export LINES="$_TERM_LINES"
-        export COLUMNS="$_TERM_COLS"
+        LINES="$_TERM_LINES"
+        COLUMNS="$_TERM_COLS"
+        # Keep these in the shell only. An exported size freezes
+        # Python's shutil.get_terminal_size, so the player cannot resize.
+        export -n LINES COLUMNS 2>/dev/null || true
         return 0
     fi 
     
@@ -1061,6 +1067,13 @@ return 0; fi; fi; return 1
 toggle_mp_audio_player() {
 local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --toggle --only-if-running &>/dev/null &
 }
+# Drop the menu's LINES and COLUMNS before starting MP Audio Player.
+# shutil.get_terminal_size() returns those values and never reads the window.
+# Option 1 then ignores resize, and M opens a 74x14 Mini window that still
+# draws the menu's height, so the player scrolls out of view and looks blank.
+_run_mp_audio_player() {
+    env -u LINES -u COLUMNS "$@"
+}
 launch_mp_audio_player_window() {
     local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
@@ -1071,9 +1084,9 @@ launch_mp_audio_player_window() {
         local py_bin="python3"
         [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
         
-        if "$py_bin" "$mp_py" --mini --new-window &>/dev/null; then return 0; fi
-        if "$py_bin" "$mp_py" --new-window &>/dev/null; then return 0; fi
-        launch_in_terminal "MP Mini Audio Player" "$py_bin \"$mp_py\" --interactive --mini" "window"
+        if _run_mp_audio_player "$py_bin" "$mp_py" --mini --new-window &>/dev/null; then return 0; fi
+        if _run_mp_audio_player "$py_bin" "$mp_py" --new-window &>/dev/null; then return 0; fi
+        launch_in_terminal "MP Mini Audio Player" "env -u LINES -u COLUMNS $py_bin \"$mp_py\" --interactive --mini" "window"
     fi
 }
 launch_mp_audio_player_liquid_glass() {
@@ -1614,7 +1627,7 @@ manage_mp_audio_player() {
         local py_bin="python3"
         [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
         
-        "$py_bin" "$py_script" --interactive "$@"
+        _run_mp_audio_player "$py_bin" "$py_script" --interactive "$@"
     else
         echo -e "${RED}Error: MP_Audio_Player.py not found!${NC}"
         press_enter
