@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
+from liquid_visualizer_session import stop_companion_visualizer  # noqa: E402
 from liquid_glass_metal import (  # noqa: E402
     LiquidGlassRendererMetal,
     check_apple_silicon_support,
@@ -456,7 +457,8 @@ def main(argv):
         cleaned_argv.append(arg)
         i += 1
 
-    if not embed and not tracklist_path and "--self-test" not in argv and "--no-visualizer" not in argv:
+    player_gui = not embed and not tracklist_path and "--self-test" not in argv
+    if player_gui and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 
     if tracklist_path and not embed:
@@ -477,10 +479,14 @@ def main(argv):
             raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
 
     host = MetalGlassHost(command, embed_check=embed, mode=mode, cli_theme=theme_arg)
-    ok = host.run()
-    if embed and ok:
-        print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)
-    return 0
+    try:
+        ok = host.run()
+        if embed and ok:
+            print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)
+        return 0
+    finally:
+        if player_gui:
+            stop_companion_visualizer()
 
 
 if __name__ == "__main__":

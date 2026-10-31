@@ -10,6 +10,7 @@ Verifies:
 """
 
 import os
+import signal
 import sys
 import unittest
 from pathlib import Path
@@ -18,6 +19,8 @@ from unittest.mock import patch, MagicMock
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(ROOT_DIR / "scripts"))
+
+import liquid_visualizer_session as vis_session
 
 import mp_liquid_visualizer_vulkan as vis_mod
 import MP_Audio_Player_Liquid_Glass_OpenGL as opengl_glass
@@ -104,7 +107,31 @@ class TestAutoStartVisualizerOnLiquidPlayer(unittest.TestCase):
         self.assertTrue(mgr_script.is_file())
         mgr_content = mgr_script.read_text(encoding="utf-8")
         self.assertIn("launch_mp_audio_player_liquid_glass", mgr_content)
-        self.assertIn("--preset random", mgr_content)
+        # The menu must not start a new visualizer after the player returns.
+        # That window is closed by the player itself.
+        self.assertNotIn('nohup "$py_bin" "$vis_py" --preset random', mgr_content)
+        for name in (
+            "MP_Audio_Player_Liquid_Glass_OpenGL.py",
+            "MP_Audio_Player_Liquid_Glass.py",
+            "MP_Audio_Player_Liquid_Glass_macOS.py",
+        ):
+            text = (ROOT_DIR / name).read_text(encoding="utf-8")
+            self.assertIn("stop_companion_visualizer()", text)
+
+    @patch("liquid_visualizer_session._signal_visualizer")
+    @patch("liquid_visualizer_session._alive", return_value=False)
+    @patch("liquid_visualizer_session.visualizer_pids", return_value=[4242])
+    @patch("liquid_visualizer_session.other_liquid_player_running", return_value=False)
+    def test_player_exit_stops_the_visualizer(self, _other, _pids, _alive, signal_vis):
+        vis_session.stop_companion_visualizer()
+        signal_vis.assert_called_once_with(4242, signal.SIGTERM)
+
+    @patch("liquid_visualizer_session._signal_visualizer")
+    @patch("liquid_visualizer_session.visualizer_pids", return_value=[4242])
+    @patch("liquid_visualizer_session.other_liquid_player_running", return_value=True)
+    def test_player_exit_leaves_visualizer_when_another_player_is_open(self, _other, _pids, signal_vis):
+        vis_session.stop_companion_visualizer()
+        signal_vis.assert_not_called()
 
 
 if __name__ == "__main__":

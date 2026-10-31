@@ -9,6 +9,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from liquid_glass_vulkan import LiquidGlassRenderer, NVIDIA_VENDOR_ID, read_player_theme  # noqa: E402
+from liquid_visualizer_session import stop_companion_visualizer  # noqa: E402
 
 COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
@@ -623,7 +624,8 @@ def main(argv):
             print(f"✔ MP Liquid Glass Player default font set to: {opts['set-font']}")
             return 0
 
-    if not embed and not opts["tracklist"] and "--self-test" not in argv and "--no-visualizer" not in argv:
+    player_gui = not embed and not opts["tracklist"] and "--self-test" not in argv
+    if player_gui and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 
     mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
@@ -642,12 +644,16 @@ def main(argv):
         if not Path(command[1]).is_file():
             raise RuntimeError(f"MP Audio Player was not found at {command[1]}")
 
-    ok = GlassHost(command, embed_check=embed, mode=mode, cli_theme=opts["theme"], font=opts["font"]).run()
-    if embed:
-        if not ok:
-            raise RuntimeError("VTE window was not placed in the glass well")
-        print("LIQUID_GLASS_EMBED_OK", flush=True)
-    return 0
+    try:
+        ok = GlassHost(command, embed_check=embed, mode=mode, cli_theme=opts["theme"], font=opts["font"]).run()
+        if embed:
+            if not ok:
+                raise RuntimeError("VTE window was not placed in the glass well")
+            print("LIQUID_GLASS_EMBED_OK", flush=True)
+        return 0
+    finally:
+        if player_gui:
+            stop_companion_visualizer()
 
 
 if __name__ == "__main__":

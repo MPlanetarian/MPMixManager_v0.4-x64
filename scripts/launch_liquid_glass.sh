@@ -102,7 +102,7 @@ if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
     exit 0
 fi
 
-# Automatically start MP Liquid Visualizer with a random preset if not already running
+# Start the companion visualizer. The Liquid Player closes this window on exit.
 if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
     VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"

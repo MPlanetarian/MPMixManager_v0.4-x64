@@ -1179,19 +1179,9 @@ launch_mp_audio_player_liquid_glass() {
     export TERM="${TERM:-xterm-256color}"
     export LIQUID_GLASS_BACKEND="${backend_name}"
 
-    # Run interactively in the foreground so the terminal TTY UI draws correctly
+    # Run interactively in the foreground so the terminal TTY UI draws correctly.
+    # The player starts the visualizer and closes that window when it exits.
     "$py_bin" "$py" "${py_args[@]}"
-
-    # Automatically start MP Liquid Visualizer with a random preset if not already running (optional background companion)
-    if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then
-        local vis_py="$BASE_DIR/MP_Liquid_Visualizer.py"
-        [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
-        [ ! -f "$vis_py" ] && vis_py="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
-        if [ -f "$vis_py" ]; then
-            nohup "$py_bin" "$vis_py" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
-            disown
-        fi
-    fi
 }
 
 launch_mp_liquid_visualizer() {
