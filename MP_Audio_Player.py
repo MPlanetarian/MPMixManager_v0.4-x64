@@ -973,6 +973,7 @@ EQ_BAND_LABELS: List[str] = ["31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", 
 EQ_PRESET_FILE = CONFIG_DIR / "eq_preset"
 EQ_CUSTOM_FILE = CONFIG_DIR / "custom_eq_presets.json"
 EQ_ACTIVE_BANDS_FILE = CONFIG_DIR / "eq_active_bands.json"
+EQ_INIT_FLAG_FILE = CONFIG_DIR / ".first_run_eq_initialized"
 
 DEFAULT_EQ_PRESETS: Dict[str, List[float]] = {
     "Flat": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -1061,6 +1062,14 @@ class EqualizerManager:
         self._load()
 
     def _load(self):
+        if not EQ_INIT_FLAG_FILE.is_file() and not EQ_PRESET_FILE.is_file():
+            self.apply_preset("Flat", save=True)
+            try:
+                CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                EQ_INIT_FLAG_FILE.touch(exist_ok=True)
+            except Exception: pass
+            return
+
         if EQ_CUSTOM_FILE.is_file():
             try:
                 data = json.loads(EQ_CUSTOM_FILE.read_text(encoding="utf-8"))
@@ -1115,6 +1124,8 @@ class EqualizerManager:
             if save:
                 try: EQ_PRESET_FILE.write_text(self.active_preset, encoding="utf-8")
                 except Exception: pass
+                try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
+                except Exception: pass
             return True
         if name.strip().lower() == "custom":
             self.active_preset = "Custom"
@@ -1123,6 +1134,8 @@ class EqualizerManager:
         self.current_bands = list(DEFAULT_EQ_PRESETS["Flat"])
         if save:
             try: EQ_PRESET_FILE.write_text("Flat", encoding="utf-8")
+            except Exception: pass
+            try: EQ_ACTIVE_BANDS_FILE.write_text(json.dumps(self.current_bands), encoding="utf-8")
             except Exception: pass
         return False
 
@@ -3478,7 +3491,8 @@ class TerminalPlayerUI:
             script_reward_path = Path(__file__).resolve().parent / "scripts"
             if str(script_reward_path) not in sys.path:
                 sys.path.insert(0, str(script_reward_path))
-            from liquid_glass_reward import is_welcomed, ensure_first_run_reward
+            from liquid_glass_reward import is_welcomed, ensure_first_run_reward, setup_first_run_equalizer
+            setup_first_run_equalizer()
             if not is_welcomed():
                 ensure_first_run_reward(interactive=False)
                 self.notification_msg = "✦ Special Reward from MPlanetarian: Liquid Glass Icon Unlocked on Desktop!"
@@ -4833,13 +4847,17 @@ def main():
                 sys.exit(1)
 
     if args.reset_eq:
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            EQ_INIT_FLAG_FILE.touch(exist_ok=True)
+        except Exception: pass
         if daemon_running:
             send_ipc_command("reset_eq")
             print("✔ Equalizer reset to Flat (0 dB)")
             sys.exit(0)
         else:
             mgr = EqualizerManager()
-            mgr.apply_preset("Flat")
+            mgr.apply_preset("Flat", save=True)
             print("✔ Equalizer reset to Flat (0 dB)")
             sys.exit(0)
 
@@ -4900,6 +4918,8 @@ def main():
                     resume_pos = 0.0
                     try:
                         (CONFIG_DIR / ".first_run_sample_loaded").touch(exist_ok=True)
+                        (CONFIG_DIR / ".first_run_eq_initialized").touch(exist_ok=True)
+                        EqualizerManager().apply_preset("Flat", save=True)
                         RESUME_STATE_FILE.write_text(json.dumps({
                             "path": resume_f,
                             "position_sec": 0.0,

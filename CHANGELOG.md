@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **First-Load Equalizer Auto-Initialization to Flat (0 dB)** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/liquid_glass_reward.py`, `tests/test_first_run_equalizer.py`):
+  - Automatically resets MP Audio Player's 10-band equalizer to Flat preset (0 dB on all bands) when MP Mix Manager loads for the first time via `python MP_Audio_Player.py --reset-eq`.
+  - Added `ensure_first_run_equalizer` to `Mix_Archive_Manager.sh` startup sequence and `setup_first_run_equalizer` in `scripts/liquid_glass_reward.py`.
+  - Managed via persistent marker `~/.config/mix-manager/.first_run_eq_initialized` so user custom equalizer adjustments are preserved on subsequent runs.
 - **3 Brand New Presets for MP Liquid Visualizer: "Beyond Dimensions", "Particle Accelerator", and "Cosmic Universe"** (`MP_Liquid_Visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `shaders/mp_liquid_visualizer.frag`, `shaders/mp_liquid_visualizer.frag.spv`, `assets/beyond_dimensions_cover.png`, `assets/particle_accelerator_cover.png`, `assets/cosmic_universe_cover.png`, `COVERS/Beyond_Dimensions_Preset.png`, `COVERS/Particle_Accelerator_Preset.png`, `COVERS/Cosmic_Universe_Preset.png`, `assets/skins/beyond_dimensions.png`, `assets/skins/particle_accelerator.png`, `assets/skins/cosmic_universe.png`, `Mix_Archive_Manager.sh`, `README.md`, `tests/test_mp_liquid_visualizer.py`):
   - **Preset 7: "Beyond Dimensions" (`beyond_dimensions`)**:
     - **Cover Art & Assets**: Sourced high-resolution 1400x1400 artwork from `/run/media/mplanetarian/WD BLACK B/MPlanetarian Bandcamp Covers/Cotangent Dimensions (In Progress) [album].png`, generating `assets/beyond_dimensions_cover.png`, `COVERS/Beyond_Dimensions_Preset.png`, and 1280x820 player skin `assets/skins/beyond_dimensions.png`.

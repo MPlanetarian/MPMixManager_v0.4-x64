@@ -35,13 +35,16 @@ class TestEqualizerPresets(unittest.TestCase):
         self.preset_file_patch = patch.object(MP_Audio_Player, "EQ_PRESET_FILE", self.temp_path / "eq_preset")
         self.custom_file_patch = patch.object(MP_Audio_Player, "EQ_CUSTOM_FILE", self.temp_path / "custom_eq_presets.json")
         self.bands_file_patch = patch.object(MP_Audio_Player, "EQ_ACTIVE_BANDS_FILE", self.temp_path / "eq_active_bands.json")
+        self.init_flag_patch = patch.object(MP_Audio_Player, "EQ_INIT_FLAG_FILE", self.temp_path / ".first_run_eq_initialized")
 
         self.config_dir_patch.start()
         self.preset_file_patch.start()
         self.custom_file_patch.start()
         self.bands_file_patch.start()
+        self.init_flag_patch.start()
 
     def tearDown(self):
+        self.init_flag_patch.stop()
         self.bands_file_patch.stop()
         self.custom_file_patch.stop()
         self.preset_file_patch.stop()

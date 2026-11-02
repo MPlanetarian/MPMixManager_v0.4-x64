@@ -28,6 +28,7 @@ SAMPLE_TRACK_FILE = SAMPLE_DIR / f"{SAMPLE_TRACK_NAME}.flac"
 SAMPLE_COVER_FILE = SAMPLE_DIR / "Cosmic_Dreamworlds_Cover.png"
 SAMPLE_FLAG_FILE = CONFIG_DIR / ".first_run_sample_loaded"
 PREVENT_AUTOPLAY_FILE = CONFIG_DIR / ".first_run_sample_prevent_autoplay"
+EQ_FLAG_FILE = CONFIG_DIR / ".first_run_eq_initialized"
 
 ASSETS_DIR = ROOT / "assets"
 ICON_PNG = ASSETS_DIR / "mp_liquid_glass_icon.png"
@@ -138,12 +139,48 @@ def set_default_player_in_config(player_name="mp_liquid_glass"):
                 pass
 
 
+def setup_first_run_equalizer(force: bool = False) -> bool:
+    """
+    Ensure MP Audio Player's equaliser is set to Flat (0 dB across all bands)
+    when MP Mix Manager loads for the first time.
+    Executes: python MP_Audio_Player.py --reset-eq
+    """
+    flag = CONFIG_DIR / ".first_run_eq_initialized"
+    if not force and flag.exists():
+        return False
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    mp_py = ROOT / "MP_Audio_Player.py"
+    if not mp_py.is_file():
+        mp_py = ROOT / "scripts" / "MP_Audio_Player.py"
+    if mp_py.is_file():
+        try:
+            subprocess.run(
+                [sys.executable, str(mp_py), "--reset-eq"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except Exception:
+            try:
+                import json
+                (CONFIG_DIR / "eq_preset").write_text("Flat", encoding="utf-8")
+                (CONFIG_DIR / "eq_active_bands.json").write_text(json.dumps([0.0] * 10), encoding="utf-8")
+            except Exception:
+                pass
+    try:
+        flag.touch(exist_ok=True)
+    except Exception:
+        pass
+    return True
+
+
 def setup_first_run_sample_track(force: bool = False) -> bool:
     """
     Celebrate the v0.4 release by pre-loading the free exclusive sample track
     into MP Audio Player ready for the user to press play when they are ready.
     This only happens the very first time the program is run and never again.
     """
+    setup_first_run_equalizer(force=force)
     if not force and SAMPLE_FLAG_FILE.exists():
         return False
     if not SAMPLE_TRACK_FILE.exists():
@@ -264,6 +301,7 @@ def show_welcome_message(wait_for_input=True):
 
 
 def ensure_first_run_reward(interactive=True):
+    setup_first_run_equalizer()
     setup_first_run_sample_track()
     if is_welcomed():
         return False

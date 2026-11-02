@@ -4110,6 +4110,23 @@ local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ]
 display_startup_loader_video() {
 local disp_sh="$SCRIPT_DIR/scripts/display_loader_video.sh"; [ ! -f "$disp_sh" ] && disp_sh="$PWD/scripts/display_loader_video.sh"; if [ -f "$disp_sh" ]; then source "$disp_sh"; display_startup_loader_video "${1:-0}"; return $?; fi; return 0
 }
+ensure_first_run_equalizer() {
+    local flag_file="$HOME/.config/mix-manager/.first_run_eq_initialized"
+    [ -f "$flag_file" ] && return 0
+    local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
+    [ ! -f "$mp_py" ] && mp_py="$PWD/MP_Audio_Player.py"
+    [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
+    if [ -f "$mp_py" ]; then
+        local py_bin="python3"
+        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
+        if ! command -v "$py_bin" &>/dev/null && command -v python &>/dev/null; then
+            py_bin="python"
+        fi
+        "$py_bin" "$mp_py" --reset-eq >/dev/null 2>&1 || python "$mp_py" --reset-eq >/dev/null 2>&1 || true
+        mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+        touch "$flag_file" 2>/dev/null || true
+    fi
+}
 ensure_first_run_sample_track() {
     local flag_file="$HOME/.config/mix-manager/.first_run_sample_loaded"
     [ -f "$flag_file" ] && return 0
@@ -4134,6 +4151,7 @@ _cleanup_mix_manager_exit() {
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 display_startup_loader_video 0
+ensure_first_run_equalizer
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
 _STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION|" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|AI Assistant & Local LLM Servers Suite|(Claude, GPT, Ollama, Open WebUI, MP Harmony, DeepSeek, WAN2GP, Beszel)" "35|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "36|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
