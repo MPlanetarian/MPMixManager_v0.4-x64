@@ -770,8 +770,33 @@ MP Mix Archive Manager runs natively on Windows using **Git Bash** or **WSL2**:
 Install recommended utilities using `winget` in PowerShell:
 ```powershell
 winget install Gyan.FFmpeg Rclone.Rclone jqlang.jq
-winget install VideoLAN.VLC Audacity.Audacity MusicBrainz.Picard GIMP.GIMP Cockos.REAPER foobar2000.foobar2000
+winget install VideoLAN.VLC
 ```
+Download & install MP Mix Manager 0.4 (GitHub Only)
+1. git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64.git "MP Mix Manager"
+2. Run MP Mix Manager.exe
+
+Starter Tip: Configure your Mix Archive & Music Folders first. 
+
+Mix Archive Folders Config:
+1. Go to Option 13 or Search for 'Storage' by pressing '/' (Make sure you have Mouse Click Focus on the Window First) 
+2. Use the Menu Options on the Screen to add your Mix Archive Folders from SMB or your Local Drive.
+3. Configure your Primary Mix Archive Folder First then add additional Mix Archive Folders as required.
+4. Once they have been added go to Option 1 or Search for 'Play DJ' by pressing '/' 
+
+Note: Place your Recorded Mixes (.WAV Expected) in the root of you MIX_ARCHIVE Folder & then use Option 4 - Run Mix Conversion to Convert them to any format you like. Once you have converted them they will show up in the MP Audio Player. If you have already converted your Mixes in to MP3 or FLAC then put them in to the Appropriate Directory inside the MP Mix Archive Program Folder, for Example: \FLAC_CONVERTED_OUTPUTS is where you put your FLAC Mixes. Once the Mixes are in the correct folders they will show up automatically. 
+
+Music Folders Config:
+1. Got to Option 2 or Search for 'Music' by pressing '/' (Make sure you have Mouse Click Focus on the Window First) 
+2. Use the Menu Options on the Screen to add your Music Folders from SMB or your Local Drive.
+
+
+Play Mix Archive Folders using MP Audio Player
+1. Got to Option 2 or Search for 'Music' by pressing '/'
+
+Play Music Folders using MP Audio Player
+
+Note: If you plan on git clone it to c:\Program Files then make sure you run it as Administrator (Right Click Run As...)
 
 #### Running MP Mix Manager on Microsoft Windows 10 / 11 (x64)
 -  **Double-click `MP Mix Manager.exe` ** (Native 64-bit Windows console executable).
