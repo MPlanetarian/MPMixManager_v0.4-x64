@@ -778,6 +778,10 @@ Download & install MP Mix Manager 0.4 (GitHub Only)
 
 Starter Tip: Configure your Mix Archive & Music Folders first. 
 
+NOTE: If you are going to be adding SMB Shares for Music or Mix Folders then you must use this format to add them correctly:
+\\192.168.1.138\MIX_ARCHIVE (Mixes) or \\192.168.1.138\MUSIC_FOLDER
+Do not use Mapped Network Drives * Currently Not Supported as of Nov 3rd 2026 *
+
 Mix Archive Folders Config:
 1. Go to Option 13 or Search for 'Storage' by pressing '/' (Make sure you have Mouse Click Focus on the Window First) 
 2. Use the Menu Options on the Screen to add your Mix Archive Folders from SMB or your Local Drive.
