@@ -13,6 +13,7 @@ done
 APP_DIR="${WAN2GP_DIR:-}"
 [ -z "$APP_DIR" ] && [ -d "X:/WAN2GP/Wan2GP" ] && APP_DIR="X:/WAN2GP/Wan2GP"
 [ -z "$APP_DIR" ] && [ -d "D:/WAN2GP/Wan2GP" ] && APP_DIR="D:/WAN2GP/Wan2GP"
+[ -z "$APP_DIR" ] && [ -d "/run/media/mplanetarian/DATA2_1TB/pinokio/api/wan.git/app" ] && APP_DIR="/run/media/mplanetarian/DATA2_1TB/pinokio/api/wan.git/app"
 [ -z "$APP_DIR" ] && [ -d "/var/home/mplanetarian/pinokio/api/wan.git/app" ] && APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
 [ -z "$APP_DIR" ] && [ -d "$HOME/pinokio/api/wan.git/app" ] && APP_DIR="$HOME/pinokio/api/wan.git/app"
 

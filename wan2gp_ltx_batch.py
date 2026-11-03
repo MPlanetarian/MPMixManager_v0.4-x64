@@ -145,14 +145,14 @@ AVAILABLE_MODELS = {
         "name": "LTX Video 0.9.8 Distilled 2B",
         "label": "2B Distilled",
         "description": "Ultra fast, lightweight (Profile 4.5 or 2)",
-        "steps": 8,
+        "steps": 12,
     },
     "13b": {
         "id": "ltxv_distilled",
         "name": "LTX Video 0.9.8 Distilled 13B",
         "label": "13B Distilled",
         "description": "High fidelity, superior motion quality (Profile 4.5)",
-        "steps": 6,
+        "steps": 12,
     },
     "13b_dev": {
         "id": "ltxv_13B",
@@ -801,7 +801,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="WAN2GP LTX Video Batch Image-to-Video Processor (2B, 13B & 22B)")
     parser.add_argument("--model", "-m", type=str, default=default_model_key, choices=list(AVAILABLE_MODELS.keys()), help=f"LTX Video model variant to use ({', '.join(AVAILABLE_MODELS.keys())}; default: {default_model_key})")
-    default_lora_key = os.environ.get("WAN2GP_LTX_LORA", "bfs_head_swap").strip() or "bfs_head_swap"
+    default_lora_key = os.environ.get("WAN2GP_LTX_LORA", "deblur").strip() or "bfs_head_swap"
     parser.add_argument("--lora", type=str, default=default_lora_key, choices=list(AVAILABLE_LORAS.keys()), help=f"LoRA enhancement to apply ({', '.join(AVAILABLE_LORAS.keys())}; default: {default_lora_key})")
     parser.add_argument("--no-lora", action="store_true", help="Run clean base model without any LoRA")
     parser.add_argument("--prompt", "-p", type=str, default=None, help="Generation prompt")
