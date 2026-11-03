@@ -794,7 +794,6 @@ Music Folders Config:
 1. Got to Option 2 or Search for 'Music' by pressing '/' (Make sure you have Mouse Click Focus on the Window First) 
 2. Use the Menu Options on the Screen to add your Music Folders from SMB or your Local Drive.
 
-
 Play Mix Archive Folders using MP Audio Player
 1. Got to Option 2 or Search for 'Music' by pressing '/'
 
@@ -805,11 +804,13 @@ Note: If you plan on git clone it to c:\Program Files then make sure you run it 
 #### Running MP Mix Manager on Microsoft Windows 10 / 11 (x64)
 -  **Double-click `MP Mix Manager.exe` ** (Native 64-bit Windows console executable).
 
-- Or run inside Git Bash:
-  ```bash
-  ./Mix_Archive_Manager.sh
+- Or run inside PowerShell:
+  ```PowerShell (Right Click > Run with Powershell)
+  manager.ps1
   ```
 ---
+Note: MP Mix Manager with GitBash on Windows 10/11 is currently Experimental (Unsupported)
+If you want to try then run manager.sh using GitBash
 
 NOTE: MP Liquid Glass Player is currently under Development on Microsoft Windows is currently not supported as of November 3rd 2026 (MP)
 If you want to run MP Liquid Glass Player please use Linux or macOS. 
