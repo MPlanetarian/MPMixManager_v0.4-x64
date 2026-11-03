@@ -775,13 +775,15 @@ winget install VideoLAN.VLC Audacity.Audacity MusicBrainz.Picard GIMP.GIMP Cocko
 
 #### Running MP Mix Manager on Microsoft Windows 10 / 11 (x64)
 -  **Double-click `MP Mix Manager.exe` ** (Native 64-bit Windows console executable).
-- **Double-click `launch_liquid_glass.bat`** to immediately experience the MP Liquid Glass Audio Player with Windows DWM acrylic blur!
 
 - Or run inside Git Bash:
   ```bash
   ./Mix_Archive_Manager.sh
   ```
 ---
+
+NOTE: MP Liquid Glass Player is currently under Development on Microsoft Windows is currently not supported as of November 3rd 2026 (MP)
+If you want to run MP Liquid Glass Player please use Linux or macOS. 
 
 ### 4. FreeBSD (14.x / 15-CURRENT)
 
