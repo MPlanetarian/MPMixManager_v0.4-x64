@@ -760,7 +760,7 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
 
 ---
 
-### 3. Microsoft Windows 10 & 11
+### 3. Microsoft Windows 10 & Microsoft Windows 11 (x64)
 
 #### Prerequisites
 MP Mix Archive Manager runs natively on Windows using **Git Bash** or **WSL2**:
@@ -773,15 +773,14 @@ winget install Gyan.FFmpeg Rclone.Rclone jqlang.jq
 winget install VideoLAN.VLC Audacity.Audacity MusicBrainz.Picard GIMP.GIMP Cockos.REAPER foobar2000.foobar2000
 ```
 
-#### Running on Windows
-- **Double-click `MP_Mix_Manager.exe` or `manager.exe`** (Native 64-bit Windows console executable).
+#### Running MP Mix Manager on Microsoft Windows 10 / 11 (x64)
+-  **Double-click `MP Mix Manager.exe` ** (Native 64-bit Windows console executable).
 - **Double-click `launch_liquid_glass.bat`** to immediately experience the MP Liquid Glass Audio Player with Windows DWM acrylic blur!
-- **Double-click** `manager.bat` or `manager.ps1` from File Explorer.
+
 - Or run inside Git Bash:
   ```bash
   ./Mix_Archive_Manager.sh
   ```
-
 ---
 
 ### 4. FreeBSD (14.x / 15-CURRENT)
