@@ -763,8 +763,8 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
 ### 3. Microsoft Windows 10 & Microsoft Windows 11 (x64)
 
 #### Prerequisites
-MP Mix Archive Manager runs natively on Windows using **Git Bash** or **WSL2**:
-- **Git for Windows (Recommended)**: Download from [https://git-scm.com/download/win](https://git-scm.com/download/win).
+MP Mix Archive Manager runs natively on Windows using **WSL2**:
+
 - **Windows Terminal**: Built-in on Windows 11; available via Microsoft Store on Windows 10.
 
 Install recommended utilities using `winget` in PowerShell:
@@ -809,6 +809,9 @@ Note: If you plan on git clone it to c:\Program Files then make sure you run it 
   manager.ps1
   ```
 ---
+
+- **Git for Windows (Experimental)**: Download from [https://git-scm.com/download/win](https://git-scm.com/download/win).
+
 Note: MP Mix Manager with GitBash on Windows 10/11 is currently Experimental (Unsupported)
 If you want to try then run manager.sh using GitBash
 
