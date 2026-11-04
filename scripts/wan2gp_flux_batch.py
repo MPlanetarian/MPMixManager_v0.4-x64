@@ -19,6 +19,8 @@ APP_DIR="${WAN2GP_DIR:-}"
 # Resolve Python environment
 VENV_PYTHON="${WAN2GP_PYTHON:-}"
 [ -z "$VENV_PYTHON" ] && [ -x "X:/WAN2GP/conda_envs/wan2gp/python.exe" ] && VENV_PYTHON="X:/WAN2GP/conda_envs/wan2gp/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/.venv/Scripts/python.exe" ] && VENV_PYTHON="$APP_DIR/.venv/Scripts/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/.venv/bin/python" ] && VENV_PYTHON="$APP_DIR/.venv/bin/python"
 [ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/Scripts/python.exe" ] && VENV_PYTHON="$APP_DIR/venv/Scripts/python.exe"
 [ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/bin/python" ] && VENV_PYTHON="$APP_DIR/venv/bin/python"
 if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
@@ -45,6 +47,12 @@ if [ "$(uname -s)" = "Linux" ]; then
     if [ -n "$SITE_PKGS" ]; then
         export LD_LIBRARY_PATH="$SITE_PKGS/nvidia/cudnn/lib:$SITE_PKGS/nvidia/cublas/lib:$SITE_PKGS/nvidia/cuda_runtime/lib:${LD_LIBRARY_PATH:-}"
     fi
+fi
+
+# Dynamically query the exact site-packages path from the resolved virtual environment python
+VENV_SITE_PACKAGES="$("$VENV_PYTHON" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null)"
+if [ -n "$VENV_SITE_PACKAGES" ]; then
+    export PYTHONPATH="$VENV_SITE_PACKAGES:${PYTHONPATH:-}"
 fi
 
 exec "$VENV_PYTHON" "$0" "$@"

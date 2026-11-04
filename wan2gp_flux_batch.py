@@ -17,9 +17,11 @@ APP_DIR="${WAN2GP_DIR:-}"
 [ -z "$APP_DIR" ] && [ -d "/var/home/mplanetarian/pinokio/api/wan.git/app" ] && APP_DIR="/var/home/mplanetarian/pinokio/api/wan.git/app"
 [ -z "$APP_DIR" ] && [ -d "$HOME/pinokio/api/wan.git/app" ] && APP_DIR="$HOME/pinokio/api/wan.git/app"
 
-# Resolve Python environment
+# Resolve Python environment (prioritizing .venv)
 VENV_PYTHON="${WAN2GP_PYTHON:-}"
 [ -z "$VENV_PYTHON" ] && [ -x "X:/WAN2GP/conda_envs/wan2gp/python.exe" ] && VENV_PYTHON="X:/WAN2GP/conda_envs/wan2gp/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/.venv/Scripts/python.exe" ] && VENV_PYTHON="$APP_DIR/.venv/Scripts/python.exe"
+[ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/.venv/bin/python" ] && VENV_PYTHON="$APP_DIR/.venv/bin/python"
 [ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/Scripts/python.exe" ] && VENV_PYTHON="$APP_DIR/venv/Scripts/python.exe"
 [ -z "$VENV_PYTHON" ] && [ -x "$APP_DIR/venv/bin/python" ] && VENV_PYTHON="$APP_DIR/venv/bin/python"
 if [ -z "$VENV_PYTHON" ] || [ ! -x "$VENV_PYTHON" ]; then
@@ -681,12 +683,13 @@ def main():
 
     # 4. Initialize WAN2GP Session in safe Profile 4.5
     sys.path.insert(0, str(WAN_APP_ROOT))
+    original_cwd = Path.cwd()  # Save original directory
     if WAN_APP_ROOT.exists():
         try:
             os.chdir(str(WAN_APP_ROOT))
         except Exception:
             pass
-
+    
     import torch
     from shared.api import WanGPSession
 
