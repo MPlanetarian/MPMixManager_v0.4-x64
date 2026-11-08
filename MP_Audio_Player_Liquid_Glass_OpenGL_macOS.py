@@ -230,6 +230,7 @@ from liquid_glass_opengl import (
     _rgb01,
     THEME_ALIASES,
 )
+from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer
 
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
 
@@ -287,7 +288,7 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origi
         )
 
     m = str(mode).upper()
-    if m == "MICRO":
+    if m in ("MICRO", "MANAGER"):
         return box(2, 0, max(20, cols - 4), rows), (0.0, 0.0, 0.0, 0.0)
     elif m == "MINI":
         return box(2, 0, max(20, cols - 4), 3), box(2, 3, max(20, cols - 4), max(1, rows - 3))
@@ -315,12 +316,20 @@ def player_argv(mode="NORMAL", extra_args=None):
     return cmd
 
 
+def manager_argv():
+    return ["/bin/bash", str(ROOT / "Mix_Archive_Manager.sh")]
+
+
 def _child_env():
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
-    env["MP_LIQUID_GLASS"] = "0"
-    env["MP_LIQUID_GLASS_BACKEND"] = "none"
+    if env.get("MP_GUI_SESSION") == "1":
+        env["MP_LIQUID_GLASS"] = "1"
+        env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
+    else:
+        env["MP_LIQUID_GLASS"] = "0"
+        env["MP_LIQUID_GLASS_BACKEND"] = "none"
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
@@ -1088,9 +1097,10 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
 
 
 class OpenGLGlassHost:
-    def __init__(self, mode="NORMAL", cli_theme=None):
+    def __init__(self, mode="NORMAL", cli_theme=None, manager=False):
         self.mode = mode.upper()
         self.cli_theme = cli_theme
+        self.manager = manager
         self.renderer = None
         self.child_pid = 0
         self.master_fd = None
@@ -1122,10 +1132,15 @@ class OpenGLGlassHost:
         winsize = struct.pack("HHHH", ROWS, COLS, 0, 0)
         fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
 
-        extra = []
-        if self.cli_theme:
-            extra.extend(["--theme", self.cli_theme])
-        command = player_argv(mode=self.mode, extra_args=extra)
+        if self.manager:
+            os.environ["MP_GUI_SESSION"] = "1"
+            os.environ["MP_LIQUID_GLASS"] = "1"
+            command = manager_argv()
+        else:
+            extra = []
+            if self.cli_theme:
+                extra.extend(["--theme", self.cli_theme])
+            command = player_argv(mode=self.mode, extra_args=extra)
 
         pid = os.fork()
         if pid == 0:
@@ -1152,7 +1167,10 @@ class OpenGLGlassHost:
         margin = LiquidGlassRendererOpenGL.bezel_px
         init_w = self._target_cols * char_w + (2 * margin)
         init_h = self._target_rows * char_h + (2 * margin)
-        title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
+        if self.mode == "MANAGER" or self.manager:
+            title = "MP Mix Manager (Liquid Glass - OpenGL / macOS)"
+        else:
+            title = "MP Audio Player (Liquid Glass - OpenGL / macOS)"
 
         self.renderer = CustomGlassRenderer(
             overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
@@ -1209,17 +1227,35 @@ class OpenGLGlassHost:
 
 def main():
     theme_arg = None
+    manager = False
     i = 1
     while i < len(sys.argv):
         arg = sys.argv[i]
+        if arg == "--manager":
+            manager = True
+            i += 1
+            continue
         if arg in ("--theme", "-t") and i + 1 < len(sys.argv):
             theme_arg = sys.argv[i + 1]
             i += 2
             continue
         i += 1
 
-    host = OpenGLGlassHost(mode="NORMAL", cli_theme=theme_arg)
-    host.run()
+    if manager:
+        os.environ["MP_GUI_SESSION"] = "1"
+        os.environ["MP_LIQUID_GLASS"] = "1"
+        mode = "MANAGER"
+    else:
+        mode = "NORMAL"
+    host = OpenGLGlassHost(mode=mode, cli_theme=theme_arg, manager=manager)
+    try:
+        host.run()
+    finally:
+        if manager:
+            stop_companion_playback()
+            stop_companion_visualizer(force=True)
+        else:
+            stop_companion_visualizer()
 
 
 if __name__ == "__main__":

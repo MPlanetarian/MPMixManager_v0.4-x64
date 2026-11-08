@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,15 +19,22 @@ if str(ROOT / "scripts") not in sys.path:
 
 import MP_Liquid_Visualizer as vis_entry  # noqa: E402
 from scripts import mp_liquid_visualizer_vulkan as vis  # noqa: E402
+from scripts.desktop_launch_screen import fit_square_on_main  # noqa: E402
 
 
 class TestMPLiquidVisualizer(unittest.TestCase):
     def test_window_dimensions_are_fixed_1400x1400(self):
-        """Window dimensions must be strictly 1400x1400 fixed."""
+        """Preferred size stays 1400x1400, and the live window shrinks to the main screen."""
         self.assertEqual(vis.WINDOW_WIDTH, 1400)
         self.assertEqual(vis.WINDOW_HEIGHT, 1400)
         self.assertEqual(vis_entry.WINDOW_WIDTH, 1400)
         self.assertEqual(vis_entry.WINDOW_HEIGHT, 1400)
+        fitted = fit_square_on_main(vis.WINDOW_WIDTH)
+        renderer = vis.LiquidVisualizerVulkanRenderer()
+        self.assertEqual(renderer._windowed_size, (fitted[0], fitted[1]))
+        self.assertEqual(renderer._windowed_offset, (fitted[2], fitted[3]))
+        self.assertLessEqual(fitted[0], 1400)
+        self.assertLessEqual(fitted[1], 1400)
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
@@ -321,7 +329,9 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         try:
             renderer.open()
             self.assertFalse(renderer.is_fullscreen)
-            self.assertEqual(renderer.window_size(), (1400, 1400))
+            normal = renderer.window_size()
+            self.assertEqual(normal, renderer._windowed_size)
+            self.assertLessEqual(normal[0], 1400)
 
             # Press Z -> enters fullscreen
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
@@ -331,18 +341,18 @@ class TestMPLiquidVisualizer(unittest.TestCase):
                 renderer.draw(bridge, capture=False)
                 time.sleep(0.01)
             fs_w, fs_h = renderer.window_size()
-            self.assertGreater(fs_w, 1400)
+            self.assertGreater(fs_w, normal[0])
             self.assertEqual(renderer._extent, renderer.framebuffer_size())
 
-            # Press Z again -> returns to normal 1400x1400 size
+            # Press Z again -> returns to the fitted windowed size
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
             for _ in range(5):
                 bridge.update(0.05, force_playing=True, synthetic_audio=True)
                 renderer.draw(bridge, capture=False)
                 time.sleep(0.01)
-            self.assertEqual(renderer.window_size(), (1400, 1400))
-            self.assertEqual(renderer._extent, (1400, 1400))
+            self.assertEqual(renderer.window_size(), normal)
+            self.assertEqual(renderer._extent, normal)
         finally:
             renderer.close()
 
@@ -371,7 +381,11 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             out_png = Path(td) / "self_test_1400.png"
             summary = vis.run_self_test(out_png)
             self.assertIn("MP_Liquid_Visualizer Vulkan device:", summary)
-            self.assertIn("1400x1400 Fixed Borderless", summary)
+            match = re.search(r"Window: (\d+)x(\d+) Fixed Borderless", summary)
+            self.assertIsNotNone(match)
+            reported = (int(match.group(1)), int(match.group(2)))
+            fitted = fit_square_on_main(vis.WINDOW_WIDTH)
+            self.assertEqual(reported, (fitted[0], fitted[1]))
             self.assertTrue(out_png.is_file() and out_png.stat().st_size > 50000)
 
 
@@ -404,14 +418,15 @@ class TestMPLiquidVisualizer(unittest.TestCase):
                 iconified = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_ICONIFIED)
                 self.assertEqual(iconified, 0)
 
-            # Press Z again -> returns to normal 1400x1400 windowed mode
+            # Press Z again -> returns to the fitted windowed size
+            normal = renderer._windowed_size
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
             import time
             for _ in range(5):
                 renderer.poll()
                 time.sleep(0.01)
-            self.assertEqual(renderer.window_size(), (1400, 1400))
+            self.assertEqual(renderer.window_size(), normal)
             if hasattr(g, "glfwGetWindowAttrib"):
                 floating = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_FLOATING)
                 self.assertEqual(floating, 0)
@@ -449,15 +464,16 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertEqual(renderer.framebuffer_size(), (1920, 1080))
             self.assertNotEqual(renderer._extent, (3840, 2160))
 
-            # Toggle Z -> returns cleanly to normal 1400x1400 windowed mode
+            # Toggle Z -> returns cleanly to the fitted windowed size
+            normal = renderer._windowed_size
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
             for _ in range(5):
                 bridge.update(0.05, force_playing=True, synthetic_audio=True)
                 renderer.draw(bridge, capture=False)
                 time.sleep(0.01)
-            self.assertEqual(renderer.window_size(), (1400, 1400))
-            self.assertEqual(renderer._extent, (1400, 1400))
+            self.assertEqual(renderer.window_size(), normal)
+            self.assertEqual(renderer._extent, normal)
         finally:
             renderer.close()
 

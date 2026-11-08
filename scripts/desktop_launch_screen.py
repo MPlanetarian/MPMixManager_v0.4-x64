@@ -18,6 +18,7 @@ _PRIORITY_RE = re.compile(r"^priority\s+(\d+)\s*$")
 _XRANDR_RE = re.compile(
     r"^\s*\d+:\s+\+([*]?)(\S+)\s+\d+/\d+x\d+/\d+\+(-?\d+)\+(-?\d+)"
 )
+_WORKAREA_RE = re.compile(r"=\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)")
 
 
 def is_hisense_name(name: str) -> bool:
@@ -130,6 +131,71 @@ def main_desktop_origin(offset_x: int = 72, offset_y: int = 64, outputs: list[di
         fallback = _xrandr_origin()
         origin_x, origin_y = fallback if fallback is not None else (0, 0)
     return origin_x + int(offset_x), origin_y + int(offset_y)
+
+
+def net_workarea(text: str | None = None) -> tuple[int, int, int, int] | None:
+    """First EWMH work area, which already excludes the panel struts."""
+    if text is None:
+        text = _read_command(["xprop", "-root", "_NET_WORKAREA"])
+    match = _WORKAREA_RE.search(text or "")
+    if not match:
+        return None
+    x, y, width, height = (int(part) for part in match.groups())
+    if width <= 0 or height <= 0:
+        return None
+    return x, y, width, height
+
+
+def _usable_box(geo: tuple[int, int, int, int], workarea: tuple[int, int, int, int] | None) -> tuple[int, int, int, int]:
+    """Usable x, y, width, height relative to the monitor origin."""
+    origin_x, origin_y, width, height = geo
+    if not workarea or width <= 0 or height <= 0:
+        return 0, 0, width, height
+    work_x, work_y, work_w, work_h = workarea
+    left = max(origin_x, work_x)
+    top = max(origin_y, work_y)
+    right = min(origin_x + width, work_x + work_w)
+    bottom = min(origin_y + height, work_y + work_h)
+    if right - left < 64 or bottom - top < 64:
+        return 0, 0, width, height
+    return left - origin_x, top - origin_y, right - left, bottom - top
+
+
+def fit_square_on_main(
+    preferred: int = 1400,
+    offset_x: int = 160,
+    offset_y: int = 80,
+    margin: int = 12,
+    outputs: list[dict] | None = None,
+    workarea: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int, int, int]:
+    """Width, height, and offsets from the main monitor origin.
+
+    The preferred square and offset are kept when they sit inside the usable
+    area. Otherwise the square shrinks and is centered so the whole window
+    stays on that monitor, inside the panel work area.
+    """
+    preferred = max(1, int(preferred))
+    chosen = select_main(kscreen_outputs() if outputs is None else outputs)
+    if chosen is None or not chosen.get("geo"):
+        return preferred, preferred, int(offset_x), int(offset_y)
+    if outputs is None and workarea is None:
+        workarea = net_workarea()
+    box_x, box_y, box_w, box_h = _usable_box(chosen["geo"], workarea)
+    if (
+        offset_x >= box_x
+        and offset_y >= box_y
+        and offset_x + preferred <= box_x + box_w
+        and offset_y + preferred <= box_y + box_h
+    ):
+        return preferred, preferred, int(offset_x), int(offset_y)
+    inset = max(0, int(margin))
+    if box_w - 2 * inset < 64 or box_h - 2 * inset < 64:
+        inset = 0
+    side = min(preferred, max(1, box_w - 2 * inset), max(1, box_h - 2 * inset))
+    off_x = box_x + max(0, (box_w - side) // 2)
+    off_y = box_y + max(0, (box_h - side) // 2)
+    return int(side), int(side), int(off_x), int(off_y)
 
 
 def _contains(output: dict, x: int, y: int) -> bool:

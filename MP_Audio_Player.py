@@ -140,6 +140,11 @@ def format_seconds(seconds: float) -> str:
 
 def _run_bg(cmd: Union[List[str], str]) -> bool:
     try:
+        # LINES and COLUMNS belong to the menu window. A new terminal that
+        # inherits them draws the player past the bottom of its own window.
+        env = os.environ.copy()
+        env.pop("LINES", None)
+        env.pop("COLUMNS", None)
         subprocess.Popen(
             cmd,
             cwd=str(get_base_dir()),
@@ -147,7 +152,8 @@ def _run_bg(cmd: Union[List[str], str]) -> bool:
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
-            close_fds=True
+            close_fds=True,
+            env=env,
         )
         return True
     except Exception: return False
@@ -630,7 +636,10 @@ class MixArchiveScanner:
 
 class MusicFolderPlaylistScanner:
     def __init__(self, folder_name: Union[str, Path, None] = "ALL", playlist_path: Union[str, Path, None] = None):
-        if folder_name and (str(folder_name).endswith((".json", ".m3u", ".m3u8")) or os.path.exists(str(folder_name))):
+        folder_text = str(folder_name) if folder_name else ""
+        # A playlist file can be passed in the folder slot. A mounted share directory
+        # with the same name as the folder id must not be treated as that file.
+        if folder_text and (folder_text.endswith((".json", ".m3u", ".m3u8")) or os.path.isfile(folder_text)):
             playlist_path, folder_name = folder_name, "ALL"
             if (m := re.match(r'^DJ_Tracks_(.+)\.(?:json|m3u8?)$', os.path.basename(str(playlist_path)), re.I)) and m.group(1).upper() != "ALL_MUSIC_FOLDERS":
                 folder_name = m.group(1)
@@ -643,8 +652,22 @@ class MusicFolderPlaylistScanner:
     def _load_playlist(self):
         pl_dir = self.base_dir / "PLAYLISTS_GENERATED"
         if not self.playlist_path or not self.playlist_path.is_file():
-            for c in (pl_dir / f"DJ_Tracks_{self.folder_name}.json", pl_dir / f"DJ_Tracks_{self.folder_name}.m3u8", pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.json", pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8"):
-                if c.is_file(): self.playlist_path = c; break
+            name = self.folder_name.upper()
+            if name in ("ALL", "ALL_MUSIC_FOLDERS"):
+                candidates = (
+                    pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.json",
+                    pl_dir / "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8",
+                )
+            else:
+                # A missing folder playlist must not open the combined list instead.
+                candidates = (
+                    pl_dir / f"DJ_Tracks_{name}.json",
+                    pl_dir / f"DJ_Tracks_{name}.m3u8",
+                )
+            for c in candidates:
+                if c.is_file():
+                    self.playlist_path = c
+                    break
         if not self.playlist_path or not self.playlist_path.is_file(): return
         if str(self.playlist_path).endswith(".json"):
             try:
@@ -2161,11 +2184,31 @@ def _win_console_begin():
         return _WIN_CONSOLE
     except Exception: return None
 
-def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
+def _tty_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
+    """Real window size. Ignore LINES and COLUMNS.
+
+    shutil.get_terminal_size() returns those variables and never reads the
+    window. The menu exports its own height, so a player opened from it
+    draws past the bottom of the new window and the pane looks blank.
+    """
+    for stream in (sys.stdout, sys.stdin):
+        try:
+            fd = stream.fileno()
+            if fd is None or fd < 0 or not stream.isatty():
+                continue
+            size = os.get_terminal_size(fd)
+            if size.columns > 0 and size.lines > 0:
+                return int(size.columns), int(size.lines)
+        except (OSError, ValueError, AttributeError):
+            continue
     try:
         s = shutil.get_terminal_size(fallback)
         return int(s.columns), int(s.lines)
-    except Exception: return fallback
+    except Exception:
+        return fallback
+
+def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
+    return _tty_size(fallback)
 
 def _win_console_end(state):
     global _WIN_CONSOLE
@@ -2206,6 +2249,7 @@ _THEME_PALETTES = {
     "orbital_void_reflux": {"highlight": "\033[38;2;0;240;255m", "active": "\033[38;2;255;0;127m", "border": "\033[38;2;0;240;255m", "accent": "\033[38;2;157;78;221m"},
     "sensorium_interface": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;240;168;216m", "border": "\033[38;2;0;245;255m", "accent": "\033[38;2;184;72;196m"},
     "retro_linux_memories": {"highlight": "\033[38;2;91;134;187m", "active": "\033[38;2;21;83;158m", "border": "\033[38;2;84;84;83m", "accent": "\033[38;2;240;173;78m"},
+    "charcoal_vault": {"highlight": "\033[38;2;220;224;228m", "active": "\033[38;2;90;168;230m", "border": "\033[38;2;84;84;83m", "accent": "\033[38;2;21;83;158m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
@@ -2246,6 +2290,13 @@ _THEME_ALIASES = {
     "veracrypt": "retro_linux_memories",
     "retrolinux": "retro_linux_memories",
     "linux": "retro_linux_memories",
+    "charcoal_vault": "charcoal_vault",
+    "charcoal": "charcoal_vault",
+    "charcoal vault": "charcoal_vault",
+    "charcoal vault (veracrypt dark)": "charcoal_vault",
+    "vault": "charcoal_vault",
+    "dark_vault": "charcoal_vault",
+    "veracrypt_dark": "charcoal_vault",
 }
 
 class EqualizerVisualizer:
@@ -2284,6 +2335,7 @@ class EqualizerVisualizer:
         "orbital_void_reflux",
         "sensorium_interface",
         "retro_linux_memories",
+        "charcoal_vault",
     ]
     THEME_NAMES = {
         "stream_of_frequency": "Stream of Frequency [Special Edition]",
@@ -2302,6 +2354,7 @@ class EqualizerVisualizer:
         "orbital_void_reflux": "Orbital Void Reflux (Liquid Glass Skin)",
         "sensorium_interface": "Sensorium Interface (Liquid Glass Skin)",
         "retro_linux_memories": "Retro Linux Memories",
+        "charcoal_vault": "Charcoal Vault (VeraCrypt Dark)",
     }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
@@ -2441,6 +2494,15 @@ class EqualizerVisualizer:
                 return 0.18 + 0.35 * s, 0.53 + 0.30 * s, 0.82 + 0.15 * s
             s = (c_frac - 0.80) / 0.20
             return 0.53 + 0.47 * s, 0.83 + 0.17 * s, 0.97 + 0.03 * s
+        if t in ("charcoal_vault", "charcoal", "veracrypt_dark", "dark_vault"):
+            if c_frac < 0.45:
+                s = c_frac / 0.45
+                return 0.16 + 0.05 * s, 0.16 + 0.05 * s, 0.16 + 0.06 * s
+            if c_frac < 0.80:
+                s = (c_frac - 0.45) / 0.35
+                return 0.08 + 0.18 * s, 0.25 + 0.28 * s, 0.45 + 0.28 * s
+            s = (c_frac - 0.80) / 0.20
+            return 0.45 + 0.41 * s, 0.66 + 0.22 * s, 0.82 + 0.14 * s
         if t == "phosphor": return 0.10 * (1.0 - c_frac), 0.95, 0.20
         if t == "retro_terminal": return 1.0, 1.0, 1.0
         return 0.10 + 0.75 * (c_frac ** 1.5), 0.50 + 0.45 * c_frac, 1.0
@@ -2657,6 +2719,8 @@ class EqualizerVisualizer:
         if t == "cyber_neon": return "\033[38;2;114;9;183m" if fraction < 0.5 else "\033[38;2;76;201;240m"
         if t in ("retro_linux_memories", "retro_linux", "linux_memories", "veracrypt"):
             return "\033[38;2;21;83;158m" if fraction < 0.50 else ("\033[38;2;91;134;187m" if fraction < 0.80 else ("\033[38;2;240;173;78m" if fraction < 0.95 else "\033[38;2;255;255;255m"))
+        if t in ("charcoal_vault", "charcoal", "veracrypt_dark", "dark_vault"):
+            return "\033[38;2;84;84;83m" if fraction < 0.35 else ("\033[38;2;21;83;158m" if fraction < 0.65 else ("\033[38;2;90;168;230m" if fraction < 0.88 else "\033[38;2;220;224;228m"))
         if t == "phosphor": return "\033[38;2;57;255;20m"
         return "\033[38;2;30;144;255m" if fraction < 0.5 else "\033[38;2;224;255;255m"
 
@@ -3189,7 +3253,7 @@ def resize_host_terminal(columns: int, rows: int, title: str) -> None:
     size first, resize the Konsole window over DBus, then emit CSI 8 for other terminals.
     """
     try:
-        term_c, term_r = (int(n) for n in shutil.get_terminal_size((80, 24)))
+        term_c, term_r = _tty_size((80, 24))
     except Exception:
         term_c, term_r = 80, 24
     service = os.environ.get("KONSOLE_DBUS_SERVICE", "")
@@ -3208,7 +3272,7 @@ def resize_host_terminal(columns: int, rows: int, title: str) -> None:
                 _set_konsole_pixel_size(service, window, pix_w, probe_h)
                 time.sleep(0.06)
                 probed = _konsole_pixel_size(service, window) or (pix_w, probe_h)
-                probed_r = int(shutil.get_terminal_size((80, 24)).lines)
+                probed_r = _tty_size((80, 24))[1]
                 if probed_r != term_r and probed[1] != pix_h:
                     cell_h = max(8, int(round((probed[1] - pix_h) / (probed_r - term_r))))
                 else:
@@ -3216,7 +3280,7 @@ def resize_host_terminal(columns: int, rows: int, title: str) -> None:
                 chrome_h = pix_h - cell_h * term_r
                 _set_konsole_pixel_size(service, window, pix_w, max(80, chrome_h + cell_h * rows))
                 time.sleep(0.06)
-                now_c, now_r = (int(n) for n in shutil.get_terminal_size((80, 24)))
+                now_c, now_r = _tty_size((80, 24))
                 if now_r != rows or now_c != columns:
                     cur = _konsole_pixel_size(service, window)
                     if cur:
@@ -5055,6 +5119,18 @@ def main():
             sys.exit(1)
 
     if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
+        # Paint before the library scan. A Mix Archive walk or a slow status
+        # reply used to leave the new Konsole on an empty gray profile.
+        if sys.stdout.isatty():
+            try:
+                sys.stdout.write(
+                    "\033[?1049h\033[?25l\033[H\033[2J"
+                    "\033[1;38;2;0;229;255m  MP Audio Player\033[0m\n"
+                    "  Loading library...\033[K\n"
+                )
+                sys.stdout.flush()
+            except Exception:
+                pass
         d_status = send_ipc_command("status") if daemon_running else None
         if daemon_running and not d_status:
             daemon_running = False

@@ -127,6 +127,7 @@ THEME_ALIASES = {
     "charcoal_vault": "charcoal_vault", "charcoal": "charcoal_vault",
     "charcoal vault": "charcoal_vault", "vault": "charcoal_vault",
     "dark_vault": "charcoal_vault", "veracrypt_dark": "charcoal_vault",
+    "charcoal vault (veracrypt dark)": "charcoal_vault",
 }
 
 

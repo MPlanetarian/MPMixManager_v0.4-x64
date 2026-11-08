@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from desktop_launch_screen import (  # noqa: E402
+    fit_square_on_main,
     main_desktop_origin,
     parse_kscreen,
     parse_xrandr_monitors,
@@ -97,6 +98,36 @@ class TestDesktopLaunchScreen(unittest.TestCase):
         self.assertEqual(monitors[0]["name"], "HDMI-A-1")
         self.assertTrue(monitors[0]["primary"])
         self.assertEqual(monitors[1]["geo"][:2], (2649, 0))
+
+    def test_square_shrinks_to_the_1200p_work_area(self):
+        outputs = parse_kscreen(CURRENT_DESKTOP)
+        fitted = fit_square_on_main(1400, outputs=outputs, workarea=(0, 0, 5760, 1138))
+        self.assertEqual(fitted, (1114, 1114, 403, 12))
+        _width, height, offset_x, offset_y = fitted
+        self.assertLessEqual(offset_x + _width, 1920)
+        self.assertLessEqual(offset_y + height, 1138)
+
+    def test_square_shrinks_when_the_panel_size_is_unknown(self):
+        outputs = parse_kscreen(CURRENT_DESKTOP)
+        self.assertEqual(
+            fit_square_on_main(1400, outputs=outputs),
+            (1176, 1176, 372, 12),
+        )
+
+    def test_preferred_square_stays_on_a_large_screen(self):
+        outputs = parse_kscreen(
+            """
+Output: 1 DP-3 aaaa
+	enabled
+	connected
+	priority 1
+	Geometry: 0,0 3840x2160
+"""
+        )
+        self.assertEqual(
+            fit_square_on_main(1400, outputs=outputs, workarea=(0, 0, 3840, 2160)),
+            (1400, 1400, 160, 80),
+        )
 
 
 if __name__ == "__main__":

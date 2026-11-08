@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from desktop_launch_screen import main_desktop_origin, place_on_main_screen
+    from desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
 except ImportError:
-    from scripts.desktop_launch_screen import main_desktop_origin, place_on_main_screen
+    from scripts.desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
 
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
@@ -430,9 +430,13 @@ class LiquidVisualizerVulkanRenderer:
         self.format = FORMAT_B8G8R8A8_UNORM
         self.cursor = (0.0, 0.0)
         self._drag_origin = self._drag_press_screen = (0, 0)
-        self._cur_pos = self._saved_window_pos = (160, 80)
+        fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(min(WINDOW_WIDTH, WINDOW_HEIGHT))
+        self._windowed_size = (int(fitted_w), int(fitted_h))
+        self._windowed_offset = (int(fitted_x), int(fitted_y))
+        self.width, self.height = self._windowed_size
+        self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
-        self._extent = (WINDOW_WIDTH, WINDOW_HEIGHT)
+        self._extent = self._windowed_size
         self._ubo_flat = (F32 * 36)()
         self._ubo_flat_ptr = byref(self._ubo_flat)
 
@@ -464,11 +468,12 @@ class LiquidVisualizerVulkanRenderer:
         self._window = self._create_window()
         if not self.target_4k and not _IS_WIN and not _IS_MAC:
             try:
+                offset_x, offset_y = self._windowed_offset
                 place_on_main_screen(
                     self.set_window_pos,
                     self.x11_window() or 0,
-                    160,
-                    80,
+                    offset_x,
+                    offset_y,
                     title_contains=self.title,
                 )
             except Exception:
@@ -562,15 +567,17 @@ class LiquidVisualizerVulkanRenderer:
                 g.glfwWindowHintString(0x00024002, b"mp_visualizer")
             except Exception: pass
 
-        w = g.glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, self.title.encode("utf-8"), None, None)
-        if not w: raise RuntimeError("GLFW could not open a 1400x1400 borderless window for Vulkan")
+        ww, wh = self._windowed_size
+        w = g.glfwCreateWindow(ww, wh, self.title.encode("utf-8"), None, None)
+        if not w: raise RuntimeError("GLFW could not open a borderless window for Vulkan")
         if hasattr(g, "glfwSetWindowAttrib"):
             try: g.glfwSetWindowAttrib(w, GLFW_AUTO_ICONIFY, GLFW_FALSE)
             except Exception: pass
-        try: g.glfwSetWindowSizeLimits(w, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
+        try: g.glfwSetWindowSizeLimits(w, ww, wh, ww, wh)
         except Exception: pass
 
-        ix, iy = main_desktop_origin(160, 80)
+        ox, oy = self._windowed_offset
+        ix, iy = main_desktop_origin(ox, oy)
         if getattr(self, "target_4k", False):
             m4k = self._find_4k_monitor()
             if m4k:
@@ -670,7 +677,7 @@ class LiquidVisualizerVulkanRenderer:
     def toggle_fullscreen(self) -> bool:
         if not getattr(self, "_window", None) or not getattr(self, "_glfw", None):
             self.is_fullscreen = not self.is_fullscreen
-            self.width, self.height = (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT) if self.is_fullscreen else (WINDOW_WIDTH, WINDOW_HEIGHT)
+            self.width, self.height = (RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT) if self.is_fullscreen else self._windowed_size
             return self.is_fullscreen
 
         g, w = self._glfw, self._window
@@ -701,16 +708,17 @@ class LiquidVisualizerVulkanRenderer:
                 except Exception: pass
             self._resize = True
         else:
-            rx, ry = getattr(self, "_saved_window_pos", (160, 80))
+            rx, ry = getattr(self, "_saved_window_pos", self._windowed_offset)
+            ww, wh = self._windowed_size
             self.is_fullscreen, self._user_toggled_windowed = False, True
-            self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
+            self.width, self.height = ww, wh
             if hasattr(g, "glfwSetWindowAttrib"):
                 try: g.glfwSetWindowAttrib(w, GLFW_FLOATING, GLFW_FALSE)
                 except Exception: pass
-            g.glfwSetWindowMonitor(w, None, int(rx), int(ry), WINDOW_WIDTH, WINDOW_HEIGHT, 0)
-            try: g.glfwSetWindowSizeLimits(w, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
+            g.glfwSetWindowMonitor(w, None, int(rx), int(ry), ww, wh, 0)
+            try: g.glfwSetWindowSizeLimits(w, ww, wh, ww, wh)
             except Exception: pass
-            g.glfwSetWindowSize(w, WINDOW_WIDTH, WINDOW_HEIGHT)
+            g.glfwSetWindowSize(w, ww, wh)
             g.glfwSetWindowPos(w, int(rx), int(ry))
             self._cur_pos = (int(rx), int(ry))
             self._resize = True
@@ -771,7 +779,7 @@ class LiquidVisualizerVulkanRenderer:
     def window_size(self) -> Tuple[int, int]:
         w, h = c_int(), c_int()
         self._glfw.glfwGetWindowSize(self._window, byref(w), byref(h))
-        if not self.is_fullscreen: return WINDOW_WIDTH, WINDOW_HEIGHT
+        if not self.is_fullscreen: return self._windowed_size
         if self._is_4k_cached or w.value >= FOUR_K_MIN_WIDTH or h.value >= FOUR_K_MIN_HEIGHT:
             return RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
         return int(w.value), int(h.value)
@@ -811,10 +819,11 @@ class LiquidVisualizerVulkanRenderer:
             else:
                 ww, wh = c_int(), c_int()
                 g.glfwGetWindowSize(w, byref(ww), byref(wh))
-                if (ww.value, wh.value) != (WINDOW_WIDTH, WINDOW_HEIGHT):
-                    g.glfwSetWindowSize(w, WINDOW_WIDTH, WINDOW_HEIGHT)
+                locked_w, locked_h = self._windowed_size
+                if (ww.value, wh.value) != (locked_w, locked_h):
+                    g.glfwSetWindowSize(w, locked_w, locked_h)
                     self._resize = True
-                self.width, self.height = WINDOW_WIDTH, WINDOW_HEIGHT
+                self.width, self.height = locked_w, locked_h
         else:
             if hasattr(g, "glfwGetWindowAttrib") and hasattr(g, "glfwRestoreWindow"):
                 try:
@@ -1491,7 +1500,8 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
     try:
         renderer.open()
         ww, wh = renderer.window_size()
-        if (ww, wh) != (1400, 1400): raise RuntimeError(f"Expected fixed 1400x1400 window, got {ww}x{wh}")
+        if ww != wh or not (64 <= ww <= WINDOW_WIDTH):
+            raise RuntimeError(f"Expected a square window up to {WINDOW_WIDTH}, got {ww}x{wh}")
 
         for _ in range(5):
             bridge.update(0.12, force_playing=True, synthetic_audio=True)
@@ -1504,9 +1514,9 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
 
         bridge.update(0.15, force_playing=True, synthetic_audio=True)
         pixels = renderer.draw(bridge, capture=True)
-        if not pixels: raise RuntimeError("Vulkan swapchain did not produce a readable 1400x1400 frame")
+        if not pixels: raise RuntimeError(f"Vulkan swapchain did not produce a readable {ww}x{wh} frame")
         w, h, bgra = pixels
-        if (w, h) != (1400, 1400): raise RuntimeError(f"Expected 1400x1400 framebuffer, got {w}x{h}")
+        if (w, h) != (ww, wh): raise RuntimeError(f"Expected {ww}x{wh} framebuffer, got {w}x{h}")
 
         if png_path:
             save_png(png_path, w, h, bgra, swap_rb=(renderer.format != FORMAT_R8G8B8A8_UNORM))

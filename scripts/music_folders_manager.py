@@ -618,7 +618,11 @@ def disconnect_folder(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[bool, 
             commands.append(["fusermount", "-uz", str(md)])
         commands.append(["umount", "-l", str(md)])
         for cmd in commands:
-            subprocess.run(cmd, capture_output=True, text=True)
+            # A wedged FUSE mount can leave fusermount blocked. Give up and kill rclone.
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
             if not _is_mountpoint(md):
                 break
     _kill_rclone_mount(md)
@@ -814,21 +818,18 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
 
 def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None,
                        interactive: bool = True) -> Optional[List[Dict[str, Any]]]:
-    if progress_cb:
-        progress_cb(f"Connecting to {display_path(f)}...")
-
-    # SMB listings go through rclone with the saved login. Walking the FUSE
-    # mount hangs when that mount was started without a username and password.
+    # SMB listings go through rclone with the saved login. Do not mount first:
+    # a wedged FUSE mount hangs on connect, and the folders after it never get
+    # a playlist. Playback mounts the share later, when a track is opened.
     if f.get("type") == "smb" and not IS_WINDOWS and shutil.which("rclone"):
-        ok, msg = connect_folder(f, config, interactive=interactive)
-        if progress_cb and not ok:
-            progress_cb(msg)
         tracks = _scan_rclone(f, config, progress_cb)
         if tracks is None:
             return None
         tracks.sort(key=lambda t: t["subpath"].lower())
         return tracks
 
+    if progress_cb:
+        progress_cb(f"Connecting to {display_path(f)}...")
     root, _ = access_path(f, config)
     if not root:
         ok, msg = connect_folder(f, config, interactive=interactive)
@@ -905,6 +906,8 @@ def generate_advance_playlists(target: str = ALL_TARGET, config: Optional[Dict[s
             print(f"  {BOLD}{RED}✖ Could not list {f['name']}. Its playlist was left unchanged.{NC}\n", flush=True)
             continue
         save_playlist_files(tracks, f["id"], config, title=f["name"])
+        # Keep the combined playlist current if a later folder stalls or fails.
+        total = rebuild_all_playlist(folders, config)
         print(f"  {BOLD}{GREEN}✓ Saved {f['name']} Playlist:{NC} {len(tracks):,} tracks\n", flush=True)
     total = rebuild_all_playlist(folders, config)
     print(f"  {BOLD}{GREEN}✔ Playlist Generation Complete ({total:,} total tracks in ALL){NC}")

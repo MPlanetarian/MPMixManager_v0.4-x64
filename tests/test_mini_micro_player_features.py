@@ -8,6 +8,7 @@ Unit tests for MP Audio Player MINI and MICRO modes:
 - KWin rules provisioning for fixed window size / no resize / no maximize
 """
 
+import os
 import unittest
 import sys
 import tempfile
@@ -79,6 +80,14 @@ class TestMiniMicroPlayerFeatures(unittest.TestCase):
             self.assertIn("MP Micro Audio Player (Fixed Size)", content)
             self.assertIn("maximizehoriz = false", content)
             self.assertIn("maximizevert = false", content)
+
+    def test_visible_size_ignores_menu_lines_and_columns(self):
+        """The menu's LINES and COLUMNS must not replace the new window's real size."""
+        with mock.patch.dict(os.environ, {"LINES": "80", "COLUMNS": "220"}, clear=False), \
+             mock.patch("sys.stdout.isatty", return_value=True), \
+             mock.patch("sys.stdout.fileno", return_value=1), \
+             mock.patch("os.get_terminal_size", return_value=os.terminal_size((110, 36))):
+            self.assertEqual(MP_Audio_Player._win_visible_size(), (110, 36))
 
     def test_m_from_normal_opens_mini_player_in_new_window(self):
         """Pressing m or M in the full player opens the Mini Player in a new console window."""

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Switch MP Audio Player between Mix Archive and Music playlists."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,35 @@ def _ui(mode="MIX_ARCHIVE", remote=False):
     ui.inspector_hud_active = False
     ui.ui_size_mode = "NORMAL"
     return ui
+
+
+class MusicFolderPlaylistLoadTests(unittest.TestCase):
+    def test_named_folder_does_not_load_the_combined_playlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            playlists = root / "PLAYLISTS_GENERATED"
+            playlists.mkdir()
+            (playlists / "DJ_Tracks_ALL_MUSIC_FOLDERS.json").write_text(
+                '[{"name":"Only DATAMAC1.mp3","path":"/music/DATAMAC1/a.mp3","folder":"DATAMAC1"}]',
+                encoding="utf-8",
+            )
+            (root / "DATAMAC3").mkdir()
+            previous = os.getcwd()
+            os.chdir(root)
+            try:
+                with patch.object(player, "get_base_dir", return_value=root):
+                    missing = player.MusicFolderPlaylistScanner("DATAMAC3")
+                    self.assertEqual(missing.mixes, [])
+                    self.assertEqual(missing.folder_name, "DATAMAC3")
+                    (playlists / "DJ_Tracks_DATAMAC3.json").write_text(
+                        '[{"name":"Cabin Fever.mp3","path":"/music/DATAMAC3/cabin.mp3","folder":"DATAMAC3"}]',
+                        encoding="utf-8",
+                    )
+                    loaded = player.MusicFolderPlaylistScanner("DATAMAC3")
+            finally:
+                os.chdir(previous)
+            self.assertEqual([track["name"] for track in loaded.mixes], ["Cabin Fever.mp3"])
+            self.assertEqual(loaded.folder_name, "DATAMAC3")
 
 
 class LibraryModeSwitchTests(unittest.TestCase):
