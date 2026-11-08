@@ -450,7 +450,7 @@ added_count=$(( ${after_count:-0} - ${ARCHIVE_BEFORE_COUNT:-0} )); added_bytes=$
 growth=$(awk -v a="$added_bytes" -v b="${ARCHIVE_BEFORE_BYTES:-0}" 'BEGIN { if (b > 0) printf "+%.2f%%", a / b * 100; else print "new archive" }')
 free_bytes=$(df -Pk "$OUTPUT_DIR" 2>/dev/null | awk 'NR == 2 { printf "%d", $4 * 1024 }' || echo 0)
 echo ""; themed_header "📀  MIX ARCHIVE STATS - ACCUMULATION AFTER THIS CONVERSION" "$MAGENTA"
-printf '%b\n' "  ${BOLD}${CYAN}Archive folder:${NC}   $(get_abs_path "$OUTPUT_DIR" 2>/dev/null || echo "$OUTPUT_DIR")" "  ${BOLD}${CYAN}Format:${NC}           ${OUTPUT_LABEL} (*.${OUTPUT_EXT})" "${DIM}${BLUE}${SOF_RULE_LIGHT}${NC}" "  ${BOLD}${CYAN}Mixes before:${NC}     $(printf '%-8s' "${ARCHIVE_BEFORE_COUNT:-0}") ${BOLD}${CYAN}Size before:${NC} $(fmt_bytes "${ARCHIVE_BEFORE_BYTES:-0}")" "  ${BOLD}${GREEN}Newly added:${NC}      ${BOLD}${GREEN}$(printf '%-8s' "+${added_count}")${NC} ${BOLD}${GREEN}Size added:${NC}  ${BOLD}${GREEN}+$(fmt_bytes "$added_bytes")${NC}" "  ${BOLD}${YELLOW}Mixes now:${NC}        ${BOLD}${YELLOW}$(printf '%-8s' "${after_count:-0}")${NC} ${BOLD}${YELLOW}Size now:${NC}    ${BOLD}${YELLOW}$(fmt_bytes "${after_bytes:-0}")${NC}" "  ${BOLD}${CYAN}Archive growth:${NC}   ${growth} by size"
+printf '%b\n' "  ${BOLD}${CYAN}Archive folder:${NC}   $(get_abs_path "$OUTPUT_DIR" 2>/dev/null || echo "$OUTPUT_DIR")" "  ${BOLD}${CYAN}Format:${NC}           ${OUTPUT_LABEL} (*.${OUTPUT_EXT})" "${DIM}${BLUE}${SOF_RULE_LIGHT}${NC}" "  ${BOLD}${CYAN}Mixes before:${NC}     $(printf '%-8s' "${ARCHIVE_BEFORE_COUNT:-0}") ${BOLD}${CYAN}Size before:${NC} $(fmt_bytes "${ARCHIVE_BEFORE_BYTES:-0}")" "  ${BOLD}${GREEN}Newly added:${NC}      ${BOLD}${GREEN}$(printf '%-8s' "+${added_count}")${NC} ${BOLD}${GREEN}Size added:${NC}  ${BOLD}${GREEN}+$(fmt_bytes "$added_bytes")${NC}" "  ${BOLD}${YELLOW}Mixes now:${NC}        ${BOLD}${YELLOW}$(printf '%-8s' "${after_count:-0}")${NC} ${BOLD}${YELLOW}Size now:${NC}    ${BOLD}${YELLOW}$(fmt_bytes "$after_bytes")${NC}" "  ${BOLD}${CYAN}Archive growth:${NC}   ${growth} by size"
 if [ "${free_bytes:-0}" -gt 0 ] 2>/dev/null; then printf '%b\n' "  ${BOLD}${CYAN}Free space left:${NC}  $(fmt_bytes "$free_bytes") on the archive drive"; fi
 printf '%b\n' "${DIM}${BLUE}${SOF_RULE_LIGHT}${NC}" "  ${BOLD}${MAGENTA}Added in this batch:${NC}"
 for f in "${newly_exported_flacs[@]}"; do if [ -f "$f" ]; then sz=$(file_size_bytes "$f"); dur=$(probe_duration_seconds "$f"); printf '%b\n' "   ${BOLD}${GREEN}✓${NC} ${f##*/}  ${DIM}│${NC} ${BOLD}$(fmt_bytes "$sz")${NC} ${DIM}│${NC} $(fmt_hms "$dur")"; fi; done
@@ -512,7 +512,7 @@ select_menu_option "YOUTUBE VIDEO RESOLUTION" "Select YouTube Video Resolution:"
 for vcand in "$SCRIPT_DIR/generate_youtube_video.sh" "$PARENT_DIR/generate_youtube_video.sh" "${MIX_ARCHIVE_DIR:-}/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/generate_youtube_video.sh" "$SCRIPT_DIR/Make_SOF_Episode_From_PNG_FLAC_Output_MP4_1080p_Video.sh"; do if [ -f "$vcand" ]; then vid_script="$vcand"; break; fi; done
 for exp_audio in "${newly_exported_flacs[@]}"; do if [ -f "$exp_audio" ]; then cov_for_vid="$(find_cover_for_audio "$exp_audio")"; echo " -> Generating YouTube video for ${exp_audio##*/}..."; if [ -n "$vid_script" ]; then if [[ "$vid_script" == *"generate_youtube_video.sh" ]]; then bash "$vid_script" -r "$vid_res" -i "$exp_audio" -c "$cov_for_vid" -o "${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}" </dev/tty; else bash "$vid_script" "$exp_audio" "$cov_for_vid" </dev/tty; fi; else echo "WARNING: YouTube video generation script not found."; fi; fi; done ;;
 *) echo " -> Skipping YouTube video generation." >/dev/tty ;;
-esac
+es:
 fi
 local aud_opts=(
 "n|Skip Audacity Post-Processing|(Default, finish conversion)"
@@ -565,10 +565,15 @@ fi
 total_size_bytes=0
 for file in "${search_list[@]}"; do
 if [ ! -e "$file" ]; then continue; fi; abs_file=$(get_abs_path "$file"); if [ ! -f "$abs_file" ]; then continue; fi
+size=$(file_size_bytes "$abs_file")
+if [ "${size:-0}" -eq 0 ]; then
+echo " -> WARNING: Skipping zero-byte WAV file: ${abs_file##*/}"
+continue
+fi
 file_hash=$(get_str_hash "$abs_file"); if [ -f "$GROUP_TMP_DIR/seen_${file_hash}" ]; then continue; fi; : > "$GROUP_TMP_DIR/seen_${file_hash}"
 base_name=$(get_session_base_name "$file"); base_name="${base_name##*/}"; base_hash=$(get_str_hash "$base_name")
 if [ ! -f "$GROUP_TMP_DIR/group_${base_hash}.base" ]; then printf '%s\n' "$base_name" > "$GROUP_TMP_DIR/group_${base_hash}.base"; group_keys+=("$base_hash"); fi
-printf '%s\n' "$abs_file" >> "$GROUP_TMP_DIR/group_${base_hash}.wavs"; size=$(file_size_bytes "$abs_file"); total_size_bytes=$((total_size_bytes + ${size:-0}))
+printf '%s\n' "$abs_file" >> "$GROUP_TMP_DIR/group_${base_hash}.wavs"; total_size_bytes=$((total_size_bytes + ${size:-0}))
 done
 total_groups=${#group_keys[@]}; if [ "$total_groups" -eq 0 ]; then echo "Error: No matching .wav files found to process."; exit 1; fi
 echo "Found $total_groups unique audio session group(s) to process."
