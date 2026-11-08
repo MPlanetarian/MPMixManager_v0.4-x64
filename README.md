@@ -15,7 +15,7 @@
 [![Audio](https://img.shields.io/badge/Audio-32bit%20Lossless%20FLAC%20%7C%20EBU%20R128-00ff66.svg)]()
 [![Player](https://img.shields.io/badge/MP%20Audio%20Player-Mini%20%26%20Micro%20Modes%20%7C%2031K%2B%20SMB%20Tracks-bd93f9.svg)](MP_Audio_Player.py)
 [![Web Companion](https://img.shields.io/badge/Web%20Companion-DJ%20Booth%20Remote%20%3A8888-ff007f.svg)](mix_web_companion.py)
-[![AI Suite](https://img.shields.io/badge/AI%20Suite-Harmony%20%7C%20Matrix%20XTTS--v2%20%7C%20Infinite%20Talker%20%7C%20WAN2GP-9b59b6.svg)](scripts/manage_harmony_agent.sh)
+[![WAN2GP](https://img.shields.io/badge/WAN2GP-Infinite%20Talker%20%7C%20XTTS--v2%20%7C%20Ollama-9b59b6.svg)](scripts/wan2gp.sh)
 [![MP Reporter](https://img.shields.io/badge/MP%20Reporter-Daily%2FWeekly%2FMonthly%2FYearly%20%2B%20AI%20Brain%20Logs-00e5ff.svg)](mp_report_generator.py)
 [![Alarm Clock](https://img.shields.io/badge/Alarm%20Clock-Steam%20%26%20FLAC%20Mix%20(Linux)-FF5722.svg)](mplanetarians-alarm-clock/README.md)
 [![Congen](https://img.shields.io/badge/Congen%20v1.1-KDE%20Connect%2018--Theme%20Workstation%20Bridge-1D99F3.svg)](Congen/README.md)
@@ -136,8 +136,8 @@ An enterprise-grade workstation orchestration console and media management suite
 | **🎧 Bluetooth Auto-Routing** | **[Live Sink Switcher (`[a]` Key)](monitor_bluetooth_audio.py)** | Real-time `pactl subscribe` event listener + 1.2s heartbeat monitor for Bluetooth headphones (Skullcandy Crusher ANC 2, Sony WH-1000XM, AirPods, Bose). Auto-switches the default PipeWire/PulseAudio sink and live-migrates active audio streams (`pactl move-sink-input`) while respecting manual sink overrides. |
 | **⚡ Zero-Fork Low-Spec Engine** | **[Mix_Archive_Manager.sh](Mix_Archive_Manager.sh) & [.probe_mgr.sh](.probe_mgr.sh)** | Massive performance rewrite for slow/low-spec hardware: reduced `Mix_Archive_Manager.sh` from 13,572 → **1,978 lines** (-85%) and `.probe_mgr.sh` from 14,583 → **264 lines** (-98% line count) by eliminating subshell forks (`$(...)`), external `awk`/`sed`/`grep`/`wc` calls, and redundant DOM/IPC overhead. |
 | **📊 MP Reporter & AI Brain Logs** | **[Option 27: MP Reporter Suite](mp_report_generator.py)** | Automated **Daily, Weekly, Monthly, and Yearly** intelligence reports (`mp_report_generator.py`, `mp_scheduled_reporter.sh`, `manage_mp_reporter.sh`) with consolidated PDF/HTML rendering, `REPORTS/{DAILY,WEEKLY,MONTHLY,YEARLY}` hierarchy, interactive 12-month calendar dashboard, **Daily AI Brain Logs reporter** (scanning Gemini, Grok & local models), **Stephen Hawking AI Voice TTS audio briefings**, and automated **SMTP daily email delivery** (`mp_email_manager.sh`). |
-| **🕶️ Matrix & Hawking Voice Lab** | **[Ollama & WAN2GP Voice Suite](scripts/wan2gp_tts_batch.py)** | Expanded local XTTS-v2 neural voice cloning and Edge-TTS with **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)**, plus automatic voice chat recording to the **MP Harmony Agent Audio Speech Archive**. |
-| **🎬 WAN2GP Infinite Talker & Monitors** | **[Infinite Talker & Output Monitors](scripts/wan2gp.sh)** | Integrated **WAN2GP Infinite Talker** in Option 33 and MP Reporter to generate talking-head AI videos (including Stephen Hawking video briefings) with custom duration and auto-venv detection; added **WAN2GP Video Output Monitor (`--wan2gp-monitor`)**, **Audio/Video File Output Monitor (`--audio-monitor`)**, and one-click WAN2GP upstream Git updater. |
+| **🕶️ Matrix & Hawking Voice Lab** | **[Ollama & WAN2GP Voice Suite](scripts/wan2gp_tts_batch.py)** | Expanded local XTTS-v2 neural voice cloning and Edge-TTS with **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)**. |
+| **🎬 WAN2GP Infinite Talker & Monitors** | **[Infinite Talker & Output Monitors](scripts/wan2gp.sh)** | **WAN2GP Infinite Talker** and MP Reporter generate talking-head AI videos (including Stephen Hawking video briefings) with custom duration and auto-venv detection; added **WAN2GP Video Output Monitor (`--wan2gp-monitor`)**, **Audio/Video File Output Monitor (`--audio-monitor`)**, and one-click WAN2GP upstream Git updater. |
 | **🦙 Ollama 32K CUDA & Open WebUI** | **[manage_ollama.sh](scripts/manage_ollama.sh)** | Optimized Ollama local LLMs with a **32K context window** (`num_ctx 32768`), CUDA flash-attention tuning, automatic GPU VRAM unloading, **Open WebUI v0.12.2** support, and interactive **DSH Mobile Token Manager** (`dsh_mobile.sh`). |
 | **📱 Congen v1.1 & Deduplicator** | **[Congen v1.1](Congen/Congen) & [find_duplicate_mixes.py](find_duplicate_mixes.py)** | Upgraded **Congen to v1.1** with an expanded **18-theme palette** (adding Old Style Unix Terminal Retro, Matrix, Solarized, Tokyo Night, Monokai, Gruvbox, Emerald) and workstation bridge; refactored `find_duplicate_mixes.py` for deterministic O(1) partial-hash pre-filtering and safe non-interactive execution. |
 
@@ -156,7 +156,6 @@ An enterprise-grade workstation orchestration console and media management suite
 | **📱 Mobile Remote Suite** | **[Congen v1.1](Congen/README.md)** | Full-featured KDE Connect interactive CLI manager with **11 menus**, **18 TrueColor palettes**, desktop shortcut runner/binder (`kioclient` & `kwriteconfig6`), algorithmic 2-tone synthetic chime sound daemon (`.congen_alert.wav`), multi-format manual generator (Plain Text, dark HTML5, PDF fallback cascade), mobile keyboard simulation (Wayland/X11), and 30+ bundled `.congen` profiles with multi-device deduplication. |
 | **🎥 YouTube Video Suite** | **[Screencast NVENC Generator](scripts/generate_screencast_youtube_video.py)** | Generates 1080p/4K YouTube videos with NVIDIA NVENC hardware acceleration (`h264_nvenc`), 5-second intro/outro fade effects, periodic 5-second image transition cycles every 5 minutes (cycling artwork), source-matched or 320kbps looped studio AAC audio, and uniform 90000 timescale stream architecture. |
 | **🗣️ AI Video & Audio** | **[WAN2GP TTS & Infinite Talker](scripts/wan2gp_tts_batch.py)** | Integrated Text-to-Speech batch converter and XTTS-v2 voice cloner transforming `.txt` scripts into uncompressed `.wav` audio and **Infinite Talker** talking-head AI videos alongside Flux Klein 9B and LTX Video 2B/13B video generators. |
-| **🎙️ AI Voice Autonomy** | **[MP Harmony AI Voice Agent](scripts/manage_harmony_agent.sh)** | Autonomous engineering agent running on port 11435 with background setsid detachment, zero-lag port readiness wait, model tag sanitization, automatic speech archiving, and interactive **Voice Chat CLIs** (`local-voice-talk` for MP Harmony Bridge and local Ollama models with Matrix & Stephen Hawking voice cloning). |
 | **🎛️ Audio Mastering & Storage** | **Multi-Archive Routing** | Ingest and batch-convert across multiple physical drives (`MIX_ARCHIVE_DIR` & `EXTRA_MIX_ARCHIVE_DIRS`), with origin-aware output routing that deposits converted FLACs and spectrograms back to their respective origin drives. |
 | **🎧 Terminal Audio Player** | **[MP Audio Player](MP_Audio_Player.py)** | "DREAMWORLDS ULTRA AUDIO MODE" expanded layout, **Native File Reveal (`F` key)**, **MP Mini & Micro Modes (`M` key)**, **In-Player Spek Generator (`G` key)**, **Track Audio Inspector HUD (`I` key)**, instant tracklist viewer (`T` key & `--tracklist`), and universal playlist exporter (`E` key & `--export-playlist`) strictly saving to `.m3u` files. |
 | **📱 Social Media Outreach** | **[YouTube Shorts Generator](generate_youtube_short_promo.py)** | 1080x1920 60fps vertical promo videos with animated waveform overlays for TikTok, Instagram Reels, and YouTube Shorts. |
@@ -466,17 +465,15 @@ flowchart LR
 ## 🤖 Spotlight: Next-Gen AI Orchestration, Matrix Voice Lab & Infinite Talker Suite
 
 > [!IMPORTANT]
-> **Orchestrate Local LLMs, Matrix & Stephen Hawking Neural Voice Cloning, Infinite Talker AI Video Synthesis, and System Diagnostics from One Central Hub!** Main menu **Option 33** unites local and remote artificial intelligence pipelines:
+> **Local LLMs, Matrix and Stephen Hawking voice cloning, Infinite Talker video, and workstation diagnostics are command-line tools.** They are not on the main menu. Option 33 opens the system and Bash monitor, and option 34 opens the MOTD banner manager and drive burner.
 
 ```mermaid
 flowchart TD
-    A["🤖 AI Assistant & Local LLM Servers Suite (Option 33)"] --> B["🎙️ MP Harmony AI Agent (:11435)"]
-    A --> C["🌐 Open WebUI v0.12.2 Chat Harness (:42004 / :8080)"]
+    A["🤖 Local AI Tools (CLI, not a main-menu option)"] --> C["🌐 Open WebUI v0.12.2 Chat Harness (:42004 / :8080)"]
     A --> D["🦙 Ollama Server & 32K CUDA Models (:11434)"]
     A --> E["📱 DeepSeek Harness Server dsh-mobile (:3080)"]
     A --> F["🎥 WAN2GP AI Video, Infinite Talker & TTS Suite"]
     A --> G["📊 Beszel Workstation & GPU Hub (:8090)"]
-    B --> B1["🗣️ Matrix & Stephen Hawking Voice Chat CLI + Speech Archive"]
     D --> D1["⚡ 32K Context CUDA Flash-Attention & Auto VRAM Unload"]
     F --> F1["🗣️ XTTS-v2 & Edge-TTS Voice Cloning Batch Converter"]
     F --> F2["🎬 WAN2GP Infinite Talker (Talking-Head AI Video)"]
@@ -484,17 +481,16 @@ flowchart TD
 ```
 
 ### 🧠 AI Suite Capabilities:
-- 🎙️ **MP Harmony AI Agent & Speech Archive** (`manage_harmony_agent.sh` / Option 33.4): Autonomous engineering agent and voice bridge running on port 11435. Includes background daemon with setsid detachment, zero-lag port readiness wait, automatic speech recording to the **MP Harmony Agent Audio Speech Archive**, and interactive **Voice Chat CLIs** (`local-voice-talk` for Harmony Agent or local Ollama models).
 - 🕶️ **Matrix Cast & Stephen Hawking Voice Cloning Lab**: Full neural XTTS-v2 and Edge-TTS voice synthesis featuring **Agent Smith / Elrond (Hugo Weaving)**, **5 Morpheus variants** (Construct, Red Pill, Dojo, System, Classic), **Neo**, **Trinity**, **The Oracle**, **Zion**, and **Stephen Hawking (Enters the Matrix)** with authentic acoustic pacing.
 - 🎬 **WAN2GP Infinite Talker AI Video & Output Monitors** (`wan2gp.sh`, `wan2gp_tts_batch.py`, `wan2gp_flux_batch.py`, `wan2gp_ltx_batch.py`):
   - **Infinite Talker Integration**: Generates talking-head AI videos (including Stephen Hawking talking-head video briefings) with configurable video length and automatic Python `.venv` discovery.
   - **Live Output Monitors**: Dedicated real-time **WAN2GP Video Output Monitor (`--wan2gp-monitor`)** and **Audio/Video File Output Monitor (`--audio-monitor`)**, plus one-click WAN2GP upstream Git updating.
   - **Text-to-Speech (TTS) Batch Suite**: Converts `.txt` scripts into uncompressed `.wav` speech audio with Matrix/Hawking/British neural voices and interactive playback.
   - **Video Batch Generators**: Flux Klein 9B and LTX Video 2B/13B generation profiles (Profiles 2 and 4.5).
-- 🌐 **Open WebUI v0.12.2 Web Chat** (`scripts/manage_open_webui.sh` / Option 33.3): Browser-based chat interface connected to local models on port 42004 / 8080 with automatic version update support.
-- 🦙 **Ollama Server & 32K CUDA Models** (`manage_ollama.sh` / Option 33.2): Distrobox / host controller on port 11434 tuned for **32K context windows (`num_ctx 32768`)**, CUDA flash-attention, automatic GPU VRAM unloading, model puller (`qwen2.5`, `llama3.1`, `nemotron`), and CLI voice/text chat.
-- 📱 **DeepSeek Harness (`dsh-mobile`) & Token Manager** (`scripts/dsh_mobile.sh` / Option 33.5): Web chat harness on port 3080 optimized for mobile devices with interactive access token management.
-- 📊 **Beszel Server Monitoring Hub & Agent** (`beszel.sh` / Option 33.7): Real-time hardware, CPU, NVIDIA GPU, and container telemetry web dashboard on port 8090.
+- 🌐 **Open WebUI v0.12.2 Web Chat** (`scripts/manage_open_webui.sh`): Browser-based chat interface connected to local models on port 42004 / 8080 with automatic version update support.
+- 🦙 **Ollama Server & 32K CUDA Models** (`manage_ollama.sh`): Distrobox / host controller on port 11434 tuned for **32K context windows (`num_ctx 32768`)**, CUDA flash-attention, automatic GPU VRAM unloading, model puller (`qwen2.5`, `llama3.1`, `nemotron`), and CLI voice/text chat.
+- 📱 **DeepSeek Harness (`dsh-mobile`) & Token Manager** (`scripts/dsh_mobile.sh`): Web chat harness on port 3080 optimized for mobile devices with interactive access token management.
+- 📊 **Beszel Server Monitoring Hub & Agent** (`beszel.sh`): Real-time hardware, CPU, NVIDIA GPU, and container telemetry web dashboard on port 8090.
 
 ---
 
@@ -886,7 +882,6 @@ chmod +x manager_freebsd.sh install.sh
 | **31**| **Desktop Display Settings, Audio Routing & App Control** | Desktop manager (`manage_desktop_and_display`): switch between Plasma Wayland and X11 on Linux; align mix windows via KDE KWin DBus / X11 (`align_mix_windows.py`); open macOS / Windows Display and Sound Settings; and gracefully close external desktop applications (`close_allapps.sh`). |
 | **32**| **Universal System Maintenance & Cleanup** | OS-tailored maintenance (`manage_system_maintenance`): Linux (`ujust clean-system`, `dnf5 clean`, systemd journal vacuum, SSD fstrim, system RAM & PageCache drop `sudo sync && drop_caches=3` with swap cycling), macOS (`brew cleanup` & `sudo purge`), Windows (`winget upgrade --all`, temp clean, TRIM), and FreeBSD (`pkg clean`/`upgrade`). |
 | **33**| **Monitor System Processes and Bash Commands with System Info** | Real-time terminal diagnostic monitor (`MP_Monitor_Bash.sh`): opens a dedicated terminal tab tracking system vitals, active CPU load, RAM usage, and Bash execution history. |
-| **34**| **AI Assistant & Local LLM Servers Suite** | Complete AI control center (`manage_ai_and_servers`): Antigravity CLI AI assistant sessions (Claude Sonnet/Opus, GPT-OSS, Gemini); Ollama local LLM server with 32K CUDA context (:11434); Open WebUI v0.12.2 web chat harness (:42004 / :8080); MP Harmony AI Agent with background daemon, Speech Archive, and Matrix/Hawking Voice Chat CLI `local-voice-talk` (:11435); DeepSeek Harness mobile web server & token manager (:3080); WAN2GP AI Video, **Infinite Talker**, & XTTS-v2/Edge-TTS batch suite (`wan2gp_tts_batch.py`); and Beszel server monitoring hub & agent (:8090). |
 | **34**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting live running kernel (`uname -r`), recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
 | **35**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch between 14+ TrueColor terminal themes (including MPlanetarian Dreamworlds, Dreamworlds Ultra, Cosmic Supernova Special Edition, and Old Style Unix Terminal Retro); manage installation paths, snapshot backups, and portable config bundle export/import (`manage_installation_config.sh`); execute interactive Bash CLI commands; automated manager updater (`update_manager.sh`); and cross-platform reboot. |
 | **37**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
@@ -943,8 +938,6 @@ mix-archive-manager --alarm brief     # Display morning brief: weather, hardware
 mix-archive-manager --alarm 07:30     # Schedule morning alarm for 07:30 AM
 
 # AI, Voice Cloning & LLM Servers
-mix-archive-manager --harmony         # Manage MP Harmony AI Agent (:11435)
-mix-archive-manager --harmony-voice   # Launch Matrix/Hawking Voice Chat CLI (local-voice-talk)
 mix-archive-manager --open-webui      # Launch Open WebUI v0.12.2 web chat harness (:42004 / :8080)
 mix-archive-manager --ollama-serve    # Start Ollama 32K CUDA server in background (:11434)
 mix-archive-manager --ollama-chat     # Open interactive terminal/voice chat with local LLM
@@ -1075,7 +1068,6 @@ MP_Mix_Manager_v0.4/
 ├── send_notification.sh         # Unified notification dispatcher (Desktop, Discord, Telegram, Pushover)
 ├── shop_music.sh                # Parallel music store quick-launcher (Beatport, Apple, Bandcamp)
 │
-├── manage_harmony_agent.sh      # MP Harmony AI Agent manager, Speech Archive & Voice Chat CLI (:11435)
 ├── manage_ollama.sh             # Ollama 32K CUDA server, models manager & Matrix voice chat (:11434)
 ├── dsh_mobile.sh                # DeepSeek Harness mobile web server & token manager (:3080)
 ├── wan2gp.sh                    # WAN2GP AI Video & Infinite Talker server runner (Profiles 2 & 4.5)
