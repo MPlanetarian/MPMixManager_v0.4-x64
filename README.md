@@ -768,9 +768,9 @@ For a fresh, step-by-step installation guide from a clean Bazzite Linux setup, s
 git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64
 
 1. Install the Python Dependencies
-pip3 install sounddevice
+pip3 install sounddevice <--- (Enables Audio Devices)
 python3 -m pip install PyOpenGL <--- YOU MUST INSTALL THESE TO USE MP LIQUID GUI / PLAYER
-python3 -m pip install numpy
+python3 -m pip install numpy 
 
 2. Install the MP Mix Archive Manager Software
 cd ~/MPMixManager_v0.4-x64
