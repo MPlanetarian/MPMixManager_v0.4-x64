@@ -132,14 +132,15 @@ if [ "$KEEP_THEME" -eq 0 ]; then
     printf '%s\n' "$THEME_NAME" > "$HOME/.config/mix-manager/theme"
 fi
 
-if command -v wpctl >/dev/null 2>&1; then
-    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
-    wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 2>/dev/null || true
-fi
-if command -v pactl >/dev/null 2>&1; then
-    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null || true
-    pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
-fi
+#if command -v wpctl >/dev/null 2>&1; then
+#    wpctl set-mute @DEFAULT_AUDIO_SINK@ 0 2>/dev/null || true
+#    wpctl set-volume @DEFAULT_AUDIO_SINK@ 1.0 2>/dev/null || true
+#if 
+
+#if command -v pactl >/dev/null 2>&1; then
+#    pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null || true
+#    pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
+#fi
 
 python3 - "$BASE_DIR" << 'PY' || true
 import sys
