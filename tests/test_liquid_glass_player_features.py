@@ -154,6 +154,63 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
             mock_launch.assert_not_called()
             ui._draw_frame()
 
+    def test_search_m_stays_full_size_and_types_the_letter(self):
+        """M during track search is a letter. It must not switch the Liquid Player to Mini."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_mixes.return_value = []
+        ui = MP_Audio_Player.TerminalPlayerUI(
+            engine=None,
+            scanner=mock_scanner,
+            ui_size_mode="NORMAL",
+            is_remote=True,
+        )
+        ui.search_mode = True
+        ui.search_query = ""
+        flag = Path.home() / ".config" / "mix-manager" / f"liquid_ui_size.{os.getpid()}"
+        flag.unlink(missing_ok=True)
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
+             patch("MP_Audio_Player.launch_mini_player_window") as mock_launch:
+            ui._process_key(b"M")
+            ui._process_key(b"m")
+        self.assertEqual(ui.ui_size_mode, "NORMAL")
+        self.assertEqual(ui.search_query, "Mm")
+        self.assertTrue(ui.search_mode)
+        mock_launch.assert_not_called()
+        self.assertFalse(flag.is_file())
+
+    def test_host_m_key_does_not_resize_and_follows_published_size(self):
+        """The glass window ignores M. It resizes only after the player publishes a new size."""
+        flag = Path.home() / ".config" / "mix-manager" / "liquid_ui_size.4242"
+        flag.unlink(missing_ok=True)
+        try:
+            for mod in (lg_vulkan, lg_opengl):
+                flag.unlink(missing_ok=True)
+                host = mod.GlassHost.__new__(mod.GlassHost)
+                host.mode = "NORMAL"
+                host.child_pid = 4242
+                host.set_mode = MagicMock()
+                event = MagicMock()
+                event.keyval = 109
+                event.state = 0
+                self.assertFalse(mod.GlassHost._on_key_press(host, None, event))
+                host.set_mode.assert_not_called()
+                host._follow_child_ui_size()
+                host.set_mode.assert_not_called()
+                flag.write_text("MINI\n", encoding="utf-8")
+                host._follow_child_ui_size()
+                host.set_mode.assert_called_once_with("MINI")
+                host.mode = "MANAGER"
+                host.set_mode.reset_mock()
+                flag.write_text("MICRO\n", encoding="utf-8")
+                host._follow_child_ui_size()
+                host.set_mode.assert_not_called()
+        finally:
+            flag.unlink(missing_ok=True)
+
+    def tearDown(self):
+        flag = Path.home() / ".config" / "mix-manager" / f"liquid_ui_size.{os.getpid()}"
+        flag.unlink(missing_ok=True)
+
     def test_unselected_playlist_entries_have_high_contrast_bold_white(self):
         """Verifies unselected playlist rows use explicit bold truecolor white so they do not wash out on Liquid Glass."""
         mock_scanner = MagicMock()

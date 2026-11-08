@@ -4834,7 +4834,28 @@ class TerminalPlayerUI:
             5.0,
         )
 
+    def _publish_liquid_ui_size(self) -> None:
+        """Tell the Liquid Glass window the size this player actually applied."""
+        if os.environ.get("MP_LIQUID_GLASS") != "1":
+            return
+        try:
+            from liquid_ui_size import publish_ui_size
+        except ImportError:
+            from scripts.liquid_ui_size import publish_ui_size
+        publish_ui_size(CONFIG_DIR, os.getpid(), self.ui_size_mode)
+
+    def _clear_liquid_ui_size(self) -> None:
+        try:
+            from liquid_ui_size import clear_ui_size
+        except ImportError:
+            try:
+                from scripts.liquid_ui_size import clear_ui_size
+            except ImportError:
+                return
+        clear_ui_size(CONFIG_DIR, os.getpid())
+
     def _cleanup_terminal(self):
+        self._clear_liquid_ui_size()
         fd = getattr(self, "_orig_fd", None)
         old_settings = getattr(self, "_orig_termios", None)
         if fd is not None and old_settings and termios:
@@ -4871,6 +4892,7 @@ class TerminalPlayerUI:
             _set_terminal_title(f"MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player")
         else:
             _set_terminal_title("MP Audio Player")
+        self._publish_liquid_ui_size()
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h\033[2J\033[H"); sys.stdout.flush()
         threading.Thread(target=self._input_loop, daemon=True).start()
         try:
@@ -5102,6 +5124,7 @@ class TerminalPlayerUI:
                     self.ui_size_mode = "MICRO"
                 else:
                     self.ui_size_mode = "NORMAL"
+                self._publish_liquid_ui_size()
                 self._notify(f"Liquid Glass Mode: {self.ui_size_mode}", 2.0)
             elif self.ui_size_mode in ("MINI", "MICRO"):
                 self.ui_size_mode = "MICRO" if self.ui_size_mode == "MINI" else "MINI"

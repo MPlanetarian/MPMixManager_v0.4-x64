@@ -467,11 +467,21 @@ class GlassHost:
         cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
         self._apply_grid(cols, rows)
 
+    def _follow_child_ui_size(self):
+        """Apply the size the player published. M typed into search does not publish a new size."""
+        if self.mode in ("MANAGER", "TRACKLIST"):
+            return
+        from liquid_ui_size import read_ui_size
+        mode = read_ui_size(CONFIG_DIR, int(getattr(self, "child_pid", 0) or 0))
+        if mode and mode != self.mode:
+            self.set_mode(mode)
+
     def _on_key_press(self, _term, event):
+        import gi
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gdk
         kv = getattr(event, "keyval", 0)
-        if kv in (Gdk.KEY_m, Gdk.KEY_M):
-            self.set_mode("MINI" if self.mode == "NORMAL" else ("MICRO" if self.mode == "MINI" else "NORMAL"))
-            return False
+        # M stays with the player. Search uses it as a letter. A real mode change is published back.
         if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
             return True
@@ -670,6 +680,7 @@ class GlassHost:
                 now = time.monotonic()
                 if now - theme_at > 0.4:
                     theme, theme_at = read_player_theme(), now
+                self._follow_child_ui_size()
                 self._sync_panels()
                 self.renderer.draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
@@ -760,6 +771,7 @@ class GlassHost:
                     theme = new_theme
                     if self.terminal is not None:
                         self._apply_glass_foreground(self.terminal, theme)
+            self._follow_child_ui_size()
             self._sync_panels()
             self.renderer.draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
