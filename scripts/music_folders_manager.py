@@ -710,6 +710,8 @@ def _scan_filesystem(root: str, folder_id: str, progress_cb=None) -> List[Dict[s
                     continue
                 
                 real_path = os.path.abspath(e.path)
+                if "logic pro library.bundle" in real_path.lower():
+                    continue
                 if real_path in seen_paths:
                     continue
                 seen_paths.add(real_path)
@@ -753,6 +755,7 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         "--exclude", ".DocumentRevisions-V100/**", "--exclude", ".Spotlight-V100/**",
         "--exclude", ".fseventsd/**", "--exclude", ".DS_Store", "--exclude", "._*",
         "--exclude", "@eaDir/**", "--exclude", "#recycle/**", "--exclude", "#snapshot/**",
+        "--exclude", "Logic Pro Library.bundle/**",
     ]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
@@ -789,7 +792,7 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         else:
             rel, size_s, mtime_s = line, "0", ""
         lower_line = rel.lower()
-        if ".logicx/" in lower_line or ".band/" in lower_line:
+        if "logic pro library.bundle" in lower_line or ".logicx/" in lower_line or ".band/" in lower_line:
             continue
         base = os.path.basename(rel)
         if base.startswith(".") or base.startswith("._"):
@@ -797,6 +800,8 @@ def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) ->
         if os.path.splitext(base)[1].lower() not in AUDIO_EXTENSIONS:
             continue
         full_path = os.path.join(root, rel.replace("/", os.sep))
+        if "logic pro library.bundle" in full_path.lower():
+            continue
         if full_path in seen_paths:
             continue
         seen_paths.add(full_path)
