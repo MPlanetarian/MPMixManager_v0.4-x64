@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.2 Stable (Liquid)] - 2026-11-08
+
+Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before this release and was not published with its own notes. The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
+
+### Added
+- **Shared system tray** (`scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `Mix_Archive_Manager.sh`, `MP_Gui.sh`, `scripts/launch-liquid-glass`, `scripts/launch_liquid_glass.sh`, `tests/test_mp_system_tray.py`):
+  - MP Mix Manager, MP Gui, and MP Liquid Player use one tray icon.
+  - Right-click it to launch MP Gui, MP Liquid Player, or MP Mix Manager. A program that is already open is focused.
+  - **Close MP Mix Manager (Closes everything)** stops the console manager, MP Gui, MP Liquid Player, playback, and the visualizer.
+  - The icon leaves when none of the three is still open.
+- **MP Mix Manager GUI** (`MP_Gui.sh`, `Mix_Archive_Manager.sh`, `MP_Audio_Player_Liquid_Glass*.py`, `tests/test_mp_gui.py`):
+  - Main menu option **36**, the **MP** row (`MP GUI Mix Manager (New)`), and `mix-archive-manager gui` open the manager inside the Liquid Glass host with `--manager`.
+  - OpenGL is the default. Vulkan is used when `LIQUID_GLASS_BACKEND=vulkan`. Apple Silicon uses the Metal host.
+  - The GUI starts on Retro Linux Memories. `--keep-theme` leaves `~/.config/mix-manager/theme` unchanged. `--theme NAME` writes another theme.
+  - A second launch focuses the window titled `MP Mix Manager (Liquid Glass`. The Liquid Player can stay open beside it.
+  - Closing the GUI stops playback and force-closes the MP Liquid Visualizer. Startup autoplay does not open the player from a GUI session. **`L`** from the GUI opens the player in its own window.
+- **Retro Linux Memories theme** (`themes/Retro_Linux_Memories_MP_Mix_Manager.theme`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `scripts/liquid_glass_metal.py`, `shaders/liquid_glass_gl.frag`, `scripts/mix_web_companion.py`, `scripts/traktor_monitor.py`, `scripts/view_tracklist_console.sh`):
+  - Dark slate field `#2d2d2d`, selection `#15539e`, chrome `#1a1e21`, sampled from the classic VeraCrypt GTK look.
+  - Theme menu option **22**. The names `veracrypt`, `charcoal_vault`, `charcoal`, `vault`, `dark_vault`, and `veracrypt_dark` select this theme. There is no separate Charcoal Vault menu row.
+  - **`C`** on the main menu cycles the same theme list as the Liquid Player and saves the choice.
+- **Favorites playlist** (`MP_Audio_Player.py`, `tests/test_player_favorites.py`):
+  - **`H`** marks or unmarks the selected mix or music track. A star on the row does the same.
+  - **`3`** or the Favorites button loads the Favorites playlist, including when it is empty.
+  - Saved as `~/.config/mix-manager/favorites.json` and `favorites.m3u8`. Audio-file tags are not rewritten. SMB paths are kept.
+- **Mix Archive and Music library switching** (`MP_Audio_Player.py`, `tests/test_library_mode_switch.py`):
+  - **`1`** reloads the Mix Archive playlist. **`2`** reloads the Music Folders playlist.
+  - A missing Music playlist leaves the current library in place and names main menu options 2 and 13.
+- **Clear playlist** (`MP_Audio_Player.py`, `tests/test_player_clear_playlist.py`):
+  - **`D`** or **Delete**, pressed twice, empties the open playlist and its queue and stops playback.
+  - **Esc** cancels. The audio files stay on disk.
+- **Skip all remaining mix splits** (`Make_SOF_FLAC_CONVERSION.sh`, `scripts/Make_SOF_FLAC_CONVERSION.sh`, `tests/test_option2_submenus.py`):
+  - **Enter** still skips splitting for the current mix only.
+  - **`A`**, **`All`**, or **`2`** skips splitting for that mix and every mix left in the batch.
+- **Main menu Section 1 title** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `README.md`):
+  - The section label is `SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More`.
+- **Bash prompt on B** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_manager_bash_toggle.py`):
+  - Press **B** on a manager menu to turn that same window into an interactive Bash prompt. The shell loads `~/.bashrc`.
+  - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
+
+### Fixed
+- **SMB music folder playlists hung or were not written** (`scripts/music_folders_manager.py`, `tests/test_music_folder_smb_scan.py`):
+  - Playlist refresh lists the share with `rclone lsf` and uses the size and time from that listing.
+  - The scanner does not `stat` an rclone FUSE mount that answers `isdir` and then never returns a file stat.
+  - A named folder playlist is not replaced by `DJ_Tracks_ALL_MUSIC_FOLDERS`.
+  - A failed or empty listing leaves the playlist already on disk.
+- **SMB login** (`scripts/music_folders_manager.py`):
+  - Music Folders option **8** writes `MUSIC_SMB_USER` and `MUSIC_SMB_PASSWORD` to `~/.config/mix-manager/config.env` with mode 600.
+  - Enter keeps the current value. The password is not shown. A folder that already stores its own username keeps that username and uses this password.
+- **MP Liquid desktop shortcut opened on the wrong monitor** (`scripts/desktop_launch_screen.py`, `scripts/launch-liquid-glass`, `scripts/launch_liquid_glass.sh`, `tests/test_desktop_launch_screen.py`):
+  - The shortcut places the player on the main desktop. HDMI-A-1 (the Hisense TV) is not selected as that screen.
+  - The visible position is read with `xwininfo`, which matches KWin. `wmctrl -lG` on this session reports a doubled origin and is not used for the correction.
+- **Windowed visualizer overflowed the main desktop** (`scripts/mp_liquid_visualizer_vulkan.py`):
+  - The visualizer still prefers a 1400 pixel square. On a shorter work area it uses the largest square that fits. Fullscreen on the 4K TV is unchanged.
+- **Visualizer stayed open after the Liquid Player exited** (`scripts/liquid_visualizer_session.py`, `MP_Audio_Player_Liquid_Glass*.py`):
+  - Exiting the Liquid Player closes the companion visualizer unless another Liquid Glass host is still open.
+  - Closing the Manager GUI always stops playback and closes the visualizer.
+- **`L` did nothing while the Manager GUI was open** (`Mix_Archive_Manager.sh`, `scripts/launch-liquid-glass`, `scripts/launch_liquid_glass.sh`):
+  - Single-instance checks skip a Liquid Glass process started with `--manager`, so **`L`** can start or focus the player.
+- **Startup loader drew a status card on the console** (`scripts/display_loader_video.sh`, `tests/test_loader_video.py`):
+  - The console is cleared and the cursor is hidden while `MP_loader.mp4` plays. The version title, the loading line, and the skip hint card are gone.
+  - **Esc**, **Space**, **Enter**, and **`q`** still skip the intro. The manager menu draws after the video.
+
+### Changed
+- **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
+- **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–37, including option 36. The retired AI Assistant menu row is not listed. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
+
+---
+
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added

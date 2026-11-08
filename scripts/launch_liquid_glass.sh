@@ -103,13 +103,41 @@ from desktop_launch_screen import reposition_off_hisense
 reposition_off_hisense()
 PY
 
-# Single instance check: if MP Liquid is already running, activate window and exit
-if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
+# One tray icon shared with MP Mix Manager and MP Gui.
+_mp_tray=""
+for _mp_tray in \
+    "$BASE_DIR/scripts/mp_system_tray.sh" \
+    "$SCRIPT_DIR/mp_system_tray.sh"
+do
+    if [ -f "$_mp_tray" ]; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid bash "$_mp_tray" --ensure >/dev/null 2>&1 </dev/null &
+        else
+            nohup bash "$_mp_tray" --ensure >/dev/null 2>&1 </dev/null &
+        fi
+        disown 2>/dev/null || true
+        break
+    fi
+done
+unset _mp_tray
+
+# Single instance check: if MP Liquid is already running, activate window and exit.
+# The Mix Manager GUI is this program with --manager and is not the player.
+_liquid_player_already_open=0
+_lg_line=""
+while IFS= read -r _lg_line; do
+    case "$_lg_line" in
+        *--manager*) continue ;;
+        *MP_Audio_Player_Liquid_Glass*) _liquid_player_already_open=1; break ;;
+    esac
+done < <(pgrep -af "MP_Audio_Player_Liquid_Glass" 2>/dev/null || true)
+if [ "$_liquid_player_already_open" -eq 1 ]; then
     if command -v wmctrl >/dev/null 2>&1; then
         wmctrl -a "MP Audio Player (Liquid Glass" 2>/dev/null || true
     fi
     exit 0
 fi
+unset _lg_line _liquid_player_already_open
 
 # Start the companion visualizer. The Liquid Player closes this window on exit.
 if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1; then

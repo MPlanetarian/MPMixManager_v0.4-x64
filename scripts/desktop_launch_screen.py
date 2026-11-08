@@ -19,6 +19,8 @@ _XRANDR_RE = re.compile(
     r"^\s*\d+:\s+\+([*]?)(\S+)\s+\d+/\d+x\d+/\d+\+(-?\d+)\+(-?\d+)"
 )
 _WORKAREA_RE = re.compile(r"=\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)")
+_XWIN_X_RE = re.compile(r"Absolute upper-left X:\s*(-?\d+)")
+_XWIN_Y_RE = re.compile(r"Absolute upper-left Y:\s*(-?\d+)")
 
 
 def is_hisense_name(name: str) -> bool:
@@ -203,6 +205,59 @@ def _contains(output: dict, x: int, y: int) -> bool:
     return left <= x < left + width and top <= y < top + height
 
 
+def parse_xwininfo_origin(text: str) -> tuple[int, int] | None:
+    """Real top-left from xwininfo. This matches KWin and wmctrl -e."""
+    match_x = _XWIN_X_RE.search(text or "")
+    match_y = _XWIN_Y_RE.search(text or "")
+    if not match_x or not match_y:
+        return None
+    return int(match_x.group(1)), int(match_y.group(1))
+
+
+def reported_position_scale(reported: tuple[int, int], measured: tuple[int, int]) -> float:
+    """wmctrl -lG divides the desktop differently from the position a window uses.
+
+    On this KWin session the list is exactly twice the xwininfo / KWin position.
+    Width and height are not scaled. A scale near 1 means the two sources agree.
+    """
+    for reported_value, measured_value in zip(reported, measured):
+        if abs(reported_value) < 40 or abs(measured_value) < 40:
+            continue
+        return reported_value / float(measured_value)
+    return 1.0
+
+
+def unscale_reported_position(reported: tuple[int, int], measured: tuple[int, int]) -> tuple[int, int]:
+    scale = reported_position_scale(reported, measured)
+    if scale < 1.25:
+        return reported
+    return int(round(reported[0] / scale)), int(round(reported[1] / scale))
+
+
+def placement_adjustment(requested: tuple[int, int], visible: tuple[int, int]) -> tuple[int, int] | None:
+    """Return a new request when the window landed on a scaled copy of it.
+
+    The visible point must be the real on-screen origin. wmctrl -lG is twice
+    that origin here, and treating it as the landing position slides the
+    window onto the monitor to the left of the main screen.
+    """
+    requested_x, requested_y = requested
+    visible_x, _visible_y = visible
+    if not requested_x:
+        return None
+    scale = visible_x / float(requested_x)
+    if scale < 1.25:
+        return None
+    return int(round(requested_x / scale)), int(round(requested_y / scale))
+
+
+def _xwininfo_origin(window_id: int) -> tuple[int, int] | None:
+    if not window_id:
+        return None
+    text = _read_command(["xwininfo", "-id", format(int(window_id), "#x")])
+    return parse_xwininfo_origin(text)
+
+
 def _wmctrl_windows() -> list[dict]:
     text = _read_command(["wmctrl", "-lG"])
     windows = []
@@ -221,37 +276,60 @@ def _wmctrl_windows() -> list[dict]:
             })
         except ValueError:
             continue
+    if not windows:
+        return windows
+    measured = None
+    sample = None
+    for window in windows:
+        try:
+            measured = _xwininfo_origin(int(window["id"], 16))
+        except ValueError:
+            measured = None
+        if measured is None:
+            continue
+        sample = window
+        break
+    if sample is None or measured is None:
+        return windows
+    reported = (sample["x"], sample["y"])
+    if unscale_reported_position(reported, measured) == reported:
+        return windows
+    scale = reported_position_scale(reported, measured)
+    for window in windows:
+        window["x"] = int(round(window["x"] / scale))
+        window["y"] = int(round(window["y"] / scale))
     return windows
 
 
-def visible_origin(x11_window_id: int = 0, title_contains: str = "") -> tuple[int, int] | None:
-    """Global top-left reported by the window manager, not the GLFW position."""
-    text = _read_command(["wmctrl", "-lG"])
-    wanted = int(x11_window_id or 0)
-    title_hit = None
-    for line in text.splitlines():
-        parts = line.split(None, 7)
-        if len(parts) < 4:
+def _wmctrl_id_for_title(title_contains: str) -> int:
+    if not title_contains:
+        return 0
+    for line in _read_command(["wmctrl", "-l"]).splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 4 or title_contains not in parts[3]:
             continue
         try:
-            ident = int(parts[0], 16)
-            origin = (int(parts[2]), int(parts[3]))
+            return int(parts[0], 16)
         except ValueError:
             continue
-        if wanted and ident == wanted:
-            return origin
-        if title_contains and len(parts) >= 8 and title_contains in parts[7]:
-            title_hit = origin
-    return title_hit
+    return 0
+
+
+def visible_origin(x11_window_id: int = 0, title_contains: str = "") -> tuple[int, int] | None:
+    """Real top-left from xwininfo, the same position KWin shows on screen.
+
+    wmctrl -lG is not used here. On this session it reports twice the real
+    origin, which made the launch correction place MP Liquid on the left monitor.
+    """
+    wanted = int(x11_window_id or 0) or _wmctrl_id_for_title(title_contains)
+    return _xwininfo_origin(wanted)
 
 
 def place_on_main_screen(set_pos, x11_window_id: int, offset_x: int = 72, offset_y: int = 64, flush=None, title_contains: str = "") -> tuple[int, int]:
     """Move a GLFW window onto the main desktop.
 
-    On this KWin session, the position passed to GLFW is applied at twice the
-    global layout coordinate. Asking for the main screen at x=1992 therefore
-    appears at x=3984, which is a different monitor. Measure the real position
-    and correct once.
+    The request uses the real layout position. If that request is applied at
+    a larger scale, measure the real landing position and correct once.
     """
     global_x, global_y = main_desktop_origin(offset_x, offset_y)
     set_pos(global_x, global_y)
@@ -263,12 +341,11 @@ def place_on_main_screen(set_pos, x11_window_id: int, offset_x: int = 72, offset
         visible = visible_origin(int(x11_window_id or 0), title_contains)
         if visible:
             break
-    if visible and global_x:
-        scale = visible[0] / float(global_x)
-        if scale >= 1.25:
-            set_pos(int(round(global_x / scale)), int(round(global_y / scale)))
-            if flush:
-                flush()
+    adjusted = placement_adjustment((global_x, global_y), visible) if visible else None
+    if adjusted:
+        set_pos(*adjusted)
+        if flush:
+            flush()
     return global_x, global_y
 
 

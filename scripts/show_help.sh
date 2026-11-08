@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# MP_Mix_Manager_v0.3 - Help Usage & Available Options
+# MP Mix Manager 0.4.2 Stable (Liquid) - Help Usage & Available Options
 # Purpose: Display help usage and all available options for mix-archive-manager
 # Usage:
 #   mix-archive-manager --help
@@ -30,7 +30,7 @@ if [ -z "$VERSION" ]; then
     if [ -f "$CODEBASE_DIR/VERSION" ]; then
         VERSION="$(head -n 1 "$CODEBASE_DIR/VERSION" | tr -d '\r\n')"
     else
-        VERSION="0.4.0 Stable"
+        VERSION="0.4.2 Stable (Liquid)"
     fi
 fi
 export VERSION
@@ -96,83 +96,97 @@ ${BOLD}LAUNCH FLAGS & OPTIONS:${NC}
       Display playback state, track metadata, and file path from cliamp player.
 
 ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
+  Press B on any menu to turn this window into a Bash prompt. Press B again on an empty line to return to the manager.
 
-  ${BOLD}${BLUE}─── [ SECTION 1: MIX ARCHIVE WORKFLOW & INGESTION ] ─────────────────────────${NC}
-   ${BOLD}${CYAN}1${NC}   ${BOLD}Run FLAC Conversion Process${NC}
-       Batch transcode audio to FLAC using Make_SOF_FLAC_CONVERSION.sh.
-   ${BOLD}${CYAN}2${NC}   ${BOLD}Audio Conversion, EBU R128 Mastering & CUE Sheets${NC}
-       Convert formats, master to -14 LUFS, generate Red Book .cue sheets, or split tracks.
-   ${BOLD}${CYAN}3${NC}   ${BOLD}Retrieve Unconverted WAVs from Archive${NC}
-       Move pending uncompressed WAV files from archive storage to working space.
-   ${BOLD}${CYAN}4${NC}   ${BOLD}Search & Import Mixes from Local Drives & SMB${NC}
-       Scan internal/external drives and SMB shares to import new mixes.
-   ${BOLD}${CYAN}5${NC}   ${BOLD}Rename a Mix and Associated Assets${NC}
-       Coherently rename FLAC audio, tracklist text files, and Spek spectrograms.
-   ${BOLD}${CYAN}6${NC}   ${BOLD}Find & Remove Duplicate Audio Files / Mixes${NC}
-       Scan for duplicate content by audio hash or matching episode stems.
-   ${BOLD}${CYAN}7${NC}   ${BOLD}Export / Copy Mixes to Specified Path${NC}
-       Export selected mixes with artwork, tracklists, and spectrogram assets.
-   ${BOLD}${CYAN}8${NC}   ${BOLD}Audio Integrity, Bit-Rot Scrub & FLAC Verification Suite${NC}
-       Generate SHA-256 manifests, verify decode integrity, detect fake FLACs & background scrub.
-   ${BOLD}${CYAN}9${NC}   ${BOLD}Cloud & Remote Backup Suite${NC}
-       Backup mixes to Google Drive, iCloud, Dropbox, or custom local/remote path.
-  ${BOLD}${CYAN}10${NC}   ${BOLD}Storage Management & Multiple Mix Archives Setup${NC}
-       Analyze storage capacity, rescan archives, and configure multi-archive storage.
+  ${BOLD}${BLUE}─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────${NC}
+  ${BOLD}${CYAN}MP${NC}  ${BOLD}MP GUI Mix Manager (New)${NC}
+       Open the manager in the Liquid Glass window (MP_Gui.sh). Press G on the main menu. Also: gui, mp-gui, 36.
+   ${BOLD}${CYAN}0${NC}   ${BOLD}Run Any Desktop Shortcuts — Linux${NC}
+       Launch or bind KDE Plasma desktop applications, games, audio tools, and servers.
+   ${BOLD}${CYAN}1${NC}   ${BOLD}Play DJ Mixes (MP Audio Player — Mix Archive Mode)${NC}
+       Built-in player. In the player: [1] Mix Archive, [2] Music, [3] Favorites, [H] mark, [D][D] clear playlist.
+   ${BOLD}${CYAN}2${NC}   ${BOLD}Play Tracks from MUSIC Folders${NC}
+       SMB and local music libraries. Option 3 refreshes playlists. Option 8 sets the SMB login.
+   ${BOLD}${CYAN}3${NC}   ${BOLD}MP Audio Player (Liquid Glass Mode)${NC}
+       Translucent desktop player (OpenGL, Vulkan, or Apple Silicon Metal). Also: L, --liquid.
+   ${BOLD}${CYAN}4${NC}   ${BOLD}Run Mix Conversion${NC}
+       Batch convert with Make_SOF_FLAC_CONVERSION.sh. At the split prompt, A / All / 2 skips every remaining mix.
+   ${BOLD}${CYAN}5${NC}   ${BOLD}Audio Conversion, EBU R128 Mastering & CUE Sheets${NC}
+       Convert formats, master loudness, generate Red Book .cue sheets, or split tracks.
+   ${BOLD}${CYAN}6${NC}   ${BOLD}Retrieve Unconverted WAVs from Archive${NC}
+       Move pending uncompressed WAV files from archive storage back to the working area.
+   ${BOLD}${CYAN}7${NC}   ${BOLD}Search & Import Mixes from Local Drives & SMB${NC}
+       Scan local drives and SMB shares and import new mixes.
+   ${BOLD}${CYAN}8${NC}   ${BOLD}Rename a Mix and Associated Assets${NC}
+       Rename the FLAC, tracklist text, and Spek spectrogram together.
+   ${BOLD}${CYAN}9${NC}   ${BOLD}Find & Remove Duplicate Audio Files / Mixes${NC}
+       Find duplicate mixes by partial hash and full content.
+  ${BOLD}${CYAN}10${NC}   ${BOLD}Export / Copy Mixes to Specified Path${NC}
+       Copy mixes with artwork, tracklists, and spectrograms.
+  ${BOLD}${CYAN}11${NC}   ${BOLD}Audio Integrity, Bit-Rot Scrub & FLAC Verification${NC}
+       SHA-256 manifests, FLAC decode checks, fake-FLAC spectral checks, and background scrub.
+  ${BOLD}${CYAN}12${NC}   ${BOLD}Cloud & Remote Backup Suite${NC}
+       Back up mixes to Google Drive, iCloud, Dropbox, or another rclone destination.
+  ${BOLD}${CYAN}13${NC}   ${BOLD}Storage Management & Multiple Mix Archives Setup${NC}
+       Show drive space and configure more than one mix archive.
 
   ${BOLD}${BLUE}─── [ SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO ] ──────────────────${NC}
-  ${BOLD}${CYAN}11${NC}   ${BOLD}Tracklist Management, Scanning & Metadata Suite${NC}
-       Search tracklists, edit metadata via Picard, and generate HTML mix indexes.
-  ${BOLD}${CYAN}12${NC}   ${BOLD}Audio Players & Retro Playback Suite${NC}
-       Launch cliamp, Strawberry, VLC, Audacity, Haruna, Winamp, or Kodi.
-  ${BOLD}${CYAN}13${NC}   ${BOLD}Configure Mix Archive Storage Locations${NC}
-       Set primary and secondary archive folders, view disk space & master mix tallies.
-  ${BOLD}${CYAN}14${NC}   ${BOLD}Custom Mix Playlists & Traktor History Suite${NC}
-       Generate .m3u, .m3u8, .xspf playlists and parse Traktor 3 DJ set history.
-  ${BOLD}${CYAN}15${NC}   ${BOLD}Digital Audio Workstations (DAWs) & Mix Dispatch${NC}
-       Launch Reaper, Logic Pro, FL Studio, Ardour, or Traktor Pro.
-  ${BOLD}${CYAN}16${NC}   ${BOLD}Studio Hardware, Audio Interfaces & Master Volume Control${NC}
-       Manage PipeWire/ALSA sound cards, buffer latency, MIDI devices, and levels.
-  ${BOLD}${CYAN}17${NC}   ${BOLD}Spectrogram Generation & Audio Frequency Analysis${NC}
-       Generate Spek spectrograms, SoX frequency plots, and Praat acoustic analysis.
-  ${BOLD}${CYAN}18${NC}   ${BOLD}Morning Alarm Clock & DJ Mix Playback Suite${NC}
-       Wake up to random archive mixes, 3-min volume ramp, Steam breakfast games, daily brief & DJ playback scheduler.
-  ${BOLD}${CYAN}19${NC}   ${BOLD}YouTube Video Generation Suite${NC}
-       Render 4K UHD, 1080p, or 720p companion YouTube videos with hardware NVENC.
-  ${BOLD}${CYAN}20${NC}   ${BOLD}Visual Media, Cover Art & Companion Video Suite${NC}
-       Split/cut videos, create PPM banners, and manage visual art assets.
-  ${BOLD}${CYAN}21${NC}   ${BOLD}Record Video of DJ Mix using GPU Screen Recorder (Linux)${NC}
-       Open GPU Screen Recorder in a new desktop window, then return to the menu.
-  ${BOLD}${CYAN}22${NC}   ${BOLD}Listen to Your Top 5 Tracks Right Now (Special Option)${NC}
-       Select Top 5 tracks from Master HTML, import from Traktor (Local/SMB/NFS/Mac), playlist, & export continuous mix.
+  ${BOLD}${CYAN}14${NC}   ${BOLD}Tracklist Management, Scanning & Metadata Suite${NC}
+       Browse tracklists, tag with Picard, and generate HTML and PDF indexes.
+  ${BOLD}${CYAN}15${NC}   ${BOLD}Audio Players & Retro Playback Suite${NC}
+       Launch cliamp, Audacious, Strawberry, VLC, Haruna, Kodi, Audacity, and platform players.
+  ${BOLD}${CYAN}16${NC}   ${BOLD}Configure Mix Archive Storage Locations${NC}
+       Set the primary mix folder and extra archive drives.
+  ${BOLD}${CYAN}17${NC}   ${BOLD}Custom Mix Playlists & Traktor History Suite${NC}
+       Build playlists, read Traktor history, and export Rekordbox XML.
+  ${BOLD}${CYAN}18${NC}   ${BOLD}Digital Audio Workstations (DAWs) & Mix Dispatch${NC}
+       Launch REAPER, Logic, FL Studio, Ardour, and other installed DAWs.
+  ${BOLD}${CYAN}19${NC}   ${BOLD}Studio Hardware, Audio Interfaces & Master Volume Control${NC}
+       PipeWire, ALSA, MIDI, and the Traktor Kontrol S4 menu (also: s4).
+  ${BOLD}${CYAN}20${NC}   ${BOLD}Spectrogram Generation & Audio Frequency Analysis${NC}
+       Spek, SoX, and Praat analysis for one file or a folder.
+  ${BOLD}${CYAN}21${NC}   ${BOLD}Morning Alarm Clock & DJ Mix Playback Suite${NC}
+       Wake-up mixes, the scheduler, and the MPlanetarians alarm clock.
+  ${BOLD}${CYAN}22${NC}   ${BOLD}YouTube Video Suite${NC}
+       4K, 1080p, and 720p videos, Shorts, and the channel downloader.
+  ${BOLD}${CYAN}23${NC}   ${BOLD}Visual Media, Cover Art & MP Liquid Visualizer${NC}
+       Vulkan visualizer (also: Z, visualizer), video cut and split, and cover art.
+  ${BOLD}${CYAN}24${NC}   ${BOLD}Record Video of DJ Mix using GPU Screen Recorder (Linux)${NC}
+       Open GPU Screen Recorder, then return to the menu.
+  ${BOLD}${CYAN}25${NC}   ${BOLD}Listen to Your Top 5 Tracks Right Now${NC}
+       Open the curated Top 5 listening session.
 
   ${BOLD}${BLUE}─── [ SECTION 3: SYSTEM, NETWORK, AI & SETTINGS ] ────────────────────────────${NC}
-  ${BOLD}${CYAN}23${NC}   ${BOLD}Live Session, Stream & Transfer Monitors Suite${NC}
-       Monitor active audio streams, live tracklists, Traktor logs, and uploads.
-  ${BOLD}${CYAN}24${NC}   ${BOLD}System & Hardware Process Monitors Suite${NC}
-       Launch btop resource monitor, nvtop GPU monitor, or top process monitor.
-  ${BOLD}${CYAN}25${NC}   ${BOLD}View Advanced Archive Statistics${NC}
-       Run SOF_Archive_Stats.sh to display detailed multi-drive archive analytics.
-  ${BOLD}${CYAN}26${NC}   ${BOLD}Promotional Outreach, Syndication & Music Shopping${NC}
-       Send promotional emails, syndicate RSS/podcasts, browse Bandcamp/Beatport.
-  ${BOLD}${CYAN}27${NC}   ${BOLD}Network Services, Congen & Internet Access Control${NC}
-       Manage SSH, Samba, FTP servers, Congen KDE Connect remote control suite, or toggle internet block.
-  ${BOLD}${CYAN}28${NC}   ${BOLD}Desktop Display Settings, Audio Routing & App Control${NC}
-       Configure Wayland/X11, display scaling, audio routing, or kill audio apps.
-  ${BOLD}${CYAN}29${NC}   ${BOLD}Universal System Maintenance & Cleanup${NC}
-       Reclaim drive space, clean package manager caches, update OS packages.
-       Submenu ${BOLD}${CYAN}8${NC} on macOS/Windows, ${BOLD}${CYAN}7${NC} on Linux/FreeBSD, or option ${BOLD}${CYAN}30${NC}:
-       ${BOLD}Monitor System Processes and Bash Commands with System Info${NC}
-       (MP_Monitor_Bash.sh, macOS and Linux, new terminal tab).
-  ${BOLD}${CYAN}30${NC}   ${BOLD}Monitor System Processes and Bash Commands with System Info${NC}
-       Launch MP_Monitor_Bash.sh in a new terminal tab. Also: m, monitor, mp-monitor.
-  ${BOLD}${CYAN}31${NC}   ${BOLD}AI Assistant & Local LLM Servers Suite${NC}
-       Manage Claude, GPT, Ollama (:11434), DeepSeek (:3080), WAN2GP, and Beszel (:8090).
-  ${BOLD}${CYAN}32${NC}   ${BOLD}Dynamic MOTD Banner Manager & Drive Burner${NC}
-       Generate custom login MOTDs with recent mixes, or burn ISO images to USB.
-  ${BOLD}${CYAN}33${NC}   ${BOLD}Manager Settings, Themes, Shell CLI & Reboot${NC}
-       Switch color themes (Dreamworlds, Dreamworlds Ultra, Cyberpunk, etc.), migrate paths, reboot.
-  ${BOLD}${CYAN}34${NC}   ${BOLD}Exit Manager${NC} (or 0 / q)
+  ${BOLD}${CYAN}26${NC}   ${BOLD}Live Session, Stream & Transfer Monitors Suite${NC}
+       Tracklist, Traktor, conversion output, transfers, and upload monitors.
+  ${BOLD}${CYAN}27${NC}   ${BOLD}System & Hardware Process Monitors Suite${NC}
+       btop, nvtop, and top.
+  ${BOLD}${CYAN}28${NC}   ${BOLD}MP Reporter Suite & Automated Reports${NC}
+       Daily, weekly, monthly, and yearly reports, plus email delivery.
+  ${BOLD}${CYAN}29${NC}   ${BOLD}Promotional Outreach, Syndication & Music Shopping${NC}
+       Promo email, the publishing calendar, and music-store tabs.
+  ${BOLD}${CYAN}30${NC}   ${BOLD}Network Services, Congen & Internet Control${NC}
+       SSH, Samba, FTP, Congen, the web companion, and the internet block.
+  ${BOLD}${CYAN}31${NC}   ${BOLD}Desktop Display Settings, Audio Routing & App Control${NC}
+       Wayland or X11, window alignment, and closing other desktop apps.
+  ${BOLD}${CYAN}32${NC}   ${BOLD}Universal System Maintenance & Cleanup${NC}
+       Drive space, package cleanup, and OS updates for the current platform.
+  ${BOLD}${CYAN}33${NC}   ${BOLD}Monitor System Processes and Bash Commands${NC}
+       MP_Monitor_Bash.sh in a new terminal tab. Also: monitor, mp-monitor.
+  ${BOLD}${CYAN}34${NC}   ${BOLD}Dynamic MOTD Banner Manager & Drive Burner${NC}
+       Login banner from the latest mixes, and ISO to USB with a safety check.
+  ${BOLD}${CYAN}35${NC}   ${BOLD}Manager Settings, Themes, Shell CLI & Reboot${NC}
+       Themes (including Retro Linux Memories), config backup, Bash CLI, updater, reboot.
+       Press C on the main menu to cycle themes.
+  ${BOLD}${CYAN}36${NC}   ${BOLD}MP Mix Manager GUI${NC}
+       Same Liquid Glass manager as the MP row. Press G on the main menu. Also: gui, mp-gui, MP_Gui, ./MP_Gui.sh.
+  ${BOLD}${CYAN}37${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.
+
+${BOLD}SYSTEM TRAY:${NC}
+  MP Mix Manager, MP Gui, and MP Liquid Player share one tray icon while any of them is open.
+  Right-click it for ${CYAN}Launch MP Gui${NC}, ${CYAN}Launch MP Liquid Player${NC}, and ${CYAN}Launch MP Mix Manager${NC}.
+  ${CYAN}Close MP Mix Manager (Closes everything)${NC} stops the console manager, MP Gui, MP Liquid Player, playback, and the visualizer.
 
 ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
   You can execute these shortcuts directly from the command line:
@@ -194,6 +208,8 @@ ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
     ${CYAN}electricsheep${NC}     Launch Electric Sheep screensaver
     ${CYAN}geexlab${NC}           Launch GeeXLab 3D demos
     ${CYAN}gpu-screen-recorder${NC}  Record a DJ mix with GPU Screen Recorder (Linux)
+    ${CYAN}gui${NC} | ${CYAN}mp-gui${NC} | ${CYAN}36${NC}   Open the MP Mix Manager GUI (Liquid Glass)
+    ${CYAN}visualizer${NC} | ${CYAN}Z${NC}   Launch the MP Liquid Visualizer
     ${CYAN}alarm${NC} | ${CYAN}alarm-clock${NC}   Launch MPlanetarians Alarm Clock (Wake Up Edition)
     ${CYAN}congen${NC} | ${CYAN}kdeconnect${NC}    Launch Congen KDE Connect Commands Generator & Remote Control
     ${CYAN}m${NC} | ${CYAN}monitor${NC}     Monitor processes, shell commands, and system info in a new tab
@@ -218,8 +234,11 @@ ${BOLD}EXAMPLES:${NC}
   ${DIM}# Check for and install software updates:${NC}
   ${GREEN}mix-archive-manager update${NC}
 
-  ${DIM}# Directly jump into Option 13 (Configure Mix Archive Storage):${NC}
-  ${GREEN}mix-archive-manager 13${NC}
+  ${DIM}# Open the MP Mix Manager GUI:${NC}
+  ${GREEN}mix-archive-manager gui${NC}
+
+  ${DIM}# Directly jump into Option 16 (Configure Mix Archive Storage):${NC}
+  ${GREEN}mix-archive-manager 16${NC}
 
   ${DIM}# Directly launch btop resource monitor:${NC}
   ${GREEN}mix-archive-manager btop${NC}

@@ -5,7 +5,7 @@
 # The same glass, bezel, opacity slider, and VTE terminal are used, and the
 # window follows ~/.config/mix-manager/theme (the built-in themes).
 #
-# The shared theme file is set to Charcoal Vault on launch so the window
+# The shared theme file is set to Retro Linux Memories on launch so the window
 # matches that theme immediately. That also changes an already-open terminal
 # manager, which uses the same file. Pass --keep-theme to leave it alone.
 # Pass --theme NAME to write a different theme instead.
@@ -66,7 +66,7 @@ if [ ! -f "$TARGET_PY" ] || [ ! -f "$BASE_DIR/Mix_Archive_Manager.sh" ]; then
 fi
 
 KEEP_THEME=0
-THEME_NAME="charcoal_vault"
+THEME_NAME="retro_linux_memories"
 NO_VISUALIZER=0
 NEW_ARGS=()
 while [ $# -gt 0 ]; do
@@ -99,12 +99,25 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Focus the existing manager window. Do not treat a running Liquid Player as this GUI.
-if pgrep -f 'MP_Audio_Player_Liquid_Glas[s].*--manager' >/dev/null 2>&1; then
-    if command -v wmctrl >/dev/null 2>&1; then
-        wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
+# One tray icon shared with the console manager and MP Liquid Player.
+if [ -f "$BASE_DIR/scripts/mp_system_tray.sh" ]; then
+    if command -v setsid >/dev/null 2>&1; then
+        setsid bash "$BASE_DIR/scripts/mp_system_tray.sh" --ensure >/dev/null 2>&1 </dev/null &
+    else
+        nohup bash "$BASE_DIR/scripts/mp_system_tray.sh" --ensure >/dev/null 2>&1 </dev/null &
     fi
-    exit 0
+    disown 2>/dev/null || true
+fi
+
+# Focus the existing manager window. Do not treat a running Liquid Player as this GUI.
+# A process with no mapped window is not "already open": G must start a new one.
+if pgrep -f 'MP_Audio_Player_Liquid_Glas[s].*--manager' >/dev/null 2>&1; then
+    if ! command -v wmctrl >/dev/null 2>&1 || wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
+        if command -v wmctrl >/dev/null 2>&1; then
+            wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
+        fi
+        exit 0
+    fi
 fi
 
 mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Unit and Integration Tests for Traktor Kontrol S4 Hardware MIDI Support
-MP Mix Archive Manager v0.4.0
+MP Mix Archive Manager v0.4.2
 """
 
 import os, sys, time, json, unittest

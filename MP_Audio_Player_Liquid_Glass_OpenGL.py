@@ -89,7 +89,7 @@ def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NOR
     if mode == "TRACKLIST":
         return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0)) if rows <= 7 else (box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7)))
     iw = max(20, cols - 6)
-    before = 12 + (7 if rows >= 34 else (5 if rows >= 28 else 3))
+    before = 13 + (7 if rows >= 34 else (5 if rows >= 28 else 3))
     return (box(2, 0, iw + 2, 4), box(2, before, iw + 2, max(1, rows - before - 5) + 2))
 
 
@@ -193,6 +193,19 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glViewport(0, 0, fw, fh)
         GL.glClearColor(0.0, 0.0, 0.0, 0.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        showing_visualizer = self.draw_player_visualizer_background(fw, fh)
+        self.sync_player_visualizer_opacity(bool(showing_visualizer))
+        if showing_visualizer:
+            if ww > 0 and wh > 0:
+                colors, _, _ = get_dynamic_theme_state(theme_name, opacity)
+                self._draw_transparency_slider(fw, fh, ww, wh, colors)
+            pixels = None
+            if capture:
+                raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+                pixels = self._format_capture(fw, fh, raw)
+            self._glfw.glfwSwapBuffers(self._window)
+            return pixels
+        GL.glDisable(GL.GL_BLEND)
         GL.glUseProgram(self._prog)
 
         colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
@@ -356,6 +369,7 @@ class GlassHost:
         self.renderer = self.gtk_window = self.terminal = self.glib = self.spawn_error = self._saved_rect = None
         self.child_xid = self.child_pid = self._last_top_click_x = self._last_top_click_y = 0
         self.child_done = self.is_maximized = self._term_dragging = self._slider_dragging = False
+        self.audio_drop = None
         self._last_top_click = 0.0
         self._target_cols, self._target_rows = _mode_grid(self.mode)
         self._last_well = self._last_panel_state = None
@@ -476,6 +490,8 @@ class GlassHost:
                 self.renderer.request_close()
         else:
             self.child_pid = int(pid or 0)
+            if self.audio_drop is not None:
+                self.audio_drop.mark_ready()
 
     def _on_child_exit(self, _terminal, _status):
         self.child_done = True
@@ -583,6 +599,7 @@ class GlassHost:
             title = "MP Audio Player (Liquid Glass - OpenGL)"
         if sys.platform == "win32":
             self.renderer = CustomGlassRenderer(iw, ih, title)
+            self.renderer.allow_player_visualizer = self.mode not in ("MANAGER", "TRACKLIST")
             try:
                 return self._run_windows()
             finally:
@@ -591,6 +608,7 @@ class GlassHost:
         self.glib = glib
         gtk.init([])
         self.renderer = CustomGlassRenderer(iw, ih, title)
+        self.renderer.allow_player_visualizer = self.mode not in ("MANAGER", "TRACKLIST")
         try:
             return self._run_window(vte, glib)
         finally:
@@ -668,8 +686,25 @@ class GlassHost:
             self.close()
         return True
 
+    def _take_launch_mouse_focus(self, warp: bool = True) -> bool:
+        """Raise the player and move the pointer into it. Used when MP Gui launches it."""
+        if os.environ.get("MP_TAKE_MOUSE_FOCUS") != "1" or self.renderer is None:
+            return True
+        try:
+            ok = bool(self.renderer.take_mouse_focus(self.child_xid, warp=warp))
+        except Exception:
+            return False
+        if ok and self.terminal is not None:
+            try:
+                self.terminal.grab_focus()
+            except Exception:
+                pass
+        return ok
+
     def _run_window(self, vte, glib):
         self.renderer.open()
+        if self.mode == "MANAGER":
+            self.renderer.arm_escape_close()
         window = self._gtk_terminal_window()
         term = vte.Terminal()
         term.set_audible_bell(False)
@@ -700,6 +735,7 @@ class GlassHost:
         term.connect("motion-notify-event", self._on_term_motion_notify)
         term.connect("key-press-event", self._on_key_press)
         term.connect("child-exited", self._on_child_exit)
+        self._install_audio_drop(term)
         term.spawn_async(
             vte.PtyFlags.DEFAULT, str(ROOT), self.argv, _child_env(),
             glib.SpawnFlags.DEFAULT, None, None, -1, None, self._on_spawn,
@@ -707,13 +743,21 @@ class GlassHost:
         term.grab_focus()
         theme, theme_at, was_down, dragging = read_player_theme(), 0.0, False, False
         origin, press_screen, started = (0, 0), (0.0, 0.0), time.monotonic()
+        self._mouse_focus_until = started + 2.5 if os.environ.get("MP_TAKE_MOUSE_FOCUS") == "1" else 0.0
+        self._mouse_focus_warp = self._mouse_focus_until > 0.0
+        self._mouse_focus_next = 0.0
         while not self.renderer.should_close:
             now = time.monotonic()
+            if self._mouse_focus_until and now < self._mouse_focus_until and now >= self._mouse_focus_next:
+                if self._take_launch_mouse_focus(warp=self._mouse_focus_warp):
+                    self._mouse_focus_warp = False
+                self._mouse_focus_next = now + 0.35
             if now - theme_at > 0.4:
                 theme, theme_at = read_player_theme(), now
             self._sync_panels()
             self.renderer.draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
+            self._sync_visualizer_readability()
             self._place_terminal()
             self._pump_gtk(glib)
             if self.spawn_error:
@@ -728,6 +772,14 @@ class GlassHost:
                         f"glass={self.renderer.x11_window()} rect={self.renderer.window_rect(self.child_xid)} pid={self.child_pid})"
                     )
         return False
+
+    def _install_audio_drop(self, term):
+        """Let audio files dropped on the player window start playback."""
+        from liquid_audio_drop import AudioDropBridge, host_accepts_audio_drops
+        if not host_accepts_audio_drops(self.argv):
+            return
+        self.audio_drop = AudioDropBridge()
+        self.audio_drop.attach(term)
 
     def _gtk_terminal_window(self):
         icon_path = ROOT / "assets" / "mp_liquid_glass_icon.png"
@@ -787,6 +839,41 @@ class GlassHost:
         )
         term.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self._glass_css_provider = provider
+
+    def _sync_visualizer_readability(self):
+        """Keep player text solid and outlined while the visualizer is the background."""
+        if self.gtk_window is None or not getattr(self.renderer, "allow_player_visualizer", False):
+            return
+        try:
+            from liquid_player_visualizer import read_player_visualizer_state
+            active = bool(read_player_visualizer_state().get("active"))
+        except Exception:
+            return
+        if active:
+            self.gtk_window.set_opacity(1.0)
+        elif getattr(self, "_vis_text_css", None) is not None:
+            self.gtk_window.set_opacity(float(getattr(self.renderer, "slider_val", 0.60)))
+        if active == getattr(self, "_vis_text_on", False):
+            return
+        if self.terminal is None or Gtk is None:
+            return
+        self._vis_text_on = active
+        context = self.terminal.get_style_context()
+        previous = getattr(self, "_vis_text_css", None)
+        if previous is not None:
+            context.remove_provider(previous)
+            self._vis_text_css = None
+        if not active:
+            return
+        provider = Gtk.CssProvider()
+        provider.load_from_data(
+            b"vte-terminal { background-color: transparent; font-weight: normal; "
+            b"text-shadow: 0 0 2px #000000, 1px 1px 0 #000000, -1px 1px 0 #000000, "
+            b"1px -1px 0 #000000, -1px -1px 0 #000000, 0 2px 4px rgba(0,0,0,0.95); }"
+        )
+        context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        self._vis_text_css = provider
 
     def close(self):
         pid, self.child_pid = self.child_pid, 0

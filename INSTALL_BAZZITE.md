@@ -1,6 +1,6 @@
 # Installing Mix Archive Manager on Bazzite Linux (From Scratch)
 
-This document provides an exhaustive, step-by-step guide to installing and configuring the **MP Mix Archive Manager (`MP_Mix_Manager_v0.4`)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
+This document provides an exhaustive, step-by-step guide to installing and configuring the **MP Mix Manager 0.4.2 Stable (Liquid)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
 
 ---
 
@@ -109,7 +109,7 @@ python3 -m pip install --user pillow ultralytics
 
 Or, if using a virtual environment:
 ```bash
-cd ~/MP_Mix_Manager_v0.4
+cd ~/MPMixManager_v0.4-x64
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -119,18 +119,18 @@ pip install -r requirements.txt
 
 ## 6. Step 5: Deploy the Mix Manager Codebase
 
-Clone or copy the codebase into your home directory under `MP_Mix_Manager_v0.4`:
+Clone or copy the codebase into your home directory under `MPMixManager_v0.4-x64`:
 
 ```bash
 cd ~
-git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64.git MP_Mix_Manager_v0.4
+git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64.git MPMixManager_v0.4-x64
 # OR copy directory to:
-# /var/home/<username>/MP_Mix_Manager_v0.4
+# /var/home/<username>/MPMixManager_v0.4-x64
 ```
 
 Enter the codebase directory:
 ```bash
-cd ~/MP_Mix_Manager_v0.4
+cd ~/MPMixManager_v0.4-x64
 ```
 
 ---
@@ -230,7 +230,7 @@ manager
 
 ### Method B: From Codebase Directory
 ```bash
-cd ~/MP_Mix_Manager_v0.4
+cd ~/MPMixManager_v0.4-x64
 ./Mix_Archive_Manager.sh
 ```
 

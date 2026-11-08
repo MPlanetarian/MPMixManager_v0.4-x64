@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Traktor Kontrol S4 Hardware MIDI Controller Support Script
-# MP Mix Archive Manager v0.4.0 Stable
+# MP Mix Archive Manager v0.4.2 Stable (Liquid)
 # ==============================================================================
 set -euo pipefail
 

@@ -44,7 +44,7 @@ def _get_app_version() -> str:
                 return cand.read_text(encoding="utf-8").strip()
             except Exception:
                 pass
-    return "0.4.0 Stable"
+    return "0.4.2 Stable (Liquid)"
 
 VERSION = _get_app_version()
 

@@ -135,7 +135,7 @@ void main() {
         vec3 lightPanel = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
         lightWater = mix(lightWater, lightPanel, panel * 0.82);
 
-        // Charcoal Vault: opaque #2d2d2d field, #353535 panels, #1a1e21 chrome, #15539e accent.
+        // Retro Linux Memories: opaque #2d2d2d field, #353535 panels, #1a1e21 chrome, #15539e accent.
         vec3 field = vec3(0.1765, 0.1765, 0.1765);
         vec3 panelChar = vec3(0.208, 0.208, 0.208);
         vec3 titleChar = vec3(0.102, 0.118, 0.129);

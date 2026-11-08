@@ -74,7 +74,7 @@ def player_panel_rects(cols, rows, cw, ch, ox, oy, mode="NORMAL"):
     if mode == "TRACKLIST":
         return (b(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0)) if rows <= 7 else (b(2, 0, iw, 7), b(2, 7, iw, max(1, rows - 7)))
     iw = max(20, cols - 6)
-    before = 13 + (7 if rows >= 34 else (5 if rows >= 28 else 3))
+    before = 14 + (7 if rows >= 34 else (5 if rows >= 28 else 3))
     return b(2, 0, iw + 2, 4), b(2, before, iw + 2, max(1, rows - before - 5) + 2)
 
 
@@ -144,6 +144,7 @@ class GlassHost:
         self.renderer = self.gtk_window = self.terminal = self.glib = self.spawn_error = self._saved_rect = self._last_term_size = None
         self.child_xid = self.child_pid = self._last_top_click_x = self._last_top_click_y = 0
         self.child_done = self.is_maximized = self._term_dragging = False
+        self.audio_drop = None
         self._last_top_click = 0.0
         self._target_cols = 100 if self.mode == "TRACKLIST" else (74 if self.mode in ("MINI", "MICRO") else COLS)
         self._target_rows = 35 if self.mode == "TRACKLIST" else (14 if self.mode == "MINI" else (7 if self.mode == "MICRO" else ROWS))
@@ -266,6 +267,8 @@ class GlassHost:
                 self.renderer.request_close()
         else:
             self.child_pid = int(pid or 0)
+            if self.audio_drop is not None:
+                self.audio_drop.mark_ready()
 
     def _on_child_exit(self, *_):
         self.child_done = True
@@ -443,9 +446,26 @@ class GlassHost:
             self.close()
         return True
 
+    def _take_launch_mouse_focus(self, warp: bool = True) -> bool:
+        """Raise the player and move the pointer into it. Used when MP Gui launches it."""
+        if os.environ.get("MP_TAKE_MOUSE_FOCUS") != "1" or self.renderer is None:
+            return True
+        try:
+            ok = bool(self.renderer.take_mouse_focus(self.child_xid, warp=warp))
+        except Exception:
+            return False
+        if ok and self.terminal is not None:
+            try:
+                self.terminal.grab_focus()
+            except Exception:
+                pass
+        return ok
+
     def _run_window(self, vte, glib):
         r = self.renderer
         r.open()
+        if self.mode == "MANAGER":
+            r.arm_escape_close()
         if not IS_WIN and r.vendor_id != NVIDIA_VENDOR_ID:
             raise RuntimeError(r.summary)
 
@@ -478,6 +498,7 @@ class GlassHost:
                         ("key-press-event", self._on_key_press),
                         ("child-exited", self._on_child_exit)):
             term.connect(sig, cb)
+        self._install_audio_drop(term)
 
         term.spawn_async(vte.PtyFlags.DEFAULT, str(ROOT), self.argv, _child_env(),
                          glib.SpawnFlags.DEFAULT, None, None, -1, None, self._on_spawn)
@@ -485,9 +506,16 @@ class GlassHost:
         theme, theme_at, was_down, dragging = read_player_theme(), 0.0, False, False
         origin, press_screen, started = (0, 0), (0.0, 0.0), time.monotonic()
         monotonic, draw = time.monotonic, r.draw
+        self._mouse_focus_until = started + 2.5 if os.environ.get("MP_TAKE_MOUSE_FOCUS") == "1" else 0.0
+        self._mouse_focus_warp = self._mouse_focus_until > 0.0
+        self._mouse_focus_next = 0.0
 
         while not r.should_close:
             now = monotonic()
+            if self._mouse_focus_until and now < self._mouse_focus_until and now >= self._mouse_focus_next:
+                if self._take_launch_mouse_focus(warp=self._mouse_focus_warp):
+                    self._mouse_focus_warp = False
+                self._mouse_focus_next = now + 0.35
             if now - theme_at > 0.4:
                 theme, theme_at = read_player_theme(), now
             self._sync_panels()
@@ -503,6 +531,14 @@ class GlassHost:
                 if now - started > 8:
                     raise RuntimeError(f"VTE window was not placed in the glass well (parent={r.window_parent(self.child_xid)} glass={r.x11_window()} rect={r.window_rect(self.child_xid)} pid={self.child_pid})")
         return False
+
+    def _install_audio_drop(self, term):
+        """Let audio files dropped on the player window start playback."""
+        from liquid_audio_drop import AudioDropBridge, host_accepts_audio_drops
+        if not host_accepts_audio_drops(self.argv):
+            return
+        self.audio_drop = AudioDropBridge()
+        self.audio_drop.attach(term)
 
     def _gtk_terminal_window(self):
         from gi.repository import Gdk, Gtk

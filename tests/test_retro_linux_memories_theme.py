@@ -47,9 +47,9 @@ class TestRetroLinuxMemoriesTheme(unittest.TestCase):
         import liquid_glass_opengl as lgo
         self.assertIn("retro_linux_memories", lgo.THEME_COLORS)
         colors = lgo.theme_rgb("retro_linux_memories")
-        self.assertEqual(colors[0], (21, 83, 158))   # VeraCrypt selection blue
-        self.assertEqual(colors[1], (91, 134, 187))  # Slate highlight blue
-        self.assertEqual(colors[2], (45, 45, 45))    # Dark slate background
+        self.assertEqual(colors[0], (45, 45, 45))    # Charcoal field
+        self.assertEqual(colors[1], (21, 83, 158))   # VeraCrypt selection blue
+        self.assertEqual(colors[2], (26, 30, 33))    # Vault chrome
 
         for alias in ("retro_linux_memories", "retro_linux", "veracrypt", "linux_memories"):
             self.assertEqual(lgo.THEME_ALIASES.get(alias), "retro_linux_memories")
@@ -59,9 +59,9 @@ class TestRetroLinuxMemoriesTheme(unittest.TestCase):
         import liquid_glass_vulkan as lgv
         self.assertIn("retro_linux_memories", lgv.THEME_COLORS)
         colors = lgv.theme_rgb("retro_linux_memories")
-        self.assertEqual(colors[0], (21, 83, 158))
-        self.assertEqual(colors[1], (91, 134, 187))
-        self.assertEqual(colors[2], (45, 45, 45))
+        self.assertEqual(colors[0], (45, 45, 45))
+        self.assertEqual(colors[1], (21, 83, 158))
+        self.assertEqual(colors[2], (26, 30, 33))
 
         for alias in ("retro_linux_memories", "retro_linux", "veracrypt"):
             self.assertEqual(lgv.THEME_ALIASES.get(alias), "retro_linux_memories")
@@ -70,9 +70,9 @@ class TestRetroLinuxMemoriesTheme(unittest.TestCase):
         import liquid_glass_metal as lgm
         self.assertIn("retro_linux_memories", lgm.THEME_COLORS)
         colors = lgm.theme_rgb("retro_linux_memories")
-        self.assertEqual(colors[0], (21, 83, 158))
-        self.assertEqual(colors[1], (91, 134, 187))
-        self.assertEqual(colors[2], (45, 45, 45))
+        self.assertEqual(colors[0], (45, 45, 45))
+        self.assertEqual(colors[1], (21, 83, 158))
+        self.assertEqual(colors[2], (26, 30, 33))
         self.assertEqual(lgm.THEME_ALIASES.get("retro_linux_memories"), "retro_linux_memories")
 
     def test_mix_web_companion_registration(self):

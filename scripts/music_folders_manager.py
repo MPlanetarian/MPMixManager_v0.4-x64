@@ -1003,6 +1003,10 @@ def show_shortcuts_guide():
     print(f"  {BOLD}{CYAN}5. Clear Playlist (Key D or Delete){NC}")
     print(f"     • Press [D] or [Del], then press it again, to empty the open playlist and its queue.")
     print(f"     • Audio files stay on disk. [Esc] cancels. [1] or [2] reloads that library.")
+    print(f"  {BOLD}{CYAN}6. Favorites (Key H and Key 3){NC}")
+    print(f"     • [H] marks the selected mix or music track, or removes it if it is already a favorite.")
+    print(f"     • Marked items are saved in the Favorites playlist.")
+    print(f"     • [3] opens that playlist. In the Liquid Player, click the gold FAVORITES button too.")
     pause("Press Enter to return to menu...")
 
 def run_music_folders_menu():

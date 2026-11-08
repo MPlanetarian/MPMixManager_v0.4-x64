@@ -35,12 +35,11 @@ THEME_COLORS = {
     "cosmic_dreamworlds": ((232, 13, 104), (0, 245, 212), (176, 88, 255)),
     "orbital_void_reflux": ((0, 240, 255), (157, 78, 221), (255, 0, 127)),
     "sensorium_interface": ((0, 245, 255), (240, 168, 216), (184, 72, 196)),
-    "retro_linux_memories": ((21, 83, 158), (91, 134, 187), (45, 45, 45)),
+    "retro_linux_memories": ((45, 45, 45), (21, 83, 158), (26, 30, 33)),
     "solarized": ((220, 50, 47), (38, 139, 210), (181, 137, 0)),
     "tokyo": ((247, 118, 142), (122, 162, 247), (187, 154, 247)),
     "monokai": ((249, 38, 114), (166, 226, 46), (102, 217, 239)),
     "emerald": ((46, 204, 113), (26, 188, 156), (0, 168, 132)),
-    "charcoal_vault": ((45, 45, 45), (21, 83, 158), (26, 30, 33)),
 }
 
 THEME_ALIASES = {
@@ -124,10 +123,10 @@ THEME_ALIASES = {
     "tokyo": "tokyo", "tokyo_night": "tokyo", "tokyo night": "tokyo",
     "monokai": "monokai",
     "emerald": "emerald", "emerald_isle": "emerald",
-    "charcoal_vault": "charcoal_vault", "charcoal": "charcoal_vault",
-    "charcoal vault": "charcoal_vault", "vault": "charcoal_vault",
-    "dark_vault": "charcoal_vault", "veracrypt_dark": "charcoal_vault",
-    "charcoal vault (veracrypt dark)": "charcoal_vault",
+    "charcoal_vault": "retro_linux_memories", "charcoal": "retro_linux_memories",
+    "charcoal vault": "retro_linux_memories", "vault": "retro_linux_memories",
+    "dark_vault": "retro_linux_memories", "veracrypt_dark": "retro_linux_memories",
+    "charcoal vault (veracrypt dark)": "retro_linux_memories",
 }
 
 

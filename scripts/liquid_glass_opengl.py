@@ -123,7 +123,7 @@ THEME_COLORS = {
     "phosphor": ((57, 255, 20), (166, 255, 0), (0, 255, 102)),
     "ice_cold": ((0, 229, 255), (136, 192, 208), (129, 161, 193)),
     "retro_terminal": ((230, 230, 230), (180, 180, 180), (255, 255, 255)),
-    "retro_linux_memories": ((21, 83, 158), (91, 134, 187), (45, 45, 45)),
+    "retro_linux_memories": ((45, 45, 45), (21, 83, 158), (26, 30, 33)),
     "cosmic_dreamworlds_radioactive": ((57, 255, 20), (0, 245, 212), (166, 77, 255)),
     "cosmic_dreamworlds": ((232, 13, 104), (0, 245, 212), (176, 88, 255)),
     "orbital_void_reflux": ((0, 240, 255), (157, 78, 221), (255, 0, 127)),
@@ -132,7 +132,6 @@ THEME_COLORS = {
     "tokyo": ((247, 118, 142), (122, 162, 247), (187, 154, 247)),
     "monokai": ((249, 38, 114), (166, 226, 46), (102, 217, 239)),
     "emerald": ((46, 204, 113), (26, 188, 156), (0, 168, 132)),
-    "charcoal_vault": ((45, 45, 45), (21, 83, 158), (26, 30, 33)),
 }
 
 THEME_ALIASES = {
@@ -184,10 +183,10 @@ THEME_ALIASES = {
     "tokyo": "tokyo", "tokyo_night": "tokyo", "tokyo night": "tokyo",
     "monokai": "monokai",
     "emerald": "emerald", "emerald_isle": "emerald",
-    "charcoal_vault": "charcoal_vault", "charcoal": "charcoal_vault",
-    "charcoal vault": "charcoal_vault", "vault": "charcoal_vault",
-    "dark_vault": "charcoal_vault", "veracrypt_dark": "charcoal_vault",
-    "charcoal vault (veracrypt dark)": "charcoal_vault",
+    "charcoal_vault": "retro_linux_memories", "charcoal": "retro_linux_memories",
+    "charcoal vault": "retro_linux_memories", "vault": "retro_linux_memories",
+    "dark_vault": "retro_linux_memories", "veracrypt_dark": "retro_linux_memories",
+    "charcoal vault (veracrypt dark)": "retro_linux_memories",
 }
 
 # GLFW Constants
@@ -207,6 +206,7 @@ GLFW_OPENGL_CORE_PROFILE = 0x00032001
 GLFW_PLATFORM = 0x00050003
 GLFW_PLATFORM_X11 = 0x00060004
 GLFW_PRESS = 1
+GLFW_KEY_ESCAPE = 256
 GLFW_RELEASE = 0
 
 
@@ -707,6 +707,52 @@ class LiquidGlassRendererOpenGL:
             self.should_close = True
         return not self.should_close
 
+    def draw_player_visualizer_background(self, fw, fh) -> bool:
+        """Replace still glass with the MP Visualizer when the player asks for it."""
+        if not getattr(self, "allow_player_visualizer", False):
+            return False
+        layer = getattr(self, "_player_vis_layer", None)
+        if layer is None:
+            try:
+                from liquid_player_visualizer import PlayerVisualizerLayer
+                layer = PlayerVisualizerLayer()
+            except Exception as exc:
+                if not getattr(self, "_player_vis_import_error", ""):
+                    self._player_vis_import_error = str(exc)
+                    print(f"MP Visualizer background unavailable: {exc}", file=sys.stderr)
+                return False
+            self._player_vis_layer = layer
+        return bool(layer.draw(self, int(fw), int(fh)))
+
+    def sync_player_visualizer_opacity(self, active: bool) -> None:
+        """Make the glass window nearly solid while the visualizer is showing."""
+        win = self.x11_window() if hasattr(self, "x11_window") else 0
+        if not active:
+            if getattr(self, "_vis_gl_opacity", None) is None:
+                return
+            self._vis_gl_opacity = None
+            try:
+                if win:
+                    self._set_opacity(win, float(self.clear_opacity))
+                elif is_macos() and self._window and hasattr(self._glfw, "glfwSetWindowOpacity"):
+                    self._glfw.glfwSetWindowOpacity(self._window, c_float(float(self.clear_opacity)))
+            except Exception:
+                pass
+            return
+        target = max(float(getattr(self, "clear_opacity", 0.70)), 0.94)
+        if getattr(self, "_vis_gl_opacity", None) == target:
+            return
+        try:
+            if win:
+                self._set_opacity(win, target)
+            elif is_macos() and self._window and hasattr(self._glfw, "glfwSetWindowOpacity"):
+                self._glfw.glfwSetWindowOpacity(self._window, c_float(target))
+            else:
+                return
+        except Exception:
+            return
+        self._vis_gl_opacity = target
+
     def draw(self, theme_name, opacity=1.0, capture=False):
         if not self.poll():
             return None
@@ -1148,6 +1194,37 @@ class LiquidGlassRendererOpenGL:
         if getattr(self, "_x11", None):
             self._x11.XSetInputFocus(self.x11_display(), int(window), 2, 0)
             self._x11.XFlush(self.x11_display())
+
+    def take_mouse_focus(self, child=0, warp=True) -> bool:
+        """Raise this window and move the pointer into the terminal."""
+        try:
+            from window_mouse_focus import claim_mouse_focus
+        except ImportError:
+            from scripts.window_mouse_focus import claim_mouse_focus
+        if is_windows():
+            return claim_mouse_focus(int(child or self.win32_window() or 0), warp=warp)
+        return claim_mouse_focus(
+            int(self.x11_window() or 0),
+            child_id=int(child or 0),
+            warp=warp,
+            x11=getattr(self, "_x11", None),
+            display=self.x11_display(),
+        )
+
+    def arm_escape_close(self):
+        """Close this window when Escape is pressed on the glass frame."""
+        self.close_on_escape = True
+        if not self._window or not getattr(self, "_glfw", None):
+            return
+        self._on_key = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)(self._on_escape_key)
+        glfw = self._glfw
+        glfw.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
+        glfw.glfwSetKeyCallback.restype = c_void_p
+        glfw.glfwSetKeyCallback(self._window, ctypes.cast(self._on_key, c_void_p))
+
+    def _on_escape_key(self, _window, key, _scancode, action, _mods):
+        if getattr(self, "close_on_escape", False) and key == GLFW_KEY_ESCAPE and action == GLFW_PRESS:
+            self.request_close()
 
     def focused_window(self):
         if is_windows():

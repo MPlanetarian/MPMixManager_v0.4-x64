@@ -25,7 +25,7 @@ class TestAudioPlayerBannerAlignment(unittest.TestCase):
 source ./Mix_Archive_Manager.sh 2>/dev/null || true
 
 # Test multiple box widths
-for box_w in 100 120 140 160 170 190; do
+for box_w in 100 116 120 140 160 170 190; do
     inner_w=$(( box_w - 2 ))
     text_w=$(( box_w - 4 ))
     printf -v h_border '%*s' "$inner_w" ''
@@ -71,12 +71,23 @@ for box_w in 100 120 140 160 170 190; do
     printf -v l1_sp '%*s' "$l1_pad" ''
     row2="  │ ${l1_left}${l1_sp}${l1_right} │"
 
-    line2_ctrl="[Space] Toggle  [M] Window  [n] Next  [</>] Track  [p] UI  [f] FM"
-    eq_disp="${MP_PLAYER_MINI_EQ:-        }"
-    raw_l2_len=$(( 6 + 8 + 10 + ${#line2_ctrl} ))
-    l2_pad=$(( text_w - raw_l2_len ))
-    [ "$l2_pad" -lt 2 ] && l2_pad=2
-    printf -v l2_sp '%*s' "$l2_pad" ''
+    line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"
+    eq_raw="${MP_PLAYER_MINI_EQ:-        }"
+    [ -z "$eq_raw" ] && eq_raw="        "
+    eq_disp="$eq_raw"
+    l2_pad=$(( text_w - 16 - ${#eq_raw} - ${#line2_ctrl} ))
+    if [ "$l2_pad" -lt 0 ]; then
+        _keep=$(( ${#line2_ctrl} + l2_pad ))
+        [ "$_keep" -lt 0 ] && _keep=0
+        if [ "$_keep" -gt 3 ]; then
+            line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."
+        else
+            line2_ctrl="${line2_ctrl:0:$_keep}"
+        fi
+        l2_pad=0
+    fi
+    l2_sp=""
+    [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''
     row3="  │   EQ: ${eq_disp}${l2_sp}Controls: ${line2_ctrl} │"
 
     row4="  ╰${h_border}╯"

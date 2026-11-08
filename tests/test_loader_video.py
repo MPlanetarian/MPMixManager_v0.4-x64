@@ -345,6 +345,38 @@ EOF
         self.assertIn(".borderless", swift)
         self.assertIn(".floating", swift)
 
+    def test_loader_console_is_black_with_no_status_card(self):
+        """The console behind MP_loader.mp4 is black and has no loading card."""
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("Loading workspace", text)
+        self.assertNotIn("skip intro", text)
+        self.assertIn("_blank_loader_console", text)
+        self.assertIn(r"\033[30;40m", text)
+        script = r"""
+        set -e
+        source scripts/display_loader_video.sh
+        is_manager_already_open() { return 1; }
+        _loader_skip_requested() { return 1; }
+        fake="$(mktemp -d)"
+        cat > "$fake/ffplay" << 'EOF'
+#!/bin/sh
+exit 0
+EOF
+        chmod +x "$fake/ffplay"
+        export PATH="$fake:/usr/bin:/bin"
+        hash -r
+        export LINES=4 COLUMNS=10
+        display_startup_loader_video 0
+        rm -rf "$fake"
+        """
+        res = subprocess.run([BASH_BIN, "-c", script], cwd=str(BASE_DIR), capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertNotIn("Loading workspace", res.stdout)
+        self.assertNotIn("skip intro", res.stdout)
+        self.assertNotIn("MP Mix Archive Manager (v", res.stdout)
+        self.assertIn("\033[30;40m", res.stdout)
+        self.assertIn("\033[?25l", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

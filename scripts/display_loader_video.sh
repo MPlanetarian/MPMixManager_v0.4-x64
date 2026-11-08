@@ -11,7 +11,7 @@ if [ -z "${VERSION:-}" ]; then
     if [ -f "$SCRIPT_DIR/VERSION" ]; then
         VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"
     else
-        VERSION="0.4.0 Stable"
+        VERSION="0.4.2 Stable (Liquid)"
     fi
 fi
 export VERSION
@@ -36,16 +36,6 @@ export OS_TYPE
 if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then
     export PATH="/opt/homebrew/bin:/usr/local/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$PATH"
 fi
-
-# ANSI Color definitions
-NC='\033[0m'
-BOLD='\033[1m'
-DIM='\033[2m'
-CYAN='\033[38;2;0;193;228m'
-MAGENTA='\033[38;2;247;37;133m'
-YELLOW='\033[38;2;255;170;0m'
-GREEN='\033[38;2;0;229;255m'
-RED='\033[38;2;237;37;78m'
 
 # Check if another instance of Mix Archive Manager is already running
 is_manager_already_open() {
@@ -131,6 +121,18 @@ _loader_skip_requested() {
     fi
     if IFS= read -rsn1 -t "$timeout" key </dev/tty 2>/dev/null; then
         case "$key" in
+            g|G)
+                if [ -f "${SCRIPT_DIR}/MP_Gui.sh" ]; then
+                    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
+                    if command -v setsid >/dev/null 2>&1; then
+                        setsid bash "${SCRIPT_DIR}/MP_Gui.sh" >>"${HOME}/.config/mix-manager/mp_gui.log" 2>&1 </dev/null &
+                    else
+                        nohup bash "${SCRIPT_DIR}/MP_Gui.sh" >>"${HOME}/.config/mix-manager/mp_gui.log" 2>&1 </dev/null &
+                    fi
+                    disown 2>/dev/null || true
+                fi
+                return 0
+                ;;
             $'\e'|[qQ]|""|" ") return 0 ;;
         esac
         return 1
@@ -142,6 +144,29 @@ _loader_skip_requested() {
         sleep 1
     fi
     return 1
+}
+
+# Paint the manager console black with no text while the loader video plays.
+# clear alone keeps the terminal theme color and any status line already drawn.
+_blank_loader_console() {
+    local rows="" cols="" sz="" i="" line=""
+    sz="$(stty size </dev/tty 2>/dev/null || stty size 2>/dev/null || true)"
+    rows="${sz%% *}"
+    cols="${sz#* }"
+    [[ "$rows" =~ ^[0-9]+$ ]] || rows="${LINES:-40}"
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols="${COLUMNS:-120}"
+    (( rows < 1 )) && rows=24
+    (( cols < 1 )) && cols=80
+    (( rows > 200 )) && rows=200
+    (( cols > 400 )) && cols=400
+    printf -v line '%*s' "$cols" ''
+    # Hide the cursor, force black on black, drop scrollback, then fill
+    # every cell so a theme-colored clear cannot leave the loading card.
+    printf '\033[?25l\033[30;40m\033[H\033[2J\033[3J'
+    for (( i=0; i<rows; i++ )); do
+        printf '\033[30;40m%s\n' "$line"
+    done
+    printf '\033[H'
 }
 
 # Borderless always-on-top logo window. Sets player_pid in the caller.
@@ -235,30 +260,9 @@ display_startup_loader_video() {
     loader_vid="$(find_loader_video_path)" || return 0
     [ -z "$loader_vid" ] && return 0
 
-    # Render loading console card
-    local cur_cols="${COLUMNS:-80}"
-    local box_w=74
-    if command -v _set_menu_box_width &>/dev/null; then
-        _set_menu_box_width box_w "$cur_cols" 2>/dev/null || box_w=74
-    fi
-    local inner_w=$(( box_w - 2 ))
-    local text_w=$(( box_w - 6 ))
-    local h_border
-    printf -v h_border '%*s' "$inner_w" ''
-    h_border="${h_border// /─}"
-    local title="MP Mix Archive Manager (v${VERSION#v})"
-    local sub="⚡ Loading workspace, archive statistics & environment..."
-    local hint="Press [Esc], [Space], [Enter] or [q] to skip intro"
-
-    printf '\033[?25l'
-    clear 2>/dev/null || true
-    echo ""
-    echo -e "  ${BOLD}${MAGENTA}╭${h_border}╮${NC}"
-    printf "  ${BOLD}${MAGENTA}│${NC}  ${BOLD}${CYAN}%-${text_w}s${NC}  ${BOLD}${MAGENTA}│${NC}\n" "$title"
-    printf "  ${BOLD}${MAGENTA}│${NC}  ${YELLOW}%-${text_w}s${NC}  ${BOLD}${MAGENTA}│${NC}\n" "$sub"
-    printf "  ${BOLD}${MAGENTA}│${NC}  ${DIM}%-${text_w}s${NC}  ${BOLD}${MAGENTA}│${NC}\n" "$hint"
-    echo -e "  ${BOLD}${MAGENTA}╰${h_border}╯${NC}"
-    echo ""
+    # Leave the console black while the loader video plays.
+    # Esc, Space, Enter, and q still skip the intro.
+    _blank_loader_console
 
     # Launch video player if GUI display environment is available
     local player_pid=""
@@ -386,7 +390,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
 
     # Warm up caches in parallel while video is loading
     if command -v load_header_cache &>/dev/null; then
-        load_header_cache 2>/dev/null || true
+        load_header_cache >/dev/null 2>&1 || true
     fi
 
     # Wait for player completion or interactive skip keypress in console
@@ -416,6 +420,7 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase;
         sleep 1.2
     fi
 
+    printf '\033[0m'
     clear 2>/dev/null || true
     printf '\033[?25h' 2>/dev/null || true
     return 0

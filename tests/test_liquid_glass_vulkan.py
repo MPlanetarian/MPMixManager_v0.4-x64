@@ -50,9 +50,11 @@ class TestMenuOption(unittest.TestCase):
             if key in {"SECTION", "SEP"}:
                 continue
             keys.append((key, title.split("|", 1)[0]))
-        self.assertEqual(keys[3], ("3", "MP Audio Player (Liquid Glass Mode)"))
-        self.assertEqual(keys[4][0], "4")
-        self.assertIn("Run Mix Conversion", keys[4][1])
+        by_key = {key: title for key, title in keys}
+        self.assertEqual(keys[0], ("MP", "MP GUI Mix Manager (New)"))
+        self.assertEqual(keys[1][0], "0")
+        self.assertEqual(by_key["3"], "MP Audio Player (Liquid Glass Mode)")
+        self.assertIn("Run Mix Conversion", by_key["4"])
         self.assertEqual(keys[-1][0], "37")
         self.assertIn("Exit Manager", keys[-1][1])
         self.assertIn('3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*', text)

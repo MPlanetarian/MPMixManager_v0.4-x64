@@ -299,7 +299,7 @@ def player_panel_rects(cols=COLS, rows=ROWS, char_w=CHAR_W, char_h=CHAR_H, origi
         return box(2, 0, iw, 7), box(2, 7, iw, max(1, rows - 7))
     else:
         iw = max(20, cols - 6)
-        before = 16
+        before = 17
         body_rows = 21
         return box(2, 0, iw + 2, 4), box(2, before, iw + 2, body_rows)
 
@@ -948,6 +948,18 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glViewport(0, 0, fw, fh)
         GL.glClearColor(0.0, 0.0, 0.0, 0.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
+        showing_visualizer = self.draw_player_visualizer_background(fw, fh)
+        self.sync_player_visualizer_opacity(bool(showing_visualizer))
+        if showing_visualizer:
+            self.overlay.render(fw, fh, ww, wh)
+            self._draw_transparency_slider(fw, fh, ww, wh)
+            pixels = None
+            if capture:
+                raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+                pixels = self._format_capture(fw, fh, raw)
+            self._glfw.glfwSwapBuffers(self._window)
+            return pixels
+        GL.glDisable(GL.GL_BLEND)
         GL.glUseProgram(self._prog)
 
         colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
@@ -1175,6 +1187,7 @@ class OpenGLGlassHost:
         self.renderer = CustomGlassRenderer(
             overlay=self.overlay, host_ref=self, width=init_w, height=init_h, title=title
         )
+        self.renderer.allow_player_visualizer = self.mode not in ("MANAGER", "TRACKLIST") and not getattr(self, "manager", False)
         self.renderer.open()
         self._sync_panels()
 

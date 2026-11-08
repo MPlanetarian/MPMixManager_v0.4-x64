@@ -67,7 +67,7 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
     else:
         iw = max(20, cols - 6)
         viz_rows = 7 if rows >= 34 else (5 if rows >= 28 else 3)
-        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 1
+        before = 4 + 1 + 1 + 3 + (viz_rows + 3) + 2
         body_rows = max(1, rows - (before + 1) - 4)
         return (
             box(2, 0, iw + 2, 4),

@@ -12,7 +12,10 @@ from desktop_launch_screen import (  # noqa: E402
     main_desktop_origin,
     parse_kscreen,
     parse_xrandr_monitors,
+    parse_xwininfo_origin,
+    placement_adjustment,
     select_main,
+    unscale_reported_position,
 )
 
 
@@ -113,6 +116,28 @@ class TestDesktopLaunchScreen(unittest.TestCase):
             fit_square_on_main(1400, outputs=outputs),
             (1176, 1176, 372, 12),
         )
+
+    def test_xwininfo_origin_is_the_real_position(self):
+        text = "\n".join([
+            "xwininfo: Window id: 0x2600007 \"MP Audio Player (Liquid Glass - OpenGL)\"",
+            "  Absolute upper-left X:  1992",
+            "  Absolute upper-left Y:  64",
+            "  Width: 1094",
+            "  Height: 898",
+        ])
+        self.assertEqual(parse_xwininfo_origin(text), (1992, 64))
+
+    def test_wmctrl_list_is_twice_the_real_position(self):
+        # wmctrl -lG reported 4200,160 while xwininfo and KWin showed 2100,80.
+        self.assertEqual(unscale_reported_position((4200, 160), (2100, 80)), (2100, 80))
+        self.assertEqual(unscale_reported_position((1992, 64), (1992, 64)), (1992, 64))
+
+    def test_matching_real_position_is_not_moved_off_the_main_screen(self):
+        # Requesting the main screen at 1992 must stay there. The old correction
+        # treated wmctrl's doubled 3984 as the landing spot and requested 996,
+        # which is the left monitor.
+        self.assertIsNone(placement_adjustment((1992, 64), (1992, 64)))
+        self.assertEqual(placement_adjustment((1992, 64), (3984, 128)), (996, 32))
 
     def test_preferred_square_stays_on_a_large_screen(self):
         outputs = parse_kscreen(
