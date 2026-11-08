@@ -788,7 +788,8 @@ python3 MP_Audio_Player_Liquid_Glass_OpenGL.py       # Liquid Glass Player (Open
 python3 MP_Audio_Player_Liquid_Glass.py              # Liquid Glass Player (Vulkan mode)
 python3 MP_Liquid_Visualizer.py                      # 1400x1400 3D Vulkan Visualizer
 ```
-
+NOTE IF YOU AUDIO SOUNDS CRACKLY THEN RUN THIS COMMAND BEFORE USING MP AUDIO PLAYER:
+python MP_Audio_Player.py --reset-eq
 ---
 
 ### 2. Apple macOS (Sequoia, Sonoma, Apple Silicon M1–M4 & Intel)
