@@ -174,7 +174,41 @@ classic) _mr=230; _mg=200; _mb=80 ;;
 esac
 MENU_NUM="$(printf '\033[38;2;%s;%s;%sm' "$_mr" "$_mg" "$_mb")"
 MENU_NUM_R="$_mr"; MENU_NUM_G="$_mg"; MENU_NUM_B="$_mb"
-export CURRENT_THEME MENU_NUM MENU_NUM_R MENU_NUM_G MENU_NUM_B
+# Dark pane for the CLI console. Keyed on _menu_id so aliases that share
+# CURRENT_THEME (dreamworlds_neon / dracula, phosphor / matrix) still change
+# the background when the menu cycles. Kept dark so the existing light text
+# stays readable on Windows Terminal, Terminal.app, and Linux VTE.
+case "$_menu_id" in
+stream_of_frequency) THEME_BG_R=4; THEME_BG_G=36; THEME_BG_B=48 ;;
+dreamworlds_ultra) THEME_BG_R=22; THEME_BG_G=6; THEME_BG_B=46 ;;
+dynamic_rainbow_liquid_glass) THEME_BG_R=52; THEME_BG_G=16; THEME_BG_B=8 ;;
+cosmic_supernova) THEME_BG_R=40; THEME_BG_G=10; THEME_BG_B=28 ;;
+dreamworlds_liquid) THEME_BG_R=4; THEME_BG_G=28; THEME_BG_B=46 ;;
+dreamworlds_neon) THEME_BG_R=28; THEME_BG_G=4; THEME_BG_B=48 ;;
+retro_studio) THEME_BG_R=42; THEME_BG_G=26; THEME_BG_B=6 ;;
+cyber_neon) THEME_BG_R=40; THEME_BG_G=4; THEME_BG_B=18 ;;
+phosphor) THEME_BG_R=8; THEME_BG_G=48; THEME_BG_B=12 ;;
+ice_cold) THEME_BG_R=6; THEME_BG_G=22; THEME_BG_B=46 ;;
+retro_terminal) THEME_BG_R=0; THEME_BG_G=0; THEME_BG_B=0 ;;
+cosmic_dreamworlds_radioactive) THEME_BG_R=28; THEME_BG_G=56; THEME_BG_B=0 ;;
+cosmic_dreamworlds) THEME_BG_R=40; THEME_BG_G=6; THEME_BG_B=32 ;;
+orbital_void_reflux) THEME_BG_R=10; THEME_BG_G=6; THEME_BG_B=40 ;;
+sensorium_interface) THEME_BG_R=28; THEME_BG_G=8; THEME_BG_B=36 ;;
+retro_linux_memories) THEME_BG_R=26; THEME_BG_G=30; THEME_BG_B=33 ;;
+dreamworlds) THEME_BG_R=42; THEME_BG_G=8; THEME_BG_B=28 ;;
+cyberpunk) THEME_BG_R=18; THEME_BG_G=4; THEME_BG_B=28 ;;
+dracula) THEME_BG_R=40; THEME_BG_G=42; THEME_BG_B=54 ;;
+nord) THEME_BG_R=46; THEME_BG_G=52; THEME_BG_B=64 ;;
+matrix) THEME_BG_R=0; THEME_BG_G=20; THEME_BG_B=6 ;;
+solarized) THEME_BG_R=0; THEME_BG_G=43; THEME_BG_B=54 ;;
+tokyo) THEME_BG_R=12; THEME_BG_G=16; THEME_BG_B=40 ;;
+monokai) THEME_BG_R=39; THEME_BG_G=40; THEME_BG_B=34 ;;
+gruvbox) THEME_BG_R=60; THEME_BG_G=56; THEME_BG_B=54 ;;
+emerald) THEME_BG_R=4; THEME_BG_G=32; THEME_BG_B=22 ;;
+classic) THEME_BG_R=0; THEME_BG_G=0; THEME_BG_B=48 ;;
+*) THEME_BG_R=12; THEME_BG_G=12; THEME_BG_B=20 ;;
+esac
+export CURRENT_THEME MENU_NUM MENU_NUM_R MENU_NUM_G MENU_NUM_B THEME_BG_R THEME_BG_G THEME_BG_B
 }
 play_sound_effect() {
 local sound_type="${1:-storage}" sound_file=""; if [[ "$sound_type" == "dreamworlds" || "$sound_type" == "theme" ]]; then for cand in /usr/share/sounds/Oxygen-Sys-Special.ogg /usr/share/sounds/oxygen/stereo/dialog-special.ogg /usr/share/sounds/ocean/stereo/theme-demo.oga /usr/share/sounds/ocean/stereo/desktop-login.oga /usr/share/sounds/freedesktop/stereo/service-login.oga; do [[ -f "$cand" ]] && { sound_file="$cand"; break; }; done; elif [[ "$sound_type" == "storage" ]]; then for cand in /usr/share/sounds/ocean/stereo/device-added.oga /usr/share/sounds/freedesktop/stereo/device-added.oga /usr/share/sounds/Oxygen-Sys-App-Positive.ogg /usr/share/sounds/ocean/stereo/completion-success.oga; do [[ -f "$cand" ]] && { sound_file="$cand"; break; }; done; fi; if [[ -n "$sound_file" ]]; then for player in pw-play paplay canberra-gtk-play aplay; do if command -v "$player" &>/dev/null; then "$player" "$sound_file" &>/dev/null & break; fi; done; fi
@@ -626,7 +660,15 @@ if [ "$search_mode" -eq 1 ]; then search_query+="+"; _find_menu_search_match "$s
 continue; fi; fi; typed_buffer+="$ch"; local m_idx=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "$typed_buffer" ]; then cur_idx=$m_idx; break; fi; ((m_idx++)); done; if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ]; then cleanup_submenu_screen; clear; REPLY="$typed_buffer"; return 0; fi ;; esac; done
 }
 load_theme() {
-local theme_file="$HOME/.config/mix-manager/theme"; if [ -f "$theme_file" ]; then local saved_theme; saved_theme="$(tr -d ' \t\n\r' < "$theme_file" 2>/dev/null)"; if [ -n "$saved_theme" ]; then set_theme_colors "$saved_theme"; _ensure_konsole_default_scheme; return; fi; fi; set_theme_colors "dreamworlds"; _ensure_konsole_default_scheme
+local theme_file="$HOME/.config/mix-manager/theme" saved_theme=""
+if [ -f "$theme_file" ]; then
+    saved_theme="$(tr -d ' \t\n\r' < "$theme_file" 2>/dev/null)"
+fi
+[ -n "$saved_theme" ] || saved_theme="dreamworlds"
+set_theme_colors "$saved_theme"
+# Konsole's scheme reset clears OSC 11. Paint the theme pane after that.
+_ensure_konsole_default_scheme
+_apply_cli_theme_background
 }
 _ensure_konsole_default_scheme() {
 if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
@@ -640,8 +682,188 @@ if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
     printf '\033]50;ColorScheme=%s\a\033]111\007\033]110\007' "${def_scheme:-WhiteOnBlack}" 2>/dev/null || true
 fi
 }
+# OSC 11 is the common background control. Windows Terminal, iTerm, xterm,
+# VTE, Konsole, and kitty honour it. Terminal.app does not, so macOS Terminal
+# gets an AppleScript colour. Classic conhost ignores OSC 11, so that host
+# recolours palette slot 0. Liquid glass and MP Gui paint their own pane.
+_cli_theme_is_windows() {
+    [ "${OS_TYPE:-}" = "windows" ] && return 0
+    [[ "${UNAME_S:-$(uname -s 2>/dev/null)}" =~ (MINGW|MSYS|CYGWIN) ]]
+}
+_apply_windows_console_background() {
+    _cli_theme_is_windows || return 0
+    # Windows Terminal already applied OSC 11. mintty does too.
+    [ -n "${WT_SESSION:-}" ] && return 0
+    [ "${TERM_PROGRAM:-}" = "mintty" ] && return 0
+    command -v python3 >/dev/null 2>&1 || return 0
+    local r="$1" g="$2" b="$3" mode="${4:-set}" out=""
+    out="$(MP_BG_R="$r" MP_BG_G="$g" MP_BG_B="$b" MP_BG_MODE="$mode" \
+        MP_BG_SLOT="${_WIN_CONSOLE_BG_SLOT:-}" MP_BG_ORIG="${_WIN_CONSOLE_BG_ORIG:-}" \
+        python3 -c '
+import ctypes, os, sys
+r = int(os.environ.get("MP_BG_R", "0"))
+g = int(os.environ.get("MP_BG_G", "0"))
+b = int(os.environ.get("MP_BG_B", "0"))
+mode = os.environ.get("MP_BG_MODE", "set")
+try:
+    k = ctypes.windll.kernel32
+except AttributeError:
+    sys.exit(0)
+k.GetStdHandle.restype = ctypes.c_void_p
+k.GetConsoleScreenBufferInfoEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.GetConsoleScreenBufferInfoEx.restype = ctypes.c_int
+k.SetConsoleScreenBufferInfoEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+k.SetConsoleScreenBufferInfoEx.restype = ctypes.c_int
+
+class COORD(ctypes.Structure):
+    _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+class SMALL_RECT(ctypes.Structure):
+    _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short), ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+class INFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", ctypes.c_ulong),
+        ("dwSize", COORD),
+        ("dwCursorPosition", COORD),
+        ("wAttributes", ctypes.c_ushort),
+        ("srWindow", SMALL_RECT),
+        ("dwMaximumWindowSize", COORD),
+        ("wPopupAttributes", ctypes.c_ushort),
+        ("bFullscreenSupported", ctypes.c_int),
+        ("ColorTable", ctypes.c_ulong * 16),
+    ]
+
+info = INFO()
+info.cbSize = ctypes.sizeof(INFO)
+handle = k.GetStdHandle(-11)
+if not handle or not k.GetConsoleScreenBufferInfoEx(handle, ctypes.byref(info)):
+    sys.exit(0)
+slot_env = os.environ.get("MP_BG_SLOT", "")
+orig_env = os.environ.get("MP_BG_ORIG", "")
+if slot_env.isdigit():
+    slot = int(slot_env)
+else:
+    slot = (info.wAttributes >> 4) & 15
+if orig_env.isdigit():
+    orig = int(orig_env)
+else:
+    orig = int(info.ColorTable[slot])
+if mode == "restore":
+    info.ColorTable[slot] = orig & 0xFFFFFFFF
+else:
+    info.ColorTable[slot] = ((b & 255) << 16) | ((g & 255) << 8) | (r & 255)
+# SetConsoleScreenBufferInfoEx treats the returned rect as inclusive and
+# shrinks the window unless these two edges are pulled back in.
+info.srWindow.Right = info.srWindow.Right - 1
+info.srWindow.Bottom = info.srWindow.Bottom - 1
+info.cbSize = ctypes.sizeof(INFO)
+if k.SetConsoleScreenBufferInfoEx(handle, ctypes.byref(info)):
+    sys.stdout.write("%s %s\n" % (slot, orig))
+' 2>/dev/null)" || return 0
+    if [ -n "$out" ]; then
+        read -r _WIN_CONSOLE_BG_SLOT _WIN_CONSOLE_BG_ORIG <<< "$out"
+    fi
+}
+_apply_macos_terminal_background() {
+    [ "${OS_TYPE:-}" = "macos" ] || [[ "${UNAME_S:-$(uname -s 2>/dev/null)}" == Darwin* ]] || return 0
+    [ "${TERM_PROGRAM:-}" = "Apple_Terminal" ] || return 0
+    command -v osascript >/dev/null 2>&1 || return 0
+    local r="$1" g="$2" b="$3" mode="${4:-set}" tty_dev=""
+    tty_dev="$(tty 2>/dev/null || true)"
+    if [ "$mode" = "set" ] && [ -z "${_MAC_TERM_BG_ORIG:-}" ]; then
+        _MAC_TERM_BG_ORIG="$(osascript -e "tell application \"Terminal\"
+set targetTTY to \"$tty_dev\"
+repeat with w in windows
+repeat with t in tabs of w
+try
+if tty of t is targetTTY then
+return background color of t
+end if
+end try
+end repeat
+end repeat
+return background color of selected tab of front window
+end tell" 2>/dev/null || true)"
+    fi
+    if [ "$mode" = "restore" ]; then
+        local saved="${_MAC_TERM_BG_ORIG//[^0-9,]/}"
+        [ -n "$saved" ] || return 0
+        osascript -e "tell application \"Terminal\"
+set targetTTY to \"$tty_dev\"
+set wanted to {$saved}
+if targetTTY is \"\" then
+set background color of selected tab of front window to wanted
+return
+end if
+repeat with w in windows
+repeat with t in tabs of w
+try
+if tty of t is targetTTY then
+set background color of t to wanted
+return
+end if
+end try
+end repeat
+end repeat
+end tell" >/dev/null 2>&1 || true
+        return 0
+    fi
+    local rr=$((r * 257)) gg=$((g * 257)) bb=$((b * 257))
+    osascript -e "tell application \"Terminal\"
+set targetTTY to \"$tty_dev\"
+set wanted to {$rr, $gg, $bb}
+if targetTTY is \"\" then
+set background color of selected tab of front window to wanted
+return
+end if
+repeat with w in windows
+repeat with t in tabs of w
+try
+if tty of t is targetTTY then
+set background color of t to wanted
+return
+end if
+end try
+end repeat
+end repeat
+end tell" >/dev/null 2>&1 || true
+}
+_apply_cli_theme_background() {
+    # The glass hosts draw their own pane. OSC 11 would paint over it.
+    if [ "${MP_LIQUID_GLASS:-0}" = "1" ] || [ "${MP_GUI_SESSION:-0}" = "1" ]; then
+        return 0
+    fi
+    local r="${THEME_BG_R:-}" g="${THEME_BG_G:-}" b="${THEME_BG_B:-}" hex=""
+    [[ "$r" =~ ^[0-9]+$ && "$g" =~ ^[0-9]+$ && "$b" =~ ^[0-9]+$ ]] || return 0
+    printf -v hex '%02x%02x%02x' "$r" "$g" "$b"
+    if [ "$hex" = "${_CLI_THEME_BG_HEX:-}" ]; then
+        return 0
+    fi
+    _CLI_THEME_BG_HEX="$hex"
+    _CLI_THEME_BG_APPLIED=1
+    if [ -t 1 ] || [ "${MP_CLI_THEME_BG_FORCE:-}" = "1" ]; then
+        # BEL for xterm, VTE, Windows Terminal, iTerm. ST for Konsole and kitty.
+        printf '\033]11;#%s\007\033]11;#%s\033\\' "$hex" "$hex"
+    fi
+    [ -t 1 ] || return 0
+    _apply_windows_console_background "$r" "$g" "$b" set
+    _apply_macos_terminal_background "$r" "$g" "$b" set
+}
+_restore_cli_theme_background() {
+    [ "${_CLI_THEME_BG_APPLIED:-0}" = "1" ] || return 0
+    if [ "${MP_LIQUID_GLASS:-0}" = "1" ] || [ "${MP_GUI_SESSION:-0}" = "1" ]; then
+        return 0
+    fi
+    _CLI_THEME_BG_APPLIED=0
+    _CLI_THEME_BG_HEX=""
+    [ -t 1 ] || return 0
+    printf '\033]111\007' 2>/dev/null || true
+    _apply_windows_console_background 0 0 0 restore
+    _apply_macos_terminal_background 0 0 0 restore
+}
 save_theme() {
-local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "stream_of_frequency" ]; then echo "stream_of_frequency_eq" > "$HOME/.config/mix-manager/eq_style" 2>/dev/null || true; elif [ "$new_theme" = "sensorium_interface" ]; then echo "sensorium_interface" > "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true; echo "Sensorium Interface" > "$HOME/.config/mix-manager/eq_preset" 2>/dev/null || true; fi; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ] || [ "$new_theme" = "dreamworlds_liquid" ] || [ "$new_theme" = "dynamic_rainbow_liquid_glass" ] || [ "$new_theme" = "stream_of_frequency" ] || [ "$new_theme" = "sensorium_interface" ] || [ "$new_theme" = "retro_linux_memories" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"
+local new_theme="$1"; mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "$new_theme" > "$HOME/.config/mix-manager/theme" 2>/dev/null; set_theme_colors "$new_theme"; if [ "$new_theme" = "stream_of_frequency" ]; then echo "stream_of_frequency_eq" > "$HOME/.config/mix-manager/eq_style" 2>/dev/null || true; elif [ "$new_theme" = "sensorium_interface" ]; then echo "sensorium_interface" > "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true; echo "Sensorium Interface" > "$HOME/.config/mix-manager/eq_preset" 2>/dev/null || true; fi; if [ "$new_theme" = "dreamworlds" ] || [ "$new_theme" = "mplanetarian_dreamworlds" ] || [ "$new_theme" = "default" ] || [ "$new_theme" = "dreamworlds_ultra" ] || [ "$new_theme" = "cosmic_supernova" ] || [ "$new_theme" = "dreamworlds_liquid" ] || [ "$new_theme" = "dynamic_rainbow_liquid_glass" ] || [ "$new_theme" = "stream_of_frequency" ] || [ "$new_theme" = "sensorium_interface" ] || [ "$new_theme" = "retro_linux_memories" ]; then play_sound_effect "dreamworlds"; fi; _sync_btop_theme "$new_theme"; _apply_cli_theme_background
 }
 # Same order as MP Audio Player's C key. Names are the ones the liquid-glass
 # window reads from ~/.config/mix-manager/theme. Manager names such as dracula
@@ -938,6 +1160,8 @@ exit_mix_manager() {
             kill "$_jp" 2>/dev/null || true
         done
     fi
+    # Hand the console back to the user's own profile colours.
+    _restore_cli_theme_background
     # Switch back from alternate screen buffer and restore cursor/wrap
     printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     echo ""

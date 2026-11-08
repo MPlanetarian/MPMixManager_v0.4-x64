@@ -72,6 +72,41 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
 ### Changed
 - **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
 - **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–37, including option 36. The retired AI Assistant menu row is not listed. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
+- **First-run welcome** (`scripts/liquid_glass_reward.py`) greets the 0.4.2 Stable (Liquid) release and names the four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.
+
+### macOS
+- **MP Gui and the Liquid Player open the OpenGL host** (`MP_Gui.sh`, `scripts/launch_liquid_glass.sh`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`):
+  - The macOS host is `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`.
+  - `MP_Audio_Player_Liquid_Glass_macOS.py` remains the fallback when that OpenGL file is absent. That fallback requires Apple Silicon.
+- **Focus** (`scripts/mp_gui_focus.sh`, `scripts/liquid_glass_opengl.py`):
+  - A mapped window is raised through AppKit.
+  - A windowless Metal process is not treated as MP Gui already being open.
+  - The OpenGL host activates itself with `NSRunningApplication` when the window opens.
+- **Console tab title** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_macos_console_tab_title.py`):
+  - The title is written once with OSC 0, 1, and 2, then locked as Terminal's custom title on the matching tty.
+  - Fullscreen window-ops are skipped on macOS so that title stays in place.
+  - The player publishes its title only when the text changes.
+- **Pale glass ink and the playlist overlay** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `tests/test_macos_playlist_cursors.py`):
+  - Pale glass uses dark ink. Retro Linux Memories keeps the charcoal pane. Ink is reapplied when the theme changes.
+  - The overlay decodes 256-color ANSI, skips OSC, and erases the display without homing the cursor.
+  - Font order is Menlo, Monaco, Courier New, then SFNSMono. The stream footer reads `FLOW (RIGHT TO LEFT)`. The playing row keeps one ►.
+- **MP Liquid Visualizer** (`scripts/mp_liquid_visualizer_vulkan.py`, `tests/test_mp_liquid_visualizer_cross_platform.py`):
+  - Homebrew `libvulkan` and MoltenVK are found before GLFW loads.
+  - The process restarts with `DYLD_FALLBACK_LIBRARY_PATH` and `VK_ICD_FILENAMES`.
+  - A missing Vulkan loader reports `brew install molten-vk vulkan-loader`.
+- **Desktop shortcuts** (`scripts/install_desktop_shortcuts.py`, `scripts/liquid_glass_reward.py`, `install.sh`, `tests/test_desktop_shortcuts.py`):
+  - The four shortcuts are MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.
+  - The earlier MP Liquid and Mix Archive Manager shortcut names are removed.
+- **Menu status line** (`Mix_Archive_Manager.sh`):
+  - Uptime is read from `kern.boottime`.
+  - Output volume is read from `osascript`.
+  - The Traktor Kontrol S4 probe is cached.
+  - The music-folder count is read in the shell from `music_folders.json`.
+- **Console theme background** (`Mix_Archive_Manager.sh`, `tests/test_cli_theme_background.py`):
+  - Each theme has its own dark console pane.
+  - Terminals that honour OSC 11, including iTerm, receive that colour.
+  - Terminal.app receives the same colour through AppleScript. The previous profile colour is restored when the manager exits.
+  - MP Gui and the Liquid Player keep their own glass pane.
 
 ---
 

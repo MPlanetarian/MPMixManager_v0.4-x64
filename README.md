@@ -29,12 +29,15 @@ An enterprise-grade workstation orchestration console and media management suite
 
 > [!TIP]
 > ### 🌟 Welcome to MP Mix Manager v0.4.2 Stable (Liquid)
-> **November 8, 2026.** The manager, the Liquid Player, and the music library now share one glass desktop. New in this release:
+> **November 8, 2026. Welcome from MPlanetarian.** This is the stable Liquid release. Thank you for running MP Mix Manager, MP Gui, and the Liquid Transparent Audio Player. The manager, the Liquid Player, and the music library share one glass desktop, and the macOS build in this release is the one on this page.
+>
+> New in this release:
 > - 🪟 **[MP Mix Manager GUI](MP_Gui.sh):** The full manager inside the Liquid Glass window. Main menu option **36**, the **MP** row, or `./MP_Gui.sh`. It opens on **Retro Linux Memories** and can sit beside the Liquid Player.
 > - 🖱️ **Shared tray icon:** MP Mix Manager, MP Gui, and MP Liquid Player use one icon. Right-click it to launch any of the three. **Close MP Mix Manager (Closes everything)** stops the manager, both windows, playback, and the visualizer.
 > - ⭐ **Favorites, library modes, and clear playlist:** In MP Audio Player, **`1`** is Mix Archive, **`2`** is Music folders, and **`3`** is Favorites. **`H`** marks a mix or track without rewriting the audio file. **`D`** or **Delete** twice clears the open playlist and queue. The files stay on disk.
 > - 🎧 **SMB music playlists that finish:** Playlist refresh lists each share with `rclone` and no longer waits on a mount that does not answer file stats. A named folder playlist stays separate from the combined list.
 > - 🪟 **[MP Liquid Glass Player](MP_Audio_Player_Liquid_Glass_OpenGL.py)** and **[MP Liquid Visualizer](MP_Liquid_Visualizer.py)** remain the desktop player and the 3D visualizer. The desktop shortcut opens on the main screen. The windowed visualizer fits that screen. Closing the player or the Manager GUI closes the visualizer.
+> - 🍏 **macOS in this release:** MP Gui and the Liquid Player open in the OpenGL window (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`). The console tab title is written once and locked. Pale glass uses dark ink, playlist marks use Menlo, and MP Liquid Visualizer loads Homebrew MoltenVK before GLFW. The Desktop shortcuts are **MP Liquid Player**, **MP Mix Manager**, **MP Gui**, and **MP Liquid Visualizer**. Full notes: [macOS fixes](#-macos-fixes-in-v042-stable-liquid).
 >
 > **👉 [What's New in v0.4.2](#-whats-new-in-v042-stable-liquid) • [Quick Start by OS](#-quick-start-by-operating-system) • [Read the Full Changelog](CHANGELOG.md)**
 
@@ -45,6 +48,7 @@ An enterprise-grade workstation orchestration console and media management suite
 ![MP Mix Manager 0.4.2 Screenshot (MP Audio CLI Player) ](003.png)
 
 - [🚀 What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid)
+- [🍏 macOS fixes in v0.4.2 Stable (Liquid)](#-macos-fixes-in-v042-stable-liquid)
 - [🎉 Download & Experience v0.4.2 Stable (Liquid)](#-download--experience-v042-stable-liquid)
 - [🚀 What's New in v0.4.0 Stable](#-whats-new-in-v040-stable)
 - [🔥 Core v0.4 Architecture Highlights](#-core-v04-architecture-highlights)
@@ -77,13 +81,13 @@ An enterprise-grade workstation orchestration console and media management suite
 ## 🚀 What's New in v0.4.2 Stable (Liquid)
 
 > [!IMPORTANT]
-> **MP Mix Manager v0.4.2 Stable (Liquid) — November 8, 2026.** This release adds the Manager GUI, Retro Linux Memories, Favorites, Mix and Music library switching, and a clear-playlist command. It also fixes SMB playlist generation, the MP Liquid desktop shortcut, the startup loader console, and the visualizer staying open after the player exits. The previous published notes remain under [What's New in v0.4.0 Stable](#-whats-new-in-v040-stable). `0.4.1 Stable (Liquid)` was an in-tree label and was not published as its own release.
+> **MP Mix Manager v0.4.2 Stable (Liquid) — November 8, 2026.** This release adds the Manager GUI, Retro Linux Memories, Favorites, Mix and Music library switching, and a clear-playlist command. It also fixes SMB playlist generation, the MP Liquid desktop shortcut, the startup loader console, and the visualizer staying open after the player exits. The macOS update in this same release is written out under [macOS fixes in v0.4.2](#-macos-fixes-in-v042-stable-liquid). The previous published notes remain under [What's New in v0.4.0 Stable](#-whats-new-in-v040-stable). `0.4.1 Stable (Liquid)` was an in-tree label and was not published as its own release.
 
 ### Added
 
 | Feature | Where | What you can do |
 | :--- | :--- | :--- |
-| **MP Mix Manager GUI** | **[MP_Gui.sh](MP_Gui.sh)**, main menu **36**, menu row **MP** | Opens Mix Archive Manager inside the same Liquid Glass window as the player (OpenGL by default, Vulkan when `LIQUID_GLASS_BACKEND=vulkan`, Metal on Apple Silicon). The window title is `MP Mix Manager (Liquid Glass`. A second launch focuses that window. Closing it stops playback and closes the MP Liquid Visualizer. `./MP_Gui.sh --keep-theme` leaves the current theme alone. `./MP_Gui.sh --theme NAME` writes another theme. |
+| **MP Mix Manager GUI** | **[MP_Gui.sh](MP_Gui.sh)**, main menu **36**, menu row **MP** | Opens Mix Archive Manager inside the same Liquid Glass window as the player. On macOS the host is `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`. On Linux the host is OpenGL, or Vulkan when `LIQUID_GLASS_BACKEND=vulkan`. The Metal macOS file is the fallback when the OpenGL macOS host is absent, and that fallback is Apple Silicon only. The window title is `MP Mix Manager (Liquid Glass`. A second launch focuses a mapped window through AppKit on macOS. Closing it stops playback and closes the MP Liquid Visualizer. `./MP_Gui.sh --keep-theme` leaves the current theme alone. `./MP_Gui.sh --theme NAME` writes another theme. |
 | **Retro Linux Memories** | Theme option **22**, `themes/Retro_Linux_Memories_MP_Mix_Manager.theme` | VeraCrypt-style dark slate glass (`#2d2d2d` field, `#15539e` selection, `#1a1e21` chrome) on the manager, MP Audio Player, OpenGL, Vulkan, and Metal Liquid Glass, the tracklist viewer, Traktor Monitor, the web companion, and btop. `veracrypt` and `charcoal_vault` are names for this same theme. The Manager GUI starts on it. Press **`C`** on the main menu to cycle the same theme list the Liquid Player uses. The choice is saved to `~/.config/mix-manager/theme`. |
 | **Favorites** | MP Audio Player, **`H`**, **`3`**, the Favorites button | Marks the selected mix or music track. Press **`H`** again to remove it. Click the star on a row, or the Favorites button, or press **`3`**, to open the Favorites playlist. The list is stored in `~/.config/mix-manager/favorites.json` and `favorites.m3u8`. Audio-file tags are not rewritten. SMB paths are kept. |
 | **Mix and Music modes** | Player keys **`1`** and **`2`** | **`1`** reloads the Mix Archive playlist. **`2`** reloads the Music Folders playlist. If that playlist has not been generated, the player says so and stays on the current library. |
@@ -103,6 +107,24 @@ An enterprise-grade workstation orchestration console and media management suite
 | **`L` did nothing while the GUI was open** | Single-instance checks skip a Liquid Glass process that was started with `--manager`. **`L`** from the GUI starts or focuses `MP Audio Player (Liquid Glass` in its own window. Startup autoplay does not open the player from inside the GUI session. |
 | **Startup loader covered the console with a status card** | While `MP_loader.mp4` plays, the console behind it is cleared and the cursor is hidden. There is no version banner and no "Loading workspace" line. **Esc**, **Space**, **Enter**, and **`q`** still skip the intro. The manager menu draws after the video. |
 | **Section 1 title was the old workflow label** | The main menu, help, and this page use **SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More**. |
+
+### 🍏 macOS fixes in v0.4.2 Stable (Liquid)
+
+Welcome to the macOS side of **0.4.2 Stable (Liquid)**. These are the Mac fixes in the current tree, on top of the features in the tables above.
+
+| Area | What macOS does in 0.4.2 |
+| :--- | :--- |
+| **MP Gui and MP Liquid Player** | `MP_Gui.sh` and `scripts/launch_liquid_glass.sh` open `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`. That host draws the glass window. The Metal file `MP_Audio_Player_Liquid_Glass_macOS.py` is used when the OpenGL macOS host file is absent, and that path asks for Apple Silicon. |
+| **Focusing a window that is already open** | `scripts/mp_gui_focus.sh` raises a mapped window with AppKit (`NSRunningApplication`). A windowless Metal process is not treated as the GUI already being open, so a new launch can draw. The OpenGL host also activates itself when its window opens. |
+| **Console tab title** | The manager writes the tab title once, with OSC 0, 1, and 2 together, then locks Terminal's custom title on the tab whose tty matches this session. Repeating OSC 0 was putting the process name back in the tab. Fullscreen window-ops are skipped on macOS because they drop that title. The player publishes its own title only when the text changes. |
+| **Pale glass and theme ink** | Light glyphs and the VTE default foreground are drawn in dark ink on pale glass. Retro Linux Memories keeps the charcoal pane. Ink is applied again only when the theme changes. |
+| **Playlist text in the macOS overlay** | The overlay decodes 256-color ANSI (`38;5` and `48;5`), skips OSC sequences, and erases the display without homing the cursor. The font order is Menlo, then Monaco, then Courier New, with SFNSMono last, so playlist marks such as ► stay visible. The stream footer reads **FLOW (RIGHT TO LEFT)**. The playing row still uses one ►. |
+| **MP Liquid Visualizer** | Before GLFW loads, the visualizer finds Homebrew `libvulkan` and MoltenVK, then restarts with `DYLD_FALLBACK_LIBRARY_PATH` and `VK_ICD_FILENAMES`. If Vulkan is missing it asks for `brew install molten-vk vulkan-loader`. |
+| **Desktop shortcuts** | Install, the first-run reward, and path migration write four shortcuts: **MP Liquid Player**, **MP Mix Manager**, **MP Gui**, and **MP Liquid Visualizer**. The earlier MP Liquid and Mix Archive Manager shortcut names are removed. |
+| **Menu status line** | Uptime comes from `sysctl -n kern.boottime`. Output volume comes from `osascript`. The Traktor Kontrol S4 probe is cached so the menu does not wait on it. The music-folder count is read in the shell from `~/.config/mix-manager/music_folders.json`. |
+| **Console theme background** | Each theme paints its own dark console pane. iTerm and other terminals that honour OSC 11 take that colour. Terminal.app takes the same colour through AppleScript, and the manager restores the previous Terminal profile colour when it exits. MP Gui and the Liquid Player keep their own glass pane. |
+
+Launch on a Mac with `manager_macos.command`, or double-click the **MP Mix Manager** and **MP Gui** shortcuts after `./install.sh`.
 
 The [v0.4.0 Stable notes](#-whats-new-in-v040-stable) below still describe the Liquid Glass player, the visualizer presets, the 10-band equalizer, Traktor Kontrol S4 MIDI, live WAV recording, and the rest of that release.
 
@@ -770,7 +792,7 @@ Install [Homebrew](https://brew.sh) (if not already installed):
 
 Install command-line tools:
 ```bash
-brew install bash ffmpeg sox flac rclone jq btop python
+brew install bash ffmpeg sox flac rclone jq btop python molten-vk vulkan-loader
 ```
 
 *(Optional) Install audio/video GUI tools:*
@@ -789,10 +811,12 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
    ```bash
    ./manager_macos.command
    ```
-3. **Launch Apple Silicon Metal Liquid Glass Player:**
+3. **Launch MP Gui or MP Liquid Player.** On macOS both open the OpenGL host:
    ```bash
-   python3 MP_Audio_Player_Liquid_Glass_macOS.py
+   ./MP_Gui.sh
+   python3 MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py
    ```
+   `./install.sh` and the first launch also put **MP Liquid Player**, **MP Mix Manager**, **MP Gui**, and **MP Liquid Visualizer** on the Desktop. MP Liquid Visualizer uses Homebrew MoltenVK (`molten-vk` and `vulkan-loader` in the brew line above).
 4. **One-Click Traktor Prep:** Press **`15`** ➔ **`3`** to convert any past session into an ascending musical key playlist, inject it into Traktor, and auto-load all 4 decks ready to mix!
 
 ---

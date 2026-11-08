@@ -228,8 +228,8 @@ def show_welcome_message(wait_for_input=True):
     GOLD = "\033[38;2;255;215;0m"
 
     w = 78
-    title = "✦ WELCOME TO MP MIX ARCHIVE MANAGER & LIQUID GLASS ✦"
-    sub = "Special v0.4 Release Celebration & Gift from MPlanetarian"
+    title = "✦ WELCOME TO MP MIX MANAGER 0.4.2 STABLE (LIQUID) ✦"
+    sub = "Welcome to the 0.4.2 Stable Release from MPlanetarian"
 
     banner = [
         "",
@@ -242,7 +242,7 @@ def show_welcome_message(wait_for_input=True):
         f"  {WHITE} As a special welcome reward, I have designed and installed the new{NC}",
         f"  {BOLD}{CYAN} MP Liquid Transparent Glass Icon{NC}{WHITE} right onto your Desktop.{NC}",
         "",
-        f"  {WHITE} To celebrate the release of v0.4, I have also included a free exclusive track{NC}",
+        f"  {WHITE} To celebrate the 0.4.2 Stable (Liquid) release, I have also included a free exclusive track{NC}",
         f"  {WHITE} and original art piece in the MP_SAMPLES folder:{NC}",
         f"  {BOLD}{GOLD} MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake){NC}",
         f"  {WHITE} It is ready loaded in the Liquid Transparent Audio Player for you to enjoy!\"{NC}",
