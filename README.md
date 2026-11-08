@@ -764,6 +764,14 @@ flowchart TD
 For a fresh, step-by-step installation guide from a clean Bazzite Linux setup, see **[INSTALL_BAZZITE.md](INSTALL_BAZZITE.md)**.
 
 ```bash
+
+git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64
+
+1. Install the Python Dependencies 
+python3 -m pip install PyOpenGL <--- YOU MUST INSTALL THESE TO USE MP LIQUID GUI / PLAYER
+python3 -m pip install numpy
+
+2. Install the MP Mix Archive Manager Software
 cd ~/MPMixManager_v0.4-x64
 chmod +x install.sh
 ./install.sh
