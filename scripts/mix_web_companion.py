@@ -396,6 +396,28 @@ THEMES: Dict[str, Dict[str, Any]] = {
         "eq_bar": "#ffffff",
         "eq_peak": "#ffffff",
     },
+    "retro_linux_memories": {
+        "id": "retro_linux_memories",
+        "name": "Retro Linux Memories",
+        "bg": "#1e2226",
+        "card_bg": "rgba(45, 45, 45, 0.90)",
+        "card_border": "#3a3f44",
+        "card_shadow": "0 8px 24px rgba(0, 0, 0, 0.70)",
+        "text_main": "#ffffff",
+        "text_dim": "#919190",
+        "accent_primary": "#15539e",     # VeraCrypt Selection Blue
+        "accent_secondary": "#5b86bb",   # GTK Slate Highlight Blue
+        "accent_tertiary": "#f0ad4e",    # Amber Title Accent
+        "accent_crimson": "#d9534f",     # GTK Classic Crimson
+        "header_gradient": "linear-gradient(135deg, #15539e 0%, #2d3058 50%, #5b86bb 100%)",
+        "btn_gradient": "linear-gradient(180deg, #3c3c3c 0%, #2a2a2a 100%)",
+        "btn_shadow": "0 2px 8px rgba(0, 0, 0, 0.60)",
+        "progress_fill": "linear-gradient(90deg, #15539e, #1b6acb, #5b86bb)",
+        "badge_bg": "rgba(21, 83, 158, 0.25)",
+        "badge_color": "#5b86bb",
+        "eq_bar": "#15539e",
+        "eq_peak": "#5b86bb",
+    },
     "cosmic_dreamworlds_radioactive": {
         "id": "cosmic_dreamworlds_radioactive",
         "name": "Cosmic Dreamworlds Radioactive (Liquid Glass Skin)",
@@ -532,6 +554,16 @@ THEME_ALIASES: Dict[str, str] = {
     "vt100": "retro_terminal",
     "old style unix terminal retro mode (white on black)": "retro_terminal",
     "old style unix terminal": "retro_terminal",
+    "retro_linux_memories": "retro_linux_memories",
+    "retro_linux": "retro_linux_memories",
+    "linux_memories": "retro_linux_memories",
+    "retro-linux-memories": "retro_linux_memories",
+    "retro-linux": "retro_linux_memories",
+    "retro linux memories": "retro_linux_memories",
+    "retro linux": "retro_linux_memories",
+    "veracrypt": "retro_linux_memories",
+    "retrolinux": "retro_linux_memories",
+    "linux": "retro_linux_memories",
 }
 
 CLI_THEME: Optional[str] = None

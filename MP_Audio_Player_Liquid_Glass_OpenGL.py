@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from liquid_visualizer_session import stop_companion_visualizer  # noqa: E402
+from desktop_launch_screen import main_desktop_origin  # noqa: E402
+from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
     read_player_theme,
@@ -81,8 +82,8 @@ def player_panel_rects(cols, rows, char_w, char_h, origin_x, origin_y, mode="NOR
         return (origin_x + c * char_w, origin_y + r * char_h, bc * char_w, br * char_h)
 
     iw = max(20, cols - 4)
-    if mode == "MICRO":
-        return (box(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0))
+    if mode in ("MICRO", "MANAGER"):
+        return (box(1, 0, max(20, cols - 2), rows), (0.0, 0.0, 0.0, 0.0))
     if mode == "MINI":
         return (box(2, 0, iw, 3), box(2, 3, iw, max(1, rows - 3)))
     if mode == "TRACKLIST":
@@ -112,6 +113,11 @@ def _import_gtk():
         raise RuntimeError("GDK X11 backend is required for the liquid-glass window")
     Gdk, Gtk, GLib, Vte = _Gdk, _Gtk, _GLib, _Vte
     return GLib, Gtk, Vte
+
+
+def manager_argv():
+    bash = shutil.which("bash") or "bash"
+    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -433,7 +439,7 @@ class GlassHost:
             self._apply_grid(max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m - 44) // ch)), (wx, wy), (ww, wh))
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or ((72, 64), (1280, 856))
+            pos, _ = self._saved_rect or (main_desktop_origin(72, 64), (1280, 856))
             cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
             self._apply_grid(cols, rows, pos)
             self.is_maximized = False
@@ -569,7 +575,12 @@ class GlassHost:
     def run(self):
         m = LiquidGlassRendererOpenGL.bezel_px
         iw, ih = self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m + 44
-        title = "Mix Tracklist Viewer (Liquid Glass - OpenGL)" if self.mode == "TRACKLIST" else "MP Audio Player (Liquid Glass - OpenGL)"
+        if self.mode == "TRACKLIST":
+            title = "Mix Tracklist Viewer (Liquid Glass - OpenGL)"
+        elif self.mode == "MANAGER":
+            title = "MP Mix Manager (Liquid Glass - OpenGL)"
+        else:
+            title = "MP Audio Player (Liquid Glass - OpenGL)"
         if sys.platform == "win32":
             self.renderer = CustomGlassRenderer(iw, ih, title)
             try:
@@ -834,12 +845,13 @@ def main(argv):
         return 0
 
     embed = "--embed-check" in argv
+    manager = "--manager" in argv
     tracklist_path = audio_path = theme_arg = font_arg = None
     cleaned_argv = []
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--no-visualizer":
+        if arg in ("--no-visualizer", "--manager"):
             i += 1
         elif arg in ("--tracklist", "--audio", "--theme", "-t", "--font", "-f", "--set-font") and i + 1 < len(argv):
             val = argv[i + 1]
@@ -880,7 +892,14 @@ def main(argv):
         ensure_random_visualizer_started()
 
     mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
-    if tracklist_path and not embed:
+    if manager and not embed and not tracklist_path:
+        mode = "MANAGER"
+        os.environ["MP_GUI_SESSION"] = "1"
+        os.environ["MP_LIQUID_GLASS"] = "1"
+        command = manager_argv()
+        if not Path(command[1]).is_file():
+            raise RuntimeError(f"MP Mix Manager was not found at {command[1]}")
+    elif tracklist_path and not embed:
         mode = "TRACKLIST"
         command = tracklist_argv(tracklist_path, audio_path=audio_path, theme=theme_arg)
         if not Path(command[1]).is_file():
@@ -903,7 +922,10 @@ def main(argv):
             print("LIQUID_GLASS_EMBED_OK", flush=True)
         return 0
     finally:
-        if player_gui:
+        if manager:
+            stop_companion_playback()
+            stop_companion_visualizer(force=True)
+        elif player_gui:
             stop_companion_visualizer()
 
 

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from liquid_visualizer_session import stop_companion_visualizer  # noqa: E402
+from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 from liquid_glass_metal import (  # noqa: E402
     LiquidGlassRendererMetal,
     check_apple_silicon_support,
@@ -46,7 +46,7 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
         )
 
     m = str(mode).upper()
-    if m == "MICRO":
+    if m in ("MICRO", "MANAGER"):
         return (
             box(2, 0, max(20, cols - 4), rows),
             (0.0, 0.0, 0.0, 0.0),
@@ -73,6 +73,11 @@ def player_panel_rects(cols=130, rows=42, char_w=8, char_h=16, origin_x=0, origi
             box(2, 0, iw + 2, 4),
             box(2, before, iw + 2, body_rows + 2),
         )
+
+
+def manager_argv():
+    bash = shutil.which("bash") or "bash"
+    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -264,11 +269,12 @@ class MetalGlassHost:
         init_w = self._target_cols * char_w + 2 * margin
         init_h = self._target_rows * char_h + 2 * margin
 
-        title = (
-            "Mix Tracklist Viewer (Liquid Glass - Metal / Apple Silicon)"
-            if self.mode == "TRACKLIST"
-            else "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
-        )
+        if self.mode == "TRACKLIST":
+            title = "Mix Tracklist Viewer (Liquid Glass - Metal / Apple Silicon)"
+        elif self.mode == "MANAGER":
+            title = "MP Mix Manager (Liquid Glass - Metal / Apple Silicon)"
+        else:
+            title = "MP Audio Player (Liquid Glass - Metal / Apple Silicon)"
         
         self.renderer = LiquidGlassRendererMetal(
             width=init_w,
@@ -420,6 +426,7 @@ def main(argv):
         return 0
 
     embed = "--embed-check" in argv
+    manager = "--manager" in argv
     tracklist_path = None
     audio_path = None
     theme_arg = None
@@ -427,7 +434,7 @@ def main(argv):
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--no-visualizer":
+        if arg in ("--no-visualizer", "--manager"):
             i += 1
             continue
         elif arg == "--tracklist" and i + 1 < len(argv):
@@ -461,7 +468,14 @@ def main(argv):
     if player_gui and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 
-    if tracklist_path and not embed:
+    if manager and not embed and not tracklist_path:
+        mode = "MANAGER"
+        os.environ["MP_GUI_SESSION"] = "1"
+        os.environ["MP_LIQUID_GLASS"] = "1"
+        command = manager_argv()
+        if not Path(command[1]).is_file():
+            raise RuntimeError(f"MP Mix Manager was not found at {command[1]}")
+    elif tracklist_path and not embed:
         mode = "TRACKLIST"
         command = tracklist_argv(tracklist_path, audio_path=audio_path, theme=theme_arg)
         if not Path(command[1]).is_file():
@@ -485,7 +499,10 @@ def main(argv):
             print("LIQUID_GLASS_METAL_EMBED_OK", flush=True)
         return 0
     finally:
-        if player_gui:
+        if manager:
+            stop_companion_playback()
+            stop_companion_visualizer(force=True)
+        elif player_gui:
             stop_companion_visualizer()
 
 

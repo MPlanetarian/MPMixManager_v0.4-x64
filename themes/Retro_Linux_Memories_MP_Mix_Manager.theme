@@ -1,0 +1,73 @@
+#Retro Linux Memories MP Mix Manager
+#Classic Retro Linux GTK Dark Slate & VeraCrypt Blue Selection
+#MPlanetarian Retro Linux Memories
+
+# Main background
+theme[main_bg]="#24282c"
+
+# Main text color
+theme[main_fg]="#ffffff"
+
+# Title color for boxes
+theme[title]="#5b86bb"
+
+# Highlight color for keyboard shortcuts
+theme[hi_fg]="#f0ad4e"
+
+# Background color of selected item in processes box
+theme[selected_bg]="#15539e"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#ffffff"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#919190"
+
+# Color of text appearing on top of graphs, i.e uptime and current network graph scaling
+theme[graph_text]="#919190"
+
+# Background color of the percentage meters
+theme[meter_bg]="#353535"
+
+# Misc colors for processes box including mini cpu graphs, details memory graph and details status text
+theme[proc_misc]="#5b86bb"
+
+# Cpu box outline color
+theme[cpu_box]="#545453"
+
+# Memory/disks box outline color
+theme[mem_box]="#545453"
+
+# Net up/down box outline color
+theme[net_box]="#545453"
+
+# Processes box outline color
+theme[proc_box]="#545453"
+
+# Box divider line and small boxes line color
+theme[div_line]="#353535"
+
+# Temperature graph colors (Green -> Amber -> Red)
+theme[temp_start]="#5cb85c"
+theme[temp_mid]="#f0ad4e"
+theme[temp_end]="#d9534f"
+
+# CPU graph colors (VeraCrypt Blue -> Slate Highlight -> Amber Warning -> Crimson)
+theme[cpu_start]="#15539e"
+theme[cpu_mid]="#5b86bb"
+theme[cpu_end]="#f0ad4e"
+
+# Mem colors
+theme[mem_start]="#15539e"
+theme[mem_mid]="#5b86bb"
+theme[mem_end]="#d9534f"
+
+# Net colors
+theme[net_start]="#15539e"
+theme[net_mid]="#5b86bb"
+theme[net_end]="#5cb85c"
+
+# Processes box gradient
+theme[proc_start]="#15539e"
+theme[proc_mid]="#5b86bb"
+theme[proc_end]="#f0ad4e"

@@ -94,6 +94,15 @@ if [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
     python3 "$BASE_DIR/MP_Audio_Player.py" --vol 100 2>/dev/null || true
 fi
 
+# If a previous window opened on the Hisense, bring it back to the main screen.
+python3 - "$BASE_DIR" << 'PY' || true
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from desktop_launch_screen import reposition_off_hisense
+reposition_off_hisense()
+PY
+
 # Single instance check: if MP Liquid is already running, activate window and exit
 if pgrep -f "MP_Audio_Player_Liquid_Glass" >/dev/null 2>&1; then
     if command -v wmctrl >/dev/null 2>&1; then

@@ -121,8 +121,14 @@ class TestNvidiaFrame(unittest.TestCase):
         renderer = LiquidGlassRenderer(400, 300, "Movement Test")
         try:
             renderer.open()
-            init_pos = renderer.window_pos()
-            self.assertEqual(init_pos, (72, 64))
+            from desktop_launch_screen import kscreen_outputs, select_main, visible_origin
+            visible = visible_origin(renderer.x11_window(), renderer.title)
+            main = select_main(kscreen_outputs())
+            self.assertIsNotNone(visible)
+            self.assertIsNotNone(main)
+            left, top, width, height = main["geo"]
+            self.assertTrue(left <= visible[0] < left + width, f"window {visible} is outside {main['name']} {main['geo']}")
+            self.assertTrue(top <= visible[1] < top + height, f"window {visible} is outside {main['name']} {main['geo']}")
             renderer.set_window_pos(150, 200)
             self.assertEqual(renderer.window_pos(), (150, 200))
             rx, ry = renderer.root_pointer()

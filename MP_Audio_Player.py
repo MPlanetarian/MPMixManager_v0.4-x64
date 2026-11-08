@@ -1578,6 +1578,18 @@ class AudioEngine:
         with self._queue_lock:
             n = len(self.play_queue); self.play_queue.clear(); self._sync_state_file(); return n
 
+    def clear_playlist(self) -> int:
+        """Empty the loaded playlist and the play queue. Audio files stay on disk."""
+        with self._queue_lock:
+            removed = len(self.playlist)
+            self.play_queue.clear()
+            self.playlist.clear()
+        self.current_index = 0
+        self.current_track = None
+        self.duration_sec = 0.0
+        self.stop_playback(reset_position=True)
+        return removed
+
     def get_queue(self) -> List[Dict[str, Any]]:
         with self._queue_lock: return list(self.play_queue)
 
@@ -1854,6 +1866,7 @@ class PlayerIPCServer:
                 res.update(e.queue_track(f) if f else {"queued": False, "queue_len": len(e.play_queue)})
             elif cmd == "get_queue": res["queue"] = q = e.get_queue(); res["queue_len"] = len(q)
             elif cmd == "clear_queue": res["cleared"] = e.clear_queue()
+            elif cmd == "clear_playlist": res["cleared"] = e.clear_playlist()
             elif cmd == "get_playlist": res["playlist"] = [{"index": i, "name": t["name"], "path": t["path"], "ext": t["ext"]} for i, t in enumerate(e.playlist[:100])]
             elif cmd in ("open_file_manager", "reveal"):
                 t = choose_file_manager_target(req.get("file") or (e.current_track.get("path") if e.current_track else ""))
@@ -2192,6 +2205,7 @@ _THEME_PALETTES = {
     "cosmic_dreamworlds": {"highlight": "\033[38;2;232;13;104m", "active": "\033[38;2;0;245;212m", "border": "\033[38;2;232;13;104m", "accent": "\033[38;2;176;88;255m"},
     "orbital_void_reflux": {"highlight": "\033[38;2;0;240;255m", "active": "\033[38;2;255;0;127m", "border": "\033[38;2;0;240;255m", "accent": "\033[38;2;157;78;221m"},
     "sensorium_interface": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;240;168;216m", "border": "\033[38;2;0;245;255m", "accent": "\033[38;2;184;72;196m"},
+    "retro_linux_memories": {"highlight": "\033[38;2;91;134;187m", "active": "\033[38;2;21;83;158m", "border": "\033[38;2;84;84;83m", "accent": "\033[38;2;240;173;78m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
@@ -2221,7 +2235,17 @@ _THEME_ALIASES = {
     "dynamic liquid glass [rainbow colours]": "dynamic_rainbow_liquid_glass",
     "mp_dreamworlds_liquid_transparency": "dreamworlds_liquid", "dreamworlds_liquid_transparency": "dreamworlds_liquid",
     "liquid_transparency": "dreamworlds_liquid", "liquid": "dreamworlds_liquid", "glass": "dreamworlds_liquid",
-    "liquid_glass": "dreamworlds_liquid", "mp_liquid": "dreamworlds_liquid"
+    "liquid_glass": "dreamworlds_liquid", "mp_liquid": "dreamworlds_liquid",
+    "retro_linux_memories": "retro_linux_memories",
+    "retro_linux": "retro_linux_memories",
+    "linux_memories": "retro_linux_memories",
+    "retro-linux-memories": "retro_linux_memories",
+    "retro-linux": "retro_linux_memories",
+    "retro linux memories": "retro_linux_memories",
+    "retro linux": "retro_linux_memories",
+    "veracrypt": "retro_linux_memories",
+    "retrolinux": "retro_linux_memories",
+    "linux": "retro_linux_memories",
 }
 
 class EqualizerVisualizer:
@@ -2259,6 +2283,7 @@ class EqualizerVisualizer:
         "cosmic_dreamworlds",
         "orbital_void_reflux",
         "sensorium_interface",
+        "retro_linux_memories",
     ]
     THEME_NAMES = {
         "stream_of_frequency": "Stream of Frequency [Special Edition]",
@@ -2276,6 +2301,7 @@ class EqualizerVisualizer:
         "cosmic_dreamworlds": "Cosmic Dreamworlds (Liquid Glass Skin)",
         "orbital_void_reflux": "Orbital Void Reflux (Liquid Glass Skin)",
         "sensorium_interface": "Sensorium Interface (Liquid Glass Skin)",
+        "retro_linux_memories": "Retro Linux Memories",
     }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
@@ -2406,6 +2432,15 @@ class EqualizerVisualizer:
             if c_frac < 0.5: s = c_frac / 0.5; return 0.10 + 0.70 * s, 0.85 + 0.15 * s, 0.20 - 0.15 * s
             s = (c_frac - 0.5) / 0.5; return 0.90 + 0.10 * s, 0.85 - 0.60 * s, 0.10
         if t == "cyber_neon": return 0.45 + 0.50 * math.sin(c_frac * math.pi), 0.10 + 0.70 * c_frac, 0.95 - 0.20 * c_frac
+        if t in ("retro_linux_memories", "retro_linux", "linux_memories", "veracrypt"):
+            if c_frac < 0.40:
+                s = c_frac / 0.40
+                return 0.08 + 0.10 * s, 0.33 + 0.20 * s, 0.62 + 0.20 * s
+            if c_frac < 0.80:
+                s = (c_frac - 0.40) / 0.40
+                return 0.18 + 0.35 * s, 0.53 + 0.30 * s, 0.82 + 0.15 * s
+            s = (c_frac - 0.80) / 0.20
+            return 0.53 + 0.47 * s, 0.83 + 0.17 * s, 0.97 + 0.03 * s
         if t == "phosphor": return 0.10 * (1.0 - c_frac), 0.95, 0.20
         if t == "retro_terminal": return 1.0, 1.0, 1.0
         return 0.10 + 0.75 * (c_frac ** 1.5), 0.50 + 0.45 * c_frac, 1.0
@@ -2620,6 +2655,8 @@ class EqualizerVisualizer:
         if t == "dreamworlds_neon": return "\033[38;2;0;229;255m" if fraction < 0.4 else ("\033[38;2;247;37;133m" if fraction < 0.75 else "\033[38;2;255;140;0m")
         if t == "retro_studio": return "\033[38;2;46;204;113m" if fraction < 0.6 else ("\033[38;2;241;196;15m" if fraction < 0.85 else "\033[38;2;231;76;60m")
         if t == "cyber_neon": return "\033[38;2;114;9;183m" if fraction < 0.5 else "\033[38;2;76;201;240m"
+        if t in ("retro_linux_memories", "retro_linux", "linux_memories", "veracrypt"):
+            return "\033[38;2;21;83;158m" if fraction < 0.50 else ("\033[38;2;91;134;187m" if fraction < 0.80 else ("\033[38;2;240;173;78m" if fraction < 0.95 else "\033[38;2;255;255;255m"))
         if t == "phosphor": return "\033[38;2;57;255;20m"
         return "\033[38;2;30;144;255m" if fraction < 0.5 else "\033[38;2;224;255;255m"
 
@@ -3474,6 +3511,7 @@ class TerminalPlayerUI:
         self.eq_custom_name_input = ""
         self.running, self.inspector_hud_active = True, False
         self.search_mode, self.search_query, self.export_mode, self.export_path = False, "", False, ""
+        self._playlist_clear_armed = False
         self.selected_row, self.scroll_offset, self.notification_msg, self.notification_time = 0, 0, "", 0.0
         self._spek_job_running = False
         self._last_seen_bt_device = self._last_seen_bt_state = self._duration_queue = None
@@ -3679,6 +3717,7 @@ class TerminalPlayerUI:
             elif cmd == "queue":
                 if f := (kwargs.get("file") or kwargs.get("track")): e.queue_track(f)
             elif cmd == "clear_queue": e.clear_queue()
+            elif cmd == "clear_playlist": e.clear_playlist()
             elif cmd == "open_file_manager":
                 if target := choose_file_manager_target(kwargs.get("file") or (e.current_track.get("path") if e.current_track else "")):
                     open_in_file_manager(target)
@@ -3954,6 +3993,56 @@ class TerminalPlayerUI:
             q_len = len(cur_q)
         self._notify(f"✔ Queued Mix: {tn or os.path.basename(tp)} (#{q_len} in Queue)", 3.5)
 
+    def _playlist_entry_count(self) -> int:
+        mixes = getattr(self.scanner, "mixes", None)
+        return len(mixes) if isinstance(mixes, list) else 0
+
+    def _playlist_queue_count(self) -> int:
+        if self.engine and not self.is_remote:
+            return len(getattr(self.engine, "play_queue", []) or [])
+        try:
+            return int(self.cached_status.get("queue_len", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _arm_playlist_clear(self):
+        """Ask before emptying the playlist. A second D or Delete confirms."""
+        removed, queued = self._playlist_entry_count(), self._playlist_queue_count()
+        if removed == 0 and queued == 0:
+            self._playlist_clear_armed = False
+            self._notify("Playlist is already empty.", 2.5)
+            return
+        self._playlist_clear_armed = True
+        noun = "tracks" if self.mode == "MUSIC" else "mixes"
+        self._notify(
+            f"Clear the entire playlist ({removed} {noun})? Press D or Del again to confirm. Esc cancels. Audio files stay on disk.",
+            6.0,
+        )
+
+    def _confirm_clear_playlist(self):
+        """Empty the open playlist and queue. [1] or [2] reloads that library."""
+        self._playlist_clear_armed = False
+        removed = self._playlist_entry_count()
+        self.scanner.mixes = []
+        if hasattr(self.scanner, "_search_cache_initialized"):
+            self.scanner._search_cache_initialized = None
+        self.search_mode = False
+        self.search_query = ""
+        self.selected_row = 0
+        self.scroll_offset = 0
+        self._send_cmd("clear_playlist")
+        if isinstance(self.cached_status, dict):
+            self.cached_status.update(
+                title="No Track Loaded", path="", state="stopped",
+                position_fmt="00:00", duration_fmt="00:00", progress_pct=0.0,
+                queue=[], queue_len=0, total_tracks=0,
+            )
+        noun = "tracks" if self.mode == "MUSIC" else "mixes"
+        self._notify(
+            f"Playlist cleared — {removed} {noun} removed. Press [1] or [2] to reload. Audio files were not deleted.",
+            5.0,
+        )
+
     def _cleanup_terminal(self):
         fd = getattr(self, "_orig_fd", None)
         old_settings = getattr(self, "_orig_termios", None)
@@ -4014,7 +4103,7 @@ class TerminalPlayerUI:
         if not sys.stdin.isatty(): return
         if sys.platform == "win32":
             import msvcrt
-            km = {b"H": b"\x1b[A", b"P": b"\x1b[B", b"M": b"\x1b[C", b"K": b"\x1b[D", b"G": b"\x1b[H", b"O": b"\x1b[F", b"I": b"\x1b[5~", b"Q": b"\x1b[6~"}
+            km = {b"H": b"\x1b[A", b"P": b"\x1b[B", b"M": b"\x1b[C", b"K": b"\x1b[D", b"G": b"\x1b[H", b"O": b"\x1b[F", b"I": b"\x1b[5~", b"Q": b"\x1b[6~", b"S": b"\x1b[3~"}
             while self.running:
                 try:
                     if msvcrt.kbhit():
@@ -4152,6 +4241,15 @@ class TerminalPlayerUI:
         if self.inspector_hud_active:
             if data in (b"g", b"G"): return self._generate_selected_spek()
             if data in (b"\x1b", b"i", b"I", b"\r", b"\n", b"q", b"Q", b" "): self.inspector_hud_active = False; return
+        if getattr(self, "_playlist_clear_armed", False) and not self.equalizer_hud_active and not self.inspector_hud_active:
+            if data in (b"d", b"D", b"\x1b[3~"):
+                self._confirm_clear_playlist()
+                return
+            if data == b"\x1b":
+                self._playlist_clear_armed = False
+                self._notify("Playlist clear cancelled.", 2.0)
+                return
+            self._playlist_clear_armed = False
         if data in (b"i", b"I"): self.inspector_hud_active = not self.inspector_hud_active; return
         if data in (b"E",) and self.ui_size_mode not in ("MINI", "MICRO"):
             self.equalizer_hud_active = not self.equalizer_hud_active
@@ -4269,6 +4367,8 @@ class TerminalPlayerUI:
         elif data in (b"f", b"F"): self._open_selected_in_file_manager()
         elif data in (b"g", b"G"): self._generate_selected_spek()
         elif data in (b"q", b"Q"): self._queue_selected()
+        elif data in (b"d", b"D", b"\x1b[3~") and not self.equalizer_hud_active and not self.inspector_hud_active:
+            self._arm_playlist_clear()
         elif data in (b"x", b"X"): self._send_cmd("stop"); self.running = False
 
     def _navigate_list(self, delta: int):
@@ -4379,7 +4479,7 @@ class TerminalPlayerUI:
                     elif act: lines.append(f"  {b_col}│{NC}{bold_s}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
-            lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • [1] Mix Archive • [2] Music • Q: Queue • G: Spek • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  Q: Queue  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  /: Search ", "┘", iw, b_col))
+            lines.append(_boxed_rule("└", "── ↑/↓: Scroll • Enter: Play • [1] Mix Archive • [2] Music • Q: Queue • D: Clear • G: Spek • E: Equalizer • /: Search • b/Esc: Exit " if self.mode == "MUSIC" else "── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  Q: Queue  •  D: Clear  •  G: Spek  •  O: Open  •  T: Tracklist  •  E: Equalizer  •  /: Search ", "┘", iw, b_col))
 
         hint_col = WHITE if is_lg else DIM
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
@@ -4400,9 +4500,9 @@ class TerminalPlayerUI:
         if self.mode == "MUSIC":
             lines.extend([
                 _fit_text_line([
-                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {bold_s}{COLOR_ELECTRIC_CYAN}[1]{NC} {bold_s}Mix Archive{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[2]{NC} {bold_s}Music{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Space]{NC} {bold_s}Play/Pause{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[R]{NC} {bold_s}Record WAV{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[M]{NC} {bold_s}Mini Mode{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[L]{NC} {bold_s}Liquid Glass{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Z]{NC} {bold_s}MP Liquid Visualizer{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Q]{NC} {bold_s}Queue{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[G]{NC} {bold_s}Spek{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[I]{NC} {bold_s}Track Inspector{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[E]{NC} {bold_s}Equalizer HUD{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[/]{NC} {bold_s}Search{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {bold_s}Skip{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {bold_s}Pitch{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {bold_s}Vol{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[u]{NC} {bold_s}Mute{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {bold_s}Exit{NC}",
-                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {bold_s}[1] Mix Archive{NC}  {bold_s}[2] Music{NC}  {bold_s}[Space] Play{NC}  {bold_s}[R] Rec WAV{NC}  {bold_s}[M] Mini{NC}  {bold_s}[L] Liquid{NC}  {bold_s}[Q] Queue{NC}  {bold_s}[G] Spek{NC}  {bold_s}[E] Equalizer{NC}  {bold_s}[/] Search{NC}  {bold_s}[n/p] Skip{NC}  {bold_s}[u] Mute{NC}  {bold_s}[b/Esc] Exit{NC}",
-                    f"  {bold_s}[1] Mix  [2] Music  Space Play  [R] Rec  [M] Mini  [Q] Queue  [G] Spek  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
+                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}TRACK CONTROLS:{NC} {bold_s}{COLOR_ELECTRIC_CYAN}[1]{NC} {bold_s}Mix Archive{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[2]{NC} {bold_s}Music{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[D]{NC} {bold_s}Clear Playlist{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Space]{NC} {bold_s}Play/Pause{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[R]{NC} {bold_s}Record WAV{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[M]{NC} {bold_s}Mini Mode{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[L]{NC} {bold_s}Liquid Glass{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Z]{NC} {bold_s}MP Liquid Visualizer{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[Q]{NC} {bold_s}Queue{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[G]{NC} {bold_s}Spek{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[I]{NC} {bold_s}Track Inspector{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[E]{NC} {bold_s}Equalizer HUD{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[/]{NC} {bold_s}Search{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[n/p]{NC} {bold_s}Skip{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[+/-]{NC} {bold_s}Pitch{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[v/V]{NC} {bold_s}Vol{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[u]{NC} {bold_s}Mute{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}[b/Esc]{NC} {bold_s}Exit{NC}",
+                    f"  {bold_s}{COLOR_TRAFFIC_GREEN}CONTROLS:{NC} {bold_s}[1] Mix Archive{NC}  {bold_s}[2] Music{NC}  {bold_s}[D] Clear{NC}  {bold_s}[Space] Play{NC}  {bold_s}[R] Rec WAV{NC}  {bold_s}[M] Mini{NC}  {bold_s}[L] Liquid{NC}  {bold_s}[Q] Queue{NC}  {bold_s}[G] Spek{NC}  {bold_s}[E] Equalizer{NC}  {bold_s}[/] Search{NC}  {bold_s}[n/p] Skip{NC}  {bold_s}[u] Mute{NC}  {bold_s}[b/Esc] Exit{NC}",
+                    f"  {bold_s}[1] Mix  [2] Music  [D] Clear  Space Play  [R] Rec  [M] Mini  [Q] Queue  [G] Spek  [E] EQ  [/] Search  n/p Skip  [u] Mute  b/Esc Exit{NC}"
                 ], max(20, w - 1)),
                 _fit_text_line([
                     f"  {hint_col}[0] Pitch Reset  [u] Mute  [s] Shuffle  [y] Repeat  [L] Liquid Glass  [Z] MP Liquid Visualizer  [E] Equalizer HUD  [e] Vis Style  [c] Color Theme  [a] Audio/BT  [O] Open  [F] Files{NC}",
@@ -4412,9 +4512,9 @@ class TerminalPlayerUI:
             ])
         else:
             lines.append(_fit_text_line([
-                f"  {hint_col}[1] Mix Archive  [2] Music  [Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Z] MP Liquid Visualizer  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
-                f"  {hint_col}[1] Mix Archive  [2] Music  Space Play  R Rec  M Mini  L Glass  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  O Open  T List  E EQ  b/Esc Exit{NC}",
-                f"  {hint_col}[1] Mix  [2] Music  Space Play  R Rec  M Mini  Q Queue  G Spek  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  E EQ  b/Esc Exit{NC}"
+                f"  {hint_col}[1] Mix Archive  [2] Music  [D] Clear Playlist  [Space] Play/Pause  [R] Record WAV  [M] Mini Mode  [L] Liquid Glass  [Z] MP Liquid Visualizer  [Q] Queue  [G] Spek  [+/-] Pitch ±1% (±20% max)  [0] Pitch Reset  [v/V] Vol  [u] Mute  [s] Shuffle  [y] Repeat  [n/p] Next/Prev  [a] Audio/BT  [O] Open  [T] Tracklist  [w] Export  [F] Files  [E] Equalizer HUD  [e] Vis  [b/Esc] Exit{NC}",
+                f"  {hint_col}[1] Mix Archive  [2] Music  [D] Clear  Space Play  R Rec  M Mini  L Glass  Q Queue  G Spek  +/- Pitch  0 Reset  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  O Open  T List  E EQ  b/Esc Exit{NC}",
+                f"  {hint_col}[1] Mix  [2] Music  [D] Clear  Space Play  R Rec  M Mini  Q Queue  G Spek  v/V Vol  u Mute  s Shuf  y Rep  n/p Skip  E EQ  b/Esc Exit{NC}"
             ], max(20, w - 1)))
         if is_lg:
             lines = [_strip_bold_ansi(l) for l in lines]
@@ -4458,7 +4558,7 @@ class TerminalPlayerUI:
         if t_now < self.notification_time and self.notification_msg:
             lines.append(f"  {bold_s}\033[38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
-            lines.append(f"  \033[38;2;0;229;255m[1]{NC} \033[38;2;235;240;255mMix{NC}  \033[38;2;0;229;255m[2]{NC} \033[38;2;235;240;255mMusic{NC}  \033[38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[38;2;0;229;255m[y]{NC} \033[38;2;235;240;255mRep{NC}  \033[38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
+            lines.append(f"  \033[38;2;0;229;255m[1]{NC} \033[38;2;235;240;255mMix{NC}  \033[38;2;0;229;255m[2]{NC} \033[38;2;235;240;255mMusic{NC}  \033[38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  \033[38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[38;2;0;229;255m[y]{NC} \033[38;2;235;240;255mRep{NC}  \033[38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
         if is_lg:
             lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
@@ -4534,9 +4634,9 @@ class TerminalPlayerUI:
             m_hint = "[M] Full" if is_lg else "[M] Mini"
             m_hint_short = "M Full" if is_lg else "M Mini"
             lines.append(_fit_text_line([
-                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint_short}{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
+                f"  \033[1;38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255mSpek{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
+                f"  \033[1;38;2;0;229;255mD{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint_short}{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
             ], max(20, w - 1)))
         if is_lg:
             lines = [_strip_bold_ansi(l) for l in lines]

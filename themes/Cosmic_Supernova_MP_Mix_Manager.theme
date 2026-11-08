@@ -1,0 +1,94 @@
+#Cosmic Supernova MP Mix Manager
+#MPlanetarian Cosmic Supernova Theme adapted for BTOP
+#MPlanetarian Dreamworlds Productions
+#Interstellar deep space cosmic theme: Supernova Crimson, Aurora Aquamarine, Solar Flare Gold, Nebula Orchid & Hyper-space Indigo.
+
+# Main background, empty for terminal default, need to be empty if you want transparent background
+theme[main_bg]="#0a0814"
+
+# Main text color (Starlight white)
+theme[main_fg]="#e2e8f0"
+
+# Title color for boxes (Aurora Aquamarine)
+theme[title]="#00f5d4"
+
+# Highlight color for keyboard shortcuts (Solar Flare Gold)
+theme[hi_fg]="#fee440"
+
+# Background color of selected item in processes box (Deep Cosmic Indigo)
+theme[selected_bg]="#5e60ce"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="#ffffff"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="#64748b"
+
+# Color of text appearing on top of graphs, i.e uptime and current network graph scaling (Pulsar Starlight Cyan)
+theme[graph_text]="#4cc9f0"
+
+# Background color of the percentage meters (Deep Interstellar Void)
+theme[meter_bg]="#1e1b4b"
+
+# Misc colors for processes box including mini cpu graphs, details memory graph and details status text
+theme[proc_misc]="#e056fd"
+
+# Cpu box outline color (Electric Nebula Orchid)
+theme[cpu_box]="#e056fd"
+
+# Memory/disks box outline color (Hyper-space Deep Indigo)
+theme[mem_box]="#5e60ce"
+
+# Net up/down box outline color (Pulsar Starlight Cyan)
+theme[net_box]="#4cc9f0"
+
+# Processes box outline color (Electric Nebula Orchid)
+theme[proc_box]="#e056fd"
+
+# Box divider line and small boxes line color
+theme[div_line]="#2e2a56"
+
+# Temperature graph colors (Aurora Aquamarine -> Solar Flare Gold -> Supernova Crimson)
+theme[temp_start]="#00f5d4"
+theme[temp_mid]="#fee440"
+theme[temp_end]="#ff3366"
+
+# CPU graph colors
+theme[cpu_start]="#00f5d4"
+theme[cpu_mid]="#4cc9f0"
+theme[cpu_end]="#ff3366"
+
+# Mem/Disk free meter
+theme[free_end]="#00f5d4"
+theme[free_mid]="#4cc9f0"
+theme[free_start]="#ff3366"
+
+# Mem/Disk cached meter
+theme[cached_start]="#5e60ce"
+theme[cached_mid]="#4cc9f0"
+theme[cached_end]="#00f5d4"
+
+# Mem/Disk available meter
+theme[available_start]="#ff3366"
+theme[available_mid]="#fee440"
+theme[available_end]="#00f5d4"
+
+# Mem/Disk used meter
+theme[used_start]="#00f5d4"
+theme[used_mid]="#fee440"
+theme[used_end]="#ff3366"
+
+# Download graph colors
+theme[download_start]="#5e60ce"
+theme[download_mid]="#4cc9f0"
+theme[download_end]="#00f5d4"
+
+# Upload graph colors
+theme[upload_start]="#b5179e"
+theme[upload_mid]="#e056fd"
+theme[upload_end]="#ff3366"
+
+# Process box color gradient for threads, mem and cpu usage
+theme[process_start]="#5e60ce"
+theme[process_mid]="#e056fd"
+theme[process_end]="#ff3366"

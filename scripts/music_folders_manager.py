@@ -997,6 +997,9 @@ def show_shortcuts_guide():
     print(f"  {BOLD}{CYAN}4. Library Mode{NC}")
     print(f"     • [1] Mix Archive playlist, [2] Music playlist. Each key reloads that playlist.")
     print(f"     • If a playlist is missing, configure Mix Archive with main menu option 13 and Music folders with option 2.")
+    print(f"  {BOLD}{CYAN}5. Clear Playlist (Key D or Delete){NC}")
+    print(f"     • Press [D] or [Del], then press it again, to empty the open playlist and its queue.")
+    print(f"     • Audio files stay on disk. [Esc] cancels. [1] or [2] reloads that library.")
     pause("Press Enter to return to menu...")
 
 def run_music_folders_menu():

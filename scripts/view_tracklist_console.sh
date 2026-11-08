@@ -44,6 +44,7 @@ TRACKLIST_THEMES=(
     "emerald"
     "classic"
     "retro_terminal"
+    "retro_linux_memories"
 )
 
 set_theme_colors() {
@@ -220,6 +221,17 @@ set_theme_colors() {
             WHITE='\033[1;37m'
             CURRENT_THEME="retro_terminal"
             THEME_DISPLAY_NAME="Retro Terminal"
+            ;;
+        retro_linux_memories|retro_linux|linux_memories|retro-linux-memories|retro-linux|linux|veracrypt|retrolinux|"retro linux memories"|"retro linux"|"retro linux memories [gtk / veracrypt dark slate]")
+            RED='\033[38;2;217;83;79m'
+            GREEN='\033[38;2;92;184;92m'
+            YELLOW='\033[38;2;240;173;78m'
+            BLUE='\033[38;2;21;83;158m'
+            MAGENTA='\033[38;2;145;145;144m'
+            CYAN='\033[38;2;91;134;187m'
+            WHITE='\033[38;2;255;255;255m'
+            CURRENT_THEME="retro_linux_memories"
+            THEME_DISPLAY_NAME="Retro Linux Memories"
             ;;
         dracula)
             RED='\033[38;5;212m'

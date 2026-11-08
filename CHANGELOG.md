@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0 Stable] - 2026-10-24
 
 ### Added
+- **New "Retro Linux Memories" Theme inspired by Classic Linux VeraCrypt GTK Styling** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `scripts/liquid_glass_metal.py`, `scripts/mix_web_companion.py`, `scripts/traktor_monitor.py`, `scripts/view_tracklist_console.sh`, `.probe_mgr.sh`, `themes/Retro_Linux_Memories_MP_Mix_Manager.theme`, `tests/test_retro_linux_memories_theme.py`):
+  - **Authentic Retro Linux GTK Palette**: Accurately sampled and adapted directly from the classic VeraCrypt Linux UI screenshot (`Screenshot_20261108_040035.png`):
+    - Dark Slate Gray Window Background & Wells (`#2d2d2d` / `#353535` / `#1a1e21`)
+    - Classic VeraCrypt Royal Selection Blue (`#15539e` / `rgb(21, 83, 158)`)
+    - Beveled Widget Borders & Steel Highlights (`#545453` / `#5b86bb`)
+    - Clean White Text (`#ffffff`) and Classic Amber Title/Warning Accent (`#f0ad4e`)
+  - **MP Liquid Audio Player Integration**: Full shader color matching (`u_themeA=(21, 83, 158)`, `u_themeB=(91, 134, 187)`, `u_themeC=(45, 45, 45)`) across OpenGL (`scripts/liquid_glass_opengl.py`), NVIDIA Vulkan (`scripts/liquid_glass_vulkan.py`), and macOS Metal (`scripts/liquid_glass_metal.py`).
+  - **MP Audio Player Equalizer & Terminal Spectrum**: Built-in 4-tier frequency response gradient (VeraCrypt Blue -> Slate Highlight -> Amber Warning -> Pure White peak) with full alias support.
+  - **Mix Archive Manager Theme Switcher & btop**: Added Option 22 in `manage_themes()`, interactive submenu selection bar in `highlight_menu_line()`, and btop theme synchronization `Retro_Linux_Memories_MP_Mix_Manager.theme`.
+
 - **First-Load Equalizer Auto-Initialization to Flat (0 dB)** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/liquid_glass_reward.py`, `tests/test_first_run_equalizer.py`):
   - Automatically resets MP Audio Player's 10-band equalizer to Flat preset (0 dB on all bands) when MP Mix Manager loads for the first time via `python MP_Audio_Player.py --reset-eq`.
   - Added `ensure_first_run_equalizer` to `Mix_Archive_Manager.sh` startup sequence and `setup_first_run_equalizer` in `scripts/liquid_glass_reward.py`.
@@ -163,6 +173,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Hit Testing & Terminal Docking**: Updated inner well geometry, window resize/restore handlers, top bezel drag regions, and close button hit areas to match the streamlined 7px bezel.
 
 ### Added
+- **New "Retro Linux Memories" Theme inspired by Classic Linux VeraCrypt GTK Styling** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `scripts/liquid_glass_metal.py`, `scripts/mix_web_companion.py`, `scripts/traktor_monitor.py`, `scripts/view_tracklist_console.sh`, `.probe_mgr.sh`, `themes/Retro_Linux_Memories_MP_Mix_Manager.theme`, `tests/test_retro_linux_memories_theme.py`):
+  - **Authentic Retro Linux GTK Palette**: Accurately sampled and adapted directly from the classic VeraCrypt Linux UI screenshot (`Screenshot_20261108_040035.png`):
+    - Dark Slate Gray Window Background & Wells (`#2d2d2d` / `#353535` / `#1a1e21`)
+    - Classic VeraCrypt Royal Selection Blue (`#15539e` / `rgb(21, 83, 158)`)
+    - Beveled Widget Borders & Steel Highlights (`#545453` / `#5b86bb`)
+    - Clean White Text (`#ffffff`) and Classic Amber Title/Warning Accent (`#f0ad4e`)
+  - **MP Liquid Audio Player Integration**: Full shader color matching (`u_themeA=(21, 83, 158)`, `u_themeB=(91, 134, 187)`, `u_themeC=(45, 45, 45)`) across OpenGL (`scripts/liquid_glass_opengl.py`), NVIDIA Vulkan (`scripts/liquid_glass_vulkan.py`), and macOS Metal (`scripts/liquid_glass_metal.py`).
+  - **MP Audio Player Equalizer & Terminal Spectrum**: Built-in 4-tier frequency response gradient (VeraCrypt Blue -> Slate Highlight -> Amber Warning -> Pure White peak) with full alias support.
+  - **Mix Archive Manager Theme Switcher & btop**: Added Option 22 in `manage_themes()`, interactive submenu selection bar in `highlight_menu_line()`, and btop theme synchronization `Retro_Linux_Memories_MP_Mix_Manager.theme`.
+
 - **MP_Liquid_Visualizer — Preset 5: "Sensorium Interface" (Defasten Earth Flipper & Sensorium_Interface.jpeg)** (`MP_Liquid_Visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `shaders/mp_liquid_visualizer.frag`, `shaders/mp_liquid_visualizer.frag.spv`, `assets/sensorium_interface_cover.png`, `COVERS/Sensorium_Interface_Preset.png`, `assets/skins/sensorium_interface.png`, `themes/Sensorium_Interface_MP_Mix_Manager.theme`, `MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `tests/test_mp_liquid_visualizer.py`, `tests/test_liquid_glass_skin.py`, `tests/test_equalizer_presets.py`):
   - **Cover Image & Preset Assets**: Generated high-resolution 1400x1400 cover art assets `COVERS/Sensorium_Interface_Preset.png` and `assets/sensorium_interface_cover.png` from `/run/media/mplanetarian/GAMES1/DATA_DRIVE_MOVED/MPlanetarian Bandcamp Covers/Sensorium_Interface.jpeg` (3000x3000 JPEG), adhering strictly to the one-Bandcamp-cover-per-preset architecture.
   - **Defasten "Earth Flipper" Primordial Celestial Architecture**: Inspired by Defasten's 2022 generative masterpiece with Yaporigami (*Earth Flipper* [KE8zIfDsloA] from `/run/media/mplanetarian/EXT_004_P1_1TB/defasten/`):

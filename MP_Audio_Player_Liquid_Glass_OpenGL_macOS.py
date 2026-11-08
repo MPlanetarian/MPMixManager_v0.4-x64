@@ -866,6 +866,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                 char_map = {
                     257: b"\n",
                     259: b"\x7f",
+                    261: b"\x1b[3~",
                     262: b"\x1b[C",
                     263: b"\x1b[D",
                     264: b"\x1b[B",

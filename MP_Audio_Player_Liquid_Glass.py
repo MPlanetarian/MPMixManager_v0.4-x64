@@ -8,8 +8,9 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
+from desktop_launch_screen import main_desktop_origin  # noqa: E402
 from liquid_glass_vulkan import LiquidGlassRenderer, NVIDIA_VENDOR_ID, read_player_theme  # noqa: E402
-from liquid_visualizer_session import stop_companion_visualizer  # noqa: E402
+from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 
 COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
@@ -66,8 +67,8 @@ def list_liquid_glass_fonts():
 def player_panel_rects(cols, rows, cw, ch, ox, oy, mode="NORMAL"):
     b = lambda c, r, bc, br: (ox + c * cw, oy + r * ch, bc * cw, br * ch)
     iw = max(20, cols - 4)
-    if mode == "MICRO":
-        return b(2, 0, iw, rows), (0.0, 0.0, 0.0, 0.0)
+    if mode in ("MICRO", "MANAGER"):
+        return b(1, 0, max(20, cols - 2), rows), (0.0, 0.0, 0.0, 0.0)
     if mode == "MINI":
         return b(2, 0, iw, 3), b(2, 3, iw, max(1, rows - 3))
     if mode == "TRACKLIST":
@@ -93,6 +94,11 @@ def _import_gtk():
     if not hasattr(GdkX11, "X11Display"):
         raise RuntimeError("GDK X11 backend is required for the liquid-glass window")
     return GLib, Gtk, Vte
+
+
+def manager_argv():
+    bash = shutil.which("bash") or "bash"
+    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -212,7 +218,7 @@ class GlassHost:
             self._place_terminal()
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or ((72, 64), (1280, 820))
+            pos, _ = self._saved_rect or (main_desktop_origin(72, 64), (1280, 820))
             cols, rows = (74, 14) if self.mode == "MINI" else ((74, 7) if self.mode == "MICRO" else (COLS, ROWS))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(pos[0], pos[1])
@@ -347,7 +353,12 @@ class GlassHost:
     def run(self):
         m = LiquidGlassRenderer.bezel_px
         iw, ih = self._target_cols * 9 + 2 * m, self._target_rows * 18 + 2 * m
-        base_t = "Mix Tracklist Viewer" if self.mode == "TRACKLIST" else "MP Audio Player"
+        if self.mode == "TRACKLIST":
+            base_t = "Mix Tracklist Viewer"
+        elif self.mode == "MANAGER":
+            base_t = "MP Mix Manager"
+        else:
+            base_t = "MP Audio Player"
         title = f"{base_t} (Liquid Glass{' - Vulkan' if IS_WIN else ''})"
         if IS_WIN:
             self.renderer = LiquidGlassRenderer(iw, ih, title)
@@ -606,13 +617,15 @@ def main(argv):
         return 0
 
     embed = "--embed-check" in argv
-    opts = {"tracklist": None, "audio": None, "theme": None, "font": None, "set-font": None}
+    opts = {"tracklist": None, "audio": None, "theme": None, "font": None, "set-font": None, "manager": False}
     flag_map = {"--tracklist": "tracklist", "--audio": "audio", "--theme": "theme", "-t": "theme",
                 "--font": "font", "-f": "font", "--set-font": "set-font"}
     cleaned_argv, i, n = [], 0, len(argv)
     while i < n:
         a = argv[i]
-        if a == "--no-visualizer":
+        if a in ("--no-visualizer", "--manager"):
+            if a == "--manager":
+                opts["manager"] = True
             i += 1
         elif a in flag_map and i + 1 < n:
             opts[flag_map[a]] = argv[i + 1]
@@ -634,7 +647,15 @@ def main(argv):
         ensure_random_visualizer_started()
 
     mode = "MINI" if "--mini" in argv else ("MICRO" if "--micro" in argv else "NORMAL")
-    if opts["tracklist"] and not embed:
+    manager = bool(opts.get("manager"))
+    if manager and not embed and not opts["tracklist"]:
+        mode = "MANAGER"
+        os.environ["MP_GUI_SESSION"] = "1"
+        os.environ["MP_LIQUID_GLASS"] = "1"
+        command = manager_argv()
+        if not Path(command[1]).is_file():
+            raise RuntimeError(f"MP Mix Manager was not found at {command[1]}")
+    elif opts["tracklist"] and not embed:
         mode = "TRACKLIST"
         command = tracklist_argv(opts["tracklist"], audio_path=opts["audio"], theme=opts["theme"])
         if not Path(command[1]).is_file():
@@ -657,7 +678,10 @@ def main(argv):
             print("LIQUID_GLASS_EMBED_OK", flush=True)
         return 0
     finally:
-        if player_gui:
+        if manager:
+            stop_companion_playback()
+            stop_companion_visualizer(force=True)
+        elif player_gui:
             stop_companion_visualizer()
 
 

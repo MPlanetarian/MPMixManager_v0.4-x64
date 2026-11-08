@@ -34,6 +34,11 @@ from ctypes import (
 )
 from pathlib import Path
 
+try:
+    from desktop_launch_screen import main_desktop_origin, place_on_main_screen
+except ImportError:
+    from scripts.desktop_launch_screen import main_desktop_origin, place_on_main_screen
+
 
 def is_windows() -> bool:
     """Check if running on Windows."""
@@ -115,6 +120,12 @@ THEME_COLORS = {
     "cosmic_dreamworlds": ((232, 13, 104), (0, 245, 212), (176, 88, 255)),
     "orbital_void_reflux": ((0, 240, 255), (157, 78, 221), (255, 0, 127)),
     "sensorium_interface": ((0, 245, 255), (240, 168, 216), (184, 72, 196)),
+    "retro_linux_memories": ((21, 83, 158), (91, 134, 187), (45, 45, 45)),
+    "solarized": ((220, 50, 47), (38, 139, 210), (181, 137, 0)),
+    "tokyo": ((247, 118, 142), (122, 162, 247), (187, 154, 247)),
+    "monokai": ((249, 38, 114), (166, 226, 46), (102, 217, 239)),
+    "emerald": ((46, 204, 113), (26, 188, 156), (0, 168, 132)),
+    "charcoal_vault": ((45, 45, 45), (21, 83, 158), (26, 30, 33)),
 }
 THEME_ALIASES = {
     "sensorium_interface": "sensorium_interface",
@@ -183,6 +194,23 @@ THEME_ALIASES = {
     "unix_terminal": "retro_terminal",
     "terminal": "retro_terminal",
     "classic": "retro_terminal",
+    "retro_linux_memories": "retro_linux_memories",
+    "retro_linux": "retro_linux_memories",
+    "linux_memories": "retro_linux_memories",
+    "retro-linux-memories": "retro_linux_memories",
+    "retro-linux": "retro_linux_memories",
+    "retro linux memories": "retro_linux_memories",
+    "retro linux": "retro_linux_memories",
+    "veracrypt": "retro_linux_memories",
+    "retrolinux": "retro_linux_memories",
+    "linux": "retro_linux_memories",
+    "solarized": "solarized",
+    "tokyo": "tokyo", "tokyo_night": "tokyo", "tokyo night": "tokyo",
+    "monokai": "monokai",
+    "emerald": "emerald", "emerald_isle": "emerald",
+    "charcoal_vault": "charcoal_vault", "charcoal": "charcoal_vault",
+    "charcoal vault": "charcoal_vault", "vault": "charcoal_vault",
+    "dark_vault": "charcoal_vault", "veracrypt_dark": "charcoal_vault",
 }
 
 
@@ -934,6 +962,15 @@ class LiquidGlassRenderer:
             raise RuntimeError("GLFW reports Vulkan is unavailable")
         self._step = "window"
         self._window = self._create_window()
+        if sys.platform not in ("win32", "darwin") and self.x11_window():
+            place_on_main_screen(
+                self.set_window_pos,
+                self.x11_window(),
+                72,
+                64,
+                flush=lambda: self._x11.XFlush(self.x11_display()) if getattr(self, "_x11", None) and self.x11_display() else None,
+                title_contains=self.title,
+            )
         self._apply_window_icon()
         self._bind_input()
         self._step = "instance"
@@ -1685,8 +1722,9 @@ class LiquidGlassRenderer:
             self.transparent = False
         if not window:
             raise RuntimeError("GLFW could not open a window for Vulkan")
-        g.glfwSetWindowPos(window, 72, 64)
-        self._cur_pos = (72, 64)
+        origin_x, origin_y = main_desktop_origin(72, 64)
+        g.glfwSetWindowPos(window, origin_x, origin_y)
+        self._cur_pos = (origin_x, origin_y)
         self._resize = False
         return window
 

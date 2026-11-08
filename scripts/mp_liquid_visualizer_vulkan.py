@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer Engine."""
 from __future__ import annotations
-import argparse, ctypes, json, math, os, platform, random, socket, subprocess, sys, time
+import argparse, ctypes, json, math, os, platform, random, signal, socket, subprocess, sys, time
 from ctypes import (CFUNCTYPE, POINTER, Structure, addressof, byref, c_char, c_char_p, c_double,
                     c_float, c_int, c_int32, c_size_t, c_uint8, c_uint32, c_uint64, c_void_p, cast, memmove, sizeof, string_at)
 from ctypes.util import find_library
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+try:
+    from desktop_launch_screen import main_desktop_origin, place_on_main_screen
+except ImportError:
+    from scripts.desktop_launch_screen import main_desktop_origin, place_on_main_screen
 
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
@@ -457,6 +462,17 @@ class LiquidVisualizerVulkanRenderer:
         if not self._glfw.glfwVulkanSupported(): raise RuntimeError("GLFW reports Vulkan is unavailable")
 
         self._window = self._create_window()
+        if not self.target_4k and not _IS_WIN and not _IS_MAC:
+            try:
+                place_on_main_screen(
+                    self.set_window_pos,
+                    self.x11_window() or 0,
+                    160,
+                    80,
+                    title_contains=self.title,
+                )
+            except Exception:
+                pass
         self._bind_input()
         self._vulkan = load_vulkan_dll()
         self._bind_loader()
@@ -554,7 +570,7 @@ class LiquidVisualizerVulkanRenderer:
         try: g.glfwSetWindowSizeLimits(w, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT)
         except Exception: pass
 
-        ix, iy = 160, 80
+        ix, iy = main_desktop_origin(160, 80)
         if getattr(self, "target_4k", False):
             m4k = self._find_4k_monitor()
             if m4k:
@@ -1501,7 +1517,14 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
         renderer.close()
 
 
+def _exit_when_player_closes(signum, _frame):
+    """Leave no visualizer window behind when the player or GUI sends SIGTERM."""
+    os._exit(0)
+
+
 def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[float] = None, fullscreen: bool = False, target_4k: bool = False) -> int:
+    signal.signal(signal.SIGTERM, _exit_when_player_closes)
+    signal.signal(signal.SIGHUP, _exit_when_player_closes)
     renderer = LiquidVisualizerVulkanRenderer(preset_name, fullscreen=fullscreen, target_4k=target_4k)
     bridge = AudioTelemetryBridge()
     renderer.open()

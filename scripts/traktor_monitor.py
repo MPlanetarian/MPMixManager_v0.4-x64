@@ -84,6 +84,7 @@ THEMES: dict[str, tuple[str, str, str, str, str, str, str, str, str, str, str]] 
     "cosmic_dreamworlds_radioactive": ("Cosmic Dreamworlds Radioactive (Liquid Glass Skin)", "Cover Wrapped Liquid Glass: Crystal Clear Water, Neon Radioactive & Cosmic Glow", "#39ff14", "#00f5d4", "#a64dff", "#39ff14", "#ffffff", "#a2e6b5", "#39ff14", "#ff0055", "#00f5d4"),
     "cosmic_dreamworlds": ("Cosmic Dreamworlds (Liquid Glass Skin)", "Cover Wrapped Liquid Glass: Crystal Clear Water, Cosmic Magenta & Starlight Glow", "#e80d68", "#00f5d4", "#b058ff", "#e80d68", "#ffffff", "#fbcfe8", "#e80d68", "#ff007f", "#fee440"),
     "orbital_void_reflux": ("Orbital Void Reflux (Liquid Glass Skin)", "Cover Wrapped Liquid Glass: Crystal Clear Water, Orbital Void Violet & Reflux Cyan", "#00f0ff", "#ff007f", "#9d4edd", "#00f0ff", "#ffffff", "#c8b6ff", "#00f0ff", "#ff007f", "#9d4edd"),
+    "retro_linux_memories": ("Retro Linux Memories", "Classic Retro Linux GTK Dark Slate, VeraCrypt Blue Selection & Beveled Steel", "#15539e", "#5b86bb", "#f0ad4e", "#545453", "#ffffff", "#919190", "#5cb85c", "#d9534f", "#f0ad4e"),
 }
 
 THEME_ALIASES: dict[str, str] = {
@@ -119,6 +120,16 @@ THEME_ALIASES: dict[str, str] = {
     "retro": "retro_terminal", "terminal": "retro_terminal", "vt100": "retro_terminal",
     "old style unix terminal retro mode (white on black)": "retro_terminal",
     "old style unix terminal": "retro_terminal",
+    "retro_linux_memories": "retro_linux_memories",
+    "retro_linux": "retro_linux_memories",
+    "linux_memories": "retro_linux_memories",
+    "retro-linux-memories": "retro_linux_memories",
+    "retro-linux": "retro_linux_memories",
+    "retro linux memories": "retro_linux_memories",
+    "retro linux": "retro_linux_memories",
+    "veracrypt": "retro_linux_memories",
+    "retrolinux": "retro_linux_memories",
+    "linux": "retro_linux_memories",
 }
 
 class ThemeColors:

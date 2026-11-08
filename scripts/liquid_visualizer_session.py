@@ -59,13 +59,62 @@ def _pgrep(pattern: str) -> list[int]:
     return found
 
 
+def _cmdline(pid: int) -> str:
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
+    except OSError:
+        return ""
+
+
+def _ppid(pid: int) -> int:
+    try:
+        text = Path(f"/proc/{pid}/status").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return 0
+    for line in text.splitlines():
+        if line.startswith("PPid:"):
+            parts = line.split()
+            if len(parts) > 1 and parts[1].isdigit():
+                return int(parts[1])
+    return 0
+
+
+def _is_descendant(pid: int, ancestor: int) -> bool:
+    seen: set[int] = set()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        parent = _ppid(pid)
+        if parent == ancestor:
+            return True
+        pid = parent
+    return False
+
+
 def visualizer_pids() -> list[int]:
     return _pgrep(_VISUALIZER_MARK)
 
 
 def other_liquid_player_running() -> bool:
-    """True when another Liquid Player window is still open."""
-    return bool(_pgrep(_PLAYER_MARK))
+    """True when another Liquid Glass host window is still open.
+
+    A shell launcher whose command line contains the player script, and this
+    process's own parent, are not another window. Counting those used to skip
+    the visualizer shutdown.
+    """
+    me = os.getpid()
+    parent = os.getppid()
+    for pid in _pgrep(_PLAYER_MARK):
+        if pid in (me, parent) or pid <= 1:
+            continue
+        cmd = _cmdline(pid).lower()
+        if "pgrep" in cmd or "pkill" in cmd:
+            continue
+        if "mp_audio_player_liquid_glass" not in cmd:
+            continue
+        if _is_descendant(pid, me):
+            continue
+        return True
+    return False
 
 
 def _alive(pid: int) -> bool:
@@ -85,16 +134,17 @@ def _signal_visualizer(pid: int, sig: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
     try:
-        same_group = os.getpgid(pid) == os.getpgrp()
+        pgid = os.getpgid(pid)
     except OSError:
         return
     try:
-        # A new session can be signalled as a group. The same group as the
-        # player must be signalled by pid only, or the player would be hit too.
-        if same_group:
-            os.kill(pid, sig)
+        # Signal the visualizer's own group only when it is the leader.
+        # killpg(pid) fails when the process is not a group leader, and
+        # killpg of a shared shell group would stop the player too.
+        if pgid == pid and pgid != os.getpgrp():
+            os.killpg(pgid, sig)
         else:
-            os.killpg(pid, sig)
+            os.kill(pid, sig)
     except OSError:
         try:
             os.kill(pid, sig)
@@ -102,19 +152,91 @@ def _signal_visualizer(pid: int, sig: int) -> None:
             pass
 
 
-def stop_companion_visualizer() -> None:
-    """Close visualizer windows opened for this Liquid Player.
+def stop_companion_visualizer(force: bool = False) -> None:
+    """Close visualizer windows opened for this Liquid Glass window.
 
-    Leave the window up when another Liquid Player is still open.
+    Leave the window up when another Liquid Glass host is still open,
+    unless force is set (the Mix Manager GUI always closes it).
     """
-    if other_liquid_player_running():
+    if not force and other_liquid_player_running():
         return
     pids = visualizer_pids()
     if not pids:
         return
     for pid in pids:
         _signal_visualizer(pid, signal.SIGTERM)
-    deadline = time.monotonic() + 0.4
+    deadline = time.monotonic() + 0.6
+    while time.monotonic() < deadline:
+        if not any(_alive(pid) for pid in pids):
+            return
+        time.sleep(0.05)
+    for pid in pids:
+        if _alive(pid):
+            _signal_visualizer(pid, signal.SIGKILL)
+
+
+def _playback_engine_pids() -> list[int]:
+    """MP Audio Player engines. Liquid Glass host windows are not engines."""
+    me = os.getpid()
+    found: list[int] = []
+    for pid in _pgrep("MP_Audio_Player.py"):
+        if pid == me or pid <= 1:
+            continue
+        cmd = _cmdline(pid)
+        if "Liquid_Glass" in cmd or "liquid_glass" in cmd:
+            continue
+        if "MP_Audio_Player.py" not in cmd and "mp_audio_player.py" not in cmd.lower():
+            continue
+        found.append(pid)
+    return found
+
+
+def _send_player_stop() -> None:
+    """Ask a running player daemon to stop before its process is signalled."""
+    config = Path.home() / ".config" / "mix-manager"
+    sock_path = config / "mp_audio_player.sock"
+    port_path = config / "mp_audio_player.port"
+    try:
+        import socket
+        if sock_path.is_socket() or sock_path.exists():
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(0.4)
+                sock.connect(str(sock_path))
+                sock.sendall(b'{"cmd":"stop"}')
+                try:
+                    sock.recv(256)
+                except OSError:
+                    pass
+                sock.close()
+                return
+            except OSError:
+                pass
+        port = 0
+        try:
+            port = int(port_path.read_text(encoding="utf-8").strip() or "0")
+        except (OSError, ValueError):
+            port = 0
+        if port > 0:
+            sock = socket.create_connection(("127.0.0.1", port), 0.4)
+            sock.settimeout(0.4)
+            sock.sendall(b'{"cmd":"stop"}')
+            try:
+                sock.recv(256)
+            except OSError:
+                pass
+            sock.close()
+    except OSError:
+        pass
+
+
+def stop_companion_playback() -> None:
+    """Stop music started from the Mix Manager GUI. The glass host stays up."""
+    _send_player_stop()
+    pids = _playback_engine_pids()
+    for pid in pids:
+        _signal_visualizer(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 0.45
     while time.monotonic() < deadline:
         if not any(_alive(pid) for pid in pids):
             return

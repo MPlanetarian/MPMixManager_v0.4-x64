@@ -103,6 +103,8 @@ void main() {
     float title = panelMask(frag, u.panel0);
     float library = panelMask(frag, u.panel1);
     float panel = max(title, library);
+    float themeLum = dot(theme, vec3(0.299, 0.587, 0.114));
+    float darkGlass = 1.0 - step(0.28, themeLum);
 
     vec3 water;
     if (u_hasSkin > 0.5) {
@@ -126,12 +128,21 @@ void main() {
         clearBase += caustGlint;
         water = clearBase;
     } else {
-        water = vec3(0.76, 0.80, 0.87);
-        water = mix(water, theme, 0.22);
-        water += theme * (caust * 0.16 + caustFine * 0.08);
-        water += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
-        vec3 panelCol = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
-        water = mix(water, panelCol, panel * 0.82);
+        vec3 lightWater = vec3(0.76, 0.80, 0.87);
+        lightWater = mix(lightWater, theme, 0.22);
+        lightWater += theme * (caust * 0.16 + caustFine * 0.08);
+        lightWater += vec3(0.95, 0.97, 1.0) * caustFine * 0.04;
+        vec3 lightPanel = mix(vec3(0.34, 0.36, 0.44), theme, 0.34);
+        lightWater = mix(lightWater, lightPanel, panel * 0.82);
+
+        // Charcoal Vault: opaque #2d2d2d field, #353535 panels, #1a1e21 chrome, #15539e accent.
+        vec3 field = vec3(0.1765, 0.1765, 0.1765);
+        vec3 panelChar = vec3(0.208, 0.208, 0.208);
+        vec3 titleChar = vec3(0.102, 0.118, 0.129);
+        vec3 darkWater = mix(field, accent, 0.05);
+        darkWater = mix(darkWater, panelChar, panel * 0.72);
+        darkWater = mix(darkWater, titleChar, title * 0.45);
+        water = mix(lightWater, darkWater, darkGlass);
     }
 
     float panelLip = 0.0;
@@ -148,7 +159,7 @@ void main() {
     if (u_hasSkin > 0.5) {
         water += mix(vec3(1.0), theme, 0.35) * panelLip * 0.32;
     } else {
-        water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22;
+        water += mix(vec3(1.0), theme, 0.45) * panelLip * 0.22 * mix(1.0, 0.35, darkGlass);
     }
 
     // Sloped outer edge. Distance across the bevel changes what it reflects.
@@ -166,15 +177,16 @@ void main() {
         col = mix(col, mix(theme, vec3(1.0), 0.35), shoulder * 0.48);
         col = mix(col, vec3(1.0), hair * 0.85);
     } else {
-        col = mix(col, mix(vec3(1.0), theme, 0.28), large * 0.80);
-        col = mix(col, mix(theme, vec3(1.0), 0.25), shoulder * 0.55);
-        col = mix(col, vec3(1.0), hair);
+        vec3 rimHi = mix(vec3(1.0), vec3(0.35, 0.38, 0.42), darkGlass);
+        col = mix(col, mix(rimHi, theme, 0.28), large * mix(0.80, 0.28, darkGlass));
+        col = mix(col, mix(theme, rimHi, 0.25), shoulder * mix(0.55, 0.22, darkGlass));
+        col = mix(col, rimHi, hair * mix(1.0, 0.22, darkGlass));
     }
 
     vec2 m = vec2(u.themeA.w, u.themeB.w);
     vec2 lp = (m - uv) * vec2(max(u.res.w, 0.5), 1.0);
     float spec = pow(max(0.0, 1.0 - length(lp) * 1.8), 8.0);
-    col += vec3(1.0) * spec * (u_hasSkin > 0.5 ? 0.36 : 0.28) * large;
+    col += vec3(1.0) * spec * (u_hasSkin > 0.5 ? 0.36 : 0.28) * large * mix(1.0, 0.25, darkGlass);
 
     if (u.bezel.w > 0.5) {
         float margin = max(u.bezel.x, 8.0);
@@ -195,6 +207,7 @@ void main() {
     }
 
     float alpha = 0.50 * (1.0 - panel * 0.25);
+    alpha = mix(alpha, mix(0.96, 0.98, panel), darkGlass);
     if (u.themeC.w > 0.0) {
         alpha *= u.themeC.w;
     }
