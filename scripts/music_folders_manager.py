@@ -423,6 +423,47 @@ def _isdir_timeout(path: str, timeout: float = 6.0) -> Optional[bool]:
             return False
     return _run_with_timeout(_probe, timeout, None)
 
+def _listing_responds(path: str, timeout: float = 4.0) -> bool:
+    """True when a directory listing returns. A wedged rclone mount makes os.listdir hang."""
+    try:
+        res = subprocess.run(
+            ["ls", "-A", path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+        return res.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+def _kill_rclone_mount(md: Path) -> None:
+    target = str(md)
+    pids = []
+    for entry in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            cmd = entry.read_bytes().replace(b"\x00", b" ").decode("utf-8", "ignore")
+        except OSError:
+            continue
+        if "rclone" in cmd and " mount " in cmd and target in cmd:
+            pids.append(int(entry.parent.name))
+    for pid in pids:
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            pass
+    if not pids:
+        return
+    time.sleep(0.4)
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue
+        try:
+            os.kill(pid, 9)
+        except OSError:
+            pass
+
 def smb_mount_dir(f: Dict[str, Any], config: Dict[str, Any]) -> Path:
     return config["mount_root"] / f["id"]
 
@@ -454,7 +495,7 @@ def _posix_existing_smb_paths(f: Dict[str, Any]) -> List[str]:
             cands.append(os.path.join(f"/run/user/{uid}/gvfs", f"smb-share:server={host.lower()},share={s}", sub))
     return cands
 
-def access_path(f: Dict[str, Any], config: Dict[str, Any], timeout: float = 6.0) -> Tuple[Optional[str], str]:
+def access_path(f: Dict[str, Any], config: Dict[str, Any], timeout: float = 12.0) -> Tuple[Optional[str], str]:
     mount_root_str = str(config["mount_root"])
     path_str = f.get("path", "")
     is_under_mount_root = path_str.startswith(mount_root_str) or f.get("type") == "smb"
@@ -480,8 +521,8 @@ def access_path(f: Dict[str, Any], config: Dict[str, Any], timeout: float = 6.0)
         return None, "OFFLINE"
 
     p = os.path.join(str(md), f.get("subpath", "")) if f.get("type") == "smb" or path_str.startswith(mount_root_str) else path_str
-    ok = _isdir_timeout(p, timeout)
-    return (p, "ONLINE") if ok else (None, "OFFLINE")
+    # isdir is true for a mountpoint even when the SMB connection never answers.
+    return (p, "ONLINE") if _listing_responds(p, timeout) else (None, "OFFLINE")
 
 def _smb_credentials(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[str, str]:
     return (f.get("user") or config.get("smb_user", "")), config.get("smb_password", "")
@@ -532,6 +573,15 @@ def connect_folder(f: Dict[str, Any], config: Dict[str, Any], interactive: bool 
     if not remote:
         return False, "rclone is not installed or SMB host is not configured in config.env."
     md = smb_mount_dir(f, config)
+    target = os.path.join(str(md), f.get("subpath", ""))
+    if _is_mountpoint(md):
+        disconnect_folder(f, config)
+        for _ in range(30):
+            if not _is_mountpoint(md):
+                break
+            time.sleep(0.1)
+        if _is_mountpoint(md):
+            return False, f"{display_path(f)} is mounted but not responding, and it could not be remounted."
     md.mkdir(parents=True, exist_ok=True)
     cmd = ["rclone", "mount", remote, str(md), "--read-only",
            "--dir-cache-time", "24h", "--vfs-cache-mode", "full", "--vfs-cache-max-size", "15G",
@@ -547,8 +597,12 @@ def connect_folder(f: Dict[str, Any], config: Dict[str, Any], interactive: bool 
     for _ in range(50):
         time.sleep(0.1)
         if _is_mountpoint(md):
-            return True, f"Mounted {display_path(f)} at {md}"
-    return False, f"Timed out waiting for {display_path(f)} to mount at {md}"
+            break
+    else:
+        return False, f"Timed out waiting for {display_path(f)} to mount at {md}"
+    if _listing_responds(target, 8):
+        return True, f"Mounted {display_path(f)} at {md}"
+    return False, f"Mounted {display_path(f)} but the share did not respond. Check the SMB login in option 8."
 
 def disconnect_folder(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[bool, str]:
     if IS_WINDOWS:
@@ -556,20 +610,27 @@ def disconnect_folder(f: Dict[str, Any], config: Dict[str, Any]) -> Tuple[bool, 
         res = subprocess.run(["net", "use", share_unc, "/delete", "/y"], capture_output=True, text=True)
         return True, ("Disconnected" if res.returncode == 0 else "No active UNC session")
     md = smb_mount_dir(f, config)
+    if _is_mountpoint(md):
+        commands = []
+        if shutil.which("fusermount3"):
+            commands.append(["fusermount3", "-uz", str(md)])
+        if shutil.which("fusermount"):
+            commands.append(["fusermount", "-uz", str(md)])
+        commands.append(["umount", "-l", str(md)])
+        for cmd in commands:
+            subprocess.run(cmd, capture_output=True, text=True)
+            if not _is_mountpoint(md):
+                break
+    _kill_rclone_mount(md)
     if not _is_mountpoint(md):
-        return True, "Not mounted."
-    for cmd in (["fusermount3", "-u", str(md)], ["fusermount", "-u", str(md)], ["umount", str(md)]):
-        if shutil.which(cmd[0]):
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0:
-                return True, f"Unmounted {md}"
+        return True, f"Unmounted {md}"
     return False, f"Could not unmount {md}"
 
 def ensure_folders_connected(folders: List[Dict[str, Any]], config: Dict[str, Any],
                              interactive: bool = True) -> List[Tuple[Dict[str, Any], bool, str]]:
     return [(f, *connect_folder(f, config, interactive=interactive)) for f in folders]
 
-def folder_statuses(folders: List[Dict[str, Any]], config: Dict[str, Any], timeout: float = 3.0) -> Dict[str, str]:
+def folder_statuses(folders: List[Dict[str, Any]], config: Dict[str, Any], timeout: float = 8.0) -> Dict[str, str]:
     results: Dict[str, str] = {}
     threads = []
     for f in folders:
@@ -663,64 +724,110 @@ def _scan_filesystem(root: str, folder_id: str, progress_cb=None) -> List[Dict[s
                 pass
     return tracks
 
+def _parse_rclone_mtime(text: str) -> float:
+    raw = (text or "").strip().split(".")[0].replace("T", " ").replace("Z", "")
+    try:
+        return time.mktime(time.strptime(raw[:19], "%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        return time.time()
+
 def _scan_rclone(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None) -> Optional[List[Dict[str, Any]]]:
+    """List an SMB share with rclone. Size and time come from rclone, not the FUSE mount.
+
+    A mount that was started without the SMB login accepts the mountpoint and then
+    hangs forever on stat. Reading stderr on another thread keeps a noisy share
+    from filling the pipe and stalling the listing.
+    """
     remote = _rclone_remote(f, config, with_subpath=True)
     if not remote:
         return None
+    cmd = [
+        "rclone", "lsf", remote, "--recursive", "--files-only",
+        "--format", "pst", "--separator", "|",
+        "--contimeout", "20s", "--timeout", "10m", "--retries", "2", "--low-level-retries", "2",
+        "--exclude", ".Trashes/**", "--exclude", ".TemporaryItems/**",
+        "--exclude", ".DocumentRevisions-V100/**", "--exclude", ".Spotlight-V100/**",
+        "--exclude", ".fseventsd/**", "--exclude", ".DS_Store", "--exclude", "._*",
+        "--exclude", "@eaDir/**", "--exclude", "#recycle/**", "--exclude", "#snapshot/**",
+    ]
     try:
-        p = subprocess.Popen(["rclone", "lsf", remote, "--recursive", "--files-only"],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
     except Exception as exc:
         if progress_cb:
             progress_cb(f"Error launching rclone: {exc}")
         return None
+    err_tail: List[str] = []
+
+    def _drain_err():
+        if not proc.stderr:
+            return
+        for err_line in proc.stderr:
+            err_line = err_line.strip()
+            if not err_line:
+                continue
+            err_tail.append(err_line)
+            if len(err_tail) > 6:
+                del err_tail[0]
+
+    drain = threading.Thread(target=_drain_err, daemon=True)
+    drain.start()
     root = os.path.join(str(smb_mount_dir(f, config)), f.get("subpath", ""))
     tracks: List[Dict[str, Any]] = []
     seen_paths = set()
-    for line in (p.stdout or []):
+    if progress_cb:
+        progress_cb(f"Listing {display_path(f)}...")
+    for line in (proc.stdout or []):
         line = line.strip()
         if not line:
             continue
-            
-        # Skip files inside macOS Logic Pro / GarageBand project bundles (.logicx, .band, etc.)
-        lower_line = line.lower()
+        if line.count("|") >= 2:
+            rel, size_s, mtime_s = line.rsplit("|", 2)
+        else:
+            rel, size_s, mtime_s = line, "0", ""
+        lower_line = rel.lower()
         if ".logicx/" in lower_line or ".band/" in lower_line:
             continue
-            
-        base = os.path.basename(line)
-        
-        # Skip macOS AppleDouble / resource fork shadow files
-        if base.startswith("._"):
+        base = os.path.basename(rel)
+        if base.startswith(".") or base.startswith("._"):
             continue
-            
-        if os.path.splitext(base)[1].lower() in AUDIO_EXTENSIONS:
-            full_path = os.path.join(root, line.replace("/", os.sep))
-            if full_path in seen_paths:
-                continue
-            seen_paths.add(full_path)
-            
-            size, mtime = 0, 0.0
-            try:
-                st = os.stat(full_path)
-                size, mtime = st.st_size, st.st_mtime
-            except OSError:
-                pass
-            tracks.append(_track_entry(full_path, line.replace("\\", "/"), f["id"], size, mtime))
-            if progress_cb and len(tracks) % 2000 == 0:
-                progress_cb(f"Indexed {len(tracks):,} audio tracks...")
-    return tracks
+        if os.path.splitext(base)[1].lower() not in AUDIO_EXTENSIONS:
+            continue
+        full_path = os.path.join(root, rel.replace("/", os.sep))
+        if full_path in seen_paths:
+            continue
+        seen_paths.add(full_path)
+        try:
+            size = int(size_s)
+        except ValueError:
+            size = 0
+        tracks.append(_track_entry(full_path, rel.replace("\\", "/"), f["id"], size, _parse_rclone_mtime(mtime_s)))
+        if progress_cb and (len(tracks) == 1 or len(tracks) % 500 == 0):
+            progress_cb(f"Indexed {len(tracks):,} audio tracks...")
+    rc = proc.wait()
+    drain.join(timeout=2)
+    if tracks:
+        return tracks
+    if progress_cb:
+        detail = err_tail[-1] if err_tail else f"rclone exited {rc}"
+        progress_cb(f"No audio tracks listed. {detail}")
+    return [] if rc == 0 else None
 
 def scan_folder_tracks(f: Dict[str, Any], config: Dict[str, Any], progress_cb=None,
                        interactive: bool = True) -> Optional[List[Dict[str, Any]]]:
     if progress_cb:
         progress_cb(f"Connecting to {display_path(f)}...")
-    
-    # Prefer rclone lsf for SMB/rclone mounts to avoid FUSE truncation/timeouts
-    if not IS_WINDOWS and shutil.which("rclone"):
+
+    # SMB listings go through rclone with the saved login. Walking the FUSE
+    # mount hangs when that mount was started without a username and password.
+    if f.get("type") == "smb" and not IS_WINDOWS and shutil.which("rclone"):
+        ok, msg = connect_folder(f, config, interactive=interactive)
+        if progress_cb and not ok:
+            progress_cb(msg)
         tracks = _scan_rclone(f, config, progress_cb)
-        if tracks is not None and len(tracks) > 0:
-            tracks.sort(key=lambda t: t["subpath"].lower())
-            return tracks
+        if tracks is None:
+            return None
+        tracks.sort(key=lambda t: t["subpath"].lower())
+        return tracks
 
     root, _ = access_path(f, config)
     if not root:
@@ -794,9 +901,11 @@ def generate_advance_playlists(target: str = ALL_TARGET, config: Optional[Dict[s
     for f in to_process:
         print(f"  {BOLD}{CYAN}▶ Scanning [{f['id']}] {display_path(f)}...{NC}", flush=True)
         tracks = scan_folder_tracks(f, config, progress_cb=lambda m: print(f"    {DIM}{m}{NC}", flush=True), interactive=interactive)
-        if tracks is not None:
-            save_playlist_files(tracks, f["id"], config, title=f["name"])
-            print(f"  {BOLD}{GREEN}✓ Saved {f['name']} Playlist:{NC} {len(tracks):,} tracks\n", flush=True)
+        if not tracks:
+            print(f"  {BOLD}{RED}✖ Could not list {f['name']}. Its playlist was left unchanged.{NC}\n", flush=True)
+            continue
+        save_playlist_files(tracks, f["id"], config, title=f["name"])
+        print(f"  {BOLD}{GREEN}✓ Saved {f['name']} Playlist:{NC} {len(tracks):,} tracks\n", flush=True)
     total = rebuild_all_playlist(folders, config)
     print(f"  {BOLD}{GREEN}✔ Playlist Generation Complete ({total:,} total tracks in ALL){NC}")
     print(f"  Time Elapsed : {BOLD}{CYAN}{time.time() - t_start:.2f}s{NC}\n")

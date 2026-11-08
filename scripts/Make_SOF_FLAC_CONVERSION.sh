@@ -584,7 +584,7 @@ if date -u -d "@$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatt
 elif date -u -r "$estimated_seconds" +'%Hh %Mm %Ss' >/dev/null 2>&1; then formatted_est=$(date -u -r "$estimated_seconds" +'%Hh %Mm %Ss')
 else formatted_est="$estimated_seconds seconds"; fi
 printf 'Estimated processing time: ~%s\n%s\n' "$formatted_est" "$D50"
-declare -a successfully_processed_wavs=() newly_exported_flacs=(); all_groups_successful=true
+declare -a successfully_processed_wavs=() newly_exported_flacs=(); all_groups_successful=true; skip_all_splits=false
 counter=1
 for g_hash in "${group_keys[@]}"; do
 IFS= read -r base < "$GROUP_TMP_DIR/group_${g_hash}.base" || true; base="${base%$'\r'}"; wav_file_list="$GROUP_TMP_DIR/group_${g_hash}.wavs"; declare -a current_wavs=()
@@ -673,17 +673,23 @@ final_out_sz=$(file_size_bytes "$output_path"); log_conversion_event "$output_pa
 spek_image="${spek_image%$'\r'}"
 if [ ! -f "$spek_image" ]; then echo -e "${BOLD}${CYAN} -> Generating 1080p Spectrogram Analysis (${spek_image##*/})...${NC}"; run_ffmpeg_with_progress "Generating Spectrogram" "$conv_duration" 250000 -y -i "$output_path" -lavfi "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log" -frames:v 1 "$spek_image"; fi
 printf '\n%s\n✓ Audio Conversion Finished: %s\n%s\n' "$S50" "${output_path##*/}" "$S50"; ask_split=""
-if has_interactive_tty; then
-local split_opts=(
-"n|Skip Splitting|(Keep mix as a single complete file)"
-"y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
-)
-select_menu_option "SPLIT MIX FILE" "Would you like to split '${output_path##*/}' into separate parts/sets?" split_opts 0 ask_split
+if [ "$skip_all_splits" = true ]; then
+    echo " -> Skipping splitting (Skip All enabled)." >/dev/tty
+else
+    if has_interactive_tty; then
+        local split_opts=(
+            "n|Skip Once|(Keep mix as single file; ask again for next mix)"
+            "a|Skip All|(Keep all remaining mixes as single files)"
+            "y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+        )
+        select_menu_option "SPLIT MIX FILE" "Would you like to split '${output_path##*/}' into separate parts/sets?" split_opts 0 ask_split
+    fi
+    case "$ask_split" in
+        [yY]|[yY][eE][sS]|3) splitter_bin=""; for sc in "$SCRIPT_DIR/Split_FLAC_File.sh" "$SCRIPT_DIR/scripts/Split_FLAC_File.sh" "./Split_FLAC_File.sh"; do if [ -f "$sc" ]; then splitter_bin="$sc"; break; fi; done; if [ -n "$splitter_bin" ]; then bash "$splitter_bin" "$output_path" </dev/tty || true; else echo "WARNING: Split_FLAC_File.sh not found!" >/dev/tty; fi ;;
+        [aA]|[aA][lL][lL]|2) skip_all_splits=true; echo " -> Skipping splitting for this and all remaining mixes." >/dev/tty ;;
+        *) echo " -> Skipping splitting." >/dev/tty ;;
+    esac
 fi
-case "$ask_split" in
-[yY]|[yY][eE][sS]) splitter_bin=""; for sc in "$SCRIPT_DIR/Split_FLAC_File.sh" "$SCRIPT_DIR/scripts/Split_FLAC_File.sh" "./Split_FLAC_File.sh"; do if [ -f "$sc" ]; then splitter_bin="$sc"; break; fi; done; if [ -n "$splitter_bin" ]; then bash "$splitter_bin" "$output_path" </dev/tty || true; else echo "WARNING: Split_FLAC_File.sh not found!" >/dev/tty; fi ;;
-*) echo " -> Skipping splitting." >/dev/tty ;;
-esac
 echo " -> Moving successfully processed files to '$group_arch_dir'..."
 for w in "${current_wavs[@]}"; do if [ -f "$w" ]; then mv "$w" "$group_arch_dir/"; fi; successfully_processed_wavs+=("$w"); done
 review_converted_tracklist; rm -f "$OPTIMIZED_COVER"; counter=$((counter + 1)); echo "$D50"

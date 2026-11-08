@@ -215,6 +215,113 @@ class TestOption2Submenus(unittest.TestCase):
         out, _ = run_bash_pty(cmd, key_sequence=[b"\n", b"\n"])
         self.assertIn("FINISHED_POST_TASKS", out)
 
+    def test_split_mix_prompt_skip_once_interactive(self):
+        """Verify splitting prompt default/Enter selects Skip Once and leaves skip_all_splits false."""
+        cmd = f"""
+        export MIX_ARCHIVE_DIR="{REPO_DIR}"
+        source "{CONVERSION_SCRIPT}" || true
+        output_path="/tmp/test_mix_01.flac"
+        skip_all_splits=false
+        echo "READY"
+        split_opts=(
+            "n|Skip Once|(Keep mix as single file; ask again for next mix)"
+            "a|Skip All|(Keep all remaining mixes as single files)"
+            "y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+        )
+        select_menu_option "SPLIT MIX FILE" "Would you like to split '${{output_path##*/}}' into separate parts/sets?" split_opts 0 ask_split
+        echo "CHOSEN_SPLIT:$ask_split"
+        """
+        out, _ = run_bash_pty(cmd, key_sequence=b"\n")
+        self.assertIn("CHOSEN_SPLIT:n", out)
+
+    def test_split_mix_prompt_skip_all_interactive(self):
+        """Verify pressing 'a' or selecting option 2 selects Skip All."""
+        cmd = f"""
+        export MIX_ARCHIVE_DIR="{REPO_DIR}"
+        source "{CONVERSION_SCRIPT}" || true
+        output_path="/tmp/test_mix_01.flac"
+        echo "READY"
+        split_opts=(
+            "n|Skip Once|(Keep mix as single file; ask again for next mix)"
+            "a|Skip All|(Keep all remaining mixes as single files)"
+            "y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+        )
+        select_menu_option "SPLIT MIX FILE" "Would you like to split '${{output_path##*/}}' into separate parts/sets?" split_opts 0 ask_split
+        echo "CHOSEN_SPLIT:$ask_split"
+        """
+        out, _ = run_bash_pty(cmd, key_sequence=b"a")
+        self.assertIn("CHOSEN_SPLIT:a", out)
+
+    def test_split_mix_batch_skip_all_bypasses_subsequent_prompts(self):
+        """Verify selecting Skip All on first mix automatically skips splitting for subsequent mixes."""
+        cmd = f"""
+        export MIX_ARCHIVE_DIR="{REPO_DIR}"
+        source "{CONVERSION_SCRIPT}" || true
+        skip_all_splits=false
+        mixes=("Mix_Part1.flac" "Mix_Part2.flac")
+        echo "READY"
+        for output_path in "${{mixes[@]}}"; do
+            if [ "$skip_all_splits" = true ]; then
+                echo "AUTO_SKIPPED:${{output_path}}"
+            else
+                split_opts=(
+                    "n|Skip Once|(Keep mix as single file; ask again for next mix)"
+                    "a|Skip All|(Keep all remaining mixes as single files)"
+                    "y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+                )
+                select_menu_option "SPLIT MIX FILE" "Split ${{output_path}}?" split_opts 0 ask_split
+                case "$ask_split" in
+                    [aA]|[aA][lL][lL]|2)
+                        skip_all_splits=true
+                        echo "PROMPTED_SKIP_ALL:${{output_path}}"
+                        ;;
+                    *)
+                        echo "PROMPTED_SKIP_ONCE:${{output_path}}"
+                        ;;
+                esac
+            fi
+        done
+        """
+        # Send 'a' for the first prompt, second iteration should auto-skip without waiting for input
+        out, _ = run_bash_pty(cmd, key_sequence=b"a")
+        self.assertIn("PROMPTED_SKIP_ALL:Mix_Part1.flac", out)
+        self.assertIn("AUTO_SKIPPED:Mix_Part2.flac", out)
+
+    def test_split_mix_batch_skip_once_prompts_again(self):
+        """Verify selecting Skip Once on first mix prompts again on second mix."""
+        cmd = f"""
+        export MIX_ARCHIVE_DIR="{REPO_DIR}"
+        source "{CONVERSION_SCRIPT}" || true
+        skip_all_splits=false
+        mixes=("Mix_Part1.flac" "Mix_Part2.flac")
+        echo "READY"
+        for output_path in "${{mixes[@]}}"; do
+            if [ "$skip_all_splits" = true ]; then
+                echo "AUTO_SKIPPED:${{output_path}}"
+            else
+                split_opts=(
+                    "n|Skip Once|(Keep mix as single file; ask again for next mix)"
+                    "a|Skip All|(Keep all remaining mixes as single files)"
+                    "y|Split into Separate Parts / Sets|(Launch Split_FLAC_File.sh)"
+                )
+                select_menu_option "SPLIT MIX FILE" "Split ${{output_path}}?" split_opts 0 ask_split
+                case "$ask_split" in
+                    [aA]|[aA][lL][lL]|2)
+                        skip_all_splits=true
+                        echo "PROMPTED_SKIP_ALL:${{output_path}}"
+                        ;;
+                    *)
+                        echo "PROMPTED_SKIP_ONCE:${{output_path}}"
+                        ;;
+                esac
+            fi
+        done
+        """
+        # Send Enter (Skip Once) for first prompt, and 'a' (Skip All) for second prompt
+        out, _ = run_bash_pty(cmd, key_sequence=[b"\n", b"a"])
+        self.assertIn("PROMPTED_SKIP_ONCE:Mix_Part1.flac", out)
+        self.assertIn("PROMPTED_SKIP_ALL:Mix_Part2.flac", out)
+
 
 if __name__ == "__main__":
     unittest.main()
