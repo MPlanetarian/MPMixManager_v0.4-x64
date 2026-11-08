@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=MP Mix Archive Manager
+GenericName=Music Archive Manager
+Comment=Launch MP Mix Archive Manager in Konsole
+Exec=konsole --fullscreen -p tabtitle="MP Mix Archive Manager" -e bash -c 'if [ -x "$HOME/.local/bin/mix-archive-manager" ]; then exec "$HOME/.local/bin/mix-archive-manager"; elif [ -x "/var/home/mplanetarian/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh" ]; then exec "/var/home/mplanetarian/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; elif [ -x "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh" ]; then exec "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; elif [ -x "/var/home/mplanetarian/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh" ]; then exec "/var/home/mplanetarian/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; elif [ -x "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh" ]; then exec "$HOME/MP_Mix_Manager_v0.3/Mix_Archive_Manager.sh"; elif [ -x "$HOME/MP_Mix_Manager_v0.1/Mix_Archive_Manager.sh" ]; then exec "$HOME/MP_Mix_Manager_v0.1/Mix_Archive_Manager.sh"; else exec bash Mix_Archive_Manager.sh; fi'
+Icon=utilities-terminal
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+StartupNotify=true

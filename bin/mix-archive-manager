@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Helper: mix-archive-manager
+# Purpose: Launch MP Mix Archive Manager cleanly from codebase or archive directory
+# ==============================================================================
+# Resolve symlinks so CODEBASE_DIR is accurate regardless of invocation path (e.g. ~/.local/bin)
+_RESOLVED_SRC="${BASH_SOURCE[0]}"
+while [ -h "$_RESOLVED_SRC" ]; do
+    _RESOLVED_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
+    _RESOLVED_SRC="$(readlink "$_RESOLVED_SRC")"
+    [[ $_RESOLVED_SRC != /* ]] && _RESOLVED_SRC="$_RESOLVED_DIR/$_RESOLVED_SRC"
+done
+_BIN_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
+CODEBASE_DIR="$(cd -P "$_BIN_DIR/.." >/dev/null 2>&1 && pwd)"
+
+# Fallback candidate search if not found
+if [ ! -f "$CODEBASE_DIR/Mix_Archive_Manager.sh" ]; then
+    for _c in \
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.4" \
+        "$HOME/MP_Mix_Manager_v0.4" \
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.3" \
+        "$HOME/MP_Mix_Manager_v0.3" \
+        "/var/home/mplanetarian/MP_Mix_Manager_v0.1" \
+        "$HOME/MP_Mix_Manager_v0.1"; do
+        if [ -f "$_c/Mix_Archive_Manager.sh" ]; then
+            CODEBASE_DIR="$_c"
+            break
+        fi
+    done
+fi
+unset _RESOLVED_SRC _RESOLVED_DIR _BIN_DIR _c
+
+# Load configuration if available
+if [ -f "$CODEBASE_DIR/config.env" ]; then
+    # shellcheck source=/dev/null
+    source "$CODEBASE_DIR/config.env"
+fi
+
+TARGET_DIR="${MIX_ARCHIVE_DIR:-$CODEBASE_DIR}"
+SCRIPT="$CODEBASE_DIR/Mix_Archive_Manager.sh"
+
+# Fast-path CLI commands that don't need archive storage mounted
+if [ "${1:-}" = "update" ] || [ "${1:-}" = "--update" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/scripts/update_manager.sh" ]; then
+        exec bash "$CODEBASE_DIR/scripts/update_manager.sh" "$@"
+    elif [ -x "$CODEBASE_DIR/update_manager.sh" ]; then
+        exec bash "$CODEBASE_DIR/update_manager.sh" "$@"
+    fi
+elif [ "${1:-}" = "version" ] || [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/scripts/update_manager.sh" ]; then
+        exec bash "$CODEBASE_DIR/scripts/update_manager.sh" --version "$@"
+    elif [ -x "$CODEBASE_DIR/update_manager.sh" ]; then
+        exec bash "$CODEBASE_DIR/update_manager.sh" --version "$@"
+    fi
+elif [ "${1:-}" = "help" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/scripts/show_help.sh" ]; then
+        exec bash "$CODEBASE_DIR/scripts/show_help.sh" "$@"
+    elif [ -x "$CODEBASE_DIR/show_help.sh" ]; then
+        exec bash "$CODEBASE_DIR/show_help.sh" "$@"
+    fi
+elif [ "${1:-}" = "alarm" ] || [ "${1:-}" = "--alarm" ] || [ "${1:-}" = "alarm-clock" ] || [ "${1:-}" = "--alarm-clock" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/mplanetarians-alarm-clock/alarm.sh" ]; then
+        exec bash "$CODEBASE_DIR/mplanetarians-alarm-clock/alarm.sh" "$@"
+    elif [ -x "$CODEBASE_DIR/alarm.sh" ]; then
+        exec bash "$CODEBASE_DIR/alarm.sh" "$@"
+    fi
+elif [ "${1:-}" = "congen" ] || [ "${1:-}" = "--congen" ] || [ "${1:-}" = "kdeconnect" ] || [ "${1:-}" = "--kdeconnect" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/Congen/Congen" ]; then
+        exec bash "$CODEBASE_DIR/Congen/Congen" "$@"
+    elif [ -x "$CODEBASE_DIR/congen" ]; then
+        exec bash "$CODEBASE_DIR/congen" "$@"
+    fi
+elif [ "${1:-}" = "top5" ] || [ "${1:-}" = "--top5" ] || [ "${1:-}" = "top-5" ] || [ "${1:-}" = "--top-5" ]; then
+    shift
+    if [ -x "$CODEBASE_DIR/scripts/manage_top_5_tracks.sh" ]; then
+        exec bash "$CODEBASE_DIR/scripts/manage_top_5_tracks.sh" "$@"
+    elif [ -f "$CODEBASE_DIR/scripts/top_5_tracks_manager.py" ]; then
+        exec python3 "$CODEBASE_DIR/scripts/top_5_tracks_manager.py" "$@"
+    fi
+elif [ "${1:-}" = "visualizer" ] || [ "${1:-}" = "--visualizer" ] || [ "${1:-}" = "vis" ] || [ "${1:-}" = "--vis" ] || [ "${1:-}" = "mp-visualizer" ] || [ "${1:-}" = "--mp-visualizer" ]; then
+    shift
+    if [ -f "$CODEBASE_DIR/MP_Liquid_Visualizer.py" ]; then
+        exec python3 "$CODEBASE_DIR/MP_Liquid_Visualizer.py" "$@"
+    elif [ -f "$CODEBASE_DIR/scripts/mp_liquid_visualizer_vulkan.py" ]; then
+        exec python3 "$CODEBASE_DIR/scripts/mp_liquid_visualizer_vulkan.py" "$@"
+    fi
+elif [ "${1:-}" = "block-internet" ] || [ "${1:-}" = "--block-internet" ]; then
+    shift
+    if command -v systemd-run >/dev/null 2>&1; then
+        exec systemd-run --user --pipe block-internet "$@"
+    else
+        exec sudo block-internet "$@"
+    fi
+elif [ "${1:-}" = "unblock-internet" ] || [ "${1:-}" = "--unblock-internet" ]; then
+    shift
+    if command -v systemd-run >/dev/null 2>&1; then
+        exec systemd-run --user --pipe unblock-internet "$@"
+    else
+        exec sudo unblock-internet "$@"
+    fi
+fi
+
+
+# If an external drive was specified in config, wait briefly for mount
+if [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ ! -d "$MIX_ARCHIVE_DIR" ]; then
+    _is_offline=0
+    case "$MIX_ARCHIVE_DIR" in
+        *GoogleDrive*|*google-drive*|*rclone*|*Dropbox*|*iCloud*|*OneDrive*|*Nextcloud*)
+            if ! timeout 0.8 bash -c 'cat < /dev/null > /dev/tcp/1.1.1.1/53' 2>/dev/null; then
+                _is_offline=1
+            fi
+            ;;
+    esac
+    if [ "$_is_offline" -eq 1 ]; then
+        echo "Notice: Configured archive storage is cloud-hosted and internet is offline. Proceeding with local storage..."
+    else
+        echo "Waiting for archive storage to mount..."
+        for i in {1..15}; do
+            if [ -d "$MIX_ARCHIVE_DIR" ]; then
+                break
+            fi
+            sleep 1
+        done
+    fi
+fi
+
+if [ -f "$SCRIPT" ]; then
+    printf '\033]0;%s\007' "MP Mix Archive Manager" 2>/dev/null || true
+    cd "$TARGET_DIR" && exec bash "$SCRIPT" "$@"
+else
+    echo "Error: MP Mix Archive Manager main script not found at '$SCRIPT'."
+    read -rp "Press Enter to exit..."
+    exit 1
+fi
