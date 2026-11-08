@@ -8,6 +8,7 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -264,6 +265,31 @@ class TestCrossPlatformKeyHandlingAndLaunchers(unittest.TestCase):
         bin_content = bin_script.read_text(encoding="utf-8")
         self.assertIn('"visualizer"', bin_content)
         self.assertIn("MP_Liquid_Visualizer.py", bin_content)
+
+
+class TestMacOSVulkanLoaderPath(unittest.TestCase):
+    def test_runtime_adds_loader_directory_and_moltenvk_icd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp)
+            lib = prefix / "lib"
+            icd_dir = prefix / "etc" / "vulkan" / "icd.d"
+            lib.mkdir()
+            icd_dir.mkdir(parents=True)
+            (lib / "libvulkan.1.dylib").write_bytes(b"")
+            icd = icd_dir / "MoltenVK_icd.json"
+            icd.write_text("{}\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("DYLD_FALLBACK_LIBRARY_PATH", None)
+                os.environ.pop("VK_ICD_FILENAMES", None)
+                os.environ.pop("VK_DRIVER_FILES", None)
+                env = vis.macos_vulkan_runtime([str(prefix)])
+            self.assertIn(str(lib), env["DYLD_FALLBACK_LIBRARY_PATH"].split(os.pathsep))
+            self.assertIn(str(Path.home() / "lib"), env["DYLD_FALLBACK_LIBRARY_PATH"])
+            self.assertEqual(env["VK_ICD_FILENAMES"], str(icd))
+
+    def test_runtime_is_empty_without_a_loader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(vis.macos_vulkan_runtime([tmp]), {})
 
 
 if __name__ == "__main__":

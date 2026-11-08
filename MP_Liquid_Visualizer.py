@@ -44,6 +44,7 @@ from scripts.mp_liquid_visualizer_vulkan import (  # noqa: E402
     is_windows,
     is_windows_10_or_11,
     load_glfw_dll,
+    ensure_macos_vulkan_loader,
     load_vulkan_dll,
     main,
     run_self_test,
@@ -74,8 +75,10 @@ __all__ = [
     "is_macos",
     "is_apple_silicon",
     "load_glfw_dll",
+    "ensure_macos_vulkan_loader",
     "load_vulkan_dll",
 ]
 
 if __name__ == "__main__":
+    ensure_macos_vulkan_loader()
     raise SystemExit(main())

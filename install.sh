@@ -254,28 +254,21 @@ echo ""
 
 # 7. Desktop Integration
 echo -e "${BOLD}${BLUE}[7/7] Installing Desktop Integration...${NC}"
-if [ "$HOST_OS" = "macos" ]; then
-    if [ -d "$HOME/Desktop" ]; then
-        ln -sf "$SCRIPT_DIR/manager_macos.command" "$HOME/Desktop/Mix Archive Manager.command" 2>/dev/null || cp -p "$SCRIPT_DIR/manager_macos.command" "$HOME/Desktop/Mix Archive Manager.command"
-        echo -e "${GREEN}      ✓ Created double-clickable desktop launcher: ~/Desktop/Mix Archive Manager.command${NC}"
+if command -v python3 >/dev/null 2>&1; then
+    if python3 "$SCRIPT_DIR/scripts/install_desktop_shortcuts.py" --root "$SCRIPT_DIR"; then
+        echo -e "${GREEN}      ✓ Desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, MP Liquid Visualizer${NC}"
+    else
+        echo -e "${YELLOW}      ⚠ Desktop shortcuts could not be created.${NC}"
     fi
-elif [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
-    WIN_DESKTOP=""
-    if [ -d "$HOME/Desktop" ]; then
-        WIN_DESKTOP="$HOME/Desktop"
-    elif [ -n "${USERPROFILE:-}" ] && [ -d "$USERPROFILE/Desktop" ]; then
-        WIN_DESKTOP="$USERPROFILE/Desktop"
-    elif [ -d "/c/Users/$USER/Desktop" ]; then
-        WIN_DESKTOP="/c/Users/$USER/Desktop"
-    fi
-    if [ -n "$WIN_DESKTOP" ]; then
-        cp -p "$SCRIPT_DIR/manager.bat" "$WIN_DESKTOP/Mix Archive Manager.bat" 2>/dev/null || true
-        echo -e "${GREEN}      ✓ Placed Windows launcher shortcut on Desktop.${NC}"
-    fi
+else
+    echo -e "${YELLOW}      ⚠ python3 is required to create the desktop shortcuts.${NC}"
+fi
+if [ "$HOST_OS" = "macos" ] || [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
+    :
 else
     # Linux Desktop Entries (.desktop)
     mkdir -p "$HOME/.local/share/applications"
-    for _dentry in "Mix_Archive_Manager.desktop" "wan2gp-start-profile45.desktop" "wan2gp-stop.desktop" "ollama-serve.desktop" "ollama-stop.desktop" "beszel-hub-and-agent.desktop" "dsh-mobile.desktop"; do
+    for _dentry in "wan2gp-start-profile45.desktop" "wan2gp-stop.desktop" "ollama-serve.desktop" "ollama-stop.desktop" "beszel-hub-and-agent.desktop" "dsh-mobile.desktop"; do
         if [ -f "$SCRIPT_DIR/desktop/$_dentry" ]; then
             cp -p "$SCRIPT_DIR/desktop/$_dentry" "$HOME/.local/share/applications/$_dentry"
             if [ -d "$HOME/Desktop" ]; then
@@ -305,18 +298,24 @@ echo -e "${BOLD}${GREEN}========================================================
 echo -e "${BOLD}${GREEN}              MP MIX ARCHIVE MANAGER INSTALLATION COMPLETE!              ${NC}"
 echo -e "${BOLD}${GREEN}======================================================================${NC}"
 echo ""
-echo -e "You can launch MP Mix Archive Manager:"
+echo -e "Desktop shortcuts:"
+echo -e "  ${BOLD}${CYAN}MP Liquid Player${NC}"
+echo -e "  ${BOLD}${CYAN}MP Mix Manager${NC}"
+echo -e "  ${BOLD}${CYAN}MP Gui${NC}"
+echo -e "  ${BOLD}${CYAN}MP Liquid Visualizer${NC}"
+echo ""
+echo -e "You can also launch MP Mix Manager:"
 if [ "$HOST_OS" = "macos" ]; then
-    echo -e "  1. Double-click:                  ${BOLD}${CYAN}~/Desktop/Mix Archive Manager.command${NC}"
+    echo -e "  1. Double-click:                  ${BOLD}${CYAN}~/Desktop/MP Mix Manager.command${NC}"
     echo -e "  2. Terminal command:              ${BOLD}${CYAN}manager${NC} or ${BOLD}${CYAN}~/manager.sh${NC}"
     echo -e "  3. Launch directly from source:   ${BOLD}${CYAN}cd $SCRIPT_DIR && ./manager_macos.command${NC}"
 elif [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
-    echo -e "  1. Double-click on Windows:       ${BOLD}${CYAN}manager.bat${NC} or ${BOLD}${CYAN}manager.ps1${NC}"
+    echo -e "  1. Double-click on Windows:       ${BOLD}${CYAN}MP Mix Manager${NC} on the Desktop"
     echo -e "  2. Run inside Git Bash / MSYS2:   ${BOLD}${CYAN}./Mix_Archive_Manager.sh${NC}"
     echo -e "  3. Run inside WSL2:               ${BOLD}${CYAN}./Mix_Archive_Manager.sh${NC}"
 else
     echo -e "  1. Run from anywhere in terminal: ${BOLD}${CYAN}manager${NC} or ${BOLD}${CYAN}~/manager.sh${NC}"
     echo -e "  2. Launch directly from source:   ${BOLD}${CYAN}cd $SCRIPT_DIR && ./Mix_Archive_Manager.sh${NC}"
-    echo -e "  3. Open from Desktop or Menu:     ${BOLD}${CYAN}MP Mix Archive Manager${NC}"
+    echo -e "  3. Open from Desktop or Menu:     ${BOLD}${CYAN}MP Mix Manager${NC}"
 fi
 echo ""

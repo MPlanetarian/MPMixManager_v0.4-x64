@@ -123,6 +123,70 @@ def load_vulkan_dll():
     return _load_cdll(["libvulkan.so.1", "libvulkan.so", "/usr/lib64/libvulkan.so.1", "/usr/lib/x86_64-linux-gnu/libvulkan.so.1"],
                       ("vulkan-1", "vulkan"), (".dll", ".dylib"), "", fb="libvulkan.so.1")
 
+def macos_vulkan_runtime(prefixes: Optional[List[str]] = None) -> Dict[str, str]:
+    """Environment GLFW needs before it dlopens the Vulkan loader.
+
+    Homebrew puts libvulkan and MoltenVK in /opt/homebrew/lib. dyld does not
+    search that directory unless the process was started with it on
+    DYLD_FALLBACK_LIBRARY_PATH. Setting the variable later is too late.
+    """
+    if prefixes is None:
+        if not _IS_MAC:
+            return {}
+        prefixes = ["/opt/homebrew", "/usr/local"]
+        sdk = os.environ.get("VULKAN_SDK")
+        if sdk:
+            prefixes.insert(0, sdk)
+    lib_dir = ""
+    icd = ""
+    for prefix in prefixes:
+        lib = os.path.join(prefix, "lib")
+        if any(os.path.isfile(os.path.join(lib, name)) for name in ("libvulkan.1.dylib", "libvulkan.dylib")):
+            lib_dir = lib
+        for parts in (
+            ("etc", "vulkan", "icd.d", "MoltenVK_icd.json"),
+            ("share", "vulkan", "icd.d", "MoltenVK_icd.json"),
+        ):
+            candidate = os.path.join(prefix, *parts)
+            if os.path.isfile(candidate):
+                icd = candidate
+                break
+        if lib_dir and icd:
+            break
+    if not lib_dir:
+        return {}
+    default_fallback = os.pathsep.join([
+        os.path.join(os.path.expanduser("~"), "lib"),
+        "/usr/local/lib",
+        "/usr/lib",
+    ])
+    current = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+    parts = [p for p in (current or default_fallback).split(os.pathsep) if p]
+    if lib_dir not in parts:
+        parts.insert(0, lib_dir)
+    env = {"DYLD_FALLBACK_LIBRARY_PATH": os.pathsep.join(parts)}
+    existing_icd = os.environ.get("VK_ICD_FILENAMES") or os.environ.get("VK_DRIVER_FILES") or ""
+    if icd and icd not in [p for p in existing_icd.split(os.pathsep) if p]:
+        env["VK_ICD_FILENAMES"] = icd if not existing_icd else existing_icd + os.pathsep + icd
+    elif existing_icd:
+        env["VK_ICD_FILENAMES"] = existing_icd
+    return env
+
+def ensure_macos_vulkan_loader() -> None:
+    """Start again with the Vulkan loader visible to GLFW, when it is installed."""
+    if not _IS_MAC or os.environ.get("MP_VISUALIZER_VULKAN_READY") == "1":
+        return
+    extra = macos_vulkan_runtime()
+    if not extra:
+        return
+    env = os.environ.copy()
+    dyld_changed = extra.get("DYLD_FALLBACK_LIBRARY_PATH") != env.get("DYLD_FALLBACK_LIBRARY_PATH")
+    env.update(extra)
+    env["MP_VISUALIZER_VULKAN_READY"] = "1"
+    if dyld_changed:
+        os.execve(sys.executable, [sys.executable, *sys.argv], env)
+    os.environ.update(env)
+
 _RAND_KEYS = {"random", "rand", "rnd", "-1", "any", "shuffle"}
 
 def get_active_preset(preset_arg: Optional[str] = None) -> Dict[str, Any]:
@@ -463,9 +527,21 @@ class LiquidVisualizerVulkanRenderer:
             except Exception: pass
 
         if not self._glfw.glfwInit(): raise RuntimeError("glfwInit failed")
-        if not self._glfw.glfwVulkanSupported(): raise RuntimeError("GLFW reports Vulkan is unavailable")
+        if not self._glfw.glfwVulkanSupported():
+            if _IS_MAC:
+                raise RuntimeError(
+                    "GLFW reports Vulkan is unavailable. Install MoltenVK and the Vulkan loader "
+                    "(brew install molten-vk vulkan-loader), then open MP Liquid Visualizer again."
+                )
+            raise RuntimeError("GLFW reports Vulkan is unavailable")
 
         self._window = self._create_window()
+        if _IS_MAC:
+            try:
+                from liquid_glass_opengl import raise_macos_process
+            except ImportError:
+                from scripts.liquid_glass_opengl import raise_macos_process
+            raise_macos_process()
         if not self.target_4k and not _IS_WIN and not _IS_MAC:
             try:
                 offset_x, offset_y = self._windowed_offset
@@ -1589,4 +1665,5 @@ def main(argv: Optional[List[str]] = None) -> int:
     return run_visualizer(preset_name=args.preset, max_seconds=args.max_seconds, fullscreen=bool(args.fullscreen), target_4k=target_4k)
 
 if __name__ == "__main__":
+    ensure_macos_vulkan_loader()
     raise SystemExit(main())

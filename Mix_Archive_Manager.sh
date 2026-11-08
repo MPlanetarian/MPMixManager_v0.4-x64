@@ -541,6 +541,7 @@ _MENU_CURSOR_LOCK=1
 printf '\033[?25l\033[?12l\033[?7l\033[0m\033[H\033[2J' >/dev/tty
 }
 run_interactive_submenu() {
+[ -z "${_LAST_SET_TITLE:-}" ] && ensure_manager_windowed
 local _menu_exit_hint="q to exit"; [ "${MP_GUI_SESSION:-0}" = "1" ] && _menu_exit_hint="q or Esc to close"; local menu_title="$1"; local menu_header="$2"; local -n _opts_ref="$3"; local cur_idx="${4:-0}"; local total_opts="${#_opts_ref[@]}"; command -v update_mp_bridge_menu &>/dev/null && update_mp_bridge_menu "${menu_title:-Main Console / Workstation Menu}" "true"; if [ "$total_opts" -eq 0 ]; then REPLY="0"; return 0; fi; local start_attempts=0; while [ "$start_attempts" -lt "$total_opts" ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then break; fi; cur_idx=$(( (cur_idx + 1) % total_opts )); ((start_attempts++)); done; local -a selectable_map=(); local s_count=0; local i; for (( i=0; i<total_opts; i++ )); do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$i]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then selectable_map[i]=$s_count; ((s_count++)); else selectable_map[i]=-1; fi; done; _find_menu_search_match() { local q="${1,,}" start="${2:-0}" dir="${3:-1}"; [ -z "$q" ] && return 0; local step=0 idx="$start"; while [ "$step" -lt "$total_opts" ]; do local ok="" ol="" oe=""; IFS='|' read -r ok ol oe <<< "${_opts_ref[$idx]}"; if [ "$ok" != "SECTION" ] && [ "$ok" != "SEP" ]; then local haystack="${ok} ${ol} ${oe}"; haystack="${haystack,,}"; if [[ "$haystack" == *"$q"* ]]; then cur_idx=$idx; return 0; fi; fi; idx=$(( (idx + dir + total_opts) % total_opts )); ((step++)); done; return 1; }; if [ ! -t 0 ]; then clear; if [ -n "$menu_title" ]; then echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}       $menu_title${NC}\n${BOLD}${MAGENTA}${S70}${NC}"; elif [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header &>/dev/null; then update_terminal_geometry 0; render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; [ -n "$menu_header" ] && echo -e "$menu_header"; if get_mp_audio_player_track_info 2>/dev/null; then local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"; [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"; local disp_title="$MP_PLAYER_TITLE"; [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."; local p_hdr="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_hdr="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local p_dashes=$(( 74 - ${#p_hdr} - 4 )); [ "$p_dashes" -lt 0 ] && p_dashes=0; local p_dash_str; printf -v p_dash_str '%*s' "$p_dashes" ''; p_dash_str="${p_dash_str// /─}"; echo -e "  ${BOLD}${MAGENTA}╭── ${p_hdr} ${p_dash_str}╮${NC}"; printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"; printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [L] Liquid [C] Theme [n] Next [</>] Track [p] UI [f] FM ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"; fi; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"; case "$o_key" in SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $o_label ] ─────────${NC}" ;; SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;; *) echo -e "  ${BOLD}${MENU_NUM:-${CYAN}}$o_key)${NC} $o_label ${DIM}$o_extra${NC}" ;; esac; done; echo ""; run_deferred_startup; read -r -p "Enter choice: " REPLY; return 0; fi; update_terminal_geometry 0; local box_w; _set_menu_box_width box_w "${_TERM_COLS:-80}"; _CURRENT_BOX_W="$box_w"; _MENU_CURSOR_LOCK=1; local header_count=0; local cached_header_block=""; local cached_header_lines=0; local overhead=4
 build_header_block() {
 header_count=0; cached_header_block=""; cached_header_lines=0; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; if [ -n "$menu_title" ]; then cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"; local title_line; printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"; cached_header_block+="$title_line"; cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; cached_header_lines=$((cached_header_lines + 3)); fi; if [ -z "$menu_title" ] && command -v render_main_header &>/dev/null; then render_main_header "$box_w" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; if [ -n "$menu_header" ]; then local exp_hdr=""; printf -v exp_hdr "%b" "$menu_header"; exp_hdr="${exp_hdr%$'\n'}"; while IFS= read -r h_line; do cached_header_block+="${h_line}\033[K\n"; ((header_count++)); done <<< "$exp_hdr"; cached_header_lines=$((cached_header_lines + header_count)); fi; if [ -n "$menu_title" ]; then cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Esc] to return immediately\033[K${NC}\n"; else cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [C] Theme, ${_menu_exit_hint}\033[K${NC}\n"; fi; ((cached_header_lines++)); overhead=$((cached_header_lines + 4))
@@ -1041,49 +1042,111 @@ if command -v kscreen-doctor &>/dev/null; then kscreen-doctor -o 2>/dev/null | g
 
 _IS_FULLSCREEN=0
 _LAST_SET_TITLE=""
+_TAB_TITLE_LOCKED=""
 
+# macOS Terminal treats OSC 0 as temporary and replaces it with the foreground
+# process name. Write icon and title together, then lock Terminal's custom title
+# once so later helpers cannot make the tab flicker.
+apply_manager_console_tab_title() {
+    local new_title="$1"
+    [ -n "$new_title" ] || return 0
+    if [ "$new_title" != "${_LAST_SET_TITLE:-}" ]; then
+        printf '\033]0;%s\007\033]1;%s\007\033]2;%s\007' "$new_title" "$new_title" "$new_title" 2>/dev/null || true
+        _LAST_SET_TITLE="$new_title"
+        _TAB_TITLE_LOCKED=""
+    fi
+    if [ "${OS_TYPE:-}" = "macos" ] && [ "${_TAB_TITLE_LOCKED:-}" != "$new_title" ]; then
+        _lock_macos_console_tab_title "$new_title"
+    fi
+}
+_lock_macos_console_tab_title() {
+    local new_title="$1" tty_dev esc
+    _TAB_TITLE_LOCKED="$new_title"
+    [ "${TERM_PROGRAM:-}" = "Apple_Terminal" ] || return 0
+    tty_dev=$(tty 2>/dev/null) || return 0
+    [[ "$tty_dev" == /dev/* ]] || return 0
+    esc="${new_title//\\/\\\\}"
+    esc="${esc//\"/\\\"}"
+    if command -v python3 >/dev/null 2>&1; then
+        MP_TAB_TTY="$tty_dev" MP_TAB_TITLE="$esc" python3 -c '
+import os, subprocess, sys
+try:
+    os.setsid()
+except OSError:
+    pass
+tty_dev = os.environ["MP_TAB_TTY"]
+title = os.environ["MP_TAB_TITLE"]
+script = """tell application "Terminal"
+set targetTTY to "%s"
+set wanted to "%s"
+repeat with w in windows
+repeat with t in tabs of w
+try
+if tty of t is targetTTY then
+set custom title of t to wanted
+return
+end if
+end try
+end repeat
+end repeat
+end tell""" % (tty_dev, title)
+subprocess.run(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+' >/dev/null 2>&1 &
+    else
+        osascript -e "tell application \"Terminal\"
+            set targetTTY to \"$tty_dev\"
+            set wanted to \"$esc\"
+            repeat with w in windows
+                repeat with t in tabs of w
+                    try
+                        if tty of t is targetTTY then
+                            set custom title of t to wanted
+                            return
+                        end if
+                    end try
+                end repeat
+            end repeat
+        end tell" >/dev/null 2>&1 &
+    fi
+    _TAB_TITLE_LOCK_PID=$!
+    disown "$_TAB_TITLE_LOCK_PID" 2>/dev/null || true
+}
 toggle_manager_fullscreen() {
     local app_ver; app_ver="v${VERSION#v}"
     local new_title
-    
-    if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then 
+    if [ "${_IS_FULLSCREEN:-0}" -eq 1 ]; then
         _IS_FULLSCREEN=0
         new_title="MP Mix Archive Manager [${app_ver}]"
-        printf '\033[10;0t\033[9;0t' 2>/dev/null || true
-    else 
+        if [ "${OS_TYPE:-}" != "macos" ]; then
+            printf '\033[10;0t\033[9;0t' 2>/dev/null || true
+        fi
+    else
         _IS_FULLSCREEN=1
         new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
-        printf '\033[10;1t\033[9;1t' 2>/dev/null || true
+        if [ "${OS_TYPE:-}" != "macos" ]; then
+            printf '\033[10;1t\033[9;1t' 2>/dev/null || true
+        fi
     fi
-
-    if [ "$new_title" != "${_LAST_SET_TITLE:-}" ]; then
-        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
-        _LAST_SET_TITLE="$new_title"
-    fi
+    apply_manager_console_tab_title "$new_title"
 }
 ensure_manager_windowed() {
     _IS_FULLSCREEN=0
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}]"
-    
-    printf '\033[10;0t\033[9;0t' 2>/dev/null || true
-    
-    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
-        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
-        _LAST_SET_TITLE="$new_title"
+    # CSI 10/9 window-ops make macOS Terminal drop the tab title and restore it.
+    if [ "${OS_TYPE:-}" != "macos" ]; then
+        printf '\033[10;0t\033[9;0t' 2>/dev/null || true
     fi
+    apply_manager_console_tab_title "$new_title"
 }
 ensure_manager_fullscreen() {
     _IS_FULLSCREEN=1
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
-    
-    printf '\033[10;1t\033[9;1t' 2>/dev/null || true
-    
-    if [ "$new_title" != "$_LAST_SET_TITLE" ]; then
-        printf '\033]0;%s\007' "$new_title" 2>/dev/null || true
-        _LAST_SET_TITLE="$new_title"
+    if [ "${OS_TYPE:-}" != "macos" ]; then
+        printf '\033[10;1t\033[9;1t' 2>/dev/null || true
     fi
+    apply_manager_console_tab_title "$new_title"
 }
 align_mix_windows_on_screen() {
 [ "$OS_TYPE" = "windows" ] && return 0; local align_sh="$SCRIPT_DIR/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$HOME/Documents/BASH_SCRIPTS/scripts/align_mix_windows.py"; [ ! -f "$align_sh" ] && align_sh="$PWD/scripts/align_mix_windows.py"; if [ -f "$align_sh" ] && command -v python3 &>/dev/null; then local mgr_pid="$$"; local parent_pid="$PPID"; (python3 "$align_sh" --mgr-pid "$mgr_pid" --parent-pid "$parent_pid" "$@" &>/dev/null || true) &
@@ -1541,13 +1604,12 @@ launch_mp_gui_from_menu() {
         press_enter
         return 1
     fi
-    # A leftover --manager process with no window used to make G return
-    # without opening anything. Focus only when the glass window is listed.
-    if pgrep -f 'MP_Audio_Player_Liquid_Glas[s].*--manager' >/dev/null 2>&1; then
-        if ! command -v wmctrl >/dev/null 2>&1 || wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
-            if command -v wmctrl >/dev/null 2>&1; then
-                wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
-            fi
+    # Focus only when a glass window is actually up. A Metal --manager process
+    # and a missing wmctrl used to make G return without opening anything.
+    if [ -f "$SCRIPT_DIR/scripts/mp_gui_focus.sh" ]; then
+        # shellcheck disable=SC1091
+        source "$SCRIPT_DIR/scripts/mp_gui_focus.sh"
+        if mp_gui_focus_if_open; then
             return 0
         fi
     fi
@@ -3892,11 +3954,112 @@ manage_installation_and_config() { run_sub_script "manage_installation_config.sh
 reboot_system() {
 read -r -p $'\n'"${BOLD}${RED}⚠️ Confirm system reboot? [y/N]: ${NC}" yn; [[ ! "$yn" =~ ^[yY] ]] && { echo -e "\n${GREEN}Cancelled.${NC}"; sleep 1; return 0; }; echo -e "\n${BOLD}${RED}Rebooting...${NC}"; case "$OS_TYPE" in macos) osascript -e 'tell app "System Events" to restart' 2>/dev/null || sudo shutdown -r now ;; windows) shutdown.exe /r /t 0 2>/dev/null || shutdown /r /t 0 ;; wsl) cmd.exe /c shutdown /r /t 0 2>/dev/null || wsl.exe --shutdown ;; *) sudo systemctl reboot 2>/dev/null || sudo reboot || sudo shutdown -r now || reboot ;; esac
 }
-_LAST_VOL_CHECK=0; _CACHED_VOL_STATUS="Active"
+_LAST_VOL_CHECK=0; _CACHED_VOL_STATUS="Active"; _VOL_REFRESH_PID=""
+_read_audio_volume_cache() {
+    local f line ts rest
+    f="${HOME}/.config/mix-manager/audio_volume.cache"
+    [ -r "$f" ] || return 1
+    IFS= read -r line < "$f" || return 1
+    [ -n "$line" ] || return 1
+    ts="${line%% *}"
+    if [[ "$ts" =~ ^[0-9]+$ ]] && [ "$ts" != "$line" ]; then
+        rest="${line#* }"
+        [ -n "$rest" ] || return 1
+        if [ "$ts" -ge "${_LAST_VOL_CHECK:-0}" ]; then
+            _CACHED_VOL_STATUS="$rest"
+            _LAST_VOL_CHECK="$ts"
+        fi
+    elif [ -z "${_CACHED_VOL_STATUS:-}" ] || [ "${_LAST_VOL_CHECK:-0}" -eq 0 ]; then
+        _CACHED_VOL_STATUS="$line"
+    fi
+    return 0
+}
+_write_audio_volume_cache() {
+    local f dir tmp
+    f="${HOME}/.config/mix-manager/audio_volume.cache"
+    dir="${f%/*}"
+    mkdir -p "$dir" 2>/dev/null || true
+    tmp="${f}.$$"
+    printf '%s %s\n' "${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}" "$1" > "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+}
+_vol_refresh_running() {
+    [ -n "${_VOL_REFRESH_PID:-}" ] || return 1
+    kill -0 "$_VOL_REFRESH_PID" 2>/dev/null
+}
+_spawn_volume_refresh() {
+    _vol_refresh_running && return 0
+    if [ "${OS_TYPE:-}" = "macos" ] && command -v python3 >/dev/null 2>&1; then
+        MP_VOL_CACHE="${HOME}/.config/mix-manager/audio_volume.cache" python3 -c '
+import os, re, subprocess, time, pathlib
+try:
+    os.setsid()
+except OSError:
+    pass
+cache = pathlib.Path(os.environ["MP_VOL_CACHE"])
+cache.parent.mkdir(parents=True, exist_ok=True)
+res = "Active"
+try:
+    out = subprocess.check_output(["osascript", "-e", "get volume settings"], stderr=subprocess.DEVNULL, text=True)
+    match = re.search(r"output volume:([0-9]+).*output muted:(true|false)", out)
+    if match:
+        res = f"Muted ({match.group(1)}%)" if match.group(2) == "true" else f"{match.group(1)}%"
+except Exception:
+    pass
+tmp = cache.with_name(cache.name + ".tmp")
+tmp.write_text(f"{int(time.time())} {res}\n")
+tmp.replace(cache)
+' >/dev/null 2>&1 &
+        _VOL_REFRESH_PID=$!
+        disown "$_VOL_REFRESH_PID" 2>/dev/null || true
+        return 0
+    fi
+    (
+        _MENU_CURSOR_LOCK=0
+        get_audio_volume_and_mute --force >/dev/null
+    ) &
+    _VOL_REFRESH_PID=$!
+    disown "$_VOL_REFRESH_PID" 2>/dev/null || true
+}
 get_audio_volume_and_mute() {
-local now="${EPOCHSECONDS:-0}"; if [ "${1:-}" != "--force" ] && (( now - _LAST_VOL_CHECK < 15 )) && [ -n "$_CACHED_VOL_STATUS" ]; then echo "$_CACHED_VOL_STATUS"; return 0; fi; _LAST_VOL_CHECK="$now"; local out vol res="Active"; if out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) && [[ -n "$out" ]]; then vol="${out#*: }"; vol="${vol%% *}"; vol="${vol//./}"; vol=$((10#$vol)); [[ "$out" == *MUTED* ]] && res="Muted (${vol}%)" || res="${vol}%"; elif out=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null) && [[ "$out" =~ ([0-9]+%) ]]; then vol="${BASH_REMATCH[1]}"; [[ $(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null) == *yes* ]] && res="Muted ($vol)" || res="$vol"; elif [[ "$OS_TYPE" = "macos" ]]; then out=$(osascript -e 'get volume settings' 2>/dev/null); [[ "$out" =~ output\ volume:([0-9]+).*output\ muted:(true|false) ]] && {
-[[ "${BASH_REMATCH[2]}" = "true" ]] && res="Muted (${BASH_REMATCH[1]}%)" || res="${BASH_REMATCH[1]}%"
-}; fi; _CACHED_VOL_STATUS="$res"; echo "$res"
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ "${1:-}" != "--force" ]; then
+        _read_audio_volume_cache || true
+        if (( now - ${_LAST_VOL_CHECK:-0} < 15 )) && [ -n "${_CACHED_VOL_STATUS:-}" ]; then
+            echo "$_CACHED_VOL_STATUS"
+            return 0
+        fi
+        if [ "${_MENU_CURSOR_LOCK:-0}" = "1" ]; then
+            _LAST_VOL_CHECK="$now"
+            _spawn_volume_refresh
+            echo "${_CACHED_VOL_STATUS:-Active}"
+            return 0
+        fi
+    fi
+    _LAST_VOL_CHECK="$now"
+    local out="" vol="" res="Active"
+    if command -v wpctl >/dev/null 2>&1 && out=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null) && [[ -n "$out" ]]; then
+        vol="${out#*: }"
+        vol="${vol%% *}"
+        vol="${vol//./}"
+        vol=$((10#$vol))
+        [[ "$out" == *MUTED* ]] && res="Muted (${vol}%)" || res="${vol}%"
+    elif command -v pactl >/dev/null 2>&1 && out=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null) && [[ "$out" =~ ([0-9]+%) ]]; then
+        vol="${BASH_REMATCH[1]}"
+        [[ $(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null) == *yes* ]] && res="Muted ($vol)" || res="$vol"
+    elif [[ "${OS_TYPE:-}" = "macos" ]] && command -v osascript >/dev/null 2>&1; then
+        out=$(osascript -e 'get volume settings' 2>/dev/null || true)
+        if [[ "$out" =~ output\ volume:([0-9]+).*output\ muted:(true|false) ]]; then
+            if [[ "${BASH_REMATCH[2]}" = "true" ]]; then
+                res="Muted (${BASH_REMATCH[1]}%)"
+            else
+                res="${BASH_REMATCH[1]}%"
+            fi
+        fi
+    fi
+    _CACHED_VOL_STATUS="$res"
+    _write_audio_volume_cache "$res"
+    echo "$res"
 }
 toggle_audio_mute() {
 echo -e "\n${BOLD}${MAGENTA}=== MASTER AUDIO MUTE / UNMUTE CONTROL ===${NC}\n"; local ok=1; if command -v wpctl &>/dev/null; then wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle 2>/dev/null; elif command -v pactl &>/dev/null; then pactl set-sink-mute @DEFAULT_SINK@ toggle 2>/dev/null; elif command -v amixer &>/dev/null; then amixer -q set Master toggle 2>/dev/null; elif [[ "$OS_TYPE" = "macos" ]]; then osascript -e "set volume output muted not (output muted of (get volume settings))" 2>/dev/null; elif [[ "$OS_TYPE" =~ ^(windows|wsl)$ ]]; then powershell.exe -NoProfile -Command '(New-Object -ComObject WScript.Shell).SendKeys([char]173)' 2>/dev/null; elif [[ "$OS_TYPE" = "freebsd" ]]; then mixer vol.mute=toggle 2>/dev/null || mixer -s vol toggle 2>/dev/null; else ok=0; fi; ((ok)) && echo -e "${GREEN}✓ Toggled.${NC} Status: ${BOLD}${CYAN}$(get_audio_volume_and_mute)${NC}" || echo -e "${YELLOW}Warning: No mixer detected.${NC}"; sleep 1.2
@@ -3931,8 +4094,141 @@ if [ -n "$alarm_bin" ]; then "$alarm_bin" "$@"; else printf '%b\n' "${RED}Error:
 while true; do clear; local alarm_summary; alarm_summary=$(get_alarm_clock_status_display); printf '%b\n' "${BOLD}${MAGENTA}======================================================================${NC}" "${BOLD}${MAGENTA}       MORNING ALARM CLOCK & DJ MIX PLAYBACK SCHEDULER SUITE          ${NC}" "${BOLD}${MAGENTA}======================================================================${NC}" "${alarm_summary:+${alarm_summary}\n${BOLD}${MAGENTA}----------------------------------------------------------------------${NC}}" "\n${BOLD}Select an operation:${NC}" "  ${BOLD}${BLUE}─── [ MPLANETARIANS ALARM CLOCK (WAKE UP EDITION) ] ───────────${NC}" "  ${BOLD}${CYAN} 1)${NC} Morning Screen & Daily Brief (${GREEN}Animated Clock, Weather, Steam Games${NC})" "  ${BOLD}${CYAN} 2)${NC} Alarm Clock Interactive Menu (${GREEN}Full TUI Alarm Interface${NC})" "  ${BOLD}${CYAN} 3)${NC} Set New Morning Alarm (${GREEN}Time, Daily/Once, Volume, Mix Path${NC})" "  ${BOLD}${CYAN} 4)${NC} List All Saved Alarms & Timers (${GREEN}systemd user timers & status${NC})" "  ${BOLD}${CYAN} 5)${NC} Silence / Stop Ringing Alarm (${GREEN}Move mouse or manual stop${NC})" "  ${BOLD}${CYAN} 6)${NC} Snooze Ringing Alarm (${GREEN}Ramp volume, custom snooze minutes${NC})" "  ${BOLD}${CYAN} 7)${NC} Cancel / Delete Saved Alarms (${GREEN}Cancel single alarm or all${NC})" "  ${BOLD}${CYAN} 8)${NC} Toggle Alarm Clock (${GREEN}Enable / Disable all alarms${NC})" "  ${BOLD}${CYAN} 9)${NC} Change Alarm Theme (${GREEN}Midnight Ink, Warm Brass, Forest Hour, Porcelain${NC})" "  ${BOLD}${CYAN}10)${NC} Configure Wake-Up Action (${GREEN}Browser on right screen / Console / URL${NC})" "  ${BOLD}${CYAN}11)${NC} Manage Morning Notes & Reminders (${GREEN}View / Add / Remove wake notes${NC})" "  ${BOLD}${CYAN}12)${NC} Test Morning Alarm Now (${RED}Loud Playback Test, Mouse Tracking & Steam Prompt${NC})\n" "  ${BOLD}${BLUE}─── [ DJ MIX AUTOMATED PLAYBACK SCHEDULER ] ───────────────────${NC}" "  ${BOLD}${CYAN}13)${NC} Schedule Single Mix / Playlist for Specific Date & Time (${GREEN}schedule_mix_playback.py${NC})\n" "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu\n"; read -r -p "Enter choice [0-13]: " ac_choice; case "$ac_choice" in 1) clear; _run_alarm brief; press_enter ;; 2) _run_alarm menu || press_enter ;; 3) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SET NEW MORNING ALARM ===${NC}"; read -r -p "Enter alarm time (e.g. 07:30, 6:45am, 1930): " a_time; if [ -n "$a_time" ]; then read -r -p "Repeat daily? [y/N]: " a_daily; read -r -p "Volume percentage [1-100, default 100]: " a_vol; read -r -p "Specific mix path (leave empty for random archive mix): " a_mus; local set_args=("$a_time"); [[ "$a_daily" =~ ^[Yy] ]] && set_args+=("--daily"); [ -n "$a_vol" ] && set_args+=("--volume" "$a_vol"); [ -n "$a_mus" ] && set_args+=("--music" "$a_mus"); _run_alarm set "${set_args[@]}"; fi; press_enter ;; 4) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SAVED ALARMS & TIMERS ===${NC}"; _run_alarm list; press_enter ;; 5) printf '\n%b\n' "${YELLOW}Silencing alarm...${NC}"; _run_alarm stop; press_enter ;; 6) read -r -p "Enter snooze minutes (default 5): " sn_min; _run_alarm snooze "${sn_min:-5}"; press_enter ;; 7) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== CANCEL SAVED ALARMS ===${NC}"; if _run_alarm list; then echo ""; read -r -p "Enter Alarm ID to cancel (or 'all' to cancel all): " c_id; [ -n "$c_id" ] && _run_alarm cancel "$c_id"
 fi; press_enter ;; 8) if [ -n "$alarm_bin" ]; then if [[ "$("$alarm_bin" list 2>/dev/null)" == *[Ee]nabled* ]]; then "$alarm_bin" disable; else "$alarm_bin" enable; fi; fi; sleep 1.2 ;; 9) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CHANGE ALARM CLOCK THEME ===${NC}\n" "  ${BOLD}${CYAN}1)${NC} Midnight Ink (${DIM}navy and silver${NC})" "  ${BOLD}${CYAN}2)${NC} Warm Brass (${DIM}amber lamp-light${NC})" "  ${BOLD}${CYAN}3)${NC} Forest Hour (${DIM}deep green and gold${NC})" "  ${BOLD}${CYAN}4)${NC} Porcelain (${DIM}warm grey and rose${NC})"; read -r -p "Enter choice [1-4]: " th_ch; local themes=("" "midnight-ink" "warm-brass" "forest-hour" "porcelain"); [ -n "${themes[$th_ch]:-}" ] && _run_alarm theme "${themes[$th_ch]}"; sleep 1 ;; 10) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CONFIGURE WAKE-UP ACTION ===${NC}\n\nCurrent action:"; _run_alarm task; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Browser on Display to the Right (Default)" "  ${BOLD}${CYAN}2)${NC} Browser with Custom URL" "  ${BOLD}${CYAN}3)${NC} Dedicated Console Window" "  ${BOLD}${CYAN}4)${NC} Clear / None"; read -r -p "Enter choice [1-4]: " wk_ch; case "$wk_ch" in 1) _run_alarm task browser ;; 2) read -r -p "Enter URL (e.g. https://news.ycombinator.com): " wk_url; _run_alarm task browser "$wk_url" ;; 3) _run_alarm task console ;; 4) _run_alarm task clear ;; esac; sleep 1 ;; 11) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== MORNING WAKE-UP NOTES ===${NC}"; _run_alarm note list; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Add Note" "  ${BOLD}${CYAN}2)${NC} Remove Note by ID" "  ${BOLD}${CYAN}0)${NC} Done"; read -r -p "Enter choice [0-2]: " nt_ch; case "$nt_ch" in 1) read -r -p "Enter note text: " nt_txt; [ -n "$nt_txt" ] && _run_alarm note add "$nt_txt" ;; 2) read -r -p "Enter note ID to remove: " nt_id; [ -n "$nt_id" ] && _run_alarm note rm "$nt_id" ;; esac; sleep 1 ;; 12) clear; printf '%b\n\n' "${BOLD}${RED}=== TESTING MORNING ALARM (LOUD PLAYBACK & STEAM PROMPT) ===${NC}" "${YELLOW}Starting alarm test. Press Ctrl+C or move mouse to stop.${NC}"; _run_alarm test; press_enter ;; 13) printf '\n%b\n\n' "${BOLD}${BLUE}=== DJ MIX SCHEDULER (PLAYS LOUDLY VIA DEFAULT AUDIO PLAYER) ===${NC}"; _run_tool "schedule_mix_playback.sh" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]) return 0 ;; *) printf '\n%b\n' "${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
+_format_system_uptime_text() {
+    if [ -r /proc/uptime ]; then
+        local up_val sec text
+        read -r up_val _ < /proc/uptime
+        sec="${up_val%%.*}"
+        text="$(((sec % 86400) / 3600))h $(((sec % 3600) / 60))m"
+        (( sec >= 86400 )) && text="$((sec / 86400))d $text"
+        printf '%s\n' "$text"
+        return 0
+    fi
+    case "${OS_TYPE:-}" in
+        macos|freebsd)
+            if [ -z "${_SYSTEM_BOOT_EPOCH:-}" ]; then
+                local boot_file="$HOME/.config/mix-manager/boot_epoch.cache" saved=""
+                if [ -r "$boot_file" ]; then
+                    IFS= read -r saved < "$boot_file" || saved=""
+                    [[ "$saved" =~ ^[0-9]+$ ]] && _SYSTEM_BOOT_EPOCH="$saved"
+                fi
+            fi
+            if [ -z "${_SYSTEM_BOOT_EPOCH:-}" ] && [ "${_MENU_CURSOR_LOCK:-0}" = "1" ]; then
+                if [ -z "${_BOOT_PROBE_PID:-}" ] || ! kill -0 "$_BOOT_PROBE_PID" 2>/dev/null; then
+                    if command -v python3 >/dev/null 2>&1; then
+                        MP_BOOT_CACHE="$HOME/.config/mix-manager/boot_epoch.cache" python3 -c '
+import os, re, subprocess, pathlib
+try:
+    os.setsid()
+except OSError:
+    pass
+cache = pathlib.Path(os.environ["MP_BOOT_CACHE"])
+cache.parent.mkdir(parents=True, exist_ok=True)
+epoch = "0"
+try:
+    raw = subprocess.check_output(["sysctl", "-n", "kern.boottime"], stderr=subprocess.DEVNULL, text=True)
+    match = re.search(r"sec\s*=\s*([0-9]+)", raw)
+    if match:
+        epoch = match.group(1)
+    elif raw.strip().isdigit():
+        epoch = raw.strip()
+except Exception:
+    pass
+cache.write_text(epoch + "\n")
+' >/dev/null 2>&1 &
+                    else
+                        (
+                            local raw="" epoch=0
+                            raw=$(sysctl -n kern.boottime 2>/dev/null || true)
+                            if [[ "$raw" =~ sec[[:space:]]*=[[:space:]]*([0-9]+) ]]; then
+                                epoch="${BASH_REMATCH[1]}"
+                            elif [[ "$raw" =~ ^([0-9]+)$ ]]; then
+                                epoch="${BASH_REMATCH[1]}"
+                            fi
+                            mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+                            printf '%s\n' "$epoch" > "$HOME/.config/mix-manager/boot_epoch.cache"
+                        ) &
+                    fi
+                    _BOOT_PROBE_PID=$!
+                    disown "$_BOOT_PROBE_PID" 2>/dev/null || true
+                fi
+                printf '%s\n' "N/A"
+                return 0
+            fi
+            if [ -z "${_SYSTEM_BOOT_EPOCH:-}" ]; then
+                local raw=""
+                raw=$(sysctl -n kern.boottime 2>/dev/null || true)
+                if [[ "$raw" =~ sec[[:space:]]*=[[:space:]]*([0-9]+) ]]; then
+                    _SYSTEM_BOOT_EPOCH="${BASH_REMATCH[1]}"
+                elif [[ "$raw" =~ ^([0-9]+)$ ]]; then
+                    _SYSTEM_BOOT_EPOCH="${BASH_REMATCH[1]}"
+                else
+                    _SYSTEM_BOOT_EPOCH=0
+                fi
+            fi
+            if [[ "${_SYSTEM_BOOT_EPOCH:-0}" =~ ^[0-9]+$ ]] && [ "${_SYSTEM_BOOT_EPOCH:-0}" -gt 0 ]; then
+                local now el text
+                now="${EPOCHSECONDS:-0}"
+                [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+                el=$(( now - _SYSTEM_BOOT_EPOCH ))
+                (( el < 0 )) && el=0
+                text="$(((el % 86400) / 3600))h $(((el % 3600) / 60))m"
+                (( el >= 86400 )) && text="$((el / 86400))d $text"
+                printf '%s\n' "$text"
+                return 0
+            fi
+            ;;
+    esac
+    printf '%s\n' "N/A"
+}
+_s4_hardware_connected() {
+    local now="${EPOCHSECONDS:-0}"
+    [ "$now" -eq 0 ] && now=$(date +%s 2>/dev/null || echo 0)
+    if [ -n "${_S4_CONN_CACHE:-}" ] && (( now - ${_LAST_S4_PROBE:-0} < 60 )); then
+        [ "$_S4_CONN_CACHE" = "1" ]
+        return $?
+    fi
+    local cache="$HOME/.config/mix-manager/s4_conn.cache"
+    if [ -r "$cache" ]; then
+        local v=""
+        IFS= read -r v < "$cache" || v=""
+        case "$v" in
+            1|0)
+                _S4_CONN_CACHE="$v"
+                _LAST_S4_PROBE="$now"
+                [ "$v" = "1" ]
+                return $?
+                ;;
+        esac
+    fi
+    if [ "${_MENU_CURSOR_LOCK:-0}" = "1" ]; then
+        if [ -z "${_S4_PROBE_PID:-}" ] || ! kill -0 "$_S4_PROBE_PID" 2>/dev/null; then
+            (
+                local found=0
+                if command -v amidi >/dev/null 2>&1 && amidi -l 2>/dev/null | grep -qi "Traktor"; then
+                    found=1
+                elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then
+                    found=1
+                fi
+                mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+                printf '%s\n' "$found" > "$HOME/.config/mix-manager/s4_conn.cache"
+            ) &
+            _S4_PROBE_PID=$!
+            disown "$_S4_PROBE_PID" 2>/dev/null || true
+        fi
+        return 1
+    fi
+    _LAST_S4_PROBE="$now"
+    _S4_CONN_CACHE=0
+    if command -v amidi >/dev/null 2>&1 && amidi -l 2>/dev/null | grep -qi "Traktor"; then
+        _S4_CONN_CACHE=1
+    elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then
+        _S4_CONN_CACHE=1
+    fi
+    [ "$_S4_CONN_CACHE" = "1" ]
+}
 get_manager_uptime() {
-local now="${EPOCHSECONDS:-${EPOCHSECONDS:-$(printf "%(%s)T" -1)}}"; local start="${MANAGER_START_EPOCH:-$now}"; (( start <= 0 )) && start="$now"; local el=$(( now - start )); (( el < 0 )) && el=0; local m_up="$((el % 60))s"; (( el >= 60 )) && m_up="$(((el % 3600) / 60))m $m_up"; if (( el >= 86400 )); then m_up="$((el / 86400))d $(((el % 86400) / 3600))h $m_up"; elif (( el >= 3600 )); then m_up="$((el / 3600))h $m_up"; fi; local sys_up="N/A"; if [ -r /proc/uptime ]; then local up_val sec; read -r up_val _ < /proc/uptime; sec="${up_val%%.*}"; sys_up="$(((sec % 86400) / 3600))h $(((sec % 3600) / 60))m"; (( sec >= 86400 )) && sys_up="$((sec / 86400))d $sys_up"; elif [ "${OS_TYPE:-}" != "windows" ] && command -v uptime &>/dev/null; then sys_up=$(uptime); sys_up="${sys_up#*up }"; sys_up="${sys_up%%,*}"; fi; local audio_st="Active"; [ "${OS_TYPE:-}" != "windows" ] && audio_st=$(get_audio_volume_and_mute); printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${m_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"; printf '%s\n' "$_MANAGER_UPTIME_LINE"
+local now="${EPOCHSECONDS:-${EPOCHSECONDS:-$(printf "%(%s)T" -1)}}"; local start="${MANAGER_START_EPOCH:-$now}"; (( start <= 0 )) && start="$now"; local el=$(( now - start )); (( el < 0 )) && el=0; local m_up="$((el % 60))s"; (( el >= 60 )) && m_up="$(((el % 3600) / 60))m $m_up"; if (( el >= 86400 )); then m_up="$((el / 86400))d $(((el % 86400) / 3600))h $m_up"; elif (( el >= 3600 )); then m_up="$((el / 3600))h $m_up"; fi; local sys_up; sys_up="$(_format_system_uptime_text)"; local audio_st="Active"; [ "${OS_TYPE:-}" != "windows" ] && audio_st=$(get_audio_volume_and_mute); printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${m_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"; printf '%s\n' "$_MANAGER_UPTIME_LINE"
 }
 detect_currently_playing_mix() {
 get_mp_audio_player_track_info 2>/dev/null && [ -f "${MP_PLAYER_RAW_PATH:-}" ] && { printf '%s\n' "$MP_PLAYER_RAW_PATH"; return 0; }; get_audacious_track_info 2>/dev/null && [ -f "${AUDACIOUS_RESOLVED_PATH:-}" ] && { printf '%s\n' "$AUDACIOUS_RESOLVED_PATH"; return 0; }; get_strawberry_track_info 2>/dev/null && [ -f "${STRAWBERRY_RESOLVED_PATH:-}" ] && { printf '%s\n' "$STRAWBERRY_RESOLVED_PATH"; return 0; }; get_cliamp_track_info 2>/dev/null && [ -f "${CLIAMP_RESOLVED_PATH:-}" ] && { printf '%s\n' "$CLIAMP_RESOLVED_PATH"; return 0; }; if command -v playerctl &>/dev/null; then local p_st p_url p_path; p_st=$(playerctl status 2>/dev/null); if [[ "${p_st%%$'\n'*}" =~ ^(Playing|Paused)$ ]]; then p_url=$(playerctl metadata xesam:url 2>/dev/null); p_url="${p_url%%$'\n'*}"; if [[ "$p_url" == file://* ]]; then printf -v p_path '%b' "${p_url#file://}"; printf -v p_path '%b' "${p_path//%/\\x}"; [ -f "$p_path" ] && { printf '%s\n' "$p_path"; return 0; }; fi; fi; fi; local pid fd tgt; for pid in $(pgrep -i -f 'audacious|strawberry|vlc|mpv|kodi|cliamp' 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do if [ -e "$fd" ] && tgt=$(readlink "$fd" 2>/dev/null); then case "$tgt" in *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$tgt" ] && { printf '%s\n' "$tgt"; return 0; } ;; esac; fi; done; done; return 1
@@ -4439,9 +4735,9 @@ local hdr="  ${b_mag}╭${h_border}╮${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
 [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; _reflow_audio_iface_display; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder,${NC}"$'\n  '"${BOLD}${RED}Please use Option 16 or 13 to Configure this now.${NC}"$'\n  '"${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
-fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json"; [ -f "$_mf_f" ] && _mf_cnt=$(grep -c '"id":' "$_mf_f" 2>/dev/null || echo 0); if [ "${_mf_cnt:-0}" -eq 0 ]; then
+fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json" _mf_line; if [ -f "$_mf_f" ]; then while IFS= read -r _mf_line; do [[ "$_mf_line" == *'"id":'* ]] && _mf_cnt=$((_mf_cnt + 1)); done < "$_mf_f"; fi; if [ "${_mf_cnt:-0}" -eq 0 ]; then
 hdr+=$'\n\n  '"${BOLD}${YELLOW}⚠️  Please be advised you have 0 MUSIC Folders configured.${NC}"$'\n  '"${BOLD}${YELLOW}Please use Option 2 to configure your music library folders now.${NC}"$'\n  '"${DIM}${YELLOW}(Support for local music libraries, external drives & network SMB shares)${NC}"
-fi; local _s4_conn=0; if amidi -l 2>/dev/null | grep -qi "Traktor"; then _s4_conn=1; elif [ -e "/dev/snd/midiC0D0" ] && grep -qi "Traktor" /proc/asound/cards 2>/dev/null; then _s4_conn=1; fi; if [ "$_s4_conn" -eq 1 ] && [ "${TRAKTOR_S4_NOTIFIED:-false}" != "true" ] && [ ! -f "$HOME/.config/mix-manager/traktor_s4_notified.flag" ]; then
+fi; local _s4_conn=0; _s4_hardware_connected && _s4_conn=1; if [ "$_s4_conn" -eq 1 ] && [ "${TRAKTOR_S4_NOTIFIED:-false}" != "true" ] && [ ! -f "$HOME/.config/mix-manager/traktor_s4_notified.flag" ]; then
 hdr+=$'\n\n  '"${BOLD}${GREEN}🎛️  Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]!${NC}
   ${BOLD}${CYAN}Please navigate to Option 19 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
   ${DIM}${GREEN}(Control player transport, mixer, and pitch sliders directly from your S4 hardware)${NC}"

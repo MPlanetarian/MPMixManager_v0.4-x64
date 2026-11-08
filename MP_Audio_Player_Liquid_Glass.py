@@ -9,6 +9,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from desktop_launch_screen import main_desktop_origin  # noqa: E402
+from liquid_glass_opengl import glass_foreground_rgb  # noqa: E402
 from liquid_glass_vulkan import LiquidGlassRenderer, NVIDIA_VENDOR_ID, read_player_theme  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 
@@ -517,7 +518,12 @@ class GlassHost:
                     self._mouse_focus_warp = False
                 self._mouse_focus_next = now + 0.35
             if now - theme_at > 0.4:
-                theme, theme_at = read_player_theme(), now
+                new_theme = read_player_theme()
+                theme_at = now
+                if new_theme != theme:
+                    theme = new_theme
+                    if self.terminal is not None:
+                        self._apply_glass_foreground(self.terminal, theme)
             self._sync_panels()
             draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -561,16 +567,29 @@ class GlassHost:
             window.set_visual(vis)
         return window
 
+    def _apply_glass_foreground(self, term, theme_name):
+        """Default ink. Pale glass needs a dark foreground; charcoal keeps a light one."""
+        if not hasattr(term, "set_color_foreground"):
+            return
+        try:
+            from gi.repository import Gdk
+        except ImportError:
+            return
+        red, green, blue = glass_foreground_rgb(theme_name)
+        fg = Gdk.RGBA()
+        fg.red = red / 255.0
+        fg.green = green / 255.0
+        fg.blue = blue / 255.0
+        fg.alpha = 1.0
+        term.set_color_foreground(fg)
+
     def _clear_terminal_background(self, window, term):
         from gi.repository import Gdk, Gtk
         rgba = Gdk.RGBA()
         rgba.red = rgba.green = rgba.blue = rgba.alpha = 0.0
         if hasattr(term, "set_color_background"):
             term.set_color_background(rgba)
-        fg = Gdk.RGBA()
-        fg.red = fg.green = fg.blue = fg.alpha = 1.0
-        if hasattr(term, "set_color_foreground"):
-            term.set_color_foreground(fg)
+        self._apply_glass_foreground(term, read_player_theme())
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
         try:

@@ -54,6 +54,38 @@ def is_macos() -> bool:
     return sys.platform == "darwin"
 
 
+def raise_macos_process() -> None:
+    """Bring this process onto the current Space.
+
+    A GLFW window started from a background shell is created off the visible
+    Space until the app is activated. G then looks like it did nothing.
+    """
+    if not is_macos():
+        return
+    try:
+        objc = ctypes.cdll.LoadLibrary("/usr/lib/libobjc.A.dylib")
+        ctypes.cdll.LoadLibrary("/System/Library/Frameworks/AppKit.framework/AppKit")
+    except OSError:
+        return
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send = objc.objc_msgSend
+    cls = objc.objc_getClass(b"NSRunningApplication")
+    sel_pid = objc.sel_registerName(b"runningApplicationWithProcessIdentifier:")
+    sel_act = objc.sel_registerName(b"activateWithOptions:")
+    send.restype = ctypes.c_void_p
+    send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+    app = send(cls, sel_pid, os.getpid())
+    if not app:
+        return
+    send.restype = ctypes.c_bool
+    send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulonglong]
+    # NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
+    send(app, sel_act, 3)
+
+
 def is_windows_10_or_11() -> bool:
     """Check if running on Windows 10 or Windows 11."""
     if not is_windows():
@@ -213,6 +245,45 @@ GLFW_RELEASE = 0
 def theme_rgb(name):
     key = THEME_ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
     return THEME_COLORS.get(key, THEME_COLORS["dreamworlds_ultra"])
+
+
+def theme_uses_dark_glass(name) -> bool:
+    """Match the shader: a dim theme mix is the opaque charcoal pane.
+
+    Retro Linux Memories is that pane, so light text stays readable there.
+    Every other theme is the pale water pane.
+    """
+    colors = theme_rgb(name)
+    blended = tuple(colors[0][i] + (colors[1][i] - colors[0][i]) * 0.42 for i in range(3))
+    theme = tuple(blended[i] + (colors[2][i] - blended[i]) * 0.20 for i in range(3))
+    luma = (0.299 * theme[0] + 0.587 * theme[1] + 0.114 * theme[2]) / 255.0
+    return luma < 0.28
+
+
+def glass_text_rgb(r: int, g: int, b: int, floor: int = 36) -> tuple[int, int, int]:
+    """Pull a light glyph down toward a dark ink, keeping its hue.
+
+    The pale liquid-glass pane is about rgb(190, 205, 220). White, ice, and
+    neon cyan sit on top of that and disappear. Colors that are already dark
+    enough are left alone. Cells drawn on a solid highlight keep their own
+    foreground; this helper is only for text sitting on the glass.
+    """
+    luma = 0.299 * r + 0.587 * g + 0.114 * b
+    if luma < 140:
+        return int(r), int(g), int(b)
+    scale = float(floor) / luma
+    return (
+        max(0, min(255, int(round(r * scale)))),
+        max(0, min(255, int(round(g * scale)))),
+        max(0, min(255, int(round(b * scale)))),
+    )
+
+
+def glass_foreground_rgb(theme_name) -> tuple[int, int, int]:
+    """Default terminal foreground. Dark ink on the pale pane, light on charcoal."""
+    if theme_uses_dark_glass(theme_name):
+        return (236, 240, 244)
+    return (32, 36, 44)
 
 
 def get_dynamic_theme_state(theme_name, base_opacity=1.0, current_time=None):
@@ -570,6 +641,8 @@ class LiquidGlassRendererOpenGL:
         self._create_pipeline()
         self._apply_shape()
         self._alive = True
+        if is_macos():
+            raise_macos_process()
         print(self.summary, flush=True)
         return self
 

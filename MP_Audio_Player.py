@@ -3134,11 +3134,11 @@ class EqualizerVisualizer:
         cw = max(16, inner_w - 2)
         hdr_text = "── 🌊 STREAM OF FREQUENCY (DYNAMIC SPECTROGRAM) " if inner_w >= 50 else ("── 🌊 STREAM OF FREQUENCY " if inner_w >= 32 else "── 🌊 STREAM ")
         if inner_w >= 70:
-            ftr_text = "── ◄ FLOW (RIGHT ➔ LEFT) ◄ ──── 32Hz  125Hz  500Hz  2kHz  8kHz  16kHz ────"
+            ftr_text = "── FLOW (RIGHT TO LEFT) ──── 32Hz  125Hz  500Hz  2kHz  8kHz  16kHz ────"
         elif inner_w >= 36:
-            ftr_text = "── ◄ FLOW (R ➔ L) ◄ ────"
+            ftr_text = "── FLOW (RIGHT TO LEFT) ────"
         else:
-            ftr_text = "── ◄ FLOW ◄ "
+            ftr_text = "── FLOW "
 
         top_l = f"  {self.b_col}╭{hdr_text}{'─' * max(0, inner_w - _display_width(hdr_text))}╮{NC}"
         bot_l = f"  {self.b_col}╰{ftr_text}{'─' * max(0, inner_w - _display_width(ftr_text))}╯{NC}"
@@ -3194,7 +3194,7 @@ class EqualizerVisualizer:
                         if r >= max(1, H - 2):
                             sym = self._sof_rng.choice(["✦", "✧", "⋆", "•", "°", "·"])
                         elif r >= max(1, H // 2):
-                            sym = self._sof_rng.choice(["≈", "≋", "~", "∿", "∽", "›"])
+                            sym = self._sof_rng.choice(["≈", "≋", "~", "∿", "∽", "·"])
                         else:
                             sym = self._sof_rng.choice(["≋", "≈", "█", "▓", "▒", "░", "◆"])
                         self._sof_particles.append({
@@ -3492,6 +3492,19 @@ def _set_konsole_pixel_size(service: str, window: str, width: int, height: int) 
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, timeout=1.0,
     )
 
+_LAST_TERMINAL_TITLE = ""
+
+def _set_terminal_title(title: str) -> None:
+    """Publish a console title once. Repeating the same OSC makes macOS tabs flicker."""
+    global _LAST_TERMINAL_TITLE
+    if not title or title == _LAST_TERMINAL_TITLE:
+        return
+    _LAST_TERMINAL_TITLE = title
+    try:
+        sys.stdout.write(f"\033]0;{title}\007")
+    except Exception:
+        pass
+
 def resize_host_terminal(columns: int, rows: int, title: str) -> None:
     """Resize the current terminal to columns by rows and set its title.
 
@@ -3537,10 +3550,9 @@ def resize_host_terminal(columns: int, rows: int, title: str) -> None:
         except Exception:
             pass
     try:
-        if os.environ.get("KONSOLE_DBUS_SERVICE"):
-            sys.stdout.write(f"\033]0;{title}\007")
-        else:
-            sys.stdout.write(f"\033[8;{int(rows)};{int(columns)}t\033]0;{title}\007")
+        if not os.environ.get("KONSOLE_DBUS_SERVICE"):
+            sys.stdout.write(f"\033[8;{int(rows)};{int(columns)}t")
+        _set_terminal_title(title)
         sys.stdout.flush()
     except Exception:
         pass
@@ -3747,6 +3759,31 @@ def _mp_gui_is_running() -> bool:
         return False
 
 
+def _windowed_mp_gui_host() -> bool:
+    """True when a --manager host that maps a window is running.
+
+    MP_Audio_Player_Liquid_Glass_macOS.py (Metal) matches the pgrep above and
+    never opens a window. That process must not block a new launch.
+    """
+    try:
+        res = subprocess.run(
+            ["pgrep", "-fl", "MP_Audio_Player_Liquid_Glas[s].*--manager"],
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return False
+    if getattr(res, "returncode", 1) != 0:
+        return False
+    text = res.stdout if isinstance(res.stdout, str) else ""
+    for line in text.splitlines():
+        if "MP_Audio_Player_Liquid_Glass_OpenGL" in line:
+            return True
+        if "MP_Audio_Player_Liquid_Glass.py" in line:
+            return True
+    return False
+
+
 def _focus_mp_gui() -> bool:
     wmctrl = shutil.which("wmctrl")
     if not wmctrl:
@@ -3762,14 +3799,35 @@ def _focus_mp_gui() -> bool:
         return False
 
 
+def _raise_windowed_mp_gui(base: Path) -> None:
+    helper = base / "scripts" / "mp_gui_focus.sh"
+    if not helper.is_file():
+        alt = Path(__file__).resolve().parent / "scripts" / "mp_gui_focus.sh"
+        helper = alt if alt.is_file() else helper
+    if not helper.is_file():
+        return
+    try:
+        subprocess.run(
+            ["bash", "-c", 'source "$1" && mp_gui_focus_if_open', "mp-gui", str(helper)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
 def launch_mp_gui(base_dir: Optional[Path] = None) -> bool:
     """Open MP Gui beside the player, or focus that window if it is already open.
 
     --keep-theme leaves the shared theme file alone so the open Liquid Player keeps its color.
     """
     if _mp_gui_is_running():
-        _focus_mp_gui()
-        return True
+        if _focus_mp_gui():
+            return True
+        if _windowed_mp_gui_host():
+            _raise_windowed_mp_gui(base_dir or Path(__file__).resolve().parent)
+            return True
     base = base_dir or get_base_dir()
     launcher = base / "MP_Gui.sh"
     if not launcher.is_file():
@@ -4810,8 +4868,9 @@ class TerminalPlayerUI:
             # window size is set at launch (-p TerminalRows) or by resize_host_terminal.
             if not os.environ.get("KONSOLE_DBUS_SERVICE"):
                 sys.stdout.write(f"\033[8;{t_rows};74t")
-            sys.stdout.write(f"\033]0;MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player\007")
-        else: sys.stdout.write("\033]0;MP Audio Player\007")
+            _set_terminal_title(f"MP {'Mini' if self.ui_size_mode == 'MINI' else 'Micro'} Audio Player")
+        else:
+            _set_terminal_title("MP Audio Player")
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h\033[2J\033[H"); sys.stdout.flush()
         threading.Thread(target=self._input_loop, daemon=True).start()
         try:
@@ -5309,7 +5368,7 @@ class TerminalPlayerUI:
         target_rows, target_cols = 14, 74
         if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")) and not os.environ.get("KONSOLE_DBUS_SERVICE") and not os.environ.get("MP_LIQUID_GLASS"):
             sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
-        sys.stdout.write("\033]0;MP Mini Audio Player\007")
+        _set_terminal_title("MP Mini Audio Player")
         iw = max(24, min(w - 4, 74))
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
         g_key = "MP Gui" if is_lg else "Spek"
@@ -5360,7 +5419,7 @@ class TerminalPlayerUI:
         target_rows, target_cols = 7, 74
         if (w != target_cols or h != target_rows) and sys.platform.startswith(("linux", "freebsd")) and not os.environ.get("KONSOLE_DBUS_SERVICE") and not os.environ.get("MP_LIQUID_GLASS"):
             sys.stdout.write(f"\033[8;{target_rows};{target_cols}t")
-        sys.stdout.write("\033]0;MP Micro Audio Player\007")
+        _set_terminal_title("MP Micro Audio Player")
         iw, tname = max(24, min(w - 4, 70)), st.get("title", "Unknown Track")
         avail = max(10, iw - 43)
         if _display_width(tname) > avail: tname = _clip_display(tname, avail - 2) + ".."

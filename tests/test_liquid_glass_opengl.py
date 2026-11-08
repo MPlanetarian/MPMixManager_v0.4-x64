@@ -12,9 +12,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from liquid_glass_opengl import (  # noqa: E402
+    THEME_COLORS,
     LiquidGlassRendererOpenGL,
+    glass_foreground_rgb,
     glass_metrics,
+    glass_text_rgb,
     theme_rgb,
+    theme_uses_dark_glass,
 )
 from MP_Audio_Player_Liquid_Glass_OpenGL import embed_check_argv, player_argv  # noqa: E402
 
@@ -25,6 +29,73 @@ class TestOpenGLTheme(unittest.TestCase):
         self.assertEqual(theme_rgb("matrix"), theme_rgb("phosphor"))
         self.assertEqual(theme_rgb("cyber"), theme_rgb("cyber_neon"))
         self.assertEqual(theme_rgb("dreamworlds_ultra")[0], (166, 77, 255))
+
+
+class TestGlassTextInk(unittest.TestCase):
+    def test_only_retro_linux_memories_is_the_dark_pane(self):
+        for name in THEME_COLORS:
+            if name == "retro_linux_memories":
+                self.assertTrue(theme_uses_dark_glass(name), name)
+            else:
+                self.assertFalse(theme_uses_dark_glass(name), name)
+        self.assertTrue(theme_uses_dark_glass("Retro Linux Memories"))
+        self.assertFalse(theme_uses_dark_glass("cyber_neon"))
+        self.assertFalse(theme_uses_dark_glass("dreamworlds_ultra"))
+
+    def test_light_glyphs_darken_and_dark_glyphs_stay(self):
+        white = glass_text_rgb(255, 255, 255)
+        self.assertTrue(all(channel < 80 for channel in white))
+        ice = glass_text_rgb(200, 235, 255)
+        self.assertLess(0.299 * ice[0] + 0.587 * ice[1] + 0.114 * ice[2], 80)
+        cyan = glass_text_rgb(0, 242, 255)
+        self.assertEqual(cyan[0], 0)
+        self.assertLess(cyan[1], 80)
+        self.assertLess(cyan[2], 90)
+        self.assertEqual(glass_text_rgb(247, 37, 133), (247, 37, 133))
+
+    def test_default_foreground_follows_the_pane(self):
+        self.assertEqual(glass_foreground_rgb("retro_linux_memories"), (236, 240, 244))
+        ink = glass_foreground_rgb("cyber_neon")
+        self.assertTrue(all(channel < 80 for channel in ink))
+
+    def test_linux_hosts_use_dark_ink_on_pale_glass(self):
+        import types
+        from unittest.mock import MagicMock
+
+        from MP_Audio_Player_Liquid_Glass import GlassHost as VulkanHost
+        from MP_Audio_Player_Liquid_Glass_OpenGL import GlassHost as OpenGLHost
+
+        class RGBA:
+            def __init__(self, red=0, green=0, blue=0, alpha=1):
+                self.red = red
+                self.green = green
+                self.blue = blue
+                self.alpha = alpha
+
+        gdk = types.SimpleNamespace(RGBA=RGBA)
+        gi = types.ModuleType("gi")
+        repository = types.ModuleType("gi.repository")
+        repository.Gdk = gdk
+        gi.repository = repository
+
+        opengl = OpenGLHost(["test"], mode="NORMAL", font="Monospace 11")
+        vulkan = VulkanHost(["test"], mode="NORMAL", font="Monospace 11")
+        with unittest.mock.patch.object(sys.modules["MP_Audio_Player_Liquid_Glass_OpenGL"], "Gdk", gdk):
+            for host, theme, dark in (
+                (opengl, "cyber_neon", True),
+                (opengl, "retro_linux_memories", False),
+                (vulkan, "cyber_neon", True),
+                (vulkan, "retro_linux_memories", False),
+            ):
+                term = MagicMock()
+                with unittest.mock.patch.dict(sys.modules, {"gi": gi, "gi.repository": repository}):
+                    host._apply_glass_foreground(term, theme)
+                color = term.set_color_foreground.call_args[0][0]
+                peak = max(color.red, color.green, color.blue)
+                if dark:
+                    self.assertLess(peak, 0.25, theme)
+                else:
+                    self.assertGreater(min(color.red, color.green, color.blue), 0.85, theme)
 
 
 class TestOpenGLHost(unittest.TestCase):

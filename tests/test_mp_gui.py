@@ -154,9 +154,29 @@ class TestGuiLauncher(unittest.TestCase):
         self.assertIn("retro_linux_memories", text)
         self.assertNotIn("charcoal_vault", text)
         self.assertIn("--keep-theme", text)
-        self.assertIn('MP Mix Manager (Liquid Glass', text)
+        self.assertIn("scripts/mp_gui_focus.sh", text)
+        focus = (ROOT / "scripts" / "mp_gui_focus.sh").read_text(encoding="utf-8")
+        self.assertIn('MP Mix Manager (Liquid Glass', focus)
         result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_darwin_gui_prefers_the_opengl_window_host(self):
+        text = (ROOT / "MP_Gui.sh").read_text(encoding="utf-8")
+        darwin = text.index('uname -s)" = "Darwin"')
+        opengl = text.index("MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py", darwin)
+        metal = text.index("MP_Audio_Player_Liquid_Glass_macOS.py", opengl)
+        self.assertLess(opengl, metal)
+        self.assertIn("Intel Macs are not supported", text[darwin:metal + 200])
+        self.assertNotIn("! command -v wmctrl", text)
+        manager = (ROOT / "Mix_Archive_Manager.sh").read_text(encoding="utf-8")
+        start = manager.index("launch_mp_gui_from_menu() {")
+        fn = manager[start:manager.index("\nlaunch_mp_liquid_visualizer()", start)]
+        self.assertIn("mp_gui_focus_if_open", fn)
+        self.assertNotIn("! command -v wmctrl", fn)
+        opengl = (ROOT / "scripts" / "liquid_glass_opengl.py").read_text(encoding="utf-8")
+        self.assertIn("def raise_macos_process", opengl)
+        opened = opengl[opengl.index("def open(self):"):opengl.index("def close(self):")]
+        self.assertIn("raise_macos_process()", opened)
 
     def test_hosts_stop_playback_and_the_visualizer_for_the_manager(self):
         for name in (
@@ -170,6 +190,88 @@ class TestGuiLauncher(unittest.TestCase):
             self.assertIn("stop_companion_playback()", text)
             self.assertIn("stop_companion_visualizer(force=True)", text)
             self.assertIn("stop_companion_visualizer()", text)
+
+
+class TestMpGuiFocusWithoutWmctrl(unittest.TestCase):
+    def _run(self, body: str) -> subprocess.CompletedProcess:
+        script = f"""
+        set -e
+        source "{ROOT / "scripts" / "mp_gui_focus.sh"}"
+        {body}
+        """
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=20)
+
+    def test_metal_manager_is_not_an_open_window(self):
+        res = self._run(r"""
+        command() {
+            if [ "$1" = "-v" ] && [ "$2" = "wmctrl" ]; then return 1; fi
+            builtin command "$@"
+        }
+        pgrep() { printf '%s\n' "24253 python MP_Audio_Player_Liquid_Glass_macOS.py --manager"; return 0; }
+        if mp_gui_focus_if_open; then echo OPEN; else echo CLOSED; fi
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.strip(), "CLOSED")
+
+    def test_opengl_manager_counts_as_open_without_wmctrl(self):
+        res = self._run(r"""
+        command() {
+            if [ "$1" = "-v" ] && [ "$2" = "wmctrl" ]; then return 1; fi
+            builtin command "$@"
+        }
+        uname() { printf '%s\n' "Darwin"; }
+        python3() { printf '%s\n' "$*" >> "$HOME/activated"; return 0; }
+        export HOME="$(mktemp -d)"
+        pgrep() { printf '%s\n' "77 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py --manager"; return 0; }
+        if mp_gui_focus_if_open; then echo OPEN; else echo CLOSED; fi
+        cat "$HOME/activated"
+        rm -rf "$HOME"
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("OPEN", res.stdout)
+        self.assertIn("77", res.stdout)
+
+    def test_wmctrl_match_focuses_and_does_not_need_a_process(self):
+        res = self._run(r"""
+        command() {
+            if [ "$1" = "-v" ] && [ "$2" = "wmctrl" ]; then return 0; fi
+            builtin command "$@"
+        }
+        wmctrl() {
+            if [ "$1" = "-l" ]; then printf '%s\n' "0x1 0 host MP Mix Manager (Liquid Glass - OpenGL)"; return 0; fi
+            if [ "$1" = "-a" ]; then printf '%s\n' "FOCUS:$2"; return 0; fi
+            return 1
+        }
+        pgrep() { echo "pgrep should not run" >&2; return 99; }
+        if mp_gui_focus_if_open; then echo OPEN; else echo CLOSED; fi
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("FOCUS:MP Mix Manager (Liquid Glass", res.stdout)
+        self.assertIn("OPEN", res.stdout)
+
+    def test_stop_windowless_kills_only_the_metal_host(self):
+        res = self._run(r"""
+        killed=""
+        pkill() { return 0; }
+        kill() { killed="$killed $1"; }
+        pgrep() {
+            printf '%s\n' "10 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py --manager"
+            printf '%s\n' "11 python MP_Audio_Player_Liquid_Glass_macOS.py --manager"
+            printf '%s\n' "12 python MP_Audio_Player_Liquid_Glass.py --manager"
+            return 0
+        }
+        mp_gui_stop_windowless_hosts
+        printf '%s\n' "$killed"
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.stdout.split(), ["11"])
+
+    def test_reposition_ignores_missing_wmctrl(self):
+        import desktop_launch_screen as screen
+
+        with patch.object(screen, "_wmctrl_windows", return_value=[]), \
+             patch.object(screen.subprocess, "run", side_effect=FileNotFoundError("wmctrl")):
+            screen.reposition_off_hisense()
 
 
 class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):

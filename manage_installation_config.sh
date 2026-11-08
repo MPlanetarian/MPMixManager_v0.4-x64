@@ -182,20 +182,9 @@ migrate_installation_path() {
     ln -sf "$target_dir/Cut_Video.sh" "$HOME/.local/bin/cut-video" 2>/dev/null || true
     ln -sf "$target_dir/Mix_Archive_Manager.sh" "$HOME/manager.sh" 2>/dev/null || true
     
-    # Desktop Shortcut Updates
-    if [ "$OS_TYPE" = "macos" ]; then
-        if [ -d "$HOME/Desktop" ]; then
-            ln -sf "$target_dir/manager_macos.command" "$HOME/Desktop/Mix Archive Manager.command" 2>/dev/null || true
-        fi
-    elif [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then
-        local desktop_file="$HOME/.local/share/applications/Mix_Archive_Manager.desktop"
-        if [ -f "$desktop_file" ]; then
-            sed -i "s|elif \[ -x \".*Mix_Archive_Manager.sh\" \]|elif [ -x \"$target_dir/Mix_Archive_Manager.sh\" ]|g" "$desktop_file" 2>/dev/null || true
-        fi
-        if [ -f "$HOME/Desktop/Mix_Archive_Manager.desktop" ]; then
-            sed -i "s|elif \[ -x \".*Mix_Archive_Manager.sh\" \]|elif [ -x \"$target_dir/Mix_Archive_Manager.sh\" ]|g" "$HOME/Desktop/Mix_Archive_Manager.desktop" 2>/dev/null || true
-        fi
-        command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    # Desktop shortcuts follow the install that was just written.
+    if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/install_desktop_shortcuts.py" ]; then
+        python3 "$target_dir/scripts/install_desktop_shortcuts.py" --root "$target_dir" >/dev/null 2>&1 || true
     fi
     
     if [ "$mode_opt" = "2" ]; then

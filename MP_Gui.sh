@@ -29,13 +29,20 @@ CONFIG_FILE="$HOME/.config/mix-manager/config.env"
 
 TARGET_PY=""
 
+# Same host order as scripts/launch_liquid_glass.sh. The Metal macOS file
+# loads a device pointer and writes the manager to stdout; it does not open
+# a window. OpenGL macOS is the host that draws this GUI.
 if [ "$(uname -s)" = "Darwin" ]; then
-    if [ "$(uname -m)" != "arm64" ]; then
-        echo "Error: MP Mix Manager GUI Liquid Glass requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported." >&2
-        exit 1
+    TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+    [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+    if [ ! -f "$TARGET_PY" ]; then
+        if [ "$(uname -m)" != "arm64" ]; then
+            echo "Error: MP Mix Manager GUI Liquid Glass Metal requires Apple Silicon (M1/M2/M3/M4+). Intel Macs are not supported." >&2
+            exit 1
+        fi
+        TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
+        [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
     fi
-    TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"
-    [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass_macOS.py"
 fi
 
 if [ -z "$TARGET_PY" ]; then
@@ -99,6 +106,17 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Focus the existing manager window. A process with no mapped window is not
+# already open, including the Metal macOS host and a machine without wmctrl.
+if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$BASE_DIR/scripts/mp_gui_focus.sh"
+    if mp_gui_focus_if_open; then
+        exit 0
+    fi
+    mp_gui_stop_windowless_hosts
+fi
+
 # One tray icon shared with the console manager and MP Liquid Player.
 if [ -f "$BASE_DIR/scripts/mp_system_tray.sh" ]; then
     if command -v setsid >/dev/null 2>&1; then
@@ -107,17 +125,6 @@ if [ -f "$BASE_DIR/scripts/mp_system_tray.sh" ]; then
         nohup bash "$BASE_DIR/scripts/mp_system_tray.sh" --ensure >/dev/null 2>&1 </dev/null &
     fi
     disown 2>/dev/null || true
-fi
-
-# Focus the existing manager window. Do not treat a running Liquid Player as this GUI.
-# A process with no mapped window is not "already open": G must start a new one.
-if pgrep -f 'MP_Audio_Player_Liquid_Glas[s].*--manager' >/dev/null 2>&1; then
-    if ! command -v wmctrl >/dev/null 2>&1 || wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
-        if command -v wmctrl >/dev/null 2>&1; then
-            wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
-        fi
-        exit 0
-    fi
 fi
 
 mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true

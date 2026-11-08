@@ -227,6 +227,8 @@ from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
     read_player_theme,
     get_dynamic_theme_state,
+    glass_text_rgb,
+    theme_uses_dark_glass,
     _rgb01,
     THEME_ALIASES,
 )
@@ -238,6 +240,28 @@ COLS = 120
 ROWS = 40
 CHAR_W = 9
 CHAR_H = 18
+
+# SFNSMono ships on macOS but has no ► ★ ✦ ≋ ◄. Those cells draw blank, and the
+# few glyphs it does have (› and ▶) sit on the playlist like stray cursors.
+OVERLAY_FONT_CANDIDATES = (
+    "/System/Library/Fonts/Menlo.ttc",
+    "/System/Library/Fonts/Monaco.ttf",
+    "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    "/Library/Fonts/Courier New.ttf",
+    "/System/Library/Fonts/SFNSMono.ttf",
+)
+
+
+def load_overlay_font(size: int):
+    """Monospace face that can draw the playlist mark and the visualizer glyphs."""
+    for font_path in OVERLAY_FONT_CANDIDATES:
+        if not os.path.exists(font_path):
+            continue
+        try:
+            return ImageFont.truetype(font_path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
 
 ANSI_COLORS = {
     30: (0, 0, 0),
@@ -257,6 +281,25 @@ ANSI_COLORS = {
     96: (90, 255, 255),
     97: (255, 255, 90),
 }
+
+def ansi256_rgb(index: int) -> tuple[int, int, int]:
+    """xterm 256-color cube. Themes that emit 38;5 were stuck on the default ice white."""
+    n = int(index) % 256
+    if 0 <= n <= 15:
+        basic = (
+            (0, 0, 0), (220, 50, 50), (50, 200, 50), (220, 220, 50),
+            (50, 100, 220), (220, 50, 220), (50, 200, 200), (230, 230, 230),
+            (120, 120, 120), (255, 90, 90), (90, 255, 90), (255, 255, 90),
+            (90, 160, 255), (255, 90, 255), (90, 255, 255), (255, 255, 255),
+        )
+        return basic[n]
+    if n < 232:
+        cube = n - 16
+        scale = (0, 95, 135, 175, 215, 255)
+        return (scale[cube // 36], scale[(cube // 6) % 6], scale[cube % 6])
+    level = 8 + (n - 232) * 10
+    return (level, level, level)
+
 
 ANSI_BG_COLORS = {
     40: (0, 0, 0),
@@ -349,6 +392,7 @@ class TerminalOverlay:
         self.cursor_col = 0
         self.current_fg = (200, 235, 255)
         self.current_bg = None
+        self._use_dark_ink = None
         self._buf = bytearray()
         self.dirty = True
         self.texture_id = 0
@@ -365,19 +409,7 @@ class TerminalOverlay:
         self._glyph_cache: dict[tuple, any] = {}
 
         try:
-            font_loaded = False
-            for font_path in [
-                "/System/Library/Fonts/SFNSMono.ttf",
-                "/System/Library/Fonts/Monaco.ttf",
-                "/System/Library/Fonts/Helvetica.ttc",
-                "/Library/Fonts/Courier New.ttf",
-            ]:
-                if os.path.exists(font_path):
-                    self.font = ImageFont.truetype(font_path, 13)
-                    font_loaded = True
-                    break
-            if not font_loaded:
-                self.font = ImageFont.load_default()
+            self.font = load_overlay_font(13)
 
             self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
         except Exception:
@@ -544,14 +576,25 @@ class TerminalOverlay:
                     elif cmd in ("L", "M", "S", "T", "r"):
                         pass
                     elif cmd == "J":
-                        if not params or params[0] == 2:
-                            for r in range(self.rows):
-                                for c in range(self.cols):
-                                    self.grid[r][c] = " "
-                                    self.bg_colors[r][c] = None
-                            self.cursor_row = 0
-                            self.cursor_col = 0
-                            self.dirty = True
+                        mode = params[0] if params else 0
+                        if mode >= 2:
+                            spans = [(r, 0, self.cols) for r in range(self.rows)]
+                        elif mode == 1:
+                            spans = [(r, 0, self.cols) for r in range(self.cursor_row)]
+                            if 0 <= self.cursor_row < self.rows:
+                                spans.append((self.cursor_row, 0, min(self.cols, self.cursor_col + 1)))
+                        else:
+                            spans = []
+                            if 0 <= self.cursor_row < self.rows:
+                                spans.append((self.cursor_row, max(0, self.cursor_col), self.cols))
+                            spans.extend((r, 0, self.cols) for r in range(self.cursor_row + 1, self.rows))
+                        for r, c0, c1 in spans:
+                            if not (0 <= r < self.rows):
+                                continue
+                            for c in range(max(0, c0), min(self.cols, c1)):
+                                self.grid[r][c] = " "
+                                self.bg_colors[r][c] = None
+                        self.dirty = True
                     elif cmd == "K":
                         if 0 <= self.cursor_row < self.rows:
                             for c in range(self.cursor_col, self.cols):
@@ -562,6 +605,28 @@ class TerminalOverlay:
                     consumed = i
                     continue
                 else:
+                    nxt = text[i + 1]
+                    if nxt == "]":
+                        j = i + 2
+                        found = False
+                        while j < n:
+                            if text[j] == "\x07":
+                                i = j + 1
+                                consumed = i
+                                found = True
+                                break
+                            if text[j] == "\x1b":
+                                if j + 1 >= n:
+                                    break
+                                if text[j + 1] == "\\":
+                                    i = j + 2
+                                    consumed = i
+                                    found = True
+                                    break
+                            j += 1
+                        if not found:
+                            break
+                        continue
                     if i + 1 < n:
                         i += 2
                         consumed = i
@@ -614,20 +679,40 @@ class TerminalOverlay:
             elif 40 <= p <= 47 or 100 <= p <= 107:
                 self.current_bg = ANSI_BG_COLORS.get(p, None)
             elif p == 38:
-                if idx + 4 < len(params) and params[idx + 1] == 2:
+                if idx + 2 < len(params) and params[idx + 1] == 5:
+                    self.current_fg = ansi256_rgb(params[idx + 2])
+                    idx += 2
+                elif idx + 4 < len(params) and params[idx + 1] == 2:
                     r = params[idx + 2]
                     g = params[idx + 3]
                     b = params[idx + 4]
                     self.current_fg = (r, g, b)
                     idx += 4
             elif p == 48:
-                if idx + 4 < len(params) and params[idx + 1] == 2:
+                if idx + 2 < len(params) and params[idx + 1] == 5:
+                    self.current_bg = ansi256_rgb(params[idx + 2])
+                    idx += 2
+                elif idx + 4 < len(params) and params[idx + 1] == 2:
                     r = params[idx + 2]
                     g = params[idx + 3]
                     b = params[idx + 4]
                     self.current_bg = (r, g, b)
                     idx += 4
             idx += 1
+
+    def set_ink(self, theme_name, on_light_glass=True):
+        """Darken body text only while it sits on the pale glass pane."""
+        use_dark = bool(on_light_glass) and not theme_uses_dark_glass(theme_name)
+        if self._use_dark_ink == use_dark:
+            return
+        self._use_dark_ink = use_dark
+        self._glyph_cache.clear()
+        self.dirty = True
+
+    def ink_for_cell(self, color, background):
+        if not self._use_dark_ink or background is not None:
+            return color
+        return glass_text_rgb(color[0], color[1], color[2])
 
     def render(self, fw, fh, ww, wh):
         if not self._initialized_gl:
@@ -649,19 +734,7 @@ class TerminalOverlay:
             self._glyph_cache.clear()
             scaled_font_size = max(8, int(13 * scale_y))
             try:
-                font_loaded = False
-                for font_path in [
-                    "/System/Library/Fonts/SFNSMono.ttf",
-                    "/System/Library/Fonts/Monaco.ttf",
-                    "/System/Library/Fonts/Helvetica.ttc",
-                    "/Library/Fonts/Courier New.ttf",
-                ]:
-                    if os.path.exists(font_path):
-                        self.font = ImageFont.truetype(font_path, scaled_font_size)
-                        font_loaded = True
-                        break
-                if not font_loaded:
-                    self.font = ImageFont.load_default()
+                self.font = load_overlay_font(scaled_font_size)
             except Exception:
                 pass
             self.image = Image.new("RGBA", (self.img_w, self.img_h), (0, 0, 0, 0))
@@ -722,8 +795,8 @@ class TerminalOverlay:
                     y = int(r * s_char_h)
                     for c in range(self.cols):
                         ch = self.grid[r][c]
-                        col = self.colors[r][c]
                         bg = self.bg_colors[r][c]
+                        col = self.ink_for_cell(self.colors[r][c], bg)
 
                         if bg is not None or ch != " ":
                             x = int(c * s_char_w)
@@ -951,6 +1024,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         showing_visualizer = self.draw_player_visualizer_background(fw, fh)
         self.sync_player_visualizer_opacity(bool(showing_visualizer))
         if showing_visualizer:
+            self.overlay.set_ink(theme_name, on_light_glass=False)
             self.overlay.render(fw, fh, ww, wh)
             self._draw_transparency_slider(fw, fh, ww, wh)
             pixels = None
@@ -1003,6 +1077,7 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         GL.glBindVertexArray(self._vao)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 6)
 
+        self.overlay.set_ink(theme_name, on_light_glass=True)
         self.overlay.render(fw, fh, ww, wh)
         self._draw_transparency_slider(fw, fh, ww, wh)
 

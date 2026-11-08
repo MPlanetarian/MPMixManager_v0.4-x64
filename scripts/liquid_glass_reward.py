@@ -3,8 +3,8 @@
 Special First-Run Reward & Welcome System for MP Liquid Transparent Glass Audio Player.
 
 When a user runs MP Mix Manager or MP Audio Player for the very first time:
-1. Installs the high-resolution MP Liquid Transparent Glass desktop icon and shortcut
-   on the user's Desktop (~/Desktop/MP_Liquid_Glass_Audio_Player.desktop).
+1. Installs four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui,
+   and MP Liquid Visualizer.
 2. Sets the Liquid Glass Audio Player as the Default Audio Player in config.
 3. Displays a heartfelt welcome message from MPlanetarian thanking them and wishing
    them a great journey.
@@ -82,40 +82,10 @@ def install_reward_desktop_shortcut():
         shutil.copy2(LAUNCHER_SCRIPT, target_launcher)
         target_launcher.chmod(0o755)
 
-    # 4. Create Desktop shortcut content
-    content = f"""[Desktop Entry]
-Type=Application
-Name=MP Liquid
-GenericName=Liquid Transparent Audio Player
-Comment=Launch MP Audio Player in Liquid Transparent Glass Mode
-Path={ROOT}
-Exec={target_launcher}
-Icon={ICON_PNG}
-Terminal=false
-Categories=AudioVideo;Audio;Player;
-StartupNotify=true
-StartupWMClass=MP_Liquid
-X-KDE-GlobalAccel-CommandShortcut=true
-"""
-    DESKTOP_SHORTCUT.write_text(content, encoding="utf-8")
-    DESKTOP_SHORTCUT.chmod(0o755)
+    # 4. Desktop and application-menu shortcuts for this install.
+    ensure_desktop_shortcuts(ROOT)
 
-    APPS_SHORTCUT.write_text(content, encoding="utf-8")
-    APPS_SHORTCUT.chmod(0o755)
-
-    # 5. Mark as trusted in KDE/GNOME if gio is available
-    if shutil.which("gio"):
-        try:
-            subprocess.run(
-                ["gio", "set", str(DESKTOP_SHORTCUT), "metadata::trusted", "true"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=2,
-            )
-        except Exception:
-            pass
-
-    # 6. Set Default Player to mp_liquid_glass in config
+    # 5. Set Default Player to mp_liquid_glass in config
     set_default_player_in_config("mp_liquid_glass")
 
 
@@ -278,7 +248,7 @@ def show_welcome_message(wait_for_input=True):
         f"  {WHITE} It is ready loaded in the Liquid Transparent Audio Player for you to enjoy!\"{NC}",
         f"                                                       {BOLD}{PURPLE}— MPlanetarian ♫{NC}",
         "",
-        f"  {BOLD}{MINT}✓ Special Desktop Reward Unlocked:{NC} {WHITE}~/Desktop/MP_Liquid.desktop{NC}",
+        f"  {BOLD}{MINT}✓ Special Desktop Reward Unlocked:{NC} {WHITE}MP Liquid Player, MP Mix Manager, MP Gui, MP Liquid Visualizer{NC}",
         f"  {BOLD}{MINT}✓ High-Resolution Glass Icon:{NC}      {WHITE}{ICON_PNG}{NC}",
         f"  {BOLD}{MINT}✓ Default Audio Player Configured:{NC}  {BOLD}{CYAN}MP Liquid Glass Audio Player{NC}",
         f"  {BOLD}{MINT}✓ Free v0.4 Release Track Preloaded:{NC}{WHITE} MP_SAMPLES/MPlanetarian - Ecology of the Earth.flac{NC}",
@@ -300,9 +270,23 @@ def show_welcome_message(wait_for_input=True):
         pass
 
 
+def ensure_desktop_shortcuts(root=None) -> bool:
+    """Put the four shortcuts on the Desktop when any of them is missing."""
+    scripts_dir = Path(__file__).resolve().parent
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from install_desktop_shortcuts import ensure_installed
+
+    return ensure_installed(Path(root) if root else ROOT)
+
+
 def ensure_first_run_reward(interactive=True):
     setup_first_run_equalizer()
     setup_first_run_sample_track()
+    try:
+        ensure_desktop_shortcuts(ROOT)
+    except Exception:
+        pass
     if is_welcomed():
         return False
 

@@ -42,7 +42,7 @@ class TestLiquidGlassReward(unittest.TestCase):
         # Check desktop file content
         desktop_content = desktop_file.read_text(encoding="utf-8")
         self.assertIn("[Desktop Entry]", desktop_content)
-        self.assertIn("MP Liquid Glass Audio Player", desktop_content)
+        self.assertIn("MP Liquid Player", desktop_content)
         self.assertIn("mp_liquid_glass_icon", desktop_content)
 
     def test_default_audio_player_in_configs(self):
@@ -54,11 +54,13 @@ class TestLiquidGlassReward(unittest.TestCase):
     def test_reward_workflow_mock(self):
         with patch("scripts.liquid_glass_reward.FLAG_FILE") as mock_flag, \
              patch("scripts.liquid_glass_reward.install_reward_desktop_shortcut") as mock_install, \
+             patch("scripts.liquid_glass_reward.ensure_desktop_shortcuts") as mock_shortcuts, \
              patch("scripts.liquid_glass_reward.show_welcome_message") as mock_show:
             mock_flag.exists.return_value = False
             self.assertFalse(is_welcomed())
             unlocked = ensure_first_run_reward(interactive=False)
             self.assertTrue(unlocked)
+            mock_shortcuts.assert_called_once()
             mock_install.assert_called_once()
             mock_flag.touch.assert_called_once()
 

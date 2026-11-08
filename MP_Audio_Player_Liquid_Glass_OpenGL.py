@@ -17,6 +17,7 @@ from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
     read_player_theme,
     get_dynamic_theme_state,
+    glass_foreground_rgb,
     _rgb01,
     THEME_ALIASES,
 )
@@ -753,7 +754,12 @@ class GlassHost:
                     self._mouse_focus_warp = False
                 self._mouse_focus_next = now + 0.35
             if now - theme_at > 0.4:
-                theme, theme_at = read_player_theme(), now
+                new_theme = read_player_theme()
+                theme_at = now
+                if new_theme != theme:
+                    theme = new_theme
+                    if self.terminal is not None:
+                        self._apply_glass_foreground(self.terminal, theme)
             self._sync_panels()
             self.renderer.draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -801,11 +807,17 @@ class GlassHost:
             window.set_visual(visual)
         return window
 
+    def _apply_glass_foreground(self, term, theme_name):
+        """Default ink. Pale glass needs a dark foreground; charcoal keeps a light one."""
+        if Gdk is None or not hasattr(term, "set_color_foreground"):
+            return
+        red, green, blue = glass_foreground_rgb(theme_name)
+        term.set_color_foreground(Gdk.RGBA(red / 255.0, green / 255.0, blue / 255.0, 1.0))
+
     def _clear_terminal_background(self, window, term):
-        if hasattr(term, "set_color_background"):
+        if hasattr(term, "set_color_background") and Gdk is not None:
             term.set_color_background(Gdk.RGBA(0, 0, 0, 0))
-        if hasattr(term, "set_color_foreground"):
-            term.set_color_foreground(Gdk.RGBA(1.0, 1.0, 1.0, 1.0))
+        self._apply_glass_foreground(term, read_player_theme())
         if hasattr(term, "set_bold_is_bright"):
             term.set_bold_is_bright(False)
         try:

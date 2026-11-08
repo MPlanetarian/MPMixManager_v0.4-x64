@@ -141,6 +141,40 @@ class TestLiquidPlayerMpGuiShortcut(unittest.TestCase):
         self.assertEqual(calls[1][:2], ["/usr/bin/wmctrl", "-a"])
         self.assertIn("MP Mix Manager (Liquid Glass", calls[1][2])
 
+    def test_launch_mp_gui_starts_when_only_the_metal_host_is_running(self):
+        def fake_run(cmd, **kwargs):
+            cmd = list(cmd)
+            if cmd[:2] == ["pgrep", "-fl"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout="24253 python MP_Audio_Player_Liquid_Glass_macOS.py --manager\n",
+                )
+            return MagicMock(returncode=0, stdout="")
+
+        with patch.object(player.subprocess, "run", side_effect=fake_run), \
+             patch.object(player.subprocess, "Popen", return_value=MagicMock(pid=4321)) as popen, \
+             patch.object(player.shutil, "which", return_value=None):
+            self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
+        popen.assert_called_once()
+        cmd = popen.call_args.args[0]
+        self.assertTrue(str(cmd[1]).endswith("MP_Gui.sh"))
+
+    def test_launch_mp_gui_does_not_stack_a_windowed_host_without_wmctrl(self):
+        def fake_run(cmd, **kwargs):
+            cmd = list(cmd)
+            if cmd[:2] == ["pgrep", "-fl"]:
+                return MagicMock(
+                    returncode=0,
+                    stdout="77 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py --manager\n",
+                )
+            return MagicMock(returncode=0, stdout="")
+
+        with patch.object(player.subprocess, "run", side_effect=fake_run), \
+             patch.object(player.subprocess, "Popen") as popen, \
+             patch.object(player.shutil, "which", return_value=None):
+            self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
+        popen.assert_not_called()
+
     def test_launch_mp_gui_starts_mp_gui_sh_without_changing_theme(self):
         with patch.object(player.subprocess, "run", return_value=MagicMock(returncode=1)), \
              patch.object(player.subprocess, "Popen", return_value=MagicMock(pid=4321)) as popen:

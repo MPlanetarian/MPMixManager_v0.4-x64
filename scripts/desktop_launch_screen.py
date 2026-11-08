@@ -378,8 +378,11 @@ def reposition_off_hisense() -> None:
                 capture_output=True,
                 timeout=3,
             )
-    subprocess.run(
-        ["wmctrl", "-a", "MP Audio Player (Liquid Glass"],
-        capture_output=True,
-        timeout=3,
-    )
+    try:
+        subprocess.run(
+            ["wmctrl", "-a", "MP Audio Player (Liquid Glass"],
+            capture_output=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
