@@ -324,6 +324,8 @@ class GlassHost:
         return False
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
+        if getattr(self, "_os_dragging", False):
+            return False, False, origin, press_screen
         r = self.renderer
         x, y = r.cursor
         w, h = r.window_size()
@@ -398,6 +400,7 @@ class GlassHost:
             r.draw(read_player_theme())
             return True
 
+        self._sync_windows_drag()
         proc = subprocess.Popen(self.argv, cwd=str(ROOT), env=_child_env(True), creationflags=0x00000010)
         self.child_pid = proc.pid
         child_hwnd = None
@@ -431,6 +434,7 @@ class GlassHost:
         if child_hwnd:
             self._place_terminal()
 
+        self._sync_windows_drag()
         down = dragging = False
         origin, press_screen, theme, theme_at = r.window_pos(), (0, 0), read_player_theme(), 0.0
         monotonic, sleep, draw, poll = time.monotonic, time.sleep, r.draw, r.poll
@@ -441,6 +445,7 @@ class GlassHost:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()
                 self._sync_panels()
+                self._pump_windows_drag()
                 draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
                 if dragging:
@@ -631,7 +636,27 @@ class GlassHost:
         term.get_style_context().add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+    def _sync_windows_drag(self) -> None:
+        if not IS_WIN or self.renderer is None:
+            return
+        from windows_glass_drag import install_on_host
+        install_on_host(self)
+
+    def _pump_windows_drag(self) -> None:
+        if not IS_WIN:
+            return
+        from windows_glass_drag import release_stuck_mouse
+        release_stuck_mouse(self.renderer)
+        drag = getattr(self, "_glass_drag", None)
+        if drag is not None:
+            drag.update()
+
+    def _release_windows_drag(self) -> None:
+        from windows_glass_drag import release_on_host
+        release_on_host(self)
+
     def close(self):
+        self._release_windows_drag()
         pid, self.child_pid = self.child_pid, 0
         if pid:
             try:

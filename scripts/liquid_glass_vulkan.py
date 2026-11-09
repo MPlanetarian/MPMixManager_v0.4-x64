@@ -1622,8 +1622,8 @@ class LiquidGlassRenderer:
             return
         if is_windows():
             try:
-                # SWP_NOZORDER = 0x0004, SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0044)
+                # SWP_NOZORDER | SWP_SHOWWINDOW | SWP_NOACTIVATE. Activating the console cancels a glass drag.
+                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0054)
             except Exception:
                 pass
             return

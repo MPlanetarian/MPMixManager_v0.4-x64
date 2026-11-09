@@ -1464,7 +1464,8 @@ class LiquidGlassRendererOpenGL:
             try:
                 # HWND_TOP and SWP_SHOWWINDOW. The console is an owned overlay, so it
                 # has to stay above the glass after every move.
-                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0040)
+                # SWP_SHOWWINDOW | SWP_NOACTIVATE. Activating the console cancels a glass drag.
+                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0050)
             except Exception:
                 pass
             return

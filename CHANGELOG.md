@@ -47,6 +47,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **MP Liquid Player could not be moved after it loaded on Windows** (`scripts/windows_glass_drag.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `tests/test_windows_glass_drag.py`):
+  - The player console is an owned window over the borderless glass. After it appears, drags on the top of the player never reach the glass, so the window stays where it opened.
+  - The top strip, the outer bezel, and Alt or the Windows key move the glass. The console follows. A second click on that strip still maximizes. The close button and the opacity slider still receive their clicks.
+  - A mouse button released over the console no longer leaves the glass drag stuck on.
 - **G in the macOS Liquid Player** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_mp_gui.py`):
   - The embedded player was started with `MP_LIQUID_GLASS=0`, so **G** built a spectrogram instead of opening MP Gui.
   - That player now gets `MP_LIQUID_GLASS=1`, the same flag as the other Liquid hosts. **G** opens MP Gui.
