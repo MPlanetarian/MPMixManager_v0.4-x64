@@ -4483,10 +4483,10 @@ class TerminalPlayerUI:
             self._notify("Favorites playlist is empty. Select a mix or track and press [H] to add it.", 4.5)
 
     def _append_favorites_button(self, lines: List[str], max_cols: int, whole_row: bool = False):
-        """Gold Favorites control. In the Liquid Player this row is the clickable button."""
+        """Favorites control above the playlist. Gold text only, so the row is not a block of yellow cells."""
         store = self._favorites_store()
         face = f"  {favorite_glyph(True)} FAVORITES  "
-        button = f"\033[48;2;255;196;0;38;2;32;18;52m{face}\033[0m"
+        button = f"\033[1;38;2;255;196;0m{face}\033[0m"
         count = len(store)
         if self.mode == "FAVORITES":
             long = f"  {button}  {count} saved   Favorites is open   click or press [3] to reload   [H] marks or removes this track"
@@ -4551,7 +4551,8 @@ class TerminalPlayerUI:
         on = bool(getattr(self, "mp_visualizer_on", False))
         fav_face = f"  {favorite_glyph(True)} FAVORITES  "
         vis_face = "  VISUALIZATION  "
-        fav_btn = f"\033[48;2;255;196;0;38;2;32;18;52m{fav_face}\033[0m"
+        # Gold text only. A filled 48;2 bar paints yellow blocks on the row above the playlist header.
+        fav_btn = f"\033[1;38;2;255;196;0m{fav_face}\033[0m"
         if on:
             vis_btn = f"\033[48;2;0;48;72;38;2;220;250;255m{vis_face}\033[0m"
         else:

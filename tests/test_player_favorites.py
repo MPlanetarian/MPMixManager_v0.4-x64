@@ -202,7 +202,8 @@ class FavoritesPlayerTests(unittest.TestCase):
         self.assertIn("FAVORITES", visible)
         self.assertIn("[3]", visible)
         self.assertIn("[H]", visible)
-        self.assertIn("48;2;255;196;0", visible)
+        self.assertIn("38;2;255;196;0", visible)
+        self.assertNotIn("48;2;", visible)
 
     def test_full_frame_draws_the_favorites_button(self):
         engine = player.AudioEngine([], auto_bluetooth=False)

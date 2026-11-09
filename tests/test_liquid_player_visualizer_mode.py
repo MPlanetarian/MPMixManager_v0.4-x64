@@ -213,7 +213,8 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
                 self.assertIn(title, drawn)
                 self.assertIn("VISUALIZATION", drawn)
                 self.assertIn("FAVORITES", drawn)
-                self.assertIn("48;2;255;196;0", drawn)
+                self.assertIn("38;2;255;196;0", drawn)
+                self.assertNotIn("48;2;255;196;0", drawn)
                 self.assertIn("48;2;16;28;52", drawn)
                 self.assertFalse(ui._favorites_button_whole_row)
                 fav = ui._favorites_button_span
