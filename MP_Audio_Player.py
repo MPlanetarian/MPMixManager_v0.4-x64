@@ -2482,6 +2482,7 @@ def _win_console_begin():
         if not k.GetConsoleMode(h, ctypes.byref(m)): return None
         k.SetConsoleMode(h, (m.value | 0x0004) & ~0x0002)
         _win_apply_glass_colorkey(k, h)
+        _win_hide_console_scrollbar()
         _WIN_CONSOLE = {"handle": h, "mode": m.value, "kernel32": k}
         return _WIN_CONSOLE
     except Exception: return None
@@ -2511,6 +2512,19 @@ def _tty_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
 
 def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
     return _tty_size(fallback)
+
+def _win_hide_console_scrollbar():
+    """Drop the conhost scrollbar. A taller screen buffer draws it on the right."""
+    if sys.platform != "win32":
+        return
+    try:
+        script_dir = Path(__file__).resolve().parent / "scripts"
+        if str(script_dir) not in sys.path:
+            sys.path.insert(0, str(script_dir))
+        from windows_console_scroll import hide_attached_console_scrollbar
+        hide_attached_console_scrollbar()
+    except Exception:
+        pass
 
 def _win_console_end(state):
     global _WIN_CONSOLE
@@ -4974,10 +4988,12 @@ class TerminalPlayerUI:
             _set_terminal_title("MP Audio Player")
         self._publish_liquid_ui_size()
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h\033[2J\033[H"); sys.stdout.flush()
+        _win_hide_console_scrollbar()
         threading.Thread(target=self._input_loop, daemon=True).start()
         try:
             while self.running:
                 if not self.is_remote and self.engine: self.engine.check_track_end()
+                _win_hide_console_scrollbar()
                 try:
                     self._draw_frame()
                 except (KeyboardInterrupt, SystemExit):

@@ -92,7 +92,7 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
         "MP Gui": {
             "comment": "Launch MP Gui",
             "script": root / "MP_Gui.sh",
-            "windows_bat": None,
+            "windows_bat": root / "launch_mp_gui.bat",
             "terminal": False,
             "categories": "AudioVideo;Audio;Utility;",
             "icon": icon,
@@ -395,6 +395,9 @@ def windows_launcher_cmd(name: str, spec: dict, root: Path) -> str:
             "pause\n"
             "exit /b 1\n"
         )
+    # MP Gui used to land here and call Git Bash, which then ran the Store
+    # python3 alias. The desktop shortcut now uses launch_mp_gui.bat. This
+    # fallback remains for a script that has no ready-made Windows launcher.
     script = str(spec["script"]).replace("\\", "/")
     return (
         "@echo off\n"

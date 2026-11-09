@@ -113,6 +113,7 @@ function Test-MpRoleRunning {
         switch ($Role) {
             "gui" {
                 if ($command -like "*MP_Gui.sh*") { return $true }
+                if ($command -like "*launch_mp_gui*") { return $true }
                 if ($command -like "*MP_Audio_Player_Liquid_Glass*" -and $command -like "*--manager*") { return $true }
             }
             "liquid" {
@@ -147,6 +148,7 @@ function Stop-MpSuite {
         foreach ($needle in @(
             "Mix_Archive_Manager.sh",
             "MP_Gui.sh",
+            "launch_mp_gui",
             "MP_Audio_Player",
             "MP_Liquid_Visualizer",
             "mp_liquid_visualizer",
@@ -173,7 +175,12 @@ function Start-MpRole {
     if (Show-MpWindow -TitlePart $titles[$Role]) { return }
     $target = $null
     switch ($Role) {
-        "gui" { $target = Join-Path $env:USERPROFILE ".config\mix-manager\launchers\MP Gui.cmd" }
+        "gui" {
+            $target = Join-Path $Root "launch_mp_gui.bat"
+            if (-not (Test-Path -LiteralPath $target)) {
+                $target = Join-Path $env:USERPROFILE ".config\mix-manager\launchers\MP Gui.cmd"
+            }
+        }
         "liquid" { $target = Join-Path $Root "launch_liquid_glass.bat" }
         "manager" { $target = Join-Path $Root "manager.bat" }
     }

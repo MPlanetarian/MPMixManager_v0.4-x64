@@ -117,8 +117,8 @@ def _import_gtk():
 
 
 def manager_argv():
-    bash = shutil.which("bash") or "bash"
-    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
+    from windows_bash import find_bash
+    return [find_bash(), str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -138,7 +138,8 @@ def tracklist_argv(tracklist_path, audio_path=None, theme=None):
     v_sh = ROOT / "scripts" / "view_tracklist_console.sh"
     if not v_sh.is_file():
         v_sh = ROOT / "view_tracklist_console.sh"
-    cmd = [shutil.which("bash") or "bash", str(v_sh)]
+    from windows_bash import find_bash
+    cmd = [find_bash(), str(v_sh)]
     if theme:
         cmd.extend(["--theme", str(theme)])
     cmd.append(str(tracklist_path))
@@ -378,7 +379,8 @@ def _reveal_windows_console(user32, hwnd, glass_hwnd, pid):
     user32.SetLayeredWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_ubyte, ctypes.c_uint32]
     user32.SetLayeredWindowAttributes.restype = ctypes.c_int
     style = user32.GetWindowLongPtrW(hwnd, -16)
-    style = (style & ~0x00CF0000) | 0x80000000 | 0x10000000
+    # Drop caption, frame, and both scrollbars. The vertical bar is the one on the right.
+    style = (style & ~0x00CF0000 & ~0x00300000) | 0x80000000 | 0x10000000
     user32.SetWindowLongPtrW(hwnd, -16, style)
     if glass_hwnd:
         user32.SetWindowLongPtrW(hwnd, -8, int(glass_hwnd))
@@ -437,6 +439,8 @@ def _paint_console_colorkey(pid):
         info.srWindow.Right += 1
         info.srWindow.Bottom += 1
         kernel32.SetConsoleScreenBufferInfoEx(handle, ctypes.byref(info))
+        from windows_console_scroll import hide_attached_console_scrollbar
+        hide_attached_console_scrollbar()
     finally:
         kernel32.FreeConsole()
 
@@ -756,9 +760,14 @@ class GlassHost:
         self._sync_windows_drag()
         down = dragging = False
         origin, press_screen, theme, theme_at = self.renderer.window_pos(), (0, 0), read_player_theme(), 0.0
+        scroll_at = 0.0
         try:
             while not self.renderer.should_close and proc.poll() is None:
                 now = time.monotonic()
+                if child_hwnd and now >= scroll_at:
+                    from windows_console_scroll import hide_process_console_scrollbar
+                    hide_process_console_scrollbar(proc.pid, int(child_hwnd))
+                    scroll_at = now + 0.5
                 if now - theme_at > 0.4:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()

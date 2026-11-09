@@ -323,20 +323,11 @@ function New-MpGuiLauncher {
     $launchers = Join-Path $Profile ".config\mix-manager\launchers"
     New-MpFolder -Path $launchers
     $cmdPath = Join-Path $launchers "MP Gui.cmd"
-    $script = ($InstallRoot -replace '\\', '/') + "/MP_Gui.sh"
+    $bat = Join-Path $InstallRoot "launch_mp_gui.bat"
     $content = @"
 @echo off
 setlocal
-set "BASH="
-if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH=%ProgramFiles%\Git\bin\bash.exe"
-if not defined BASH if exist "%ProgramFiles(x86)%\Git\bin\bash.exe" set "BASH=%ProgramFiles(x86)%\Git\bin\bash.exe"
-if not defined BASH if exist "%LOCALAPPDATA%\Programs\Git\bin\bash.exe" set "BASH=%LOCALAPPDATA%\Programs\Git\bin\bash.exe"
-if not defined BASH (
-    echo Git Bash was not found. Install Git for Windows and try again.
-    pause
-    exit /b 1
-)
-"%BASH%" "$script" %*
+call "$bat" %*
 exit /b %ERRORLEVEL%
 "@
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -362,7 +353,12 @@ function Install-MpUserShortcuts {
     Remove-MpStaleShortcut -Directory $programs
 
     $icon = Get-MpLiquidGlassIconPath -InstallRoot $InstallRoot
-    $gui = New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile
+    $gui = Join-Path $InstallRoot "launch_mp_gui.bat"
+    if (-not (Test-Path -LiteralPath $gui)) {
+        $gui = New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile
+    } else {
+        New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile | Out-Null
+    }
 
     $player = Join-Path $InstallRoot "launch_liquid_glass.bat"
     if (-not (Test-Path -LiteralPath $player)) { $player = Join-Path $InstallRoot "scripts\launch_liquid_glass.bat" }

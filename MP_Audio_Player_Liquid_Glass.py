@@ -98,8 +98,8 @@ def _import_gtk():
 
 
 def manager_argv():
-    bash = shutil.which("bash") or "bash"
-    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
+    from windows_bash import find_bash
+    return [find_bash(), str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -119,7 +119,8 @@ def tracklist_argv(tracklist_path, audio_path=None, theme=None):
     v_sh = ROOT / "scripts" / "view_tracklist_console.sh"
     if not v_sh.is_file():
         v_sh = ROOT / "view_tracklist_console.sh"
-    cmd = [shutil.which("bash") or "bash", str(v_sh)]
+    from windows_bash import find_bash
+    cmd = [find_bash(), str(v_sh)]
     if theme:
         cmd.extend(["--theme", str(theme)])
     cmd.append(str(tracklist_path))
@@ -423,10 +424,12 @@ class GlassHost:
                     break
                 time.sleep(0.02)
             if child_hwnd:
-                u32.SetWindowLongPtrW(child_hwnd, -16, (u32.GetWindowLongPtrW(child_hwnd, -16) & ~0x00C40000) | 0x80000000)
+                u32.SetWindowLongPtrW(child_hwnd, -16, (u32.GetWindowLongPtrW(child_hwnd, -16) & ~0x00C40000 & ~0x00300000) | 0x80000000)
                 glass_hwnd = r.win32_window()
                 if glass_hwnd:
                     u32.SetParent(child_hwnd, glass_hwnd)
+                from windows_console_scroll import hide_process_console_scrollbar
+                hide_process_console_scrollbar(proc.pid, int(child_hwnd))
         except Exception:
             pass
 
@@ -438,9 +441,14 @@ class GlassHost:
         down = dragging = False
         origin, press_screen, theme, theme_at = r.window_pos(), (0, 0), read_player_theme(), 0.0
         monotonic, sleep, draw, poll = time.monotonic, time.sleep, r.draw, r.poll
+        scroll_at = 0.0
         try:
             while not r.should_close and proc.poll() is None:
                 now = monotonic()
+                if child_hwnd and now >= scroll_at:
+                    from windows_console_scroll import hide_process_console_scrollbar
+                    hide_process_console_scrollbar(proc.pid, int(child_hwnd))
+                    scroll_at = now + 0.5
                 if now - theme_at > 0.4:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()

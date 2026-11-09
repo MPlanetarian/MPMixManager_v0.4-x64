@@ -34,7 +34,7 @@ class TestWindowsUserIntegration(unittest.TestCase):
         self.assertIn("launch_liquid_glass.bat", script)
         self.assertIn("launch_liquid_visualizer.bat", script)
         self.assertIn("manager.bat", script)
-        self.assertIn("MP_Gui.sh", script)
+        self.assertIn("launch_mp_gui.bat", script)
         self.assertIn("windows_tray.ps1", script)
         self.assertIn("Startup", script)
         self.assertIn("LogonType Interactive", script)
