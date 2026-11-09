@@ -6,8 +6,11 @@ terminal text. A text guard keeps that text readable.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -141,16 +144,21 @@ def write_player_visualizer_state(active: bool, preset: Dict[str, Any]) -> Dict[
     return dict(state)
 
 
-# The player window stays at its own size. The raymarch is a separate target
-# that fits inside 1920x1080, then the result is scaled to the window.
-# MP_VISUALIZER_GL_LONG_EDGE still scales the long edge when it is set.
+# The player window stays at its own size. The raymarch long edge is 768,
+# so a 1094×734 window is drawn at 768×515 and scaled up. A full-window
+# march of this shader is about 9 fps through MoltenVK. 768 is about three
+# times the old 224-wide image on the long edge and still moves.
+# MP_VISUALIZER_GL_LONG_EDGE still overrides the long edge.
 # MP_VISUALIZER_GL_MARCH_STEPS clamps to 24..84.
 MACOS_FULLSCREEN_SIZE = (1920, 1080)
-_MACOS_LONG_EDGE = 512
+_MACOS_LONG_EDGE = 768
+_UNFOLDED_LONG_EDGE = 224
 _FULL_MARCH_STEPS = 84
 _MACOS_MARCH_STEPS = 64
 _MARCH_LOOP = "for (int i = 0; i < 84; i++)"
 _SOURCE_CACHE: Dict[str, str] = {}
+_PRESET_SPIRV = ROOT / "shaders" / "presets"
+_SPIRV_MAGIC = b"\x03\x02\x23\x07"
 
 _UPSCALE_FRAG = """#version 330 core
 in vec2 vUv;
@@ -181,6 +189,19 @@ def macos_visualizer_march_steps() -> int:
     return _env_int("MP_VISUALIZER_GL_MARCH_STEPS", _MACOS_MARCH_STEPS, 24, _FULL_MARCH_STEPS)
 
 
+def macos_liquid_player_window_size(
+    cols: int = 120, rows: int = 40, char_w: int = 9, char_h: int = 18, margin: int = 7
+) -> tuple:
+    """Point size of the macOS Liquid Player window.
+
+    120×40 cells at 9×18 px, plus the 7 px bezel on each side: 1094×734.
+    """
+    return (
+        int(cols) * int(char_w) + 2 * int(margin),
+        int(rows) * int(char_h) + 2 * int(margin),
+    )
+
+
 def macos_player_grid(width: int, height: int, char_w: int = 9, char_h: int = 18, margin: int = 7) -> tuple:
     """Character cells that fill a macOS player window of this pixel size."""
     cols = max(20, (int(width) - 2 * int(margin)) // int(char_w))
@@ -201,14 +222,31 @@ def _renderer_is_fullscreen(renderer) -> bool:
     return bool(getattr(renderer, "is_fullscreen", False))
 
 
-def _fit_box(rw: int, rh: int, cap_w: int, cap_h: int) -> tuple:
-    """Largest size with this aspect that fits inside the cap. Scales up or down."""
-    rw = max(2, int(rw))
-    rh = max(2, int(rh))
-    cap_w = max(2, int(cap_w))
-    cap_h = max(2, int(cap_h))
-    scale = min(cap_w / float(rw), cap_h / float(rh))
-    return min(cap_w, max(2, int(rw * scale))), min(cap_h, max(2, int(rh * scale)))
+def _scale_long_edge(rw: int, rh: int, cap: int) -> tuple:
+    """Scale down so the long edge is at most cap. A smaller image stays as it is."""
+    rw, rh = max(2, int(rw)), max(2, int(rh))
+    cap = max(2, int(cap))
+    longest = max(rw, rh)
+    if longest <= cap:
+        return rw, rh
+    scale = cap / float(longest)
+    return max(2, int(round(rw * scale))), max(2, int(round(rh * scale)))
+
+
+def march_target_size(width: int, height: int, long_edge: Optional[int] = None) -> tuple:
+    """Raymarch pixels for a window of this size.
+
+    On macOS the long edge defaults to 768. A 1094×734 window therefore
+    marches at 768×515 and is scaled onto the window. Other platforms keep
+    the 224 cap unless an override is set.
+    """
+    if long_edge is not None or bool((os.environ.get("MP_VISUALIZER_GL_LONG_EDGE") or "").strip()):
+        cap = macos_visualizer_long_edge() if long_edge is None else max(160, int(long_edge))
+    elif sys.platform == "darwin":
+        cap = macos_visualizer_long_edge()
+    else:
+        cap = _UNFOLDED_LONG_EDGE
+    return _scale_long_edge(width, height, cap)
 
 
 def visualizer_internal_size(
@@ -223,11 +261,11 @@ def visualizer_internal_size(
 ) -> tuple:
     """Pixel size of the raymarch.
 
-    On macOS the march fits inside 1920x1080 and keeps the framebuffer's aspect.
-    A smaller framebuffer is scaled up to that cap. The player window is not
-    resized to match. Other platforms use the framebuffer.
-    ``fullscreen`` is accepted so callers can pass it. The cap is the same
-    either way. MP_VISUALIZER_GL_LONG_EDGE still scales the long edge down.
+    On macOS the long edge stops at 768, and that image is scaled onto the
+    window. A 1094×734 window marches at 768×515. A larger framebuffer uses
+    the same cap. Other platforms use the framebuffer as it is.
+    ``fullscreen`` does not raise the cap.
+    MP_VISUALIZER_GL_LONG_EDGE still overrides the long edge.
     """
     del fullscreen
     fw_i = max(2, int(fw))
@@ -236,22 +274,15 @@ def visualizer_internal_size(
         macos = sys.platform == "darwin"
     if not macos:
         return fw_i, fh_i
-    if ww is None or wh is None:
-        rw, rh = fw_i, fh_i
-    else:
-        rw = min(fw_i, max(2, int(ww)))
-        rh = min(fh_i, max(2, int(wh)))
-    use_long_edge = long_edge is not None or bool((os.environ.get("MP_VISUALIZER_GL_LONG_EDGE") or "").strip())
-    if use_long_edge:
+    if long_edge is not None or bool((os.environ.get("MP_VISUALIZER_GL_LONG_EDGE") or "").strip()):
+        if ww is None or wh is None:
+            rw, rh = fw_i, fh_i
+        else:
+            rw = min(fw_i, max(2, int(ww)))
+            rh = min(fh_i, max(2, int(wh)))
         cap = macos_visualizer_long_edge() if long_edge is None else max(160, int(long_edge))
-        longest = max(rw, rh)
-        if longest > cap:
-            scale = cap / float(longest)
-            rw = max(2, int(round(rw * scale)))
-            rh = max(2, int(round(rh * scale)))
-        return rw, rh
-    cap_w, cap_h = MACOS_FULLSCREEN_SIZE
-    return _fit_box(fw_i, fh_i, cap_w, cap_h)
+        return _scale_long_edge(rw, rh, cap)
+    return _scale_long_edge(fw_i, fh_i, macos_visualizer_long_edge())
 
 
 def opengl_visualizer_source() -> str:
@@ -283,6 +314,110 @@ def opengl_visualizer_source() -> str:
     source = _GL_HEADER + body
     _SOURCE_CACHE["generic"] = source
     return source
+
+
+def specialize_vulkan_source(source: str, preset_id: int, march_steps: Optional[int] = None) -> str:
+    """Fold ``u.preset.x`` so MoltenVK drops the other scenes from the march."""
+    preset = f"({float(int(preset_id)):.1f})"
+    specialized = source.replace("u.preset.x", preset)
+    steps = _FULL_MARCH_STEPS if march_steps is None else int(march_steps)
+    if steps != _FULL_MARCH_STEPS and _MARCH_LOOP in specialized:
+        specialized = specialized.replace(_MARCH_LOOP, f"for (int i = 0; i < {steps}; i++)", 1)
+    return specialized
+
+
+def _tool_path(name: str) -> Optional[str]:
+    found = shutil.which(name)
+    if found:
+        return found
+    for cand in (f"/opt/homebrew/bin/{name}", f"/usr/local/bin/{name}"):
+        if os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
+def _visualizer_source_digest(source: str) -> str:
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+
+
+def _read_preset_manifest() -> Dict[str, Any]:
+    try:
+        raw = json.loads((_PRESET_SPIRV / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _compile_folded_spirv(source: str, preset_id: int, steps: int, dest: Path) -> Optional[Path]:
+    compiler = _tool_path("glslangValidator")
+    if not compiler:
+        return None
+    folded = specialize_vulkan_source(source, preset_id, steps)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    src_path = dest.with_suffix(".frag")
+    tmp_spv = dest.with_suffix(".tmp.spv")
+    src_path.write_text(folded, encoding="utf-8")
+    try:
+        result = subprocess.run(
+            [compiler, "-V", "--target-env", "vulkan1.0", "-o", str(tmp_spv), str(src_path)],
+            capture_output=True, text=True, timeout=120, check=False,
+        )
+        if result.returncode != 0 or not tmp_spv.is_file():
+            return None
+        optimizer = _tool_path("spirv-opt")
+        if optimizer:
+            optimized = dest.with_suffix(".opt.spv")
+            opt = subprocess.run(
+                [optimizer, "-O", str(tmp_spv), "-o", str(optimized)],
+                capture_output=True, timeout=60, check=False,
+            )
+            if opt.returncode == 0 and optimized.is_file():
+                optimized.replace(tmp_spv)
+        data = tmp_spv.read_bytes()
+        if not data.startswith(_SPIRV_MAGIC):
+            return None
+        tmp_spv.replace(dest)
+        return dest
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        src_path.unlink(missing_ok=True)
+        if tmp_spv.exists() and tmp_spv != dest:
+            tmp_spv.unlink(missing_ok=True)
+
+
+def vulkan_preset_spirv(preset_id: int, march_steps: Optional[int] = None) -> Optional[Path]:
+    """SPIR-V for one preset, with the other scenes folded out.
+
+    The shipped modules match the shader at a 64-step march. A newer shader
+    is compiled into the user cache when glslangValidator is installed.
+    """
+    steps = macos_visualizer_march_steps() if march_steps is None else int(march_steps)
+    preset_id = int(preset_id)
+    try:
+        source = (ROOT / "shaders" / "mp_liquid_visualizer.frag").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    digest = _visualizer_source_digest(source)
+    cache = CONFIG_DIR / "visualizer-spirv" / f"p{preset_id}-s{steps}-{digest}.spv"
+    if cache.is_file() and cache.stat().st_size > 16:
+        return cache
+    shipped = _PRESET_SPIRV / f"p{preset_id}.frag.spv"
+    meta = _read_preset_manifest()
+    shipped_ok = (
+        shipped.is_file()
+        and steps == _MACOS_MARCH_STEPS
+        and meta.get("source") == digest
+        and int(meta.get("steps", -1)) == steps
+    )
+    if shipped_ok:
+        return shipped
+    compiled = _compile_folded_spirv(source, preset_id, steps, cache)
+    if compiled:
+        return compiled
+    if shipped.is_file() and steps == _MACOS_MARCH_STEPS:
+        return shipped
+    return None
 
 
 def specialize_visualizer_source(source: str, preset_id: int, march_steps: Optional[int] = None) -> str:

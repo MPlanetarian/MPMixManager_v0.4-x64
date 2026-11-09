@@ -38,9 +38,25 @@ sys.exit(0 if ok else 1)
 PY
 }
 
-# Prints pgrep -fl lines for a Liquid Glass host started with --manager.
+# Prints "pid command" lines for every Liquid Glass host.
+# macOS pgrep -a lists ancestors and prints only the pid, so --manager is
+# invisible. Linux pgrep -l omits arguments, so --manager needs -a there.
+_mp_glass_process_lines() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        pgrep -fl 'MP_Audio_Player_Liquid_Glas[s]' 2>/dev/null || true
+    else
+        pgrep -af 'MP_Audio_Player_Liquid_Glas[s]' 2>/dev/null || true
+    fi
+}
+
+# Prints pgrep lines for a Liquid Glass host started with --manager.
 _mp_gui_manager_processes() {
-    pgrep -fl 'MP_Audio_Player_Liquid_Glas[s].*--manager' 2>/dev/null || true
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            *--manager*) printf '%s\n' "$line" ;;
+        esac
+    done < <(_mp_glass_process_lines)
 }
 
 # Windowed hosts draw the manager. The Metal macOS file does not.
@@ -51,6 +67,27 @@ _mp_gui_line_is_windowed_host() {
             return 0
             ;;
     esac
+    return 1
+}
+
+# Bring the Liquid Player forward. Skips the --manager GUI.
+# Returns 0 when a player host is running. On macOS the activate call has
+# to come from this shell: the player's own AppKit call stays behind a
+# fullscreen Terminal, and this Mac has no wmctrl.
+mp_player_raise_host() {
+    local line pid cmd
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in
+            *--manager*) continue ;;
+        esac
+        pid="${line%% *}"
+        cmd="${line#* }"
+        if _mp_gui_line_is_windowed_host "$cmd"; then
+            _mp_gui_activate_macos_pid "$pid" || true
+            return 0
+        fi
+    done < <(_mp_glass_process_lines)
     return 1
 }
 

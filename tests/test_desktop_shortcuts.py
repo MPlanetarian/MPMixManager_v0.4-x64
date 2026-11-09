@@ -12,11 +12,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from install_desktop_shortcuts import (  # noqa: E402
+    MAC_APP_EXECUTABLE,
     SHORTCUT_NAMES,
     _is_public_windows_folder,
     desktop_dir_for,
+    desktop_shortcuts_present,
     ensure_installed,
     install_desktop_shortcuts,
+    mac_bundle_identifier,
 )
 
 
@@ -77,29 +80,62 @@ class TestDesktopShortcuts(unittest.TestCase):
                 self.assertTrue(menu.is_file(), name)
                 self.assertIn(f"Name={name}", menu.read_text(encoding="utf-8"))
 
-    def test_macos_install_writes_four_commands(self):
+    def test_macos_gui_shortcuts_are_apps_and_manager_stays_a_command(self):
         with tempfile.TemporaryDirectory() as tmp:
             desktop = Path(tmp) / "Desktop"
             apps = Path(tmp) / "Applications"
-            install_desktop_shortcuts(
+            desktop.mkdir()
+            apps.mkdir()
+            (desktop / "MP Gui.command").write_text("old\n", encoding="utf-8")
+            (apps / "MP Liquid Player.command").write_text("old\n", encoding="utf-8")
+            self.assertFalse(desktop_shortcuts_present(desktop, "macos"))
+            written = install_desktop_shortcuts(
                 ROOT,
                 platform_name="macos",
                 desktop_dir=desktop,
                 apps_dir=apps,
                 launcher_dir=Path(tmp) / "launchers",
             )
-            commands = sorted(path.name for path in desktop.glob("*.command"))
-            self.assertEqual(commands, sorted(f"{name}.command" for name in SHORTCUT_NAMES))
+            self.assertEqual(
+                [path.name for path in written],
+                [
+                    "MP Liquid Player.app",
+                    "MP Mix Manager.command",
+                    "MP Gui.app",
+                    "MP Liquid Visualizer.app",
+                ],
+            )
+            self.assertEqual([path.name for path in desktop.glob("*.command")], ["MP Mix Manager.command"])
+            self.assertFalse((desktop / "MP Gui.command").exists())
+            self.assertFalse((apps / "MP Liquid Player.command").exists())
+            self.assertFalse((desktop / "MP Mix Manager.app").exists())
+
             manager = (desktop / "MP Mix Manager.command").read_text(encoding="utf-8")
             self.assertIn("Mix_Archive_Manager.sh", manager)
             self.assertIn("/opt/homebrew/bin/bash", manager)
-            player = (desktop / "MP Liquid Player.command").read_text(encoding="utf-8")
-            self.assertIn("launch_liquid_glass.sh", player)
-            self.assertNotIn("--play", player)
-            for name in SHORTCUT_NAMES:
-                path = desktop / f"{name}.command"
-                self.assertTrue(os.access(path, os.X_OK), name)
-                self.assertTrue((apps / f"{name}.command").is_file(), name)
+            self.assertTrue(os.access(desktop / "MP Mix Manager.command", os.X_OK))
+            self.assertTrue((apps / "MP Mix Manager.command").is_file())
+
+            gui_apps = ("MP Liquid Player", "MP Gui", "MP Liquid Visualizer")
+            expected = {
+                "MP Liquid Player": "launch_liquid_glass.sh",
+                "MP Gui": "MP_Gui.sh",
+                "MP Liquid Visualizer": "launch_liquid_visualizer.sh",
+            }
+            for name in gui_apps:
+                for directory in (desktop, apps):
+                    app = directory / f"{name}.app"
+                    exe = app / "Contents" / "MacOS" / MAC_APP_EXECUTABLE
+                    plist = (app / "Contents" / "Info.plist").read_text(encoding="utf-8")
+                    script = exe.read_text(encoding="utf-8")
+                    self.assertTrue(os.access(exe, os.X_OK), name)
+                    self.assertIn(expected[name], script)
+                    self.assertNotIn("Terminal", script)
+                    self.assertNotIn("--play", script)
+                    self.assertIn(f"<string>{name}</string>", plist)
+                    self.assertIn(mac_bundle_identifier(name), plist)
+                    self.assertIn(f"<string>{MAC_APP_EXECUTABLE}</string>", plist)
+            self.assertTrue(desktop_shortcuts_present(desktop, "macos"))
 
     def test_windows_install_links_the_four_launchers(self):
         created = []

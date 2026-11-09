@@ -125,14 +125,23 @@ unset _mp_tray
 # The Mix Manager GUI is this program with --manager and is not the player.
 _liquid_player_already_open=0
 _lg_line=""
+if [ "$(uname -s)" = "Darwin" ]; then
+    _lg_pgrep() { pgrep -fl 'MP_Audio_Player_Liquid_Glas[s]' 2>/dev/null || true; }
+else
+    _lg_pgrep() { pgrep -af 'MP_Audio_Player_Liquid_Glas[s]' 2>/dev/null || true; }
+fi
 while IFS= read -r _lg_line; do
     case "$_lg_line" in
         *--manager*) continue ;;
         *MP_Audio_Player_Liquid_Glass*) _liquid_player_already_open=1; break ;;
     esac
-done < <(pgrep -af "MP_Audio_Player_Liquid_Glass" 2>/dev/null || true)
+done < <(_lg_pgrep)
 if [ "$_liquid_player_already_open" -eq 1 ]; then
-    if command -v wmctrl >/dev/null 2>&1; then
+    if [ "$(uname -s)" = "Darwin" ] && [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
+        # shellcheck disable=SC1091
+        source "$BASE_DIR/scripts/mp_gui_focus.sh"
+        mp_player_raise_host || true
+    elif command -v wmctrl >/dev/null 2>&1; then
         wmctrl -a "MP Audio Player (Liquid Glass" 2>/dev/null || true
     fi
     exit 0

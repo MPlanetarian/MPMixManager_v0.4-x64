@@ -240,6 +240,7 @@ from liquid_glass_opengl import (
 )
 from liquid_player_visualizer import (
     macos_fullscreen_size,
+    macos_liquid_player_window_size,
     macos_player_grid,
 )
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer
@@ -1242,8 +1243,9 @@ class OpenGLGlassHost:
         self._saved_rect = None
         margin = LiquidGlassRendererOpenGL.bezel_px
         self._target_cols, self._target_rows = COLS, ROWS
-        self._window_w = COLS * CHAR_W + (2 * margin)
-        self._window_h = ROWS * CHAR_H + (2 * margin)
+        self._window_w, self._window_h = macos_liquid_player_window_size(
+            COLS, ROWS, CHAR_W, CHAR_H, margin
+        )
         self.overlay = TerminalOverlay(self._target_cols, self._target_rows)
 
     def send_input(self, data: bytes):

@@ -8,6 +8,9 @@ Desktop and in the application menu:
   MP Mix Manager
   MP Gui
   MP Liquid Visualizer
+
+On macOS, MP Mix Manager stays a Terminal .command file. The other three are
+application bundles, so opening them does not open a Terminal window.
 """
 
 from __future__ import annotations
@@ -251,6 +254,134 @@ def mac_command(spec: dict) -> str:
     )
 
 
+MAC_APP_EXECUTABLE = "launch"
+
+
+def mac_bundle_identifier(name: str) -> str:
+    slug: list[str] = []
+    for char in name.lower():
+        if char.isalnum():
+            slug.append(char)
+        elif not slug or slug[-1] != "-":
+            slug.append("-")
+    return "com.mplanetarian." + "".join(slug).strip("-")
+
+
+def mac_info_plist(name: str) -> str:
+    safe = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        "<dict>\n"
+        "\t<key>CFBundleExecutable</key>\n"
+        f"\t<string>{MAC_APP_EXECUTABLE}</string>\n"
+        "\t<key>CFBundleIdentifier</key>\n"
+        f"\t<string>{mac_bundle_identifier(name)}</string>\n"
+        "\t<key>CFBundleName</key>\n"
+        f"\t<string>{safe}</string>\n"
+        "\t<key>CFBundleDisplayName</key>\n"
+        f"\t<string>{safe}</string>\n"
+        "\t<key>CFBundlePackageType</key>\n"
+        "\t<string>APPL</string>\n"
+        "\t<key>CFBundleInfoDictionaryVersion</key>\n"
+        "\t<string>6.0</string>\n"
+        "\t<key>CFBundleShortVersionString</key>\n"
+        "\t<string>0.4.2</string>\n"
+        "\t<key>CFBundleVersion</key>\n"
+        "\t<string>0.4.2</string>\n"
+        "\t<key>LSMinimumSystemVersion</key>\n"
+        "\t<string>11.0</string>\n"
+        "\t<key>NSHighResolutionCapable</key>\n"
+        "\t<true/>\n"
+        "</dict>\n"
+        "</plist>\n"
+    )
+
+
+def _remove_file(path: Path) -> None:
+    try:
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _remove_tree(path: Path) -> None:
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+    except OSError:
+        pass
+
+
+def _codesign_mac_app(app: Path) -> None:
+    """Ad-hoc sign a local app so Gatekeeper will launch its script."""
+    if sys.platform != "darwin":
+        return
+    xattr = shutil.which("xattr")
+    if xattr:
+        try:
+            subprocess.run(
+                [xattr, "-cr", str(app)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    codesign = shutil.which("codesign")
+    if not codesign:
+        return
+    try:
+        subprocess.run(
+            [codesign, "--force", "--sign", "-", str(app)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def write_mac_app(directory: Path, name: str, content: str) -> Path:
+    """Write an application bundle. Opening it does not open Terminal."""
+    app = directory / f"{name}.app"
+    _remove_tree(app)
+    _write_text(app / "Contents" / "MacOS" / MAC_APP_EXECUTABLE, content, executable=True)
+    _write_text(app / "Contents" / "Info.plist", mac_info_plist(name))
+    _remove_file(directory / f"{name}.command")
+    _codesign_mac_app(app)
+    return app
+
+
+def register_mac_app(app: Path) -> None:
+    """Tell Launch Services this bundle is an application."""
+    if sys.platform != "darwin" or not app.is_dir():
+        return
+    tool = Path(
+        "/System/Library/Frameworks/CoreServices.framework"
+        "/Frameworks/LaunchServices.framework/Support/lsregister"
+    )
+    if not tool.is_file():
+        return
+    try:
+        subprocess.run(
+            [str(tool), "-f", str(app)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def windows_launcher_cmd(name: str, spec: dict, root: Path) -> str:
     """A .cmd the Desktop shortcut can open when no ready-made .bat exists."""
     if name == "MP Liquid Visualizer":
@@ -464,9 +595,16 @@ def install_desktop_shortcuts(
         if platform_name == "macos":
             content = mac_command(spec)
             for directory in (desktop, apps):
-                path = directory / f"{name}.command"
-                _write_text(path, content, executable=True)
-            written.append(desktop / f"{name}.command")
+                if spec.get("terminal"):
+                    path = directory / f"{name}.command"
+                    _write_text(path, content, executable=True)
+                    _remove_tree(directory / f"{name}.app")
+                else:
+                    write_mac_app(directory, name, content)
+            if spec.get("terminal"):
+                written.append(desktop / f"{name}.command")
+            else:
+                written.append(desktop / f"{name}.app")
         elif platform_name == "windows":
             target, arguments = windows_link_target(name, spec, root, launchers)
             icon = spec.get("windows_icon")
@@ -493,7 +631,16 @@ def install_desktop_shortcuts(
 
 
 def desktop_shortcuts_present(desktop: Path, platform_name: str) -> bool:
-    suffix = { "macos": ".command", "windows": ".lnk" }.get(platform_name, ".desktop")
+    if platform_name == "macos":
+        targets = shortcut_targets(ROOT)
+        for name in SHORTCUT_NAMES:
+            if targets[name].get("terminal"):
+                if not (desktop / f"{name}.command").is_file():
+                    return False
+            elif not (desktop / f"{name}.app" / "Contents" / "MacOS" / MAC_APP_EXECUTABLE).is_file():
+                return False
+        return True
+    suffix = { "windows": ".lnk" }.get(platform_name, ".desktop")
     return all((desktop / f"{name}{suffix}").is_file() for name in SHORTCUT_NAMES)
 
 
@@ -516,6 +663,9 @@ def main() -> int:
     paths = install_desktop_shortcuts(root)
     for path in paths:
         print(path)
+        if path.suffix == ".app":
+            register_mac_app(path)
+            register_mac_app(apps_dir_for("macos") / path.name)
     return 0
 
 

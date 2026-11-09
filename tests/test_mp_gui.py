@@ -248,6 +248,36 @@ class TestMpGuiFocusWithoutWmctrl(unittest.TestCase):
         self.assertIn("OPEN", res.stdout)
         self.assertIn("77", res.stdout)
 
+    def test_player_raise_skips_the_manager_and_activates_the_player(self):
+        res = self._run(r"""
+        uname() { printf '%s\n' "Darwin"; }
+        python3() { printf '%s\n' "$*" >> "$HOME/activated"; return 0; }
+        export HOME="$(mktemp -d)"
+        pgrep() {
+            printf '%s\n' "10 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py --manager"
+            printf '%s\n' "11 python MP_Audio_Player_Liquid_Glass_macOS.py"
+            printf '%s\n' "12 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"
+            return 0
+        }
+        if mp_player_raise_host; then echo RAISED; else echo MISSING; fi
+        cat "$HOME/activated"
+        rm -rf "$HOME"
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("RAISED", res.stdout)
+        self.assertIn("12", res.stdout)
+        self.assertNotIn("10", res.stdout)
+        self.assertNotIn("11", res.stdout)
+
+    def test_darwin_process_lines_use_fl_so_the_command_is_visible(self):
+        res = self._run(r"""
+        uname() { printf '%s\n' "Darwin"; }
+        pgrep() { printf '%s\n' "$*"; }
+        _mp_glass_process_lines
+        """)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("-fl", res.stdout)
+
     def test_wmctrl_match_focuses_and_does_not_need_a_process(self):
         res = self._run(r"""
         command() {
@@ -296,6 +326,7 @@ class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):
         script = r"""
         set -e
         export HOME="$(mktemp -d)"
+        eval "$(sed -n '/^_mp_liquid_glass_process_lines() {/,/^}/p' Mix_Archive_Manager.sh)"
         eval "$(sed -n '/^_liquid_glass_claim_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
         eval "$(sed -n '/^_liquid_glass_release_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
         pgrep() { printf '%s\n' "4242 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py --manager"; }
@@ -343,6 +374,11 @@ class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("*--manager*) continue", text)
             self.assertNotIn('pgrep -f "MP_Audio_Player_Liquid_Glass"', text)
+            self.assertIn("mp_player_raise_host", text)
+            darwin = text.index('uname -s)" = "Darwin"')
+            opengl = text.index("MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py", darwin)
+            metal = text.index("MP_Audio_Player_Liquid_Glass_macOS.py", opengl)
+            self.assertLess(opengl, metal)
 
     def test_g_on_the_menu_launches_mp_gui(self):
         text = (ROOT / "Mix_Archive_Manager.sh").read_text(encoding="utf-8")
@@ -435,6 +471,10 @@ class TestGuiEscapeAndPlayerFocus(unittest.TestCase):
         block = text[start:text.index("launch_liquid_glass_from_menu()", start)]
         self.assertIn("MP_TAKE_MOUSE_FOCUS=1", block)
         self.assertIn("_focus_mp_liquid_player", block)
+        focus = text[text.index("_focus_mp_liquid_player() {"):text.index("launch_mp_audio_player_liquid_glass() {")]
+        self.assertIn("mp_player_raise_host", focus)
+        self.assertIn('uname -s)" = "Darwin"', focus)
+        self.assertNotIn("[ \"$_lg_focus_rc\" -eq 0 ] && break", text)
         for name in (
             "MP_Audio_Player_Liquid_Glass_OpenGL.py",
             "MP_Audio_Player_Liquid_Glass.py",

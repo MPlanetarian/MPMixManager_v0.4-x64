@@ -160,6 +160,7 @@ class TestLauncherIntegrations(unittest.TestCase):
         script = r"""
         set -e
         export HOME="$(mktemp -d)"
+        eval "$(sed -n '/^_mp_liquid_glass_process_lines() {/,/^}/p' Mix_Archive_Manager.sh)"
         eval "$(sed -n '/^_liquid_glass_claim_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
         eval "$(sed -n '/^_liquid_glass_release_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
         eval "$(sed -n '/^_open_startup_audio_windows() {/,/^}/p' Mix_Archive_Manager.sh)"

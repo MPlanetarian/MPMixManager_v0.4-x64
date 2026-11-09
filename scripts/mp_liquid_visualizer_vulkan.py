@@ -449,6 +449,7 @@ VkImageSubresourceRange = _S("VkImageSubresourceRange", ("aspectMask", U32), ("b
 VkImageMemoryBarrier = _S("VkImageMemoryBarrier", ("sType", U32), ("pNext", VP), ("srcAccessMask", U32), ("dstAccessMask", U32), ("oldLayout", U32), ("newLayout", U32), ("srcQueueFamilyIndex", U32), ("dstQueueFamilyIndex", U32), ("image", U64), ("subresourceRange", VkImageSubresourceRange))
 VkImageSubresourceLayers = _S("VkImageSubresourceLayers", ("aspectMask", U32), ("mipLevel", U32), ("baseArrayLayer", U32), ("layerCount", U32))
 VkBufferImageCopy = _S("VkBufferImageCopy", ("bufferOffset", U64), ("bufferRowLength", U32), ("bufferImageHeight", U32), ("imageSubresource", VkImageSubresourceLayers), ("imageOffset", VkOffset3D), ("imageExtent", VkExtent3D))
+VkImageBlit = _S("VkImageBlit", ("srcSubresource", VkImageSubresourceLayers), ("srcOffsets", VkOffset3D * 2), ("dstSubresource", VkImageSubresourceLayers), ("dstOffsets", VkOffset3D * 2))
 VkFenceCreateInfo = _S("VkFenceCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32))
 VkSemaphoreCreateInfo = _S("VkSemaphoreCreateInfo", ("sType", U32), ("pNext", VP), ("flags", U32))
 VisualizerUBO = _S("VisualizerUBO", ("res", F32 * 4), ("audio0", F32 * 4), ("audio1", F32 * 4), ("audio2", F32 * 4), ("bands0", F32 * 4), ("bands1", F32 * 4), ("bands2", F32 * 4), ("bands3", F32 * 4), ("preset", F32 * 4))
@@ -493,13 +494,30 @@ class LiquidVisualizerVulkanRenderer:
         self.format = FORMAT_B8G8R8A8_UNORM
         self.cursor = (0.0, 0.0)
         self._drag_origin = self._drag_press_screen = (0, 0)
-        fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(min(WINDOW_WIDTH, WINDOW_HEIGHT))
-        self._windowed_size = (int(fitted_w), int(fitted_h))
-        self._windowed_offset = (int(fitted_x), int(fitted_y))
+        if _IS_MAC:
+            try:
+                from liquid_player_visualizer import macos_liquid_player_window_size
+            except ImportError:
+                from scripts.liquid_player_visualizer import macos_liquid_player_window_size
+            player_w, player_h = macos_liquid_player_window_size()
+            self._windowed_size = (int(player_w), int(player_h))
+            # Same corner offset the fitter uses when the square fits. The
+            # size matches the Liquid Player; this only keeps the old position.
+            self._windowed_offset = (160, 80)
+        else:
+            fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(min(WINDOW_WIDTH, WINDOW_HEIGHT))
+            self._windowed_size = (int(fitted_w), int(fitted_h))
+            self._windowed_offset = (int(fitted_x), int(fitted_y))
         self.width, self.height = self._windowed_size
         self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
         self._extent = self._windowed_size
+        self._march_extent = self._windowed_size
+        self._needs_upscale = False
+        self._can_blit = False
+        self._march_image = self._march_memory = self._march_view = self._march_fb = self._march_pass = 0
+        self._folded_spv = None
+        self._preset_pipelines = {}
         self._ubo_flat = (F32 * 36)()
         self._ubo_flat_ptr = byref(self._ubo_flat)
 
@@ -1044,6 +1062,7 @@ class LiquidVisualizerVulkanRenderer:
             ("CmdDraw", None, [P, U32, U32, U32, U32]), ("CmdSetViewport", None, [P, U32, U32, P]),
             ("CmdSetScissor", None, [P, U32, U32, P]), ("CmdPipelineBarrier", None, [P, U32, U32, U32, U32, P, U32, P, U32, P]),
             ("CmdCopyBufferToImage", None, [P, H, H, U32, U32, P]), ("CmdCopyImageToBuffer", None, [P, H, U32, H, U32, P]),
+            ("CmdBlitImage", None, [P, H, U32, H, U32, U32, P, U32]),
             ("CreateSemaphore", I32, [P, P, P, PH]), ("DestroySemaphore", None, [P, H, P]),
             ("CreateFence", I32, [P, P, P, PH]), ("DestroyFence", None, [P, H, P]),
             ("WaitForFences", I32, [P, U32, P, U32, U64]), ("ResetFences", I32, [P, U32, P]),
@@ -1091,7 +1110,10 @@ class LiquidVisualizerVulkanRenderer:
         if caps.maxImageCount: ic = min(ic, caps.maxImageCount)
 
         self._can_readback = bool(caps.supportedUsageFlags & IMAGE_USAGE_TRANSFER_SRC)
+        self._can_blit = bool(caps.supportedUsageFlags & IMAGE_USAGE_TRANSFER_DST)
         usage = IMAGE_USAGE_COLOR | (IMAGE_USAGE_TRANSFER_SRC if self._can_readback else 0)
+        if self._can_blit:
+            usage |= IMAGE_USAGE_TRANSFER_DST
 
         ca = COMPOSITE_OPAQUE
         if not (caps.supportedCompositeAlpha & COMPOSITE_OPAQUE):
@@ -1123,6 +1145,7 @@ class LiquidVisualizerVulkanRenderer:
 
         if not getattr(self, "_render_pass", 0): self._create_render_pass()
         self._create_framebuffers()
+        self._ensure_march_target()
 
     def _create_render_pass(self):
         att = VkAttachmentDescription(0, self.format, SAMPLE_1, LOAD_CLEAR, STORE_STORE, LOAD_DONT, STORE_DONT, LAYOUT_UNDEFINED, LAYOUT_PRESENT)
@@ -1147,6 +1170,127 @@ class LiquidVisualizerVulkanRenderer:
             self._fb_keeps.append((vs, info))
             _check(self._vk.CreateFramebuffer(self._device, _addr(info), None, byref(fb)), "framebuffer")
             self._framebuffers.append(fb.value)
+
+    def _destroy_march_target(self):
+        vk = getattr(self, "_vk", None)
+        dev = getattr(self, "_device", 0)
+        if not vk or not dev:
+            return
+        if getattr(self, "_march_fb", 0):
+            vk.DestroyFramebuffer(dev, self._march_fb, None)
+        if getattr(self, "_march_view", 0):
+            vk.DestroyImageView(dev, self._march_view, None)
+        if getattr(self, "_march_image", 0):
+            vk.DestroyImage(dev, self._march_image, None)
+        if getattr(self, "_march_memory", 0):
+            vk.FreeMemory(dev, self._march_memory, None)
+        if getattr(self, "_march_pass", 0):
+            vk.DestroyRenderPass(dev, self._march_pass, None)
+        self._march_fb = self._march_view = self._march_image = self._march_memory = self._march_pass = 0
+        self._blit = None
+
+    def _create_march_pass(self):
+        att = VkAttachmentDescription(0, self.format, SAMPLE_1, LOAD_CLEAR, STORE_STORE, LOAD_DONT, STORE_DONT, LAYOUT_UNDEFINED, LAYOUT_TRANSFER_SRC)
+        ref = VkAttachmentReference(0, LAYOUT_COLOR)
+        sub = VkSubpassDescription(0, 0, 0, None, 1, _addr(ref), None, None, 0, None)
+        deps = (VkSubpassDependency * 2)(
+            VkSubpassDependency(SUBPASS_EXTERNAL, 0, STAGE_TOP, STAGE_COLOR_OUT, 0, ACCESS_COLOR_WRITE, 0),
+            VkSubpassDependency(0, SUBPASS_EXTERNAL, STAGE_COLOR_OUT, STAGE_TRANSFER, ACCESS_COLOR_WRITE, ACCESS_TRANSFER_READ, 0),
+        )
+        info = VkRenderPassCreateInfo(ST_RENDER_PASS, None, 0, 1, _addr(att), 1, _addr(sub), 2, cast(deps, VP))
+        self._march_pass_keep = (att, ref, sub, deps, info)
+        rp = U64()
+        _check(self._vk.CreateRenderPass(self._device, _addr(info), None, byref(rp)), "march render pass")
+        self._march_pass = rp.value
+
+    def _resolve_frag_spv(self) -> Path:
+        """Folded preset shader on macOS, otherwise the full shipped module."""
+        folded = None
+        if _IS_MAC:
+            try:
+                from liquid_player_visualizer import vulkan_preset_spirv
+            except ImportError:
+                from scripts.liquid_player_visualizer import vulkan_preset_spirv
+            folded = vulkan_preset_spirv(int(self.preset.get("id", 0)))
+        self._folded_spv = folded
+        if folded:
+            return Path(folded)
+        return SHADER_DIR / "mp_liquid_visualizer.frag.spv"
+
+    def _ensure_march_target(self):
+        """Draw the raymarch below the window size and scale it up.
+
+        On macOS the long edge is 768, so a 1094×734 window marches at
+        768×515. A full-window march is about 9 fps through MoltenVK.
+        """
+        self._destroy_march_target()
+        try:
+            from liquid_player_visualizer import march_target_size
+        except ImportError:
+            from scripts.liquid_player_visualizer import march_target_size
+        fw, fh = self._extent
+        self._resolve_frag_spv()
+        self._march_extent = march_target_size(fw, fh)
+        self._needs_upscale = bool(self._can_blit and self._march_extent != (fw, fh))
+        if not self._needs_upscale:
+            return
+        mw, mh = self._march_extent
+        vk = self._vk
+        ii = VkImageCreateInfo(
+            ST_IMAGE_CREATE_INFO, None, 0, IMAGE_TYPE_2D, self.format, VkExtent3D(mw, mh, 1),
+            1, 1, SAMPLE_1, TILING_OPTIMAL, IMAGE_USAGE_COLOR | IMAGE_USAGE_TRANSFER_SRC,
+            SHARING_EXCLUSIVE, 0, None, LAYOUT_UNDEFINED,
+        )
+        img, mem, req = U64(), U64(), VkMemoryRequirements()
+        _check(vk.CreateImage(self._device, _addr(ii), None, byref(img)), "march image")
+        self._march_image = img.value
+        vk.GetImageMemoryRequirements(self._device, self._march_image, _addr(req))
+        try:
+            mt = self._memory_type(req.memoryTypeBits, MEMORY_DEVICE_LOCAL)
+        except Exception:
+            mt = self._memory_type(req.memoryTypeBits, 0)
+        alloc = VkMemoryAllocateInfo(ST_MEMORY_ALLOCATE_INFO, None, req.size, mt)
+        _check(vk.AllocateMemory(self._device, _addr(alloc), None, byref(mem)), "march memory")
+        self._march_memory = mem.value
+        _check(vk.BindImageMemory(self._device, self._march_image, self._march_memory, 0), "bind march image")
+        self._march_image_keep = (ii, alloc, req)
+
+        self._create_march_pass()
+        vi = VkImageViewCreateInfo(ST_IMAGE_VIEW_CREATE_INFO, None, 0, self._march_image, IMAGE_VIEW_2D, self.format, 0, 0, 0, 0, IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+        view = U64()
+        _check(vk.CreateImageView(self._device, _addr(vi), None, byref(view)), "march image view")
+        self._march_view = view.value
+        vs = (U64 * 1)(self._march_view)
+        fb_info = VkFramebufferCreateInfo(ST_FRAMEBUFFER, None, 0, self._march_pass, 1, cast(vs, VP), mw, mh, 1)
+        fb = U64()
+        self._march_fb_keep = (vi, vs, fb_info)
+        _check(vk.CreateFramebuffer(self._device, _addr(fb_info), None, byref(fb)), "march framebuffer")
+        self._march_fb = fb.value
+
+        layers = VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1)
+        blit = VkImageBlit()
+        blit.srcSubresource = layers
+        blit.srcOffsets[0] = VkOffset3D(0, 0, 0)
+        blit.srcOffsets[1] = VkOffset3D(mw, mh, 1)
+        blit.dstSubresource = layers
+        blit.dstOffsets[0] = VkOffset3D(0, 0, 0)
+        blit.dstOffsets[1] = VkOffset3D(fw, fh, 1)
+        self._blit = blit
+        self._blit_ptr = _addr(blit)
+        span = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+        self._dst_barriers, self._present_barriers = [], []
+        for image in self._images:
+            self._dst_barriers.append(VkImageMemoryBarrier(
+                ST_IMAGE_MEMORY_BARRIER, None, 0, ACCESS_TRANSFER_WRITE, LAYOUT_UNDEFINED, LAYOUT_TRANSFER_DST,
+                QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, image, span,
+            ))
+            self._present_barriers.append(VkImageMemoryBarrier(
+                ST_IMAGE_MEMORY_BARRIER, None, ACCESS_TRANSFER_WRITE, 0, LAYOUT_TRANSFER_DST, LAYOUT_PRESENT,
+                QUEUE_FAMILY_IGNORED, QUEUE_FAMILY_IGNORED, image, span,
+            ))
+        self._upscale_keep = (layers, span)
+        self._dst_ptrs = [_addr(barrier) for barrier in self._dst_barriers]
+        self._present_ptrs = [_addr(barrier) for barrier in self._present_barriers]
 
     def _destroy_swapchain_views(self):
         for fb in self._framebuffers: self._vk.DestroyFramebuffer(self._device, fb, None)
@@ -1282,6 +1426,12 @@ class LiquidVisualizerVulkanRenderer:
                 self._vk.UpdateDescriptorSets(self._device, 1, _addr(w), 0, None)
             except Exception as e:
                 print(f"[LiquidVisualizer] Warning: failed to switch cover texture: {e}", file=sys.stderr)
+        if getattr(self, "_pipeline", 0):
+            try:
+                self._vk.DeviceWaitIdle(self._device)
+                self._create_pipeline()
+            except Exception as e:
+                print(f"[LiquidVisualizer] Warning: failed to switch preset shader: {e}", file=sys.stderr)
 
     def _shader_module(self, path: Path) -> int:
         data = Path(path).read_bytes()
@@ -1295,8 +1445,13 @@ class LiquidVisualizerVulkanRenderer:
         return mod.value
 
     def _create_pipeline(self):
+        preset_id = int(self.preset.get("id", 0))
+        cached = self._preset_pipelines.get(preset_id)
+        if cached:
+            self._pipeline, self._modules = cached
+            return
         vert = self._shader_module(SHADER_DIR / "mp_liquid_visualizer.vert.spv")
-        frag = self._shader_module(SHADER_DIR / "mp_liquid_visualizer.frag.spv")
+        frag = self._shader_module(self._resolve_frag_spv())
         self._modules = [vert, frag]
 
         stages = (VkPipelineShaderStageCreateInfo * 2)(
@@ -1320,23 +1475,31 @@ class LiquidVisualizerVulkanRenderer:
             VkDescriptorSetLayoutBinding(1, DESCRIPTOR_COMBINED_IMAGE_SAMPLER, 1, STAGE_FRAGMENT_BIT, None),
         )
         set_info = VkDescriptorSetLayoutCreateInfo(ST_DESCRIPTOR_SET_LAYOUT, None, 0, 2, cast(bindings, VP))
-        dl, layout, pipeline = U64(), U64(), U64()
-        _check(self._vk.CreateDescriptorSetLayout(self._device, _addr(set_info), None, byref(dl)), "descriptor layout")
-        self._desc_layout = dl.value
-
-        layouts = (U64 * 1)(self._desc_layout)
-        pli = VkPipelineLayoutCreateInfo(ST_PIPELINE_LAYOUT, None, 0, 1, cast(layouts, VP), 0, None)
-        _check(self._vk.CreatePipelineLayout(self._device, _addr(pli), None, byref(layout)), "pipeline layout")
-        self._layout = layout.value
+        pipeline = U64()
+        if not getattr(self, "_desc_layout", 0):
+            dl, layout = U64(), U64()
+            _check(self._vk.CreateDescriptorSetLayout(self._device, _addr(set_info), None, byref(dl)), "descriptor layout")
+            self._desc_layout = dl.value
+            layouts = (U64 * 1)(self._desc_layout)
+            pli = VkPipelineLayoutCreateInfo(ST_PIPELINE_LAYOUT, None, 0, 1, cast(layouts, VP), 0, None)
+            _check(self._vk.CreatePipelineLayout(self._device, _addr(pli), None, byref(layout)), "pipeline layout")
+            self._layout = layout.value
+            self._layout_keep = (bindings, set_info, layouts, pli)
+        else:
+            layouts = (U64 * 1)(self._desc_layout)
+            pli = None
 
         gp = VkGraphicsPipelineCreateInfo(
             ST_GRAPHICS_PIPELINE, None, 0, 2, cast(stages, VP), _addr(vertex), _addr(assembly), None,
             _addr(viewport), _addr(raster), _addr(multi), None, _addr(blend), _addr(dynamic),
             self._layout, self._render_pass, 0, 0, -1
         )
-        self._pipe_keep = (stages, vertex, assembly, vp, sc, viewport, raster, multi, blend_att, blend, dynamics, dynamic, bindings, set_info, layouts, pli, gp)
+        self._pipe_keep = getattr(self, "_pipe_keep_all", [])
+        self._pipe_keep.append((stages, vertex, assembly, vp, sc, viewport, raster, multi, blend_att, blend, dynamics, dynamic, layouts, pli, gp))
+        self._pipe_keep_all = self._pipe_keep
         _check(self._vk.CreateGraphicsPipelines(self._device, 0, 1, _addr(gp), None, byref(pipeline)), "graphics pipeline")
         self._pipeline = pipeline.value
+        self._preset_pipelines[preset_id] = (self._pipeline, list(self._modules))
 
     def _create_descriptors(self):
         us = sizeof(VisualizerUBO)
@@ -1375,12 +1538,13 @@ class LiquidVisualizerVulkanRenderer:
         self._hot_barrier_ptr = _addr(self._hot_barrier)
 
         self._hot_clear = VkClearValue((F32 * 4)(0.0, 0.0, 0.0, 1.0))
-        self._hot_rp = VkRenderPassBeginInfo(ST_RENDER_PASS_BEGIN, None, self._render_pass, 0, VkRect2D(VkOffset2D(0, 0), VkExtent2D(*self._extent)), 1, _addr(self._hot_clear))
+        march_w, march_h = self._march_extent if self._needs_upscale else self._extent
+        self._hot_rp = VkRenderPassBeginInfo(ST_RENDER_PASS_BEGIN, None, self._march_pass if self._needs_upscale else self._render_pass, 0, VkRect2D(VkOffset2D(0, 0), VkExtent2D(march_w, march_h)), 1, _addr(self._hot_clear))
         self._hot_rp_ptr = _addr(self._hot_rp)
 
-        self._hot_view = VkViewport(0.0, 0.0, float(self._extent[0]), float(self._extent[1]), 0.0, 1.0)
+        self._hot_view = VkViewport(0.0, 0.0, float(march_w), float(march_h), 0.0, 1.0)
         self._hot_view_ptr = VP(addressof(self._hot_view))
-        self._hot_scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(*self._extent))
+        self._hot_scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(march_w, march_h))
         self._hot_scissor_ptr = VP(addressof(self._hot_scissor))
 
         self._hot_dset = U64(self._dset)
@@ -1414,18 +1578,15 @@ class LiquidVisualizerVulkanRenderer:
         self._fn_bind_ds, self._fn_draw, self._fn_submit, self._fn_present = vk.CmdBindDescriptorSets, vk.CmdDraw, vk.QueueSubmit, vk.QueuePresentKHR
 
     def _sync_hotloop_extent(self):
-        ew, eh = self._extent
+        ew, eh = self._march_extent if self._needs_upscale else self._extent
+        self._hot_rp.renderPass = self._march_pass if self._needs_upscale else self._render_pass
         self._hot_rp.renderArea.extent.width, self._hot_rp.renderArea.extent.height = ew, eh
         self._hot_view.width, self._hot_view.height = float(ew), float(eh)
         self._hot_scissor.extent.width, self._hot_scissor.extent.height = ew, eh
         self._hot_swap.value = self._swapchain
 
     def _write_ubo(self, bridge: AudioTelemetryBridge, _mm=memmove):
-        fw, fh = self._extent
-        if self._is_4k_cached or fw >= FOUR_K_MIN_WIDTH or fh >= FOUR_K_MIN_HEIGHT:
-            rw, rh = float(min(fw, RENDER_1080P_WIDTH)), float(min(fh, RENDER_1080P_HEIGHT))
-        else:
-            rw, rh = float(fw), float(fh)
+        rw, rh = (float(v) for v in (self._march_extent if self._needs_upscale else self._extent))
         u = self._ubo_flat
         u[0], u[1], u[2], u[3] = rw, rh, bridge.accum_time, 1.0 if bridge.is_playing else 0.0
         u[4], u[5], u[6], u[7] = bridge.sub_bass, bridge.bass, bridge.low_mid, bridge.mid
@@ -1462,7 +1623,12 @@ class LiquidVisualizerVulkanRenderer:
 
         self._fn_barrier(cmd, STAGE_HOST, STAGE_FRAGMENT, 0, 0, None, 1, self._hot_barrier_ptr, 0, None)
         idx = self._hot_index.value
-        self._hot_rp.framebuffer = self._framebuffers[idx]
+        if self._needs_upscale:
+            self._hot_rp.renderPass = self._march_pass
+            self._hot_rp.framebuffer = self._march_fb
+        else:
+            self._hot_rp.renderPass = self._render_pass
+            self._hot_rp.framebuffer = self._framebuffers[idx]
         self._fn_begin_rp(cmd, self._hot_rp_ptr, 0)
         self._fn_bind_pipe(cmd, 0, self._pipeline)
         self._fn_set_vp(cmd, 0, 1, self._hot_view_ptr)
@@ -1470,6 +1636,10 @@ class LiquidVisualizerVulkanRenderer:
         self._fn_bind_ds(cmd, 0, self._layout, 0, 1, self._hot_dset_ptr, 0, None)
         self._fn_draw(cmd, 3, 1, 0, 0)
         self._fn_end_rp(cmd)
+        if self._needs_upscale:
+            self._fn_barrier(cmd, STAGE_TOP, STAGE_TRANSFER, 0, 0, None, 0, None, 1, self._dst_ptrs[idx])
+            self._vk.CmdBlitImage(cmd, self._march_image, LAYOUT_TRANSFER_SRC, self._images[idx], LAYOUT_TRANSFER_DST, 1, self._blit_ptr, FILTER_LINEAR)
+            self._fn_barrier(cmd, STAGE_TRANSFER, STAGE_BOTTOM, 0, 0, None, 0, None, 1, self._present_ptrs[idx])
         _check(self._fn_end_cmd(cmd), "end command")
 
         _check(self._fn_submit(self._queue, 1, self._hot_submit_ptrs[frame], fence), "queue submit")
@@ -1526,6 +1696,7 @@ class LiquidVisualizerVulkanRenderer:
         try: vk.DeviceWaitIdle(dev)
         except Exception: pass
         self._destroy_readback()
+        self._destroy_march_target()
         if self._tex_sampler: vk.DestroySampler(dev, self._tex_sampler, None)
         if self._tex_view: vk.DestroyImageView(dev, self._tex_view, None)
         if self._tex_image: vk.DestroyImage(dev, self._tex_image, None)
@@ -1534,7 +1705,19 @@ class LiquidVisualizerVulkanRenderer:
         for s in self._image_available + self._render_finished: vk.DestroySemaphore(dev, s, None)
         if getattr(self, "_pool", 0): vk.DestroyCommandPool(dev, self._pool, None)
         self._destroy_swapchain_views()
-        if getattr(self, "_pipeline", 0): vk.DestroyPipeline(dev, self._pipeline, None)
+        seen = set()
+        for pipe, mods in getattr(self, "_preset_pipelines", {}).values():
+            if pipe and pipe not in seen:
+                vk.DestroyPipeline(dev, pipe, None)
+                seen.add(pipe)
+            for mod in mods:
+                if mod and mod not in seen:
+                    vk.DestroyShaderModule(dev, mod, None)
+                    seen.add(mod)
+        self._preset_pipelines = {}
+        self._modules = []
+        if getattr(self, "_pipeline", 0) and self._pipeline not in seen:
+            vk.DestroyPipeline(dev, self._pipeline, None)
         if getattr(self, "_layout", 0): vk.DestroyPipelineLayout(dev, self._layout, None)
         if getattr(self, "_render_pass", 0): vk.DestroyRenderPass(dev, self._render_pass, None)
         if getattr(self, "_desc_pool", 0): vk.DestroyDescriptorPool(dev, self._desc_pool, None)
@@ -1543,7 +1726,6 @@ class LiquidVisualizerVulkanRenderer:
             vk.UnmapMemory(dev, self._ubo_memory)
             vk.DestroyBuffer(dev, self._ubo, None)
         if getattr(self, "_ubo_memory", 0): vk.FreeMemory(dev, self._ubo_memory, None)
-        for mod in getattr(self, "_modules", []): vk.DestroyShaderModule(dev, mod, None)
         if self._swapchain: vk.DestroySwapchainKHR(dev, self._swapchain, None)
         vk.DestroyDevice(dev, None)
         self._i.DestroySurfaceKHR(self._instance, self._surface, None)
@@ -1575,8 +1757,9 @@ def run_self_test(png_path: Optional[Union[str, Path]] = None, preset_name: Opti
     try:
         renderer.open()
         ww, wh = renderer.window_size()
-        if ww != wh or not (64 <= ww <= WINDOW_WIDTH):
-            raise RuntimeError(f"Expected a square window up to {WINDOW_WIDTH}, got {ww}x{wh}")
+        expected_w, expected_h = renderer._windowed_size
+        if (ww, wh) != (expected_w, expected_h) or min(ww, wh) < 64:
+            raise RuntimeError(f"Expected a {expected_w}x{expected_h} window, got {ww}x{wh}")
 
         for _ in range(5):
             bridge.update(0.12, force_playing=True, synthetic_audio=True)
@@ -1634,7 +1817,7 @@ def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[floa
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan 700x700 Borderless 3D Audio-Reactive Visualizer")
+    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan borderless 3D audio-reactive visualizer (1094x734 on macOS, 700x700 elsewhere)")
     p.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
     p.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     p.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
@@ -1642,7 +1825,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--fullscreen", "-fs", action="store_true", help="Launch visualizer in fullscreen mode (rendered at 1920x1080 on 4K)")
     p.add_argument("--4k", "--screen-4k", dest="target_4k", action="store_true", help="Launch visualizer on 4K display in fullscreen (rendered at 1920x1080)")
     p.add_argument("--screen", type=str, default=None, help="Target screen or monitor (e.g. '4k', 'hdmi', 'primary')")
-    p.add_argument("--self-test", action="store_true", help="Run Vulkan 700x700 render & pause/play verification")
+    p.add_argument("--self-test", action="store_true", help="Run Vulkan render and pause/play verification")
     p.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
     p.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
     args = p.parse_args(argv)

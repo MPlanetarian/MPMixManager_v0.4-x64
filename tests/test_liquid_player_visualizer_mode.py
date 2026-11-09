@@ -294,26 +294,42 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
     def test_macos_visualizer_fits_in_1080p_without_shrinking_the_player(self):
         os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
         self.assertEqual(vis.MACOS_FULLSCREEN_SIZE, (1920, 1080))
-        # The player window is 120x40 cells. The march uses the framebuffer
-        # aspect and fits inside 1920x1080, so a Retina window scales down
-        # and a 1x window scales up. Neither path changes the window size.
-        rw, rh = vis.visualizer_internal_size(2188, 1468, 1094, 734, macos=True)
-        self.assertEqual((rw, rh), (1609, 1080))
-        self.assertEqual(vis.visualizer_internal_size(1094, 734, 1094, 734, macos=True), (1609, 1080))
-        self.assertEqual(vis.visualizer_internal_size(1920, 1080, 1920, 1080, macos=True), (1920, 1080))
-        self.assertEqual(vis.visualizer_internal_size(800, 600, 800, 600, macos=True), (1440, 1080))
+        # The window stays full size. The march long edge is 768, then the
+        # picture is scaled onto the window.
+        self.assertEqual(vis.visualizer_internal_size(2188, 1468, 1094, 734, macos=True), (768, 515))
+        self.assertEqual(vis.visualizer_internal_size(1094, 734, 1094, 734, macos=True), (768, 515))
+        self.assertEqual(vis.visualizer_internal_size(1920, 1080, 1920, 1080, macos=True), (768, 432))
+        self.assertEqual(vis.visualizer_internal_size(800, 600, 800, 600, macos=True), (768, 576))
+        self.assertEqual(vis.visualizer_internal_size(128, 64, 128, 64, macos=True), (128, 64))
         self.assertEqual(
             vis.visualizer_internal_size(3024, 1964, 1512, 982, macos=True, fullscreen=True),
-            (1662, 1080),
+            (768, 499),
         )
         self.assertEqual(
             vis.visualizer_internal_size(3840, 2160, 3840, 2160, macos=True, fullscreen=True),
-            (1920, 1080),
+            (768, 432),
         )
         self.assertEqual(vis.macos_fullscreen_size(3024, 1964), (1920, 1080))
         self.assertEqual(vis.macos_fullscreen_size(1512, 982), (1512, 982))
         cols, rows = vis.macos_player_grid(1094, 734)
         self.assertEqual((cols, rows), (120, 40))
+
+    def test_vulkan_preset_is_folded_and_shipped(self):
+        raw = (vis.ROOT / "shaders" / "mp_liquid_visualizer.frag").read_text(encoding="utf-8")
+        folded = vis.specialize_vulkan_source(raw, 4, march_steps=64)
+        self.assertNotIn("u.preset.x", folded)
+        self.assertIn("(4.0)", folded)
+        self.assertIn("u.preset.w", folded)
+        self.assertIn("for (int i = 0; i < 64; i++)", folded)
+        self.assertIn("u.preset.x", raw)
+        digest = vis._visualizer_source_digest(raw)
+        meta = vis._read_preset_manifest()
+        self.assertEqual(meta.get("source"), digest)
+        self.assertEqual(int(meta.get("steps", -1)), 64)
+        for preset_id in range(10):
+            path = vis.vulkan_preset_spirv(preset_id, march_steps=64)
+            self.assertIsNotNone(path, f"preset {preset_id}")
+            self.assertTrue(path.read_bytes().startswith(vis._SPIRV_MAGIC))
 
     def test_preset_is_folded_without_changing_the_shared_source(self):
         generic = vis.opengl_visualizer_source()

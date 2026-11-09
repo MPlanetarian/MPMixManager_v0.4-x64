@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# MP_Liquid_Visualizer — Native Vulkan 700x700 Borderless 3D Visualizer Launcher
+# MP_Liquid_Visualizer — Native Vulkan borderless 3D visualizer (1094x734 on macOS, 700x700 elsewhere)
 # Cross-Platform: macOS (MoltenVK) / Windows 10 & 11 / Linux
 # ==============================================================================
 set -euo pipefail

@@ -2,7 +2,7 @@
 
 The visualizer is a separate process. Launchers start it with nohup, and the
 player starts it in a new session, so closing the player used to leave the
-700x700 window on screen.
+companion window on screen. On macOS that window matches the Liquid Player.
 """
 from __future__ import annotations
 

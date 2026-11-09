@@ -24,17 +24,23 @@ from scripts.desktop_launch_screen import fit_square_on_main  # noqa: E402
 
 class TestMPLiquidVisualizer(unittest.TestCase):
     def test_window_dimensions_are_fixed_700x700(self):
-        """Preferred size stays 700x700, half of the old 1400 square, and still fits the main screen."""
+        """Other platforms stay 700x700. macOS matches the Liquid Player, 1094x734."""
         self.assertEqual(vis.WINDOW_WIDTH, 700)
         self.assertEqual(vis.WINDOW_HEIGHT, 700)
         self.assertEqual(vis_entry.WINDOW_WIDTH, 700)
         self.assertEqual(vis_entry.WINDOW_HEIGHT, 700)
-        fitted = fit_square_on_main(vis.WINDOW_WIDTH)
         renderer = vis.LiquidVisualizerVulkanRenderer()
-        self.assertEqual(renderer._windowed_size, (fitted[0], fitted[1]))
-        self.assertEqual(renderer._windowed_offset, (fitted[2], fitted[3]))
-        self.assertLessEqual(fitted[0], 700)
-        self.assertLessEqual(fitted[1], 700)
+        if vis._IS_MAC:
+            from liquid_player_visualizer import macos_liquid_player_window_size
+            self.assertEqual(macos_liquid_player_window_size(), (1094, 734))
+            self.assertEqual(renderer._windowed_size, (1094, 734))
+            self.assertEqual(renderer._windowed_offset, (160, 80))
+        else:
+            fitted = fit_square_on_main(vis.WINDOW_WIDTH)
+            self.assertEqual(renderer._windowed_size, (fitted[0], fitted[1]))
+            self.assertEqual(renderer._windowed_offset, (fitted[2], fitted[3]))
+            self.assertLessEqual(fitted[0], 700)
+            self.assertLessEqual(fitted[1], 700)
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
@@ -321,7 +327,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertIn("key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q)", src)
 
     def test_z_key_toggles_fullscreen_and_normal_size(self):
-        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to normal 700x700 size."""
+        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to the windowed size."""
         import time
 
         renderer = vis.LiquidVisualizerVulkanRenderer()
@@ -331,7 +337,6 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertFalse(renderer.is_fullscreen)
             normal = renderer.window_size()
             self.assertEqual(normal, renderer._windowed_size)
-            self.assertLessEqual(normal[0], 700)
 
             # Press Z -> enters fullscreen
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
@@ -384,8 +389,8 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             match = re.search(r"Window: (\d+)x(\d+) Fixed Borderless", summary)
             self.assertIsNotNone(match)
             reported = (int(match.group(1)), int(match.group(2)))
-            fitted = fit_square_on_main(vis.WINDOW_WIDTH)
-            self.assertEqual(reported, (fitted[0], fitted[1]))
+            expected = vis.LiquidVisualizerVulkanRenderer()._windowed_size
+            self.assertEqual(reported, expected)
             self.assertTrue(out_png.is_file() and out_png.stat().st_size > 50000)
 
 
