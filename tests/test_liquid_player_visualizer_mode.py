@@ -281,8 +281,58 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         self.assertGreater(guard_at, 0)
         self.assertGreater(out_at, guard_at)
 
+    def test_macos_raymarch_is_smaller_than_the_retina_framebuffer(self):
+        wide_fb = (3024, 1964)
+        logical = (1512, 982)
+        rw, rh = vis.visualizer_internal_size(*wide_fb, *logical, macos=True, long_edge=800)
+        self.assertLessEqual(max(rw, rh), 800)
+        self.assertLess(rw * rh, (wide_fb[0] * wide_fb[1]) // 8)
+        self.assertEqual(vis.visualizer_internal_size(128, 64, 64, 32, macos=True, long_edge=800), (64, 32))
+        self.assertEqual(vis.visualizer_internal_size(1920, 1080, 1920, 1080, macos=False), (1920, 1080))
+
+    def test_macos_visualizer_fits_in_1080p_without_shrinking_the_player(self):
+        os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
+        self.assertEqual(vis.MACOS_FULLSCREEN_SIZE, (1920, 1080))
+        # The player window is 120x40 cells. The march uses the framebuffer
+        # aspect and fits inside 1920x1080, so a Retina window scales down
+        # and a 1x window scales up. Neither path changes the window size.
+        rw, rh = vis.visualizer_internal_size(2188, 1468, 1094, 734, macos=True)
+        self.assertEqual((rw, rh), (1609, 1080))
+        self.assertEqual(vis.visualizer_internal_size(1094, 734, 1094, 734, macos=True), (1609, 1080))
+        self.assertEqual(vis.visualizer_internal_size(1920, 1080, 1920, 1080, macos=True), (1920, 1080))
+        self.assertEqual(vis.visualizer_internal_size(800, 600, 800, 600, macos=True), (1440, 1080))
+        self.assertEqual(
+            vis.visualizer_internal_size(3024, 1964, 1512, 982, macos=True, fullscreen=True),
+            (1662, 1080),
+        )
+        self.assertEqual(
+            vis.visualizer_internal_size(3840, 2160, 3840, 2160, macos=True, fullscreen=True),
+            (1920, 1080),
+        )
+        self.assertEqual(vis.macos_fullscreen_size(3024, 1964), (1920, 1080))
+        self.assertEqual(vis.macos_fullscreen_size(1512, 982), (1512, 982))
+        cols, rows = vis.macos_player_grid(1094, 734)
+        self.assertEqual((cols, rows), (120, 40))
+
+    def test_preset_is_folded_without_changing_the_shared_source(self):
+        generic = vis.opengl_visualizer_source()
+        folded = vis.specialize_visualizer_source(generic, 9, march_steps=64)
+        self.assertIn("uniform vec4 u_preset", generic)
+        self.assertIn("u_preset.x", generic)
+        self.assertIn(vis._MARCH_LOOP, generic)
+        self.assertNotIn("u_preset.x", folded)
+        self.assertIn("(9.0)", folded)
+        self.assertIn("u_preset.w", folded)
+        self.assertIn("for (int i = 0; i < 64; i++)", folded)
+        self.assertNotIn("for (int i = 0; i < 84; i++)", folded)
+
+    def test_opengl_source_does_not_reuse_the_noise3_builtin(self):
+        source = vis.opengl_visualizer_source()
+        self.assertIn("float valueNoise3(", source)
+        self.assertNotIn("noise3(", source)
+
     def test_opengl_shader_links_on_this_machine(self):
-        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        if sys.platform != "darwin" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             self.skipTest("no display")
         env = os.environ.copy()
         env["MP_LIQUID_VISUALIZER_STATE"] = str(self.state)
@@ -310,7 +360,7 @@ def compile_visualizer_shader(state_path: str) -> int:
     # by GLFW, which may be EGL, so let PyOpenGL detect the current context.
     os.environ.pop("PYOPENGL_PLATFORM", None)
     vis._CACHE.update(path="", mtime=None, state=None)
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    if sys.platform != "darwin" and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         print("no display", file=sys.stderr)
         return 3
     from mp_liquid_visualizer_vulkan import load_glfw_dll

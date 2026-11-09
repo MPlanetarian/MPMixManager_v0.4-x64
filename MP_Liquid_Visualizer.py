@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer for MP Liquid Audio Player.
 
-Built from the ground up in Vulkan (1400x1400 fixed borderless window, zero text overlay).
+Built from the ground up in Vulkan (700x700 fixed borderless window, zero text overlay).
 First Preset: "Cosmic Dreamworlds (Liquid)"
 Exclusively inspired by MPlanetarian - Cosmic Dreamworlds [Deluxe Edition] cover art
 (https://mplanetarian.bandcamp.com/album/mplanetarian-cosmic-dreamworlds-deluxe-edition)
@@ -12,7 +12,7 @@ Core Behavior:
 - When music is paused or stopped, 3D generation freezes in-place and waits for the user
   to press Play on the audio player.
 - The user cannot change how the visualizer looks; they can only select different presets.
-- Fixed 1400x1400 borderless window by default (press 'z' / 'Z' to toggle fullscreen and back to normal size), no scrollbar, zero text overlay ever displayed.
+- Fixed 700x700 borderless window by default (press 'z' / 'Z' to toggle fullscreen and back to normal size), no scrollbar, zero text overlay ever displayed.
 - Closes immediately when the user presses Escape or 'q'.
 """
 

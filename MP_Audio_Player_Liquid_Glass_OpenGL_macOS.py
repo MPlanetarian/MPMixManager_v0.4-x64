@@ -117,6 +117,11 @@ def _py315_safe_cfunctype(restype, *argtypes, **kwargs):
 ctypes.CFUNCTYPE = _py315_safe_cfunctype
 
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
+# PyOpenGL's default error check calls glGetError after every command.
+# On Apple's OpenGL driver that waits for the GPU, so the visualizer
+# cannot queue a frame ahead of the one on screen. Set this before the
+# first OpenGL import. PYOPENGL_ERROR_CHECKING=1 keeps the checks.
+os.environ.setdefault("PYOPENGL_ERROR_CHECKING", "0")
 
 try:
     import OpenGL.platform.baseplatform as _bp
@@ -232,6 +237,10 @@ from liquid_glass_opengl import (
     raise_macos_process_detached,
     _rgb01,
     THEME_ALIASES,
+)
+from liquid_player_visualizer import (
+    macos_fullscreen_size,
+    macos_player_grid,
 )
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer
 
@@ -701,6 +710,23 @@ class TerminalOverlay:
                     idx += 4
             idx += 1
 
+    def resize(self, cols: int, rows: int) -> None:
+        cols = max(1, int(cols))
+        rows = max(1, int(rows))
+        if cols == self.cols and rows == self.rows:
+            return
+        self.cols = cols
+        self.rows = rows
+        self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
+        self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
+        self.bg_colors = [[None for _ in range(cols)] for _ in range(rows)]
+        self.cursor_row = 0
+        self.cursor_col = 0
+        self.img_w = self.cols * self.char_w
+        self.img_h = self.rows * self.char_h
+        self.image = None
+        self.dirty = True
+
     def set_ink(self, theme_name, on_light_glass=True):
         """Darken body text only while it sits on the pale glass pane."""
         use_dark = bool(on_light_glass) and not theme_uses_dark_glass(theme_name)
@@ -879,6 +905,9 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self._dragging = False
         self._drag_start_x = 0.0
         self._drag_start_y = 0.0
+        self._last_top_click = 0.0
+        self._last_top_click_x = 0.0
+        self._last_top_click_y = 0.0
         
         self.clear_opacity = 0.60
         self.slider_val = 0.60
@@ -920,9 +949,26 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
                         self._slider_dragging = False
                 else:
                     if action == 1:
-                        self._dragging = True
-                        self._drag_start_x = xpos.value
-                        self._drag_start_y = ypos.value
+                        maximized = bool(getattr(self.host_ref, "is_maximized", False))
+                        on_top = ypos.value < 48
+                        now = time.monotonic()
+                        if (
+                            on_top
+                            and now - self._last_top_click < 0.45
+                            and abs(xpos.value - self._last_top_click_x) < 35
+                            and abs(ypos.value - self._last_top_click_y) < 35
+                        ):
+                            self._dragging = False
+                            self._last_top_click = 0.0
+                            self.host_ref.toggle_maximize()
+                        else:
+                            self._last_top_click = now
+                            self._last_top_click_x = xpos.value
+                            self._last_top_click_y = ypos.value
+                            if not maximized:
+                                self._dragging = True
+                                self._drag_start_x = xpos.value
+                                self._drag_start_y = ypos.value
                     elif action == 0:
                         self._dragging = False
                         self._slider_dragging = False
@@ -1192,9 +1238,13 @@ class OpenGLGlassHost:
         self.renderer = None
         self.child_pid = 0
         self.master_fd = None
-        self._target_cols = COLS
-        self._target_rows = ROWS
-        self.overlay = TerminalOverlay(COLS, ROWS)
+        self.is_maximized = False
+        self._saved_rect = None
+        margin = LiquidGlassRendererOpenGL.bezel_px
+        self._target_cols, self._target_rows = COLS, ROWS
+        self._window_w = COLS * CHAR_W + (2 * margin)
+        self._window_h = ROWS * CHAR_H + (2 * margin)
+        self.overlay = TerminalOverlay(self._target_cols, self._target_rows)
 
     def send_input(self, data: bytes):
         if self.master_fd is not None:
@@ -1202,6 +1252,49 @@ class OpenGLGlassHost:
                 os.write(self.master_fd, data)
             except OSError:
                 pass
+
+    def _apply_terminal_size(self, cols: int, rows: int) -> None:
+        self._target_cols = int(cols)
+        self._target_rows = int(rows)
+        self.overlay.resize(self._target_cols, self._target_rows)
+        self._sync_panels()
+        if self.master_fd is None:
+            return
+        winsize = struct.pack("HHHH", self._target_rows, self._target_cols, 0, 0)
+        try:
+            fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
+        except OSError:
+            return
+        if self.child_pid:
+            try:
+                os.kill(self.child_pid, signal.SIGWINCH)
+            except OSError:
+                pass
+
+    def toggle_maximize(self):
+        """Fill the work area, never larger than 1920x1080. A second call restores the player window."""
+        if self.renderer is None:
+            return
+        if not self.is_maximized:
+            self._saved_rect = (self.renderer.window_pos(), self.renderer.window_size())
+            wx, wy, ww, wh = self.renderer.get_workarea()
+            fw, fh = macos_fullscreen_size(ww, wh)
+            x = int(wx) + max(0, (int(ww) - fw) // 2)
+            y = int(wy) + max(0, (int(wh) - fh) // 2)
+            self.renderer.set_window_pos(x, y)
+            self.renderer.set_window_size(fw, fh)
+            margin = self.renderer.bezel_px
+            cols, rows = macos_player_grid(fw, fh, CHAR_W, CHAR_H, margin)
+            self._apply_terminal_size(cols, rows)
+            self.is_maximized = True
+            return
+        pos, size = self._saved_rect or ((72, 64), (self._window_w, self._window_h))
+        self.renderer.set_window_pos(pos[0], pos[1])
+        self.renderer.set_window_size(size[0], size[1])
+        margin = self.renderer.bezel_px
+        cols, rows = macos_player_grid(size[0], size[1], CHAR_W, CHAR_H, margin)
+        self._apply_terminal_size(cols, rows)
+        self.is_maximized = False
 
     def _sync_panels(self):
         if self.renderer is None:
@@ -1217,7 +1310,7 @@ class OpenGLGlassHost:
 
     def run(self):
         self.master_fd, slave_fd = pty.openpty()
-        winsize = struct.pack("HHHH", ROWS, COLS, 0, 0)
+        winsize = struct.pack("HHHH", self._target_rows, self._target_cols, 0, 0)
         fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, winsize)
 
         if self.manager:
@@ -1250,11 +1343,7 @@ class OpenGLGlassHost:
         os.close(slave_fd)
         self.child_pid = pid
 
-        char_w = CHAR_W
-        char_h = CHAR_H
-        margin = LiquidGlassRendererOpenGL.bezel_px
-        init_w = self._target_cols * char_w + (2 * margin)
-        init_h = self._target_rows * char_h + (2 * margin)
+        init_w, init_h = self._window_w, self._window_h
         if self.mode == "MANAGER" or self.manager:
             title = "MP Mix Manager (Liquid Glass - OpenGL / macOS)"
         else:

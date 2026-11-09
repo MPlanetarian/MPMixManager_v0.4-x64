@@ -2,7 +2,7 @@
 
 The visualizer is a separate process. Launchers start it with nohup, and the
 player starts it in a new session, so closing the player used to leave the
-1400x1400 window on screen.
+700x700 window on screen.
 """
 from __future__ import annotations
 

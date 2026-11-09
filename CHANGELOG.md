@@ -62,7 +62,7 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - The shortcut places the player on the main desktop. HDMI-A-1 (the Hisense TV) is not selected as that screen.
   - The visible position is read with `xwininfo`, which matches KWin. `wmctrl -lG` on this session reports a doubled origin and is not used for the correction.
 - **Windowed visualizer overflowed the main desktop** (`scripts/mp_liquid_visualizer_vulkan.py`):
-  - The visualizer still prefers a 1400 pixel square. On a shorter work area it uses the largest square that fits. Fullscreen on the 4K TV is unchanged.
+  - The visualizer opens at 700×700, half of the old 1400 pixel square, so the first MP Liquid launch no longer covers a 1920×1080 display. On a shorter work area it uses the largest square that fits. Fullscreen on the 4K TV is unchanged.
 - **Visualizer stayed open after the Liquid Player exited** (`scripts/liquid_visualizer_session.py`, `MP_Audio_Player_Liquid_Glass*.py`):
   - Exiting the Liquid Player closes the companion visualizer unless another Liquid Glass host is still open.
   - Closing the Manager GUI always stops playback and closes the visualizer.
@@ -78,6 +78,12 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
 - **First-run welcome** (`scripts/liquid_glass_reward.py`) greets the 0.4.2 Stable (Liquid) release and names the four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.
 
 ### macOS
+- **MP Visualizer OpenGL performance** (`shaders/mp_liquid_visualizer.frag`, `scripts/liquid_player_visualizer.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_visualizer_mode.py`):
+  - The shader named its noise function `noise3`. That is a built-in on Apple's OpenGL, so the program never linked. The player compiled it again on every frame.
+  - The function is now `valueNoise3`. A failed compile is remembered for that preset instead of being repeated.
+  - The player window stays 120×40 (1094×734). The raymarch draws into its own target, fitted inside 1920×1080, then that image is scaled to the window. The terminal text stays at the full Retina resolution. `MP_VISUALIZER_GL_LONG_EDGE` still overrides the long edge.
+  - Each preset is compiled on its own, so the other scenes are not left in the program. The march is 64 steps. `MP_VISUALIZER_GL_LONG_EDGE` and `MP_VISUALIZER_GL_MARCH_STEPS` override those limits.
+  - PyOpenGL no longer calls `glGetError` after every command. Set `PYOPENGL_ERROR_CHECKING=1` to turn that back on.
 - **MP Gui and the Liquid Player open the OpenGL host** (`MP_Gui.sh`, `scripts/launch_liquid_glass.sh`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`):
   - The macOS host is `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`.
   - `MP_Audio_Player_Liquid_Glass_macOS.py` remains the fallback when that OpenGL file is absent. That fallback requires Apple Silicon.

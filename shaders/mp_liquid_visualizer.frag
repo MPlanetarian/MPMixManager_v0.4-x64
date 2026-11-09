@@ -53,7 +53,7 @@ vec3 hash33(vec3 p3) {
     return fract((p3.xxy + p3.yxx) * p3.zyx);
 }
 
-float noise3(vec3 x) {
+float valueNoise3(vec3 x) {
     vec3 i = floor(x);
     vec3 f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
@@ -1174,7 +1174,7 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
         // Drifting quantum starlight dust
         vec3 starP = rd * 16.0;
         starP.xy += vec2(dynTime * 0.20, -dynTime * 0.15);
-        float stars = pow(noise3(starP), 14.0) * (18.0 + 16.0 * treble);
+        float stars = pow(valueNoise3(starP), 14.0) * (18.0 + 16.0 * treble);
 
         // Volumetric fluid fog & luminous aurora ripples
         float fluidAurora = 0.18 * sin(rd.x * 5.0 + rd.y * 4.0 + dynTime * 0.6 + bassPhase * 0.4);
@@ -1582,7 +1582,7 @@ void main() {
 
             // Deep translucent glass attenuation + internal iridescent swirling liquid caustics
             float coreDepth = pow(max(dot(n, v), 0.0), 1.6);
-            float innerCaust = noise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
+            float innerCaust = valueNoise3(p * 3.8 + vec3(t * 0.45, -bassPhase * 0.3, midPhase * 0.25));
             vec3 innerSwatch = getPresetPalette(innerCaust + dot(n, vec3(0.4, 0.6, 0.2)), refrUvG);
             vec3 deepGlassCore = (u.preset.x > 8.5)
                 ? mix(refrCol * 0.94, vec3(0.015, 0.008, 0.035), 0.46 * coreDepth)

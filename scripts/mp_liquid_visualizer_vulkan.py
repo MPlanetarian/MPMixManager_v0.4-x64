@@ -19,7 +19,7 @@ if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shade
 
 SHADER_DIR, ASSETS_DIR, COVERS_DIR = ROOT / "shaders", ROOT / "assets", ROOT / "COVERS"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
-WINDOW_WIDTH = WINDOW_HEIGHT = 1400
+WINDOW_WIDTH = WINDOW_HEIGHT = 700
 RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT = 1920, 1080
 FOUR_K_MIN_WIDTH, FOUR_K_MIN_HEIGHT = 3840, 2160
 
@@ -1632,7 +1632,7 @@ def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[floa
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan 1400x1400 Borderless 3D Audio-Reactive Visualizer")
+    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan 700x700 Borderless 3D Audio-Reactive Visualizer")
     p.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
     p.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     p.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")
@@ -1640,7 +1640,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--fullscreen", "-fs", action="store_true", help="Launch visualizer in fullscreen mode (rendered at 1920x1080 on 4K)")
     p.add_argument("--4k", "--screen-4k", dest="target_4k", action="store_true", help="Launch visualizer on 4K display in fullscreen (rendered at 1920x1080)")
     p.add_argument("--screen", type=str, default=None, help="Target screen or monitor (e.g. '4k', 'hdmi', 'primary')")
-    p.add_argument("--self-test", action="store_true", help="Run Vulkan 1400x1400 render & pause/play verification")
+    p.add_argument("--self-test", action="store_true", help="Run Vulkan 700x700 render & pause/play verification")
     p.add_argument("--png", type=str, default=None, help="Output PNG path when running --self-test")
     p.add_argument("--max-seconds", type=float, default=None, help="Optional maximum runtime in seconds")
     args = p.parse_args(argv)

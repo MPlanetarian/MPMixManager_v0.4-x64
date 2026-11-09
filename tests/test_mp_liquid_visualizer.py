@@ -23,18 +23,18 @@ from scripts.desktop_launch_screen import fit_square_on_main  # noqa: E402
 
 
 class TestMPLiquidVisualizer(unittest.TestCase):
-    def test_window_dimensions_are_fixed_1400x1400(self):
-        """Preferred size stays 1400x1400, and the live window shrinks to the main screen."""
-        self.assertEqual(vis.WINDOW_WIDTH, 1400)
-        self.assertEqual(vis.WINDOW_HEIGHT, 1400)
-        self.assertEqual(vis_entry.WINDOW_WIDTH, 1400)
-        self.assertEqual(vis_entry.WINDOW_HEIGHT, 1400)
+    def test_window_dimensions_are_fixed_700x700(self):
+        """Preferred size stays 700x700, half of the old 1400 square, and still fits the main screen."""
+        self.assertEqual(vis.WINDOW_WIDTH, 700)
+        self.assertEqual(vis.WINDOW_HEIGHT, 700)
+        self.assertEqual(vis_entry.WINDOW_WIDTH, 700)
+        self.assertEqual(vis_entry.WINDOW_HEIGHT, 700)
         fitted = fit_square_on_main(vis.WINDOW_WIDTH)
         renderer = vis.LiquidVisualizerVulkanRenderer()
         self.assertEqual(renderer._windowed_size, (fitted[0], fitted[1]))
         self.assertEqual(renderer._windowed_offset, (fitted[2], fitted[3]))
-        self.assertLessEqual(fitted[0], 1400)
-        self.assertLessEqual(fitted[1], 1400)
+        self.assertLessEqual(fitted[0], 700)
+        self.assertLessEqual(fitted[1], 700)
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
@@ -321,7 +321,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertIn("key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q)", src)
 
     def test_z_key_toggles_fullscreen_and_normal_size(self):
-        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to normal 1400x1400 size."""
+        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to normal 700x700 size."""
         import time
 
         renderer = vis.LiquidVisualizerVulkanRenderer()
@@ -331,7 +331,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertFalse(renderer.is_fullscreen)
             normal = renderer.window_size()
             self.assertEqual(normal, renderer._windowed_size)
-            self.assertLessEqual(normal[0], 1400)
+            self.assertLessEqual(normal[0], 700)
 
             # Press Z -> enters fullscreen
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
@@ -366,7 +366,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(frag_spv.read_bytes()[:4], b"\x03\x02#\x07")
 
     def test_cli_list_presets_and_vulkan_self_test(self):
-        """CLI --list-presets and --self-test must succeed and render a 1400x1400 PNG."""
+        """CLI --list-presets and --self-test must succeed and render a 700x700 PNG."""
         res_list = subprocess.run(
             [sys.executable, str(ROOT / "MP_Liquid_Visualizer.py"), "--list-presets"],
             capture_output=True,

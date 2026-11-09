@@ -3887,7 +3887,7 @@ def launch_liquid_visualizer(
     base_dir: Optional[Path] = None,
     preset: Optional[str] = None,
 ) -> bool:
-    """Launch MP_Liquid_Visualizer in its native 1400x1400 borderless Vulkan window."""
+    """Launch MP_Liquid_Visualizer in its native 700x700 borderless Vulkan window."""
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
@@ -5172,7 +5172,7 @@ class TerminalPlayerUI:
             self._notify("✦ Launched MP Audio Player (Liquid Glass)" if ok else "Failed to open Liquid Glass Player window", 3.0)
         elif data in (b"z", b"Z"):
             ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
-            self._notify("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 1400x1400 Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
+            self._notify("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 700x700 Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
         elif data in (b"y", b"Y"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
@@ -5599,7 +5599,7 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
-        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1400x1400 fixed borderless Vulkan 3D)")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (700x700 fixed borderless Vulkan 3D)")),
         (("--visualizer-preset",), dict(type=str, default=None, help="Select MP Liquid Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
         (("--list-visualizer-presets",), dict(action="store_true", help="List available MP Liquid Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
@@ -5700,7 +5700,7 @@ def main():
         ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
         if ok:
             p_label = args.visualizer_preset or "Active Preset"
-            print(f"✔ Launched MP Liquid Visualizer [{p_label}] — 1400x1400 Fixed Borderless Vulkan")
+            print(f"✔ Launched MP Liquid Visualizer [{p_label}] — 700x700 Fixed Borderless Vulkan")
             sys.exit(0)
         print("✖ Failed to launch MP Liquid Visualizer", file=sys.stderr)
         sys.exit(1)
