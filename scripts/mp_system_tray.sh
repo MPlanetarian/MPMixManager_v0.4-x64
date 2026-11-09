@@ -32,14 +32,15 @@ mkdir -p "$CONFIG_DIR" 2>/dev/null || true
 LOG_FILE="$CONFIG_DIR/mp_system_tray.log"
 
 if [ "${1:-}" = "--ensure" ]; then
+    shift
     if python3 "$PY" --status >/dev/null 2>&1; then
         exit 0
     fi
     export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-kde}"
     if command -v setsid >/dev/null 2>&1; then
-        setsid python3 "$PY" >>"$LOG_FILE" 2>&1 </dev/null &
+        setsid python3 "$PY" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
     else
-        nohup python3 "$PY" >>"$LOG_FILE" 2>&1 </dev/null &
+        nohup python3 "$PY" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
     fi
     exit 0
 fi

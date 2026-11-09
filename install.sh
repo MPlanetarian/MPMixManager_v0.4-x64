@@ -260,6 +260,11 @@ if command -v python3 >/dev/null 2>&1; then
     else
         echo -e "${YELLOW}      ⚠ Desktop shortcuts could not be created.${NC}"
     fi
+    if python3 "$SCRIPT_DIR/scripts/mp_system_tray.py" --install; then
+        echo -e "${GREEN}      ✓ System tray icon installed and started.${NC}"
+    else
+        echo -e "${YELLOW}      ⚠ System tray icon could not be started.${NC}"
+    fi
 else
     echo -e "${YELLOW}      ⚠ python3 is required to create the desktop shortcuts.${NC}"
 fi
@@ -303,6 +308,8 @@ echo -e "  ${BOLD}${CYAN}MP Liquid Player${NC}"
 echo -e "  ${BOLD}${CYAN}MP Mix Manager${NC}"
 echo -e "  ${BOLD}${CYAN}MP Gui${NC}"
 echo -e "  ${BOLD}${CYAN}MP Liquid Visualizer${NC}"
+echo ""
+echo -e "System tray: right-click the MP Mix Manager icon to launch MP Gui, MP Liquid Player, or MP Mix Manager."
 echo ""
 echo -e "You can also launch MP Mix Manager:"
 if [ "$HOST_OS" = "macos" ]; then

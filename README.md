@@ -33,7 +33,7 @@ An enterprise-grade workstation orchestration console and media management suite
 >
 > New in this release:
 > - 🪟 **[MP Mix Manager GUI](MP_Gui.sh):** The full manager inside the Liquid Glass window. Main menu option **36**, the **MP** row, or `./MP_Gui.sh`. It opens on **Retro Linux Memories** and can sit beside the Liquid Player.
-> - 🖱️ **Shared tray icon:** MP Mix Manager, MP Gui, and MP Liquid Player use one icon. Right-click it to launch any of the three. **Close MP Mix Manager (Closes everything)** stops the manager, both windows, playback, and the visualizer.
+> - 🖱️ **Shared tray icon:** `./install.sh` starts the icon and keeps it on login. Right-click it to launch MP Mix Manager, MP Gui, or MP Liquid Player. **Close MP Mix Manager (Closes everything)** stops the manager, both windows, playback, and the visualizer.
 > - ⭐ **Favorites, library modes, and clear playlist:** In MP Audio Player, **`1`** is Mix Archive, **`2`** is Music folders, and **`3`** is Favorites. **`H`** marks a mix or track without rewriting the audio file. **`D`** or **Delete** twice clears the open playlist and queue. The files stay on disk.
 > - 🎧 **SMB music playlists that finish:** Playlist refresh lists each share with `rclone` and no longer waits on a mount that does not answer file stats. A named folder playlist stays separate from the combined list.
 > - 🪟 **[MP Liquid Glass Player](MP_Audio_Player_Liquid_Glass_OpenGL.py)** and **[MP Liquid Visualizer](MP_Liquid_Visualizer.py)** remain the desktop player and the 3D visualizer. The desktop shortcut opens on the main screen. The windowed visualizer fits that screen. Closing the player or the Manager GUI closes the visualizer.

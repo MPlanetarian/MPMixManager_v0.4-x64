@@ -159,6 +159,7 @@ chmod +x install.sh
    - `cut-video` (Precision start/end video cutter)
    - `~/manager.sh` (Home directory direct launcher)
 5. **Desktop Entry**: Installs `Mix_Archive_Manager.desktop` into `~/.local/share/applications/` and onto your Desktop.
+6. **System tray**: Enables KDE StatusNotifierWatcher, writes `~/.config/autostart/mp-mix-manager-tray.desktop`, and starts the shared MP Mix Manager tray icon.
 
 ---
 

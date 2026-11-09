@@ -186,6 +186,9 @@ migrate_installation_path() {
     if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/install_desktop_shortcuts.py" ]; then
         python3 "$target_dir/scripts/install_desktop_shortcuts.py" --root "$target_dir" >/dev/null 2>&1 || true
     fi
+    if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/mp_system_tray.py" ]; then
+        python3 "$target_dir/scripts/mp_system_tray.py" --install >/dev/null 2>&1 || true
+    fi
     
     if [ "$mode_opt" = "2" ]; then
         local old_bak="${SCRIPT_DIR}.archived_$(date +%Y%m%d_%H%M%S)"

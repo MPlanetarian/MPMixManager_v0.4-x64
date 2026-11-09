@@ -169,6 +169,7 @@ class TestHooks(unittest.TestCase):
     def test_shell_scripts_parse(self):
         for name in (
             "scripts/mp_system_tray.sh",
+            "install.sh",
             "MP_Gui.sh",
             "scripts/launch-liquid-glass",
             "scripts/launch_liquid_glass.sh",
@@ -187,6 +188,45 @@ class TestHooks(unittest.TestCase):
         self.assertIn("Launch MP Gui", text)
         self.assertIn("Launch MP Liquid Player", text)
         self.assertIn("Launch MP Mix Manager", text)
+
+    def test_the_installer_installs_and_starts_the_tray(self):
+        install = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("mp_system_tray.py", install)
+        self.assertIn("--install", install)
+        ensure = (ROOT / "scripts" / "mp_system_tray.sh").read_text(encoding="utf-8")
+        self.assertIn('setsid python3 "$PY" "$@"', ensure)
+
+
+class TestInstallFiles(unittest.TestCase):
+    def test_kded_autoload_is_written_without_rewriting_other_modules(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc_path = Path(tmp) / "kded5rc"
+            rc_path.write_text(
+                "[Module-appmenu]\nautoload=true\n\n[Module-statusnotifierwatcher]\nautoload=false\n",
+                encoding="utf-8",
+            )
+            tray.set_kded_autoload("statusnotifierwatcher", True, rc_path)
+            text = rc_path.read_text(encoding="utf-8")
+            self.assertIn("[Module-appmenu]", text)
+            self.assertIn("autoload=true", text)
+            self.assertRegex(text, r"\[Module-statusnotifierwatcher\]\nautoload=true")
+
+    def test_autostart_entry_stays_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            autostart = Path(tmp) / "autostart"
+            desktop = tray.write_autostart_entry(ROOT, autostart)
+            text = desktop.read_text(encoding="utf-8")
+            self.assertIn("mp_system_tray.sh --stay", text)
+            self.assertIn("X-GNOME-Autostart-enabled=true", text)
+            self.assertEqual(desktop.name, "mp-mix-manager-tray.desktop")
+
+    def test_menu_desktop_entry_uses_stay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apps = Path(tmp) / "applications"
+            desktop = tray.write_desktop_entry(ROOT, apps)
+            text = desktop.read_text(encoding="utf-8")
+            self.assertIn("mp_system_tray.sh --stay", text)
+            self.assertIn("NoDisplay=true", text)
 
 
 if __name__ == "__main__":

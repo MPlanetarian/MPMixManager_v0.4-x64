@@ -47,6 +47,9 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **No tray icon after `install.sh`** (`scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `install.sh`, `tests/test_mp_system_tray.py`):
+  - The installer enables KDE's `statusnotifierwatcher` module, writes the autostart entry, and starts the shared tray with `--stay`.
+  - The tray loads that module itself when Plasma has it turned off, then waits until the StatusNotifier host is available.
 - **SMB music folder playlists hung or were not written** (`scripts/music_folders_manager.py`, `tests/test_music_folder_smb_scan.py`):
   - Playlist refresh lists the share with `rclone lsf` and uses the size and time from that listing.
   - The scanner does not `stat` an rclone FUSE mount that answers `isdir` and then never returns a file stat.

@@ -510,7 +510,7 @@ def write_desktop_entry(base: Path, applications_dir: Path) -> Path:
         "Type=Application\n"
         "Name=MP Mix Manager\n"
         "Comment=Shared tray icon for MP Mix Manager, MP Gui, and MP Liquid Player\n"
-        f"Exec={script}\n"
+        f"Exec={script} --stay\n"
         f"Icon={icon}\n"
         "Terminal=false\n"
         "Categories=AudioVideo;Audio;\n"
@@ -521,14 +521,211 @@ def write_desktop_entry(base: Path, applications_dir: Path) -> Path:
     return desktop
 
 
-def run_tray(base: Path, config: Path, stay: bool = False) -> int:
-    os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
+def autostart_dir() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if config_home:
+        return Path(config_home) / "autostart"
+    return Path.home() / ".config" / "autostart"
+
+
+def write_autostart_entry(base: Path, autostart: Path) -> Path:
+    autostart.mkdir(parents=True, exist_ok=True)
+    desktop = autostart / "mp-mix-manager-tray.desktop"
+    script = base / "scripts" / "mp_system_tray.sh"
+    icon = icon_file(base)
+    content = (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=MP Mix Manager\n"
+        "Comment=Shared tray icon for MP Mix Manager, MP Gui, and MP Liquid Player\n"
+        f"Exec={script} --stay\n"
+        f"Icon={icon}\n"
+        "Terminal=false\n"
+        "Categories=AudioVideo;Audio;\n"
+        "X-GNOME-Autostart-enabled=true\n"
+        "StartupNotify=false\n"
+    )
+    if not desktop.is_file() or desktop.read_text(encoding="utf-8") != content:
+        desktop.write_text(content, encoding="utf-8")
+    return desktop
+
+
+def _write_kded_autoload_ini(rc_path: Path, module: str, enabled: bool) -> None:
+    section = f"[Module-{module}]"
+    value = "true" if enabled else "false"
+    rc_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = rc_path.read_text(encoding="utf-8").splitlines(True) if rc_path.is_file() else []
+    out: list[str] = []
+    index = 0
+    found = False
+    while index < len(lines):
+        if lines[index].strip() == section:
+            found = True
+            out.append(lines[index] if lines[index].endswith("\n") else lines[index] + "\n")
+            index += 1
+            wrote = False
+            while index < len(lines) and not lines[index].startswith("["):
+                stripped = lines[index].lstrip()
+                if stripped.startswith("autoload=") or stripped.startswith("autoload "):
+                    if not wrote:
+                        out.append(f"autoload={value}\n")
+                        wrote = True
+                else:
+                    out.append(lines[index])
+                index += 1
+            if not wrote:
+                out.append(f"autoload={value}\n")
+            continue
+        out.append(lines[index])
+        index += 1
+    if not found:
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        if out and out[-1].strip():
+            out.append("\n")
+        out.append(f"{section}\n")
+        out.append(f"autoload={value}\n")
+    rc_path.write_text("".join(out), encoding="utf-8")
+
+
+def set_kded_autoload(module: str, enabled: bool, rc_path: Path | None = None) -> Path:
+    path = rc_path or (Path.home() / ".config" / "kded5rc")
+    _write_kded_autoload_ini(path, module, enabled)
+    return path
+
+
+def load_kded_module(module: str) -> bool:
+    calls = (
+        (
+            "busctl",
+            [
+                "busctl",
+                "--user",
+                "--timeout=5",
+                "call",
+                "org.kde.kded6",
+                "/kded",
+                "org.kde.kded6",
+                "loadModule",
+                "s",
+                module,
+            ],
+        ),
+        (
+            "qdbus",
+            ["qdbus", "org.kde.kded6", "/kded", "org.kde.kded6.loadModule", module],
+        ),
+        (
+            "busctl",
+            [
+                "busctl",
+                "--user",
+                "--timeout=5",
+                "call",
+                "org.kde.kded5",
+                "/kded",
+                "org.kde.kded5",
+                "loadModule",
+                "s",
+                module,
+            ],
+        ),
+    )
+    for name, argv in calls:
+        if not _which(name):
+            continue
+        try:
+            result = subprocess.run(
+                argv,
+                capture_output=True,
+                timeout=6,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
+
+
+def enable_status_notifier_watcher(rc_paths: list[Path] | None = None) -> None:
+    """KDE shows no tray icons unless statusnotifierwatcher is loaded."""
+    paths = rc_paths or [
+        Path.home() / ".config" / "kded5rc",
+        Path.home() / ".config" / "kded6rc",
+    ]
+    for path in paths:
+        set_kded_autoload("statusnotifierwatcher", True, path)
+    load_kded_module("statusnotifierwatcher")
+
+
+def wait_for_system_tray(seconds: float = 6.0) -> bool:
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    deadline = time.time() + seconds
+    available = QSystemTrayIcon.isSystemTrayAvailable()
+    while not available and time.time() < deadline:
+        time.sleep(0.25)
+        available = QSystemTrayIcon.isSystemTrayAvailable()
+    return available
+
+
+def stop_tray_holder(lock_path: Path, self_pid: int | None = None) -> None:
+    if not lock_path.is_file():
+        return
+    try:
+        pid = int(lock_path.read_text(encoding="utf-8").strip().split()[0])
+    except (OSError, ValueError):
+        return
+    if pid <= 1 or pid == (self_pid or os.getpid()):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.time() + 3
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return
+
+
+def applications_dir() -> Path:
     data_home = os.environ.get("XDG_DATA_HOME", "").strip()
     if data_home:
-        applications = Path(data_home) / "applications"
-    else:
-        applications = Path.home() / ".local" / "share" / "applications"
-    write_desktop_entry(base, applications)
+        return Path(data_home) / "applications"
+    return Path.home() / ".local" / "share" / "applications"
+
+
+def install_tray(base: Path) -> int:
+    enable_status_notifier_watcher()
+    write_desktop_entry(base, applications_dir())
+    write_autostart_entry(base, autostart_dir())
+    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        return 0
+    lock_path = config_dir() / "mp_system_tray.lock"
+    stop_tray_holder(lock_path)
+    script = base / "scripts" / "mp_system_tray.sh"
+    spawn_argv([str(script), "--stay"], base, config_dir() / "mp_system_tray.log")
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if TrayLock.held(lock_path):
+            return 0
+        time.sleep(0.1)
+    return 0
+
+
+def run_tray(base: Path, config: Path, stay: bool = False) -> int:
+    os.environ.setdefault("QT_QPA_PLATFORMTHEME", "kde")
+    enable_status_notifier_watcher()
+    write_desktop_entry(base, applications_dir())
+    write_autostart_entry(base, autostart_dir())
 
     from PySide6.QtGui import QAction, QCursor, QIcon
     from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
@@ -537,6 +734,7 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("MP Mix Manager")
     app.setDesktopFileName("mp-mix-manager-tray")
+    tray_available = wait_for_system_tray()
 
     icon = QIcon(str(icon_file(base)))
     if icon.isNull():
@@ -547,7 +745,7 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as log_file:
         log_file.write(
-            f"ready pid={os.getpid()} tray={QSystemTrayIcon.isSystemTrayAvailable()}\n"
+            f"ready pid={os.getpid()} tray={tray_available}\n"
         )
 
     menu = QMenu()
@@ -632,6 +830,8 @@ def main(argv: list[str] | None = None) -> int:
     lock_path = config / "mp_system_tray.lock"
     if "--status" in args:
         return 0 if TrayLock.held(lock_path) else 1
+    if "--install" in args:
+        return install_tray(default_base_dir())
     lock = TrayLock(lock_path)
     if not lock.acquire():
         return 0
