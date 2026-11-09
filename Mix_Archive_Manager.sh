@@ -395,7 +395,45 @@ read_nav_key() {
     return 0
 }
 highlight_menu_line() {
-local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"; local c_mod=$(( (color_idx % 4 + 4) % 4 )); local base_r base_g base_b base_pr base_pg base_pb; if [ -n "${MENU_NUM_R:-}" ]; then case "$c_mod" in 1) base_r=$(( MENU_NUM_R + (255 - MENU_NUM_R) * 28 / 100 )); base_g=$(( MENU_NUM_G + (255 - MENU_NUM_G) * 28 / 100 )); base_b=$(( MENU_NUM_B + (255 - MENU_NUM_B) * 28 / 100 )) ;; 2) base_r=$(( MENU_NUM_R * 72 / 100 )); base_g=$(( MENU_NUM_G * 72 / 100 )); base_b=$(( MENU_NUM_B * 72 / 100 )) ;; 3) base_r=$(( MENU_NUM_R + (255 - MENU_NUM_R) * 48 / 100 )); base_g=$(( MENU_NUM_G + (255 - MENU_NUM_G) * 48 / 100 )); base_b=$(( MENU_NUM_B + (255 - MENU_NUM_B) * 48 / 100 )) ;; *) base_r=$MENU_NUM_R; base_g=$MENU_NUM_G; base_b=$MENU_NUM_B ;; esac; base_pr=$base_r; base_pg=$base_g; base_pb=$base_b; else case "$c_mod" in 0) base_r=247; base_g=37; base_b=133; base_pr=247; base_pg=37; base_pb=133 ;; 1) base_r=0; base_g=229; base_b=255; base_pr=0; base_pg=229; base_pb=255 ;; 2) base_r=255; base_g=140; base_b=0; base_pr=255; base_pg=140; base_pb=0 ;; 3) base_r=88; base_g=98; base_b=118; base_pr=160; base_pg=175; base_pb=205 ;; esac; fi; local bf="${breath_factor:-100}"; [ "$bf" -lt 15 ] && bf=15; [ "$bf" -gt 100 ] && bf=100; local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 )) pr=$(( base_pr * bf / 100 )) pg=$(( base_pg * bf / 100 )) pb=$(( base_pb * bf / 100 )); local bg="\033[48;2;${r};${g};${b}m" ptr_col="\033[1;38;2;${pr};${pg};${pb}m" fg_key fg_lbl; if [ "$bf" -ge 60 ]; then if [ -n "${MENU_NUM_R:-}" ]; then local _lum=$(( r * 3 + g * 6 + b )); if [ "$_lum" -gt 900 ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; elif [ "${CURRENT_THEME:-}" = "retro_terminal" ]; then fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; elif [ "${CURRENT_THEME:-}" = "retro_linux_memories" ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" = "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; elif [ "${CURRENT_THEME:-}" != "cosmic_supernova" ] && [ "$c_mod" -eq 3 ]; then fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; else fg_key="\033[1;38;2;0;0;0m"; fg_lbl="\033[1;38;2;0;0;0m"; fi; else fg_key="\033[1;38;2;255;255;255m"; fg_lbl="\033[1;38;2;255;255;255m"; fi; local rst="\033[0m" ptr="    "; printf -v formatted_key "[%2s]" "$key"; local line_content="${bg}${fg_key} ${formatted_key} ${fg_lbl}${label}${rst}"; local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} )); local target_w=$(( box_width - 6 )); local pad_len=$(( target_w - raw_len )); [ "$pad_len" -lt 1 ] && pad_len=1; local pad_spaces; printf -v pad_spaces '%*s' "$pad_len" ''; local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"; if [ -n "$_out_var" ]; then printf -v "$_out_var" "%s" "$line_out"; else printf "%b\n" "$line_out"; fi
+local key="$1" label="$2" extra="$3" color_idx="${4:-0}" _out_var="$5" box_width="${6:-74}" breath_factor="${7:-100}"
+local c_mod=$(( (color_idx % 4 + 4) % 4 ))
+local base_r base_g base_b
+if [ -n "${MENU_NUM_R:-}" ]; then
+    case "$c_mod" in
+        1) base_r=$(( MENU_NUM_R + (255 - MENU_NUM_R) * 28 / 100 )); base_g=$(( MENU_NUM_G + (255 - MENU_NUM_G) * 28 / 100 )); base_b=$(( MENU_NUM_B + (255 - MENU_NUM_B) * 28 / 100 )) ;;
+        2) base_r=$(( MENU_NUM_R * 72 / 100 )); base_g=$(( MENU_NUM_G * 72 / 100 )); base_b=$(( MENU_NUM_B * 72 / 100 )) ;;
+        3) base_r=$(( MENU_NUM_R + (255 - MENU_NUM_R) * 48 / 100 )); base_g=$(( MENU_NUM_G + (255 - MENU_NUM_G) * 48 / 100 )); base_b=$(( MENU_NUM_B + (255 - MENU_NUM_B) * 48 / 100 )) ;;
+        *) base_r=$MENU_NUM_R; base_g=$MENU_NUM_G; base_b=$MENU_NUM_B ;;
+    esac
+else
+    case "$c_mod" in
+        0) base_r=247; base_g=37; base_b=133 ;;
+        1) base_r=0; base_g=229; base_b=255 ;;
+        2) base_r=255; base_g=140; base_b=0 ;;
+        3) base_r=88; base_g=98; base_b=118 ;;
+    esac
+fi
+local bf="${breath_factor:-100}"
+[ "$bf" -lt 15 ] && bf=15
+[ "$bf" -gt 100 ] && bf=100
+local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 ))
+# Accent text only. A filled 48;2 bar paints a row of yellow blocks on the
+# selected item, and the first item is the MP GUI row.
+local fg="\033[1;38;2;${r};${g};${b}m" rst="\033[0m" ptr="    "
+printf -v formatted_key "[%2s]" "$key"
+local line_content="${fg} ${formatted_key} ${label}${rst}"
+local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} ))
+local target_w=$(( box_width - 6 ))
+local pad_len=$(( target_w - raw_len ))
+[ "$pad_len" -lt 1 ] && pad_len=1
+local pad_spaces
+printf -v pad_spaces '%*s' "$pad_len" ''
+local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"
+if [ -n "$_out_var" ]; then
+    printf -v "$_out_var" "%s" "$line_out"
+else
+    printf "%b\n" "$line_out"
+fi
 }
 
 _start_win_cursor_hider() {

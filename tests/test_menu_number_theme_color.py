@@ -92,7 +92,7 @@ class TestMenuNumberThemeColor(unittest.TestCase):
         blues = [name for name, accent in EXPECTED.items() if _is_light_blue(accent)]
         self.assertEqual(blues, ["ice_cold"])
 
-    def test_selection_bar_uses_that_same_hue(self):
+    def test_selection_uses_that_same_hue_without_a_filled_bar(self):
         themes = " ".join(EXPECTED)
         script = f"""
         set -e
@@ -111,7 +111,8 @@ class TestMenuNumberThemeColor(unittest.TestCase):
         for raw in res.stdout.splitlines():
             theme, line = raw.split("\t", 1)
             accent = EXPECTED[theme]
-            self.assertIn(f"48;2;{accent}", line, theme)
+            self.assertIn(f"38;2;{accent}", line, theme)
+            self.assertNotIn("48;2;", line, theme)
             self.assertNotIn("0;229;255", line, theme)
             for cursor in ("▶", "❯", "►", "›"):
                 self.assertNotIn(cursor, line, theme)
