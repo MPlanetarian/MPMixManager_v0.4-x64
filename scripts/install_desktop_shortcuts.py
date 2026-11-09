@@ -10,7 +10,9 @@ Desktop and in the application menu:
   MP Liquid Visualizer
 
 On macOS, MP Mix Manager stays a Terminal .command file. The other three are
-application bundles, so opening them does not open a Terminal window.
+application bundles, so opening them does not open a Terminal window. All four
+use the same Finder image. An .icns alone is drawn on the gray application
+plate, so each bundle also gets the custom Finder image used by the command file.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -255,6 +258,7 @@ def mac_command(spec: dict) -> str:
 
 
 MAC_APP_EXECUTABLE = "launch"
+MAC_ICON_NAME = "mp_liquid_glass_icon"
 
 
 def mac_bundle_identifier(name: str) -> str:
@@ -267,8 +271,14 @@ def mac_bundle_identifier(name: str) -> str:
     return "com.mplanetarian." + "".join(slug).strip("-")
 
 
-def mac_info_plist(name: str) -> str:
+def mac_info_plist(name: str, icon_name: str | None = None) -> str:
     safe = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    icon_xml = ""
+    if icon_name:
+        icon_xml = (
+            "\t<key>CFBundleIconFile</key>\n"
+            f"\t<string>{icon_name}</string>\n"
+        )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
@@ -295,9 +305,114 @@ def mac_info_plist(name: str) -> str:
         "\t<string>11.0</string>\n"
         "\t<key>NSHighResolutionCapable</key>\n"
         "\t<true/>\n"
+        f"{icon_xml}"
         "</dict>\n"
         "</plist>\n"
     )
+
+
+def build_mac_icns(png: Path, dest: Path) -> bool:
+    """Turn the shared PNG into a Finder .icns file. macOS only."""
+    if sys.platform != "darwin" or not png.is_file():
+        return False
+    sips = shutil.which("sips")
+    iconutil = shutil.which("iconutil")
+    if not sips or not iconutil:
+        return False
+    if dest.is_file() and dest.stat().st_mtime >= png.stat().st_mtime and dest.stat().st_size > 0:
+        return True
+    sizes = (
+        (16, "icon_16x16.png"),
+        (32, "icon_16x16@2x.png"),
+        (32, "icon_32x32.png"),
+        (64, "icon_32x32@2x.png"),
+        (128, "icon_128x128.png"),
+        (256, "icon_128x128@2x.png"),
+        (256, "icon_256x256.png"),
+        (512, "icon_256x256@2x.png"),
+        (512, "icon_512x512.png"),
+        (1024, "icon_512x512@2x.png"),
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        iconset = Path(tmp) / "icon.iconset"
+        iconset.mkdir()
+        for size, filename in sizes:
+            result = subprocess.run(
+                [sips, "-z", str(size), str(size), str(png), "--out", str(iconset / filename)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode != 0 or not (iconset / filename).is_file():
+                return False
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            [iconutil, "-c", "icns", str(iconset), "-o", str(dest)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+    return result.returncode == 0 and dest.is_file() and dest.stat().st_size > 0
+
+
+def apply_finder_icon(path: Path, png: Path) -> bool:
+    """Give a file or an application bundle the Finder image in this PNG.
+
+    Finder draws an application .icns on the gray macOS icon plate. This custom
+    image is the one MP Mix Manager.command shows, with no plate.
+    """
+    if sys.platform != "darwin" or not path.exists() or not png.is_file():
+        return False
+    script = (
+        "function run(argv) {\n"
+        "  ObjC.import('AppKit');\n"
+        "  var image = $.NSImage.alloc.initWithContentsOfFile(argv[0]);\n"
+        "  if (!image) { return 'no-image'; }\n"
+        "  var ok = $.NSWorkspace.sharedWorkspace.setIconForFileOptions(image, argv[1], 0);\n"
+        "  return ok ? 'ok' : 'no';\n"
+        "}\n"
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-l", "JavaScript", "-e", script, str(png), str(path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and "ok" in result.stdout
+
+
+def _has_resource_fork(path: Path) -> bool:
+    xattr = shutil.which("xattr")
+    if not xattr or sys.platform != "darwin" or not path.exists():
+        return False
+    try:
+        result = subprocess.run(
+            [xattr, "-p", "com.apple.ResourceFork", str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def mac_finder_icon_present(path: Path) -> bool:
+    """True when Finder has a custom image on this file or application bundle."""
+    if not shutil.which("xattr") or sys.platform != "darwin":
+        return True
+    if _has_resource_fork(path):
+        return True
+    # Application bundles keep the custom image on Icon<CR>, not the bundle root.
+    icon_file = path / "Icon\r"
+    return icon_file.is_file() and _has_resource_fork(icon_file)
 
 
 def _remove_file(path: Path) -> None:
@@ -349,14 +464,30 @@ def _codesign_mac_app(app: Path) -> None:
         pass
 
 
-def write_mac_app(directory: Path, name: str, content: str) -> Path:
+def write_mac_app(
+    directory: Path,
+    name: str,
+    content: str,
+    icns: Path | None = None,
+    png: Path | None = None,
+) -> Path:
     """Write an application bundle. Opening it does not open Terminal."""
     app = directory / f"{name}.app"
     _remove_tree(app)
     _write_text(app / "Contents" / "MacOS" / MAC_APP_EXECUTABLE, content, executable=True)
-    _write_text(app / "Contents" / "Info.plist", mac_info_plist(name))
+    icon_name = None
+    if icns is not None and icns.is_file() and icns.stat().st_size > 0:
+        icon_name = MAC_ICON_NAME
+        resource = app / "Contents" / "Resources" / f"{MAC_ICON_NAME}.icns"
+        resource.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(icns, resource)
+    _write_text(app / "Contents" / "Info.plist", mac_info_plist(name, icon_name))
     _remove_file(directory / f"{name}.command")
+    # Sign first. xattr -cr would remove a custom icon. The Finder image is
+    # stored beside the signed contents, and the signature stays valid.
     _codesign_mac_app(app)
+    if png is not None and png.is_file():
+        apply_finder_icon(app, png)
     return app
 
 
@@ -590,36 +721,55 @@ def install_desktop_shortcuts(
 
     targets = shortcut_targets(root)
     written: list[Path] = []
-    for name in SHORTCUT_NAMES:
-        spec = targets[name]
-        if platform_name == "macos":
-            content = mac_command(spec)
-            for directory in (desktop, apps):
+    icon_workspace = tempfile.TemporaryDirectory() if platform_name == "macos" else None
+    shared_icns = None
+    shared_png = root / "assets" / "mp_liquid_glass_icon.png"
+    try:
+        if icon_workspace is not None and shared_png.is_file():
+            candidate = Path(icon_workspace.name) / f"{MAC_ICON_NAME}.icns"
+            if build_mac_icns(shared_png, candidate):
+                shared_icns = candidate
+        for name in SHORTCUT_NAMES:
+            spec = targets[name]
+            if platform_name == "macos":
+                content = mac_command(spec)
+                for directory in (desktop, apps):
+                    if spec.get("terminal"):
+                        path = directory / f"{name}.command"
+                        _write_text(path, content, executable=True)
+                        _remove_tree(directory / f"{name}.app")
+                        if shared_png.is_file():
+                            apply_finder_icon(path, shared_png)
+                    else:
+                        write_mac_app(
+                            directory,
+                            name,
+                            content,
+                            shared_icns,
+                            shared_png if shared_png.is_file() else None,
+                        )
                 if spec.get("terminal"):
-                    path = directory / f"{name}.command"
-                    _write_text(path, content, executable=True)
-                    _remove_tree(directory / f"{name}.app")
+                    written.append(desktop / f"{name}.command")
                 else:
-                    write_mac_app(directory, name, content)
-            if spec.get("terminal"):
-                written.append(desktop / f"{name}.command")
+                    written.append(desktop / f"{name}.app")
+            elif platform_name == "windows":
+                target, arguments = windows_link_target(name, spec, root, launchers)
+                icon = spec.get("windows_icon")
+                for directory in (desktop, apps):
+                    path = directory / f"{name}.lnk"
+                    writer = link_writer or write_powershell_lnk
+                    writer(path, target, arguments, root, spec["comment"], icon)
+                written.append(desktop / f"{name}.lnk")
             else:
-                written.append(desktop / f"{name}.app")
-        elif platform_name == "windows":
-            target, arguments = windows_link_target(name, spec, root, launchers)
-            icon = spec.get("windows_icon")
-            for directory in (desktop, apps):
-                path = directory / f"{name}.lnk"
-                writer = link_writer or write_powershell_lnk
-                writer(path, target, arguments, root, spec["comment"], icon)
-            written.append(desktop / f"{name}.lnk")
-        else:
-            content = linux_desktop_entry(name, spec, root)
-            for directory in (desktop, apps):
-                path = directory / f"{name}.desktop"
-                _write_text(path, content, executable=True)
-                _trust_desktop_file(path)
-            written.append(desktop / f"{name}.desktop")
+                content = linux_desktop_entry(name, spec, root)
+                for directory in (desktop, apps):
+                    path = directory / f"{name}.desktop"
+                    _write_text(path, content, executable=True)
+                    _trust_desktop_file(path)
+                written.append(desktop / f"{name}.desktop")
+    finally:
+        if icon_workspace is not None:
+            icon_workspace.cleanup()
     if platform_name == "linux":
         updater = shutil.which("update-desktop-database")
         if updater:
@@ -628,6 +778,31 @@ def install_desktop_shortcuts(
             except (OSError, subprocess.SubprocessError):
                 pass
     return written
+
+
+def _mac_shortcut_icons_present(desktop: Path) -> bool:
+    """An old install has the four shortcuts and none of the images."""
+    if sys.platform != "darwin":
+        return True
+    if not shutil.which("sips") or not shutil.which("iconutil") or not shutil.which("osascript"):
+        return True
+    png = ROOT / "assets" / "mp_liquid_glass_icon.png"
+    if not png.is_file():
+        return True
+    targets = shortcut_targets(ROOT)
+    for name in SHORTCUT_NAMES:
+        if targets[name].get("terminal"):
+            command = desktop / f"{name}.command"
+            if command.is_file() and not mac_finder_icon_present(command):
+                return False
+        else:
+            app = desktop / f"{name}.app"
+            icns = app / "Contents" / "Resources" / f"{MAC_ICON_NAME}.icns"
+            if not icns.is_file() or icns.stat().st_size <= 0:
+                return False
+            if not mac_finder_icon_present(app):
+                return False
+    return True
 
 
 def desktop_shortcuts_present(desktop: Path, platform_name: str) -> bool:
@@ -639,7 +814,7 @@ def desktop_shortcuts_present(desktop: Path, platform_name: str) -> bool:
                     return False
             elif not (desktop / f"{name}.app" / "Contents" / "MacOS" / MAC_APP_EXECUTABLE).is_file():
                 return False
-        return True
+        return _mac_shortcut_icons_present(desktop)
     suffix = { "windows": ".lnk" }.get(platform_name, ".desktop")
     return all((desktop / f"{name}{suffix}").is_file() for name in SHORTCUT_NAMES)
 

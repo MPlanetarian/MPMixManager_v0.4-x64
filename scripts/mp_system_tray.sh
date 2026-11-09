@@ -23,6 +23,10 @@ _is_windows_host() {
     return 1
 }
 
+_is_darwin_host() {
+    [ "$(uname -s)" = "Darwin" ]
+}
+
 # Windows 10/11 has no StatusNotifier host. The notification icon and the
 # per-user shortcuts are created by PowerShell, including when python3 is only
 # the Microsoft Store alias.
@@ -62,7 +66,8 @@ if [ "${1:-}" = "--status" ]; then
     exec python3 "$PY" --status
 fi
 
-if ! python3 -c "import PySide6.QtWidgets" >/dev/null 2>&1; then
+# macOS uses an AppKit menu-bar icon. PySide6 and the KDE theme are not used.
+if ! _is_darwin_host && ! python3 -c "import PySide6.QtWidgets" >/dev/null 2>&1; then
     exit 0
 fi
 
@@ -75,7 +80,9 @@ if [ "${1:-}" = "--ensure" ]; then
     if python3 "$PY" --status >/dev/null 2>&1; then
         exit 0
     fi
-    export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-kde}"
+    if ! _is_darwin_host; then
+        export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-kde}"
+    fi
     if command -v setsid >/dev/null 2>&1; then
         setsid python3 "$PY" "$@" >>"$LOG_FILE" 2>&1 </dev/null &
     else
@@ -84,5 +91,7 @@ if [ "${1:-}" = "--ensure" ]; then
     exit 0
 fi
 
-export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-kde}"
+if ! _is_darwin_host; then
+    export QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-kde}"
+fi
 exec python3 "$PY" "$@"

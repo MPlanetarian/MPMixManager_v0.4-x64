@@ -319,7 +319,11 @@ echo -e "  ${BOLD}${CYAN}MP Mix Manager${NC}"
 echo -e "  ${BOLD}${CYAN}MP Gui${NC}"
 echo -e "  ${BOLD}${CYAN}MP Liquid Visualizer${NC}"
 echo ""
-echo -e "System tray: right-click the MP Mix Manager icon to launch MP Gui, MP Liquid Player, or MP Mix Manager."
+if [ "$HOST_OS" = "macos" ]; then
+    echo -e "Menu bar: the MP Mix Manager icon is on the right side of the menu bar. Click it to launch MP Gui, MP Liquid Player, or MP Mix Manager."
+else
+    echo -e "System tray: right-click the MP Mix Manager icon to launch MP Gui, MP Liquid Player, or MP Mix Manager."
+fi
 echo ""
 echo -e "You can also launch MP Mix Manager:"
 if [ "$HOST_OS" = "macos" ]; then

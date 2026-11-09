@@ -47,6 +47,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **No menu bar icon or desktop shortcut image on macOS** (`scripts/macos_menu_bar.swift`, `scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `scripts/install_desktop_shortcuts.py`, `install.sh`):
+  - The installer starts an AppKit menu-bar icon and a login item. The icon does not use PySide6 or a KDE StatusNotifier host.
+  - Click the icon to launch MP Gui, MP Liquid Player, or MP Mix Manager, or to close them.
+  - The desktop shortcuts use `assets/mp_liquid_glass_icon.png`. MP Gui, MP Liquid Player, and MP Liquid Visualizer get that same Finder image as `MP Mix Manager.command`, so macOS does not place the artwork on the gray application plate. Each application bundle also keeps an `.icns`.
 - **G in the macOS Liquid Player** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_mp_gui.py`):
   - The embedded player was started with `MP_LIQUID_GLASS=0`, so **G** built a spectrogram instead of opening MP Gui.
   - That player now gets `MP_LIQUID_GLASS=1`, the same flag as the other Liquid hosts. **G** opens MP Gui.

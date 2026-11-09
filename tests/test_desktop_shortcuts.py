@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from install_desktop_shortcuts import (  # noqa: E402
     MAC_APP_EXECUTABLE,
+    MAC_ICON_NAME,
     SHORTCUT_NAMES,
     _is_public_windows_folder,
     desktop_dir_for,
@@ -20,6 +21,7 @@ from install_desktop_shortcuts import (  # noqa: E402
     ensure_installed,
     install_desktop_shortcuts,
     mac_bundle_identifier,
+    mac_finder_icon_present,
 )
 
 
@@ -135,6 +137,15 @@ class TestDesktopShortcuts(unittest.TestCase):
                     self.assertIn(f"<string>{name}</string>", plist)
                     self.assertIn(mac_bundle_identifier(name), plist)
                     self.assertIn(f"<string>{MAC_APP_EXECUTABLE}</string>", plist)
+                    if sys.platform == "darwin":
+                        icns = app / "Contents" / "Resources" / f"{MAC_ICON_NAME}.icns"
+                        self.assertTrue(icns.is_file() and icns.stat().st_size > 0, name)
+                        self.assertIn("CFBundleIconFile", plist)
+                        self.assertIn(MAC_ICON_NAME, plist)
+                        self.assertTrue(mac_finder_icon_present(app), name)
+            if sys.platform == "darwin":
+                self.assertTrue(mac_finder_icon_present(desktop / "MP Mix Manager.command"))
+                self.assertTrue(mac_finder_icon_present(apps / "MP Mix Manager.command"))
             self.assertTrue(desktop_shortcuts_present(desktop, "macos"))
 
     def test_windows_install_links_the_four_launchers(self):

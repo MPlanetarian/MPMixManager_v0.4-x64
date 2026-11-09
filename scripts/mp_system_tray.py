@@ -10,6 +10,8 @@ three is open. A second launch focuses the window that is already open.
 from __future__ import annotations
 
 import os
+import plistlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -354,10 +356,16 @@ def manager_pids(
     return found
 
 
-def launch_plan(role: str, base: Path, running: set[str]) -> dict[str, object]:
+def launch_plan(
+    role: str,
+    base: Path,
+    running: set[str],
+    platform_name: str | None = None,
+) -> dict[str, object]:
     title = FOCUS_TITLES[role]
     if role in running:
         return {"action": "focus", "title": title, "argv": []}
+    host = platform_name or sys.platform
     if role == ROLE_GUI:
         argv = ["bash", str(base / "MP_Gui.sh")]
     elif role == ROLE_LIQUID:
@@ -365,6 +373,11 @@ def launch_plan(role: str, base: Path, running: set[str]) -> dict[str, object]:
         if not launcher.is_file():
             launcher = base / "scripts" / "launch_liquid_glass.sh"
         argv = [str(launcher)]
+    elif host == "darwin":
+        command = base / "manager_macos.command"
+        if not command.is_file():
+            command = base / "Mix_Archive_Manager.sh"
+        argv = ["open", "-a", "Terminal", str(command)]
     else:
         launcher = base / "bin" / "launch-manager"
         if not launcher.is_file():
@@ -451,7 +464,89 @@ def _read_proc_table_ps() -> list[ProcessInfo]:
     return found
 
 
+def _applescript_quote(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _focus_window_macos(title: str) -> bool:
+    safe = _applescript_quote(title)
+    script = (
+        'tell application "System Events"\n'
+        "  repeat with proc in processes\n"
+        "    try\n"
+        "      repeat with w in windows of proc\n"
+        f'        if name of w contains "{safe}" then\n'
+        "          set frontmost of proc to true\n"
+        '          perform action "AXRaise" of w\n'
+        '          return "ok"\n'
+        "        end if\n"
+        "      end repeat\n"
+        "    end try\n"
+        "  end repeat\n"
+        "end tell\n"
+        'return "miss"\n'
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode == 0 and "ok" in result.stdout:
+        return True
+    if "Mix Archive Manager" in title:
+        try:
+            raised = subprocess.run(
+                ["open", "-a", "Terminal"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return raised.returncode == 0
+    return False
+
+
+def _close_windows_macos(titles: tuple[str, ...]) -> None:
+    checks = " or ".join(
+        f'name of w contains "{_applescript_quote(title)}"' for title in titles
+    )
+    script = (
+        'tell application "System Events"\n'
+        "  repeat with proc in processes\n"
+        "    try\n"
+        "      repeat with w in windows of proc\n"
+        f"        if {checks} then\n"
+        "          try\n"
+        '            click (first button of w whose subrole is "AXCloseButton")\n'
+        "          end try\n"
+        "        end if\n"
+        "      end repeat\n"
+        "    end try\n"
+        "  end repeat\n"
+        "end tell\n"
+    )
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
 def focus_window(title: str) -> bool:
+    if sys.platform == "darwin":
+        return _focus_window_macos(title)
     wmctrl = _which("wmctrl")
     if not wmctrl:
         return False
@@ -473,6 +568,9 @@ def focus_window(title: str) -> bool:
 
 
 def close_windows(titles: tuple[str, ...] = CLOSE_WINDOW_TITLES) -> None:
+    if sys.platform == "darwin":
+        _close_windows_macos(titles)
+        return
     wmctrl = _which("wmctrl")
     if not wmctrl:
         return
@@ -761,6 +859,401 @@ def stop_tray_holder(lock_path: Path, self_pid: int | None = None) -> None:
         return
 
 
+MENU_BAR_LABEL = "com.mplanetarian.mp-mix-manager-tray"
+_MENU_ACTIONS = {ident for ident, _label in MENU_ENTRIES}
+
+
+def perform_menu_action(base: Path, action_id: str) -> int:
+    if action_id not in _MENU_ACTIONS:
+        return 2
+    if action_id == "close-all":
+        shutdown_suite(base)
+        return 0
+    role = {
+        "launch-gui": ROLE_GUI,
+        "launch-liquid": ROLE_LIQUID,
+        "launch-manager": ROLE_MANAGER,
+    }[action_id]
+    running = roles_present(read_proc_table(), {os.getpid()})
+    plan = launch_plan(role, base, running)
+    if plan["action"] == "focus":
+        focus_window(str(plan["title"]))
+        return 0
+    spawn_argv(list(plan["argv"]), base, config_dir() / "mp_system_tray.log")
+    return 0
+
+
+def format_roles(roles: set[str]) -> str:
+    return " ".join(sorted(roles))
+
+
+def macos_menu_arguments(base: Path, icon: Path, lock_path: Path, python: str, stay: bool) -> list[str]:
+    argv = [
+        "--root", str(base),
+        "--icon", str(icon),
+        "--lock", str(lock_path),
+        "--python", python,
+    ]
+    if stay:
+        argv.append("--stay")
+    return argv
+
+
+def macos_open_argv(bundle: Path, base: Path, icon: Path, lock_path: Path, python: str, stay: bool) -> list[str]:
+    """Launch Services starts the agent. A raw executable gets no menu-bar slot."""
+    return [
+        "/usr/bin/open",
+        "-g",
+        str(bundle),
+        "--args",
+        *macos_menu_arguments(base, icon, lock_path, python, stay),
+    ]
+
+
+def macos_launch_agent_plist(
+    bundle: Path,
+    base: Path,
+    icon: Path,
+    lock: Path,
+    python: str,
+    stay: bool = True,
+) -> bytes:
+    arguments = macos_open_argv(bundle, base, icon, lock, python, stay)
+    payload = {
+        "Label": MENU_BAR_LABEL,
+        "ProgramArguments": arguments,
+        "RunAtLoad": True,
+        "LimitLoadToSessionType": "Aqua",
+        "ProcessType": "Interactive",
+        "EnvironmentVariables": {
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+        "StandardOutPath": str(lock.parent / "macos_menu_bar.log"),
+        "StandardErrorPath": str(lock.parent / "macos_menu_bar.log"),
+    }
+    return plistlib.dumps(payload, fmt=plistlib.FMT_XML)
+
+
+def write_macos_launch_agent(home: Path, plist: bytes) -> Path:
+    directory = home / "Library" / "LaunchAgents"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{MENU_BAR_LABEL}.plist"
+    path.write_bytes(plist)
+    return path
+
+
+def _swiftc_path() -> str | None:
+    found = _which("swiftc")
+    if found:
+        return found
+    xcrun = _which("xcrun")
+    if not xcrun:
+        return None
+    try:
+        result = subprocess.run(
+            [xcrun, "--find", "swiftc"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    path = result.stdout.strip()
+    if result.returncode == 0 and path:
+        return path
+    return None
+
+
+def _macos_sdk_path() -> str | None:
+    xcrun = _which("xcrun")
+    if not xcrun:
+        return None
+    try:
+        result = subprocess.run(
+            [xcrun, "--show-sdk-path"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    path = result.stdout.strip()
+    if result.returncode == 0 and path:
+        return path
+    return None
+
+
+def compile_macos_menu_bar(base: Path, dest: Path) -> Path | None:
+    src = base / "scripts" / "macos_menu_bar.swift"
+    if not src.is_file():
+        return None
+    if dest.is_file() and os.access(dest, os.X_OK) and dest.stat().st_mtime >= src.stat().st_mtime:
+        return dest
+    swiftc = _swiftc_path()
+    if not swiftc:
+        return dest if dest.is_file() and os.access(dest, os.X_OK) else None
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".new")
+    log_path = dest.parent / "macos_menu_bar.compile.log"
+    argv = [swiftc]
+    sdk = _macos_sdk_path()
+    if sdk:
+        argv.extend(["-sdk", sdk])
+    argv.extend(["-o", str(tmp), str(src)])
+    print("Building the macOS menu bar icon...", flush=True)
+    try:
+        result = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log_path.write_text(str(exc), encoding="utf-8")
+        tmp.unlink(missing_ok=True)
+        return dest if dest.is_file() and os.access(dest, os.X_OK) else None
+    log_path.write_text((result.stdout or "") + (result.stderr or ""), encoding="utf-8")
+    if result.returncode != 0 or not tmp.is_file():
+        tmp.unlink(missing_ok=True)
+        print(f"Could not compile the menu bar icon. See {log_path}", file=sys.stderr)
+        return dest if dest.is_file() and os.access(dest, os.X_OK) else None
+    tmp.chmod(0o755)
+    os.replace(tmp, dest)
+    codesign = _which("codesign")
+    if codesign:
+        try:
+            subprocess.run(
+                [codesign, "--force", "--sign", "-", str(dest)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return dest
+
+
+def macos_tray_bundle(config: Path) -> Path:
+    return config / "MP Mix Manager Tray.app"
+
+
+def macos_tray_bundle_plist() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        "<dict>\n"
+        "\t<key>CFBundleExecutable</key>\n"
+        "\t<string>macos_menu_bar</string>\n"
+        "\t<key>CFBundleIdentifier</key>\n"
+        f"\t<string>{MENU_BAR_LABEL}</string>\n"
+        "\t<key>CFBundleName</key>\n"
+        "\t<string>MP Mix Manager</string>\n"
+        "\t<key>CFBundleDisplayName</key>\n"
+        "\t<string>MP Mix Manager</string>\n"
+        "\t<key>CFBundlePackageType</key>\n"
+        "\t<string>APPL</string>\n"
+        "\t<key>CFBundleInfoDictionaryVersion</key>\n"
+        "\t<string>6.0</string>\n"
+        "\t<key>CFBundleShortVersionString</key>\n"
+        "\t<string>0.4.2</string>\n"
+        "\t<key>LSMinimumSystemVersion</key>\n"
+        "\t<string>11.0</string>\n"
+        "\t<key>LSUIElement</key>\n"
+        "\t<true/>\n"
+        "\t<key>NSHighResolutionCapable</key>\n"
+        "\t<true/>\n"
+        "</dict>\n"
+        "</plist>\n"
+    )
+
+
+def stage_macos_tray_app(binary: Path, bundle: Path) -> Path:
+    """A raw executable does not get a menu-bar slot. The same binary inside
+    an agent app bundle does.
+    """
+    exe = bundle / "Contents" / "MacOS" / "macos_menu_bar"
+    info = bundle / "Contents" / "Info.plist"
+    if (
+        exe.is_file()
+        and info.is_file()
+        and os.access(exe, os.X_OK)
+        and exe.stat().st_mtime >= binary.stat().st_mtime
+        and "LSUIElement" in info.read_text(encoding="utf-8")
+    ):
+        return exe
+    if bundle.exists():
+        shutil.rmtree(bundle)
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(binary, exe)
+    exe.chmod(0o755)
+    info.write_text(macos_tray_bundle_plist(), encoding="utf-8")
+    codesign = _which("codesign")
+    if codesign and sys.platform == "darwin":
+        try:
+            subprocess.run(
+                [codesign, "--force", "--sign", "-", str(bundle)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return exe
+
+
+def start_macos_launch_agent(plist: Path) -> bool:
+    if sys.platform != "darwin":
+        return False
+    uid = os.getuid()
+    target = f"gui/{uid}/{MENU_BAR_LABEL}"
+    domain = f"gui/{uid}"
+    try:
+        subprocess.run(
+            ["launchctl", "bootout", target],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        boot = subprocess.run(
+            ["launchctl", "bootstrap", domain, str(plist)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        subprocess.run(
+            ["launchctl", "enable", target],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if boot.returncode != 0:
+            kick = subprocess.run(
+                ["launchctl", "kickstart", "-k", target],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if kick.returncode != 0:
+                detail = (boot.stderr or kick.stderr or "").strip()
+                if detail:
+                    print(detail, file=sys.stderr)
+                return False
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(str(exc), file=sys.stderr)
+        return False
+    return True
+
+
+def _wait_for_lock(lock_path: Path, seconds: float) -> bool:
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if TrayLock.held(lock_path):
+            return True
+        time.sleep(0.1)
+    return TrayLock.held(lock_path)
+
+
+def _register_macos_tray_app(bundle: Path) -> None:
+    if sys.platform != "darwin" or not bundle.is_dir():
+        return
+    tool = Path(
+        "/System/Library/Frameworks/CoreServices.framework"
+        "/Frameworks/LaunchServices.framework/Support/lsregister"
+    )
+    if not tool.is_file():
+        return
+    try:
+        subprocess.run(
+            [str(tool), "-f", str(bundle)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
+def _open_macos_tray(bundle: Path, base: Path, lock_path: Path, stay: bool) -> None:
+    icon = icon_file(base)
+    argv = macos_open_argv(bundle, base, icon, lock_path, sys.executable, stay)
+    if sys.platform == "darwin":
+        argv = ["launchctl", "asuser", str(os.getuid()), *argv]
+    try:
+        subprocess.Popen(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return
+
+
+def install_macos_tray(base: Path, home: Path | None = None) -> int:
+    """Show the menu-bar icon now, and again at each login."""
+    base = Path(base)
+    home = Path(home) if home is not None else Path.home()
+    config = config_dir()
+    config.mkdir(parents=True, exist_ok=True)
+    binary = compile_macos_menu_bar(base, config / "macos_menu_bar")
+    if binary is None:
+        print("The menu bar icon needs the Xcode command line tools (swiftc).", file=sys.stderr)
+        return 1
+    lock_path = config / "mp_system_tray.lock"
+    stop_tray_holder(lock_path)
+    bundle = macos_tray_bundle(config)
+    stage_macos_tray_app(binary, bundle)
+    _register_macos_tray_app(bundle)
+    plist = macos_launch_agent_plist(
+        bundle,
+        base,
+        icon_file(base),
+        lock_path,
+        sys.executable,
+        stay=True,
+    )
+    agent = write_macos_launch_agent(home, plist)
+    started = start_macos_launch_agent(agent)
+    if not _wait_for_lock(lock_path, 4.0):
+        _open_macos_tray(bundle, base, lock_path, stay=True)
+        started = True
+    if _wait_for_lock(lock_path, 6.0):
+        return 0
+    if not started:
+        print("The menu bar icon did not start.", file=sys.stderr)
+    return 1
+
+
+def run_macos_tray(base: Path, config: Path, stay: bool = False) -> int:
+    lock_path = config / "mp_system_tray.lock"
+    if TrayLock.held(lock_path):
+        return 0
+    binary = compile_macos_menu_bar(base, config / "macos_menu_bar")
+    if binary is None:
+        print("The menu bar icon needs the Xcode command line tools (swiftc).", file=sys.stderr)
+        return 1
+    bundle = macos_tray_bundle(config)
+    stage_macos_tray_app(binary, bundle)
+    _register_macos_tray_app(bundle)
+    _open_macos_tray(bundle, base, lock_path, stay)
+    if _wait_for_lock(lock_path, 6.0):
+        return 0
+    return 1
+
+
 def applications_dir() -> Path:
     data_home = os.environ.get("XDG_DATA_HOME", "").strip()
     if data_home:
@@ -773,6 +1266,8 @@ def install_tray(base: Path) -> int:
         from install_desktop_shortcuts import run_windows_user_integration
 
         return run_windows_user_integration(base, "Install")
+    if sys.platform == "darwin":
+        return install_macos_tray(base)
     enable_status_notifier_watcher()
     write_desktop_entry(base, applications_dir())
     write_autostart_entry(base, autostart_dir())
@@ -893,6 +1388,24 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
     return app.exec()
 
 
+def main_darwin(args: list[str]) -> int:
+    base = default_base_dir()
+    config = config_dir()
+    lock_path = config / "mp_system_tray.lock"
+    if "--status" in args:
+        return 0 if TrayLock.held(lock_path) else 1
+    if "--roles" in args:
+        print(format_roles(roles_present(read_proc_table(), {os.getpid()})))
+        return 0
+    if "--action" in args:
+        index = args.index("--action")
+        action_id = args[index + 1] if index + 1 < len(args) else ""
+        return perform_menu_action(base, action_id)
+    if "--install" in args:
+        return install_macos_tray(base)
+    return run_macos_tray(base, config, stay="--stay" in args)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     if os.name == "nt":
@@ -904,6 +1417,8 @@ def main(argv: list[str] | None = None) -> int:
         if "--install" in args:
             return run_windows_user_integration(base, "Install")
         return run_windows_tray(base, stay="--stay" in args)
+    if sys.platform == "darwin":
+        return main_darwin(args)
     config = config_dir()
     lock_path = config / "mp_system_tray.lock"
     if "--status" in args:

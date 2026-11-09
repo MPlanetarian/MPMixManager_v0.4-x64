@@ -7,6 +7,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -102,10 +103,21 @@ class TestMenu(unittest.TestCase):
         self.assertEqual(spawned["action"], "spawn")
         self.assertTrue(str(spawned["argv"][0]).endswith("launch-liquid-glass"))
 
-        manager = tray.launch_plan(tray.ROLE_MANAGER, base, {tray.ROLE_LIQUID, tray.ROLE_GUI})
+        manager = tray.launch_plan(
+            tray.ROLE_MANAGER,
+            base,
+            {tray.ROLE_LIQUID, tray.ROLE_GUI},
+            platform_name="linux",
+        )
         self.assertEqual(manager["action"], "spawn")
         self.assertTrue(str(manager["argv"][0]).endswith("launch-manager"))
         self.assertEqual(manager["title"], "MP Mix Archive Manager")
+
+    def test_macos_manager_launch_opens_terminal(self):
+        plan = tray.launch_plan(tray.ROLE_MANAGER, ROOT, set(), platform_name="darwin")
+        self.assertEqual(plan["action"], "spawn")
+        self.assertEqual(plan["argv"][:3], ["open", "-a", "Terminal"])
+        self.assertTrue(str(plan["argv"][3]).endswith("manager_macos.command"))
 
     def test_kill_script_is_the_player_shutdown_script(self):
         script = tray.kill_all_script(ROOT)
@@ -196,6 +208,8 @@ class TestHooks(unittest.TestCase):
         self.assertIn("--install", install)
         ensure = (ROOT / "scripts" / "mp_system_tray.sh").read_text(encoding="utf-8")
         self.assertIn('setsid python3 "$PY" "$@"', ensure)
+        self.assertLess(ensure.index("_is_darwin_host"), ensure.index("import PySide6.QtWidgets"))
+        self.assertIn("if ! _is_darwin_host && ! python3 -c", ensure)
 
 
 class TestInstallFiles(unittest.TestCase):
@@ -228,6 +242,78 @@ class TestInstallFiles(unittest.TestCase):
             text = desktop.read_text(encoding="utf-8")
             self.assertIn("mp_system_tray.sh --stay", text)
             self.assertIn("NoDisplay=true", text)
+
+
+class TestMacMenuBar(unittest.TestCase):
+    def test_menu_bar_agent_uses_the_same_menu(self):
+        source = (ROOT / "scripts" / "macos_menu_bar.swift").read_text(encoding="utf-8")
+        self.assertIn("NSStatusItem", source)
+        self.assertIn("NSStatusBar", source)
+        self.assertIn("setActivationPolicy(.accessory)", source)
+        for _ident, label in tray.MENU_ENTRIES:
+            self.assertIn(label, source)
+        self.assertIn("--stay", source)
+        self.assertIn("mp_system_tray.py", source)
+
+    def test_launch_agent_plist_stays_in_the_aqua_session(self):
+        icon = ROOT / "assets" / "mp_liquid_glass_icon.png"
+        lock = Path("/tmp/mix-manager/mp_system_tray.lock")
+        bundle = Path("/tmp/MP Mix Manager Tray.app")
+        data = tray.macos_launch_agent_plist(
+            bundle,
+            ROOT,
+            icon,
+            lock,
+            "/usr/bin/python3",
+            stay=True,
+        )
+        text = data.decode("utf-8")
+        self.assertIn(tray.MENU_BAR_LABEL, text)
+        self.assertIn("--stay", text)
+        self.assertIn("Aqua", text)
+        self.assertIn(str(ROOT), text)
+        self.assertIn(str(icon), text)
+        loaded = __import__("plistlib").loads(data)
+        self.assertEqual(loaded["ProgramArguments"][0], "/usr/bin/open")
+        self.assertEqual(loaded["ProgramArguments"][2], str(bundle))
+        self.assertEqual(loaded["ProgramArguments"][-1], "--stay")
+        self.assertTrue(loaded["RunAtLoad"])
+
+    def test_install_tray_uses_the_menu_bar_on_macos(self):
+        if sys.platform != "darwin":
+            self.skipTest("macOS menu bar")
+        with patch.object(tray, "install_macos_tray", return_value=0) as install:
+            self.assertEqual(tray.install_tray(ROOT), 0)
+        install.assert_called_once_with(ROOT)
+
+    def test_macos_install_writes_the_login_item_without_a_display(self):
+        if sys.platform != "darwin":
+            self.skipTest("macOS menu bar")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            config = Path(tmp) / "config"
+            config.mkdir()
+            binary = config / "macos_menu_bar"
+            binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            binary.chmod(0o755)
+            with patch.dict(os.environ, {"MP_TRAY_CONFIG_DIR": str(config), "DISPLAY": "", "WAYLAND_DISPLAY": ""}, clear=False), \
+                 patch.object(tray, "compile_macos_menu_bar", return_value=binary), \
+                 patch.object(tray, "start_macos_launch_agent", return_value=True) as start, \
+                 patch.object(tray.TrayLock, "held", return_value=True):
+                code = tray.install_macos_tray(ROOT, home=home)
+            self.assertEqual(code, 0)
+            plist = (home / "Library" / "LaunchAgents" / f"{tray.MENU_BAR_LABEL}.plist").read_text(encoding="utf-8")
+            bundle = config / "MP Mix Manager Tray.app"
+            bundled = bundle / "Contents" / "MacOS" / "macos_menu_bar"
+            self.assertTrue(bundled.is_file(), bundled)
+            info = (bundle / "Contents" / "Info.plist").read_text(encoding="utf-8")
+            self.assertIn("LSUIElement", info)
+            self.assertIn("--stay", plist)
+            self.assertIn("Aqua", plist)
+            self.assertIn("/usr/bin/open", plist)
+            self.assertIn(str(bundle), plist)
+            self.assertIn(str(ROOT), plist)
+            start.assert_called_once()
 
 
 if __name__ == "__main__":
