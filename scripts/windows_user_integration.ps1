@@ -281,6 +281,16 @@ function Start-MpHiddenPowerShell {
     }
 }
 
+function Stop-MpTrayProcess {
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $proc = Get-MpTrayProcess
+        if (-not $proc) { return }
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+}
+
 function Start-MpTray {
     param([string]$InstallRoot, [switch]$Stay)
     $existing = Get-MpTrayProcess
@@ -411,6 +421,7 @@ if ($Action -eq "EnsureTray") {
 
 $context = Install-MpUserShortcuts -InstallRoot $Root
 if ($context.IsCurrent) {
+    Stop-MpTrayProcess
     if (-not (Start-MpTray -InstallRoot $Root -Stay)) {
         Write-Host "Desktop shortcuts are on the user profile. The tray icon did not start."
         exit 3

@@ -38,6 +38,7 @@ class TestWindowsUserIntegration(unittest.TestCase):
         self.assertIn("windows_tray.ps1", script)
         self.assertIn("Startup", script)
         self.assertIn("LogonType Interactive", script)
+        self.assertIn("Stop-MpTrayProcess", script)
         self.assertIn("HideIcons", script)
         self.assertIn("Show-MpDesktopIcons", script)
         self.assertNotIn("CommonDesktopDirectory", script)
@@ -52,6 +53,12 @@ class TestWindowsUserIntegration(unittest.TestCase):
         self.assertIn("Launch MP Mix Manager", tray)
         self.assertIn("Close MP Mix Manager (Closes everything)", tray)
         self.assertIn("MP_Mix_Manager_Windows_Icon.ico", tray)
+        self.assertIn("NotifyIconOverflowWindow", tray)
+        self.assertIn("Shell_TrayWnd", tray)
+        self.assertIn("User Promoted Notification Area", tray)
+        self.assertIn("promoted already", tray)
+        self.assertNotIn("EnableAutoTray", tray)
+        self.assertNotIn("SetPreference", tray)
 
     def test_manager_and_tray_helper_repair_a_windows_profile(self):
         manager = (ROOT / "manager.ps1").read_text(encoding="utf-8")

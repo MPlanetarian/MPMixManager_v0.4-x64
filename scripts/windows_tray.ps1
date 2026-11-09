@@ -234,8 +234,259 @@ if (-not $icon) {
     $icon = [System.Drawing.SystemIcons]::Application
 }
 
+function Show-MpTrayButton {
+    # A new icon stays in the overflow. Dragging it onto the user notification
+    # area keeps it on the taskbar. An icon the user hid is not in the overflow,
+    # so it is left there. Each call does one short step and returns, so the
+    # notification icon keeps its message pump between steps.
+    if (-not ("MpTrayButton" -as [type])) {
+        Add-Type -AssemblyName UIAutomationClient
+        Add-Type -AssemblyName UIAutomationTypes
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+using Accessibility;
+public static class MpTrayButton {
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT pt);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT pt);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder sb, int n);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder sb, int n);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc proc, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr l);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string name);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("oleacc.dll")] public static extern int AccessibleObjectFromWindow(IntPtr hwnd, uint objid, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IAccessible acc);
+    public static string LastPlace;
+    public static int FoundX;
+    public static int FoundY;
+    public static int SavedX;
+    public static int SavedY;
+    public static bool Saved;
+    public static void Remember() {
+        POINT pt;
+        GetCursorPos(out pt);
+        SavedX = pt.X;
+        SavedY = pt.Y;
+        Saved = true;
+    }
+    public static void Restore() {
+        if (Saved) SetCursorPos(SavedX, SavedY);
+    }
+    static IAccessible Access(IntPtr hwnd) {
+        Guid iid = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
+        IAccessible acc;
+        int hr = AccessibleObjectFromWindow(hwnd, 0xFFFFFFFC, ref iid, out acc);
+        if (hr != 0) return null;
+        return acc;
+    }
+    public static bool ContainsName(IntPtr hwnd, string name) {
+        IAccessible acc = Access(hwnd);
+        if (acc == null) return false;
+        int count = acc.accChildCount;
+        for (int i = 1; i <= count; i++) {
+            try { if (acc.get_accName(i) == name) return true; } catch { }
+        }
+        return false;
+    }
+    public static bool FindNamed(IntPtr hwnd, string name) {
+        FoundX = 0;
+        FoundY = 0;
+        IAccessible acc = Access(hwnd);
+        if (acc == null) return false;
+        int count = acc.accChildCount;
+        for (int i = 1; i <= count; i++) {
+            string item = "";
+            try { item = "" + acc.get_accName(i); } catch { continue; }
+            if (item != name) continue;
+            int l, t, w, h;
+            try { acc.accLocation(out l, out t, out w, out h, i); } catch { return false; }
+            if (w < 8 || h < 8) return false;
+            FoundX = l + (w / 2);
+            FoundY = t + (h / 2);
+            return true;
+        }
+        return false;
+    }
+    public static string Where(int x, int y) {
+        POINT pt; pt.X = x; pt.Y = y;
+        IntPtr root = GetAncestor(WindowFromPoint(pt), 2);
+        var cls = new StringBuilder(80);
+        GetClassName(root, cls, 80);
+        return cls.ToString();
+    }
+    public static bool Place(int x, int y) {
+        int aimX = x, aimY = y;
+        POINT cur;
+        for (int i = 0; i < 6; i++) {
+            SetCursorPos(aimX, aimY);
+            System.Threading.Thread.Sleep(40);
+            GetCursorPos(out cur);
+            LastPlace = cur.X + "," + cur.Y;
+            if (Math.Abs(cur.X - x) <= 2 && Math.Abs(cur.Y - y) <= 2) return true;
+            aimX += x - cur.X;
+            aimY += y - cur.Y;
+        }
+        return false;
+    }
+    public static IntPtr FindVisible(string cls) {
+        IntPtr hit = IntPtr.Zero;
+        EnumProc proc = delegate(IntPtr h, IntPtr l) {
+            var c = new StringBuilder(80);
+            GetClassName(h, c, 80);
+            if (c.ToString() == cls && IsWindowVisible(h)) { hit = h; return false; }
+            return true;
+        };
+        EnumWindows(proc, IntPtr.Zero);
+        GC.KeepAlive(proc);
+        return hit;
+    }
+    public static IntPtr FindChild(IntPtr parent, string cls, string title) {
+        IntPtr hit = IntPtr.Zero;
+        EnumProc proc = delegate(IntPtr h, IntPtr l) {
+            var c = new StringBuilder(80);
+            var t = new StringBuilder(160);
+            GetClassName(h, c, 80);
+            GetWindowText(h, t, 160);
+            if (c.ToString() == cls && (title == null || t.ToString() == title)) { hit = h; return false; }
+            return true;
+        };
+        EnumChildWindows(parent, proc, IntPtr.Zero);
+        GC.KeepAlive(proc);
+        return hit;
+    }
+}
+"@ -ReferencedAssemblies Accessibility
+    }
+    [MpTrayButton]::SetProcessDPIAware() | Out-Null
+    if (-not $script:trayPromote) {
+        $script:trayPromote = @{ Phase = "look"; Tries = 0; ChevronX = 0; ChevronY = 0 }
+        [MpTrayButton]::Remember()
+    }
+    $step = $script:trayPromote
+    $shell = [MpTrayButton]::FindWindow("Shell_TrayWnd", $null)
+    $pager = [MpTrayButton]::FindChild($shell, "SysPager", $null)
+    $promoted = [MpTrayButton]::FindChild($pager, "ToolbarWindow32", "User Promoted Notification Area")
+    if ($promoted -eq [IntPtr]::Zero) { throw "taskbar notification area was not found" }
+    if ([MpTrayButton]::ContainsName($promoted, "MP Mix Manager")) {
+        if ($step.Phase -eq "look") {
+            Write-MpTrayLog "promoted already"
+        } else {
+            Close-MpOverflowChevron -X $step.ChevronX -Y $step.ChevronY
+            Write-MpTrayLog "promoted"
+        }
+        [MpTrayButton]::Restore()
+        return $true
+    }
+    switch ($step.Phase) {
+        "look" {
+            $root = [System.Windows.Automation.AutomationElement]::RootElement
+            $trayCond = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ClassNameProperty, "Shell_TrayWnd")
+            $tray = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $trayCond)
+            $idCond = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::AutomationIdProperty, "1502")
+            $chevron = $null
+            if ($tray) { $chevron = $tray.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $idCond) }
+            if (-not $chevron) { throw "overflow button was not found" }
+            $chevRect = $chevron.Current.BoundingRectangle
+            $step.ChevronX = [int]($chevRect.X + ($chevRect.Width / 2))
+            $step.ChevronY = [int]($chevRect.Y + ($chevRect.Height / 2))
+            if ([MpTrayButton]::Where($step.ChevronX, $step.ChevronY) -ne "Shell_TrayWnd") { throw "overflow button is covered" }
+            $overflow = [MpTrayButton]::FindVisible("NotifyIconOverflowWindow")
+            if ($overflow -eq [IntPtr]::Zero) {
+                if (-not (Invoke-MpTrayClick -X $step.ChevronX -Y $step.ChevronY -ExpectedClass "Shell_TrayWnd")) {
+                    throw "could not reach the overflow button"
+                }
+            }
+            $step.Phase = "seek"
+            return $false
+        }
+        "seek" {
+            $step.Tries++
+            $overflow = [MpTrayButton]::FindVisible("NotifyIconOverflowWindow")
+            if ($overflow -eq [IntPtr]::Zero) {
+                if ($step.Tries -ge 4) { throw "overflow did not open" }
+                return $false
+            }
+            $bar = [MpTrayButton]::FindChild($overflow, "ToolbarWindow32", "Overflow Notification Area")
+            if ($bar -eq [IntPtr]::Zero) { $bar = [MpTrayButton]::FindChild($overflow, "ToolbarWindow32", $null) }
+            if ([MpTrayButton]::FindNamed($bar, "MP Mix Manager")) {
+                $sourceX = [MpTrayButton]::FoundX
+                $sourceY = [MpTrayButton]::FoundY
+                if ([MpTrayButton]::Where($sourceX, $sourceY) -ne "NotifyIconOverflowWindow") {
+                    if ($step.Tries -ge 12) { throw "icon is covered" }
+                    return $false
+                }
+                $dest = New-Object MpTrayButton+RECT
+                [MpTrayButton]::GetWindowRect($promoted, [ref]$dest) | Out-Null
+                $destX = [int]($dest.L + 8)
+                $destY = [int](($dest.T + $dest.B) / 2)
+                if ([MpTrayButton]::Where($destX, $destY) -ne "Shell_TrayWnd") { throw "taskbar icon area is covered" }
+                $down = $false
+                try {
+                    if (-not [MpTrayButton]::Place($sourceX, $sourceY)) { throw "could not reach the icon" }
+                    if ([MpTrayButton]::Where($sourceX, $sourceY) -ne "NotifyIconOverflowWindow") { throw "icon is covered" }
+                    [MpTrayButton]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+                    $down = $true
+                    Start-Sleep -Milliseconds 150
+                    if (-not [MpTrayButton]::Place($destX, $destY)) { throw "could not reach the taskbar" }
+                    if ([MpTrayButton]::Where($destX, $destY) -ne "Shell_TrayWnd") { throw "taskbar icon area is covered" }
+                    Start-Sleep -Milliseconds 150
+                    [MpTrayButton]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+                    $down = $false
+                    Start-Sleep -Milliseconds 400
+                } finally {
+                    if ($down) { [MpTrayButton]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero) }
+                    [MpTrayButton]::Restore()
+                }
+                $step.Phase = "settle"
+                return $false
+            }
+            if ($step.Tries -ge 12) { throw "icon is not in the overflow" }
+            return $false
+        }
+        "settle" {
+            throw "icon did not stay on the taskbar"
+        }
+    }
+    return $false
+}
+
+function Invoke-MpTrayClick {
+    param([int]$X, [int]$Y, [string]$ExpectedClass)
+    if ([MpTrayButton]::Where($X, $Y) -ne $ExpectedClass) { return $false }
+    if (-not [MpTrayButton]::Place($X, $Y)) {
+        [MpTrayButton]::Restore()
+        return $false
+    }
+    if ([MpTrayButton]::Where($X, $Y) -ne $ExpectedClass) {
+        [MpTrayButton]::Restore()
+        return $false
+    }
+    [MpTrayButton]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [MpTrayButton]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+    [MpTrayButton]::Restore()
+    return $true
+}
+
+function Close-MpOverflowChevron {
+    param([int]$X, [int]$Y)
+    if ([MpTrayButton]::FindVisible("NotifyIconOverflowWindow") -eq [IntPtr]::Zero) { return }
+    if ([MpTrayButton]::Where($X, $Y) -ne "Shell_TrayWnd") { return }
+    Invoke-MpTrayClick -X $X -Y $Y -ExpectedClass "Shell_TrayWnd" | Out-Null
+}
+
 $notify = $null
 $timer = $null
+$script:promoteTimer = $null
 try {
     $notify = New-Object System.Windows.Forms.NotifyIcon
     $notify.Icon = $icon
@@ -282,12 +533,27 @@ try {
         }
     })
     $timer.Start()
+    $script:promoteTimer = New-Object System.Windows.Forms.Timer
+    $script:promoteTimer.Interval = 1000
+    $script:promoteTimer.Add_Tick({
+        $script:promoteTimer.Interval = 500
+        try {
+            if (Show-MpTrayButton) { $script:promoteTimer.Stop() }
+        } catch {
+            Write-MpTrayLog "promote $($_.Exception.Message)"
+            try { Close-MpOverflowChevron -X $script:trayPromote.ChevronX -Y $script:trayPromote.ChevronY } catch { }
+            try { [MpTrayButton]::Restore() } catch { }
+            $script:promoteTimer.Stop()
+        }
+    })
+    $script:promoteTimer.Start()
     Write-MpTrayLog "ready pid=$PID"
     [System.Windows.Forms.Application]::Run()
 } catch {
     Write-MpTrayLog "failed pid=$PID $($_.Exception.Message)"
     exit 1
 } finally {
+    if ($script:promoteTimer) { $script:promoteTimer.Stop(); $script:promoteTimer.Dispose() }
     if ($timer) { $timer.Stop(); $timer.Dispose() }
     if ($notify) {
         $notify.Visible = $false
