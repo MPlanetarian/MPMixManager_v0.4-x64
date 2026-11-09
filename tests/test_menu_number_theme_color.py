@@ -113,6 +113,8 @@ class TestMenuNumberThemeColor(unittest.TestCase):
             accent = EXPECTED[theme]
             self.assertIn(f"48;2;{accent}", line, theme)
             self.assertNotIn("0;229;255", line, theme)
+            for cursor in ("▶", "❯", "►", "›"):
+                self.assertNotIn(cursor, line, theme)
             bars.append(accent)
         self.assertEqual(len(bars), len(set(bars)))
 
