@@ -181,6 +181,54 @@ function New-MpShortcut {
     }
 }
 
+function Show-MpDesktopIcons {
+    # A shortcut file on Disk is invisible while Explorer's "Show desktop icons"
+    # setting is off. Turn that setting on so the four new shortcuts appear.
+    $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+    $hidden = 0
+    try {
+        $hidden = [int](Get-ItemProperty -LiteralPath $regPath -Name HideIcons -ErrorAction Stop).HideIcons
+    } catch {
+        $hidden = 0
+    }
+    if ($hidden -ne 1) { return }
+
+    if (-not ("MpDesktopIconToggle" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class MpDesktopIconToggle {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string className, string windowName);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+}
+"@
+    }
+    $defview = [IntPtr]::Zero
+    $progman = [MpDesktopIconToggle]::FindWindow("Progman", "Program Manager")
+    if ($progman -ne [IntPtr]::Zero) {
+        $defview = [MpDesktopIconToggle]::FindWindowEx($progman, [IntPtr]::Zero, "SHELLDLL_DefView", $null)
+    }
+    if ($defview -eq [IntPtr]::Zero) {
+        $worker = [IntPtr]::Zero
+        do {
+            $worker = [MpDesktopIconToggle]::FindWindowEx([IntPtr]::Zero, $worker, "WorkerW", $null)
+            if ($worker -eq [IntPtr]::Zero) { break }
+            $defview = [MpDesktopIconToggle]::FindWindowEx($worker, [IntPtr]::Zero, "SHELLDLL_DefView", $null)
+        } while ($defview -eq [IntPtr]::Zero)
+    }
+    if ($defview -ne [IntPtr]::Zero) {
+        # WM_COMMAND 0x7402 toggles "Show desktop icons" and updates HideIcons.
+        [MpDesktopIconToggle]::SendMessage($defview, 0x0111, [IntPtr]0x7402, [IntPtr]::Zero) | Out-Null
+    } else {
+        Set-ItemProperty -LiteralPath $regPath -Name HideIcons -Type DWord -Value 0
+    }
+    Write-Host "Desktop icons were hidden. They are visible again so the new shortcuts show."
+}
+
 function Update-MpDesktopView {
     param([string]$Desktop)
     if (-not ("MpShellNotify" -as [type])) {
@@ -336,6 +384,7 @@ function Install-MpUserShortcuts {
     New-MpShortcut -Path (Join-Path $startup "MP Mix Manager Tray.lnk") -Target $powershell -Arguments $trayArgs -WorkDir $InstallRoot -Description "MP Mix Manager tray icon" -Icon $icon
 
     Update-MpDesktopView -Desktop $desktop
+    Show-MpDesktopIcons
     Write-Host "User desktop: $desktop"
     foreach ($path in $written) { Write-Host "Shortcut: $path" }
     Write-Host "Start Menu: $menu"

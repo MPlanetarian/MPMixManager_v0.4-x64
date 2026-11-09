@@ -59,21 +59,8 @@ def is_windows_10_or_11() -> bool:
 def load_glfw_dll():
     """Load the GLFW shared library across Windows and Linux."""
     if is_windows():
-        candidates = ["glfw3.dll", "glfw.dll"]
-        try:
-            from ctypes.util import find_library
-            for name in ("glfw3", "glfw"):
-                f = find_library(name)
-                if f and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
-            try:
-                return ctypes.CDLL(cand)
-            except OSError:
-                continue
-        raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+        from liquid_glass_opengl import load_glfw_dll as _load_opengl_glfw
+        return _load_opengl_glfw()
     return ctypes.CDLL("libglfw.so.3")
 
 

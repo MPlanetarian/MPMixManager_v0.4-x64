@@ -148,24 +148,83 @@ def is_windows_10_or_11() -> bool:
         return True
 
 
+def windows_glfw_candidates():
+    """GLFW DLL paths on Windows, including the pip `glfw` wheel.
+
+    Bare `glfw3.dll` only works when it is already on the DLL search path.
+    The pip package ships the DLL beside its own files, and a manual install
+    may live under Program Files or LOCALAPPDATA.
+    """
+    paths = []
+    seen = set()
+
+    def add(path):
+        if not path:
+            return
+        key = os.path.normcase(path)
+        if key in seen:
+            return
+        seen.add(key)
+        paths.append(path)
+
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("glfw")
+        origin = getattr(spec, "origin", None) if spec else None
+        if origin and os.path.isfile(origin):
+            pkg = os.path.dirname(origin)
+            dll_names = {"glfw3.dll", "glfw.dll"}
+            for dirpath, dirnames, filenames in os.walk(pkg):
+                dirnames[:] = [name for name in dirnames if name != "__pycache__"]
+                for filename in filenames:
+                    if filename.lower() in dll_names:
+                        add(os.path.join(dirpath, filename))
+    except Exception:
+        pass
+
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    for full in (
+        os.path.join(program_files, "glfw", "lib", "glfw3.dll"),
+        os.path.join(program_files_x86, "glfw", "lib", "glfw3.dll"),
+        os.path.join(local_app, "Programs", "glfw", "glfw3.dll") if local_app else "",
+        os.path.join(local_app, "Programs", "glfw", "lib", "glfw3.dll") if local_app else "",
+    ):
+        if full and os.path.isfile(full):
+            add(full)
+
+    try:
+        from ctypes.util import find_library
+        for name in ("glfw3", "glfw"):
+            found = find_library(name)
+            if found and "glfw" in os.path.basename(found).lower():
+                add(found)
+    except Exception:
+        pass
+
+    add("glfw3.dll")
+    add("glfw.dll")
+    return paths
+
+
 def load_glfw_dll():
     """Load the GLFW shared library across Windows, macOS, and Linux."""
     if is_windows():
-        candidates = ["glfw3.dll", "glfw.dll"]
-        try:
-            from ctypes.util import find_library
-            for name in ("glfw3", "glfw"):
-                f = find_library(name)
-                if f and f not in candidates:
-                    candidates.insert(0, f)
-        except Exception:
-            pass
-        for cand in candidates:
+        last_error = None
+        for cand in windows_glfw_candidates():
+            directory = os.path.dirname(cand) if os.path.isabs(cand) else ""
+            if directory and os.path.isdir(directory):
+                try:
+                    os.add_dll_directory(directory)
+                except (AttributeError, OSError):
+                    pass
             try:
                 return ctypes.CDLL(cand)
-            except OSError:
+            except OSError as exc:
+                last_error = exc
                 continue
-        raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+        raise RuntimeError("Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.") from last_error
     if is_macos():
         candidates = ["libglfw.3.dylib", "libglfw.dylib"]
         try:
@@ -1403,8 +1462,9 @@ class LiquidGlassRendererOpenGL:
             return
         if is_windows():
             try:
-                # SWP_NOZORDER = 0x0004, SWP_SHOWWINDOW = 0x0040
-                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0044)
+                # HWND_TOP and SWP_SHOWWINDOW. The console is an owned overlay, so it
+                # has to stay above the glass after every move.
+                ctypes.windll.user32.SetWindowPos(int(child), 0, int(x), int(y), int(width), int(height), 0x0040)
             except Exception:
                 pass
             return

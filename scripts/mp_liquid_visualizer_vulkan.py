@@ -98,9 +98,8 @@ def _load_cdll(cands: List[str], names: Tuple[str, ...], bad: Tuple[str, ...], e
 
 def load_glfw_dll():
     if _IS_WIN:
-        return _load_cdll(["glfw3.dll", "glfw.dll", os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "glfw", "lib", "glfw3.dll"),
-                           os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "glfw", "glfw3.dll")],
-                          ("glfw3", "glfw"), (".so", ".dylib"), "Could not load GLFW on Windows. Ensure glfw3.dll is in PATH.")
+        from liquid_glass_opengl import load_glfw_dll as _load_opengl_glfw
+        return _load_opengl_glfw()
     if _IS_MAC:
         return _load_cdll(["/opt/homebrew/lib/libglfw.3.dylib", "/opt/homebrew/lib/libglfw.dylib", "/usr/local/lib/libglfw.3.dylib",
                            "/usr/local/lib/libglfw.dylib", "libglfw.3.dylib", "libglfw.dylib"],
@@ -1610,7 +1609,10 @@ def _exit_when_player_closes(signum, _frame):
 
 def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[float] = None, fullscreen: bool = False, target_4k: bool = False) -> int:
     signal.signal(signal.SIGTERM, _exit_when_player_closes)
-    signal.signal(signal.SIGHUP, _exit_when_player_closes)
+    # Windows has no SIGHUP. Registering it aborted the visualizer before the window opened.
+    hangup = getattr(signal, "SIGHUP", None)
+    if hangup is not None:
+        signal.signal(hangup, _exit_when_player_closes)
     renderer = LiquidVisualizerVulkanRenderer(preset_name, fullscreen=fullscreen, target_4k=target_4k)
     bridge = AudioTelemetryBridge()
     renderer.open()

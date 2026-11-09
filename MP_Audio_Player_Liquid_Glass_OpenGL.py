@@ -156,6 +156,9 @@ def _child_env(as_dict=False):
         "MP_LIQUID_GLASS_BACKEND": "opengl",
         "MP_LIQUID_GLASS_PLATFORM": "win32" if sys.platform == "win32" else "linux",
     })
+    if sys.platform == "win32":
+        # Default console color. The host punches this exact RGB out of the console window.
+        env["MP_LIQUID_GLASS_COLORKEY"] = "ff00ff"
     return env if as_dict else [f"{k}={v}" for k, v in env.items()]
 
 
@@ -358,6 +361,84 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
             glUseProgram(0)
         except Exception as e:
             print(f"Slider draw error: {e}", flush=True)
+
+
+def _reveal_windows_console(user32, hwnd, glass_hwnd, pid):
+    """Keep the player console above the glass and punch out its background.
+
+    A child console is opaque, so the theme drawn underneath never shows.
+    An owned layered window can color-key that background away. The key is
+    magenta, which the player text does not use.
+    """
+    hwnd = int(hwnd)
+    user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+    user32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+    user32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+    user32.SetLayeredWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_ubyte, ctypes.c_uint32]
+    user32.SetLayeredWindowAttributes.restype = ctypes.c_int
+    style = user32.GetWindowLongPtrW(hwnd, -16)
+    style = (style & ~0x00CF0000) | 0x80000000 | 0x10000000
+    user32.SetWindowLongPtrW(hwnd, -16, style)
+    if glass_hwnd:
+        user32.SetWindowLongPtrW(hwnd, -8, int(glass_hwnd))
+    exstyle = user32.GetWindowLongPtrW(hwnd, -20)
+    user32.SetWindowLongPtrW(hwnd, -20, (exstyle | 0x00080000 | 0x00000080) & ~0x00040000)
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)
+    user32.SetLayeredWindowAttributes(hwnd, 0x00FF00FF, 0, 0x00000001)
+    _paint_console_colorkey(pid)
+
+
+def _paint_console_colorkey(pid):
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.AttachConsole.argtypes = [ctypes.c_uint32]
+    kernel32.AttachConsole.restype = ctypes.c_int
+    kernel32.FreeConsole.restype = ctypes.c_int
+    if not kernel32.AttachConsole(ctypes.c_uint32(int(pid))):
+        if ctypes.get_last_error() != 5:
+            return
+        kernel32.FreeConsole()
+        if not kernel32.AttachConsole(ctypes.c_uint32(int(pid))):
+            return
+    try:
+        from ctypes import wintypes
+
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+        class SMALL_RECT(ctypes.Structure):
+            _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short), ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+        class INFOEX(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.ULONG),
+                ("dwSize", COORD),
+                ("dwCursorPosition", COORD),
+                ("wAttributes", wintypes.WORD),
+                ("srWindow", SMALL_RECT),
+                ("dwMaximumWindowSize", COORD),
+                ("wPopupAttributes", wintypes.WORD),
+                ("bFullscreenSupported", wintypes.BOOL),
+                ("ColorTable", wintypes.DWORD * 16),
+            ]
+
+        kernel32.GetStdHandle.restype = wintypes.HANDLE
+        handle = kernel32.GetStdHandle(-11)
+        info = INFOEX()
+        info.cbSize = ctypes.sizeof(INFOEX)
+        kernel32.GetConsoleScreenBufferInfoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(INFOEX)]
+        kernel32.GetConsoleScreenBufferInfoEx.restype = wintypes.BOOL
+        kernel32.SetConsoleScreenBufferInfoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(INFOEX)]
+        kernel32.SetConsoleScreenBufferInfoEx.restype = wintypes.BOOL
+        if not kernel32.GetConsoleScreenBufferInfoEx(handle, ctypes.byref(info)):
+            return
+        info.ColorTable[0] = 0x00FF00FF
+        info.wAttributes = info.wAttributes & 0xFFF0
+        info.srWindow.Right += 1
+        info.srWindow.Bottom += 1
+        kernel32.SetConsoleScreenBufferInfoEx(handle, ctypes.byref(info))
+    finally:
+        kernel32.FreeConsole()
 
 
 class GlassHost:
@@ -664,11 +745,7 @@ class GlassHost:
         self.child_xid = child_hwnd or 0
         if child_hwnd:
             try:
-                style = (user32.GetWindowLongPtrW(child_hwnd, -16) & ~(0x00C00000 | 0x00040000)) | 0x80000000
-                user32.SetWindowLongPtrW(child_hwnd, -16, style)
-                glass_hwnd = self.renderer.win32_window()
-                if glass_hwnd:
-                    user32.SetParent(child_hwnd, glass_hwnd)
+                _reveal_windows_console(user32, child_hwnd, self.renderer.win32_window(), proc.pid)
             except Exception:
                 pass
             self._place_terminal(force=True)
@@ -684,8 +761,7 @@ class GlassHost:
                 self._sync_panels()
                 self.renderer.draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
-                if dragging:
-                    self._place_terminal(force=True)
+                self._place_terminal(force=dragging)
                 if not self.renderer.poll():
                     break
                 time.sleep(0.008)

@@ -2,7 +2,14 @@
 setlocal EnableExtensions
 rem Real python.exe for the Windows launchers. The Microsoft Store alias in
 rem WindowsApps is not an interpreter and must not win over Anaconda or py -3.
+rem The project venv holds glfw, PyOpenGL, and sounddevice, so it comes first.
 set "PYTHON_BIN="
+
+if exist "%~dp0..\venv\Scripts\python.exe" (
+    "%~dp0..\venv\Scripts\python.exe" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)" >nul 2>&1
+    if not errorlevel 1 for %%I in ("%~dp0..\venv\Scripts\python.exe") do set "PYTHON_BIN=%%~fI"
+)
+if defined PYTHON_BIN goto :emit
 
 where py.exe >nul 2>&1
 if not errorlevel 1 (

@@ -38,6 +38,8 @@ class TestWindowsUserIntegration(unittest.TestCase):
         self.assertIn("windows_tray.ps1", script)
         self.assertIn("Startup", script)
         self.assertIn("LogonType Interactive", script)
+        self.assertIn("HideIcons", script)
+        self.assertIn("Show-MpDesktopIcons", script)
         self.assertNotIn("CommonDesktopDirectory", script)
         self.assertNotIn("Public\\Desktop", script)
 
@@ -67,6 +69,7 @@ class TestWindowsUserIntegration(unittest.TestCase):
         finder = (ROOT / "scripts" / "windows_find_python.cmd").read_text(encoding="utf-8")
         self.assertIn("WindowsApps", finder)
         self.assertIn("anaconda3", finder)
+        self.assertLess(finder.index(r"venv\Scripts\python.exe"), finder.index("anaconda3"))
         for name in ("scripts/launch_liquid_glass.bat", "scripts/launch_liquid_visualizer.bat"):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn("windows_find_python.cmd", text)

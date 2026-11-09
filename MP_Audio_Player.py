@@ -1458,11 +1458,13 @@ class AudioEngine:
         self.is_recording, self.recording_current_path, self.recording_bytes_written, self.recording_duration_sec = False, "", 0, 0.0
         self._rec_queue = self._rec_worker_thread = self._rec_dir = None
         self._rec_lock, self._rec_part_index, self._rec_base_stem, self._rec_samplerate = threading.Lock(), 1, "", 48000
+        # The first output-stream open runs inside _ensure_stream. bt_router has
+        # to exist first: a missing attribute aborts every device attempt.
+        self.auto_bluetooth, self.bt_router = auto_bluetooth, None
         self._ensure_stream()
         self.eq_manager = EqualizerManager()
         self.eq_filter = EqualizerFilter()
         self.eq_filter.set_gains(self.eq_manager.get_current_bands(), self.sample_rate)
-        self.auto_bluetooth, self.bt_router = auto_bluetooth, None
         if BluetoothAudioRouter is not None:
             try:
                 self.bt_router = BluetoothAudioRouter(target_pid=os.getpid(), on_route_change=self._on_bt_route_change, auto_switch=self.auto_bluetooth)
@@ -2348,10 +2350,12 @@ def _retire_extra_player_daemons(prefer_pid: Optional[int] = None) -> None:
     socket and pid file still used by the daemon we keep.
     """
     pids = _audio_player_daemon_pids()
+    # Windows has no SIGKILL. TerminateProcess via SIGTERM skips atexit there too.
+    stop_sig = getattr(signal, "SIGKILL", signal.SIGTERM)
     if prefer_pid and int(prefer_pid) == os.getpid():
         for pid in pids:
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, stop_sig)
             except OSError:
                 pass
         return
@@ -2374,7 +2378,7 @@ def _retire_extra_player_daemons(prefer_pid: Optional[int] = None) -> None:
     for pid in pids:
         if pid != owner:
             try:
-                os.kill(pid, signal.SIGKILL)
+                os.kill(pid, stop_sig)
             except OSError:
                 pass
 
@@ -2412,6 +2416,63 @@ def _fit_text_line(cands: List[str], max_cols: int) -> str:
         if _display_width(l) <= max_cols: return l
     return _clip_display(cands[-1] if cands else "", max_cols)
 
+def _glass_rev() -> str:
+    """Selection mark. Reverse video on a color-keyed Windows console punches the letters out."""
+    if sys.platform == "win32" and os.environ.get("MP_LIQUID_GLASS") == "1":
+        return "\033[48;2;21;40;64m"
+    return "\033[7m"
+
+def _win_apply_glass_colorkey(kernel32, handle) -> None:
+    """Paint the default console color with the host's color key so the glass shows through."""
+    raw = os.environ.get("MP_LIQUID_GLASS_COLORKEY", "").strip().lstrip("#")
+    if os.environ.get("MP_LIQUID_GLASS") != "1" or len(raw) != 6:
+        return
+    try:
+        r, g, b = int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+    except ValueError:
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    class COORD(ctypes.Structure):
+        _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+    class SMALL_RECT(ctypes.Structure):
+        _fields_ = [("Left", ctypes.c_short), ("Top", ctypes.c_short), ("Right", ctypes.c_short), ("Bottom", ctypes.c_short)]
+
+    class INFOEX(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.ULONG),
+            ("dwSize", COORD),
+            ("dwCursorPosition", COORD),
+            ("wAttributes", wintypes.WORD),
+            ("srWindow", SMALL_RECT),
+            ("dwMaximumWindowSize", COORD),
+            ("wPopupAttributes", wintypes.WORD),
+            ("bFullscreenSupported", wintypes.BOOL),
+            ("ColorTable", wintypes.DWORD * 16),
+        ]
+
+    info = INFOEX()
+    info.cbSize = ctypes.sizeof(INFOEX)
+    kernel32.GetConsoleScreenBufferInfoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(INFOEX)]
+    kernel32.GetConsoleScreenBufferInfoEx.restype = wintypes.BOOL
+    kernel32.SetConsoleScreenBufferInfoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(INFOEX)]
+    kernel32.SetConsoleScreenBufferInfoEx.restype = wintypes.BOOL
+    if not kernel32.GetConsoleScreenBufferInfoEx(handle, ctypes.byref(info)):
+        return
+    info.ColorTable[0] = r | (g << 8) | (b << 16)
+    info.wAttributes = info.wAttributes & 0xFFF0
+    # SetConsoleScreenBufferInfoEx treats the inclusive window rect as exclusive.
+    info.srWindow.Right += 1
+    info.srWindow.Bottom += 1
+    kernel32.SetConsoleScreenBufferInfoEx(handle, ctypes.byref(info))
+    try:
+        sys.stdout.write(f"\033]11;#{raw}\007")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
 def _win_console_begin():
     global _WIN_CONSOLE
     if sys.platform != "win32": return None
@@ -2420,6 +2481,7 @@ def _win_console_begin():
         h, k, m = msvcrt.get_osfhandle(sys.stdout.fileno()), ctypes.WinDLL("kernel32", use_last_error=True), ctypes.c_uint32()
         if not k.GetConsoleMode(h, ctypes.byref(m)): return None
         k.SetConsoleMode(h, (m.value | 0x0004) & ~0x0002)
+        _win_apply_glass_colorkey(k, h)
         _WIN_CONSOLE = {"handle": h, "mode": m.value, "kernel32": k}
         return _WIN_CONSOLE
     except Exception: return None
@@ -4261,7 +4323,7 @@ class TerminalPlayerUI:
         for i, pname in enumerate(presets[:9]):
             pnum = f"{i+1}:" if i < 7 else ""
             if pname == cur_p:
-                pill_parts.append(f"\033[7m{BOLD}{COLOR_NEON_PINK} {pnum}{pname} \033[0m")
+                pill_parts.append(f"{_glass_rev()}{BOLD}{COLOR_NEON_PINK} {pnum}{pname} \033[0m")
             else:
                 pill_parts.append(f"{COLOR_ELECTRIC_CYAN}[{pnum}{pname}]{NC}")
         preset_row = f" Presets: " + " ".join(pill_parts)
@@ -4299,7 +4361,7 @@ class TerminalPlayerUI:
                 if tr == r_idx:
                     g_val = gains[c_idx]
                     t_col = COLOR_TRAFFIC_GREEN if g_val > 0 else (COLOR_TRAFFIC_AMBER if g_val < 0 else COLOR_ELECTRIC_CYAN)
-                    thumb = f"\033[7m{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m" if is_sel else f"{BOLD}{t_col}█{NC}"
+                    thumb = f"{_glass_rev()}{BOLD}{COLOR_NEON_PINK}[█]{NC}\033[0m" if is_sel else f"{BOLD}{t_col}█{NC}"
                     tw = 3 if is_sel else 1
                     pad_tot = bw - tw
                     pl = pad_tot // 2
@@ -4326,7 +4388,7 @@ class TerminalPlayerUI:
         for i, fl in enumerate(EQ_BAND_LABELS):
             bw = band_widths[i]
             fl_padded = f"{fl:^{bw}s}"
-            freq_cells.append(f"\033[7m{BOLD}{COLOR_NEON_PINK}{fl_padded}\033[0m" if i == sel_idx else f"{BOLD}{COLOR_LILAC}{fl_padded}{NC}")
+            freq_cells.append(f"{_glass_rev()}{BOLD}{COLOR_NEON_PINK}{fl_padded}\033[0m" if i == sel_idx else f"{BOLD}{COLOR_LILAC}{fl_padded}{NC}")
         f_row = f_prefix + "".join(freq_cells) + f"{DIM}│{NC}"
         pad = max(0, iw - _display_width(f_row))
         lines.append(f"  {b_col}│{NC}{f_row}{' ' * pad}{b_col}│{NC}")
@@ -4338,7 +4400,7 @@ class TerminalPlayerUI:
             g_str = f"{g:+4.1f}"
             g_padded = f"{g_str:^{bw}s}"
             if i == sel_idx:
-                gain_cells.append(f"\033[7m{BOLD}{COLOR_ELECTRIC_CYAN}{g_padded}\033[0m")
+                gain_cells.append(f"{_glass_rev()}{BOLD}{COLOR_ELECTRIC_CYAN}{g_padded}\033[0m")
             elif abs(g) > 0.05:
                 gain_cells.append(f"{COLOR_TRAFFIC_GREEN if g > 0 else COLOR_TRAFFIC_AMBER}{g_padded}{NC}")
             else:
@@ -5352,7 +5414,7 @@ class TerminalPlayerUI:
                     ip = f" {pfx}[{i+1:4d}] {star} {mn}{npad} {ext_s} {f_str} "
                     cw = _display_width(ip)
                     ip = ip + " " * (iw - cw) if cw < iw else (_clip_display(ip, iw) if cw > iw else ip)
-                    if sel: lines.append(f"  {b_col}│{NC}\033[7m{bold_s}{hl_col}{ip}\033[0m{b_col}│{NC}")
+                    if sel: lines.append(f"  {b_col}│{NC}{_glass_rev()}{bold_s}{hl_col}{ip}\033[0m{b_col}│{NC}")
                     elif act: lines.append(f"  {b_col}│{NC}{bold_s}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")

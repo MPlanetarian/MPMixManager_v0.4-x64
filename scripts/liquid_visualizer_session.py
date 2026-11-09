@@ -125,12 +125,17 @@ def _alive(pid: int) -> bool:
         return False
 
 
+def _kill_signal() -> int:
+    """SIGKILL where the platform has it. Windows only has SIGTERM."""
+    return getattr(signal, "SIGKILL", signal.SIGTERM)
+
+
 def _signal_visualizer(pid: int, sig: int) -> None:
     if pid <= 1 or pid == os.getpid():
         return
     if sys.platform == "win32":
-        if sig != signal.SIGKILL and sig != signal.SIGTERM:
-            return
+        # taskkill /F is the Windows equivalent of SIGKILL. signal.SIGKILL
+        # does not exist here, so the stop path must not read that attribute.
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
     try:
@@ -172,7 +177,7 @@ def stop_companion_visualizer(force: bool = False) -> None:
         time.sleep(0.05)
     for pid in pids:
         if _alive(pid):
-            _signal_visualizer(pid, signal.SIGKILL)
+            _signal_visualizer(pid, _kill_signal())
 
 
 def _playback_engine_pids() -> list[int]:
@@ -243,4 +248,4 @@ def stop_companion_playback() -> None:
         time.sleep(0.05)
     for pid in pids:
         if _alive(pid):
-            _signal_visualizer(pid, signal.SIGKILL)
+            _signal_visualizer(pid, _kill_signal())
