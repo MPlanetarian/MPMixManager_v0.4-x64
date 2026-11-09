@@ -219,12 +219,17 @@ function New-MpClickHandler {
     }.GetNewClosure()
 }
 
+. (Join-Path $PSScriptRoot "windows_liquid_glass_icon.ps1")
 $script:ownIcon = $false
+$script:iconStream = $null
 $icon = $null
-$ico = Join-Path $Root "assets\MP_Mix_Manager_Windows_Icon.ico"
-if (Test-Path -LiteralPath $ico) {
+# assets\mp_liquid_glass_icon.png, packaged as an .ico Windows can show.
+$ico = Get-MpLiquidGlassIconPath -InstallRoot $Root
+if ($ico -and (Test-Path -LiteralPath $ico)) {
     try {
-        $icon = New-Object System.Drawing.Icon($ico)
+        $bytes = [System.IO.File]::ReadAllBytes($ico)
+        $script:iconStream = New-Object System.IO.MemoryStream(,$bytes)
+        $icon = New-Object System.Drawing.Icon($script:iconStream)
         $script:ownIcon = $true
     } catch {
         $icon = $null
@@ -560,6 +565,7 @@ try {
         $notify.Dispose()
     }
     if ($script:ownIcon -and $icon) { $icon.Dispose() }
+    if ($script:iconStream) { $script:iconStream.Dispose() }
     if ($owned) {
         try { $mutex.ReleaseMutex() } catch { }
     }

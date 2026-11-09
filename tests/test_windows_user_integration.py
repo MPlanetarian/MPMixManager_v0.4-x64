@@ -52,7 +52,16 @@ class TestWindowsUserIntegration(unittest.TestCase):
         self.assertIn("Launch MP Liquid Player", tray)
         self.assertIn("Launch MP Mix Manager", tray)
         self.assertIn("Close MP Mix Manager (Closes everything)", tray)
-        self.assertIn("MP_Mix_Manager_Windows_Icon.ico", tray)
+        self.assertIn("windows_liquid_glass_icon.ps1", tray)
+        self.assertIn("mp_liquid_glass_icon.png", tray)
+        integration = (ROOT / "scripts" / "windows_user_integration.ps1").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts" / "windows_liquid_glass_icon.ps1").read_text(encoding="utf-8")
+        self.assertIn("windows_liquid_glass_icon.ps1", integration)
+        self.assertIn("Get-MpLiquidGlassIconPath", integration)
+        self.assertLess(
+            helper.index("mp_liquid_glass_icon.png"),
+            helper.index("MP_Mix_Manager_Windows_Icon.ico"),
+        )
         self.assertIn("NotifyIconOverflowWindow", tray)
         self.assertIn("Shell_TrayWnd", tray)
         self.assertIn("User Promoted Notification Area", tray)

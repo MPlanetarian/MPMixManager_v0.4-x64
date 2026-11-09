@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows_liquid_glass_icon.ps1")
 
 function Resolve-MpRoot {
     param([string]$Path)
@@ -360,8 +361,7 @@ function Install-MpUserShortcuts {
     Remove-MpStaleShortcut -Directory $desktop
     Remove-MpStaleShortcut -Directory $programs
 
-    $icon = Join-Path $InstallRoot "assets\MP_Mix_Manager_Windows_Icon.ico"
-    if (-not (Test-Path -LiteralPath $icon)) { $icon = "" }
+    $icon = Get-MpLiquidGlassIconPath -InstallRoot $InstallRoot
     $gui = New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile
 
     $player = Join-Path $InstallRoot "launch_liquid_glass.bat"

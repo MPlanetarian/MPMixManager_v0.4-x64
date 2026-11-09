@@ -70,7 +70,6 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
     """Launch commands for the four shortcuts. Paths stay inside this install."""
     root = Path(root)
     icon = root / "assets" / "mp_liquid_glass_icon.png"
-    win_icon = root / "assets" / "MP_Mix_Manager_Windows_Icon.ico"
     return {
         "MP Liquid Player": {
             "comment": "Launch MP Liquid Player",
@@ -79,7 +78,7 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
             "terminal": False,
             "categories": "AudioVideo;Audio;Player;",
             "icon": icon,
-            "windows_icon": win_icon,
+            "windows_icon": icon,
         },
         "MP Mix Manager": {
             "comment": "Launch MP Mix Manager",
@@ -88,7 +87,7 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
             "terminal": True,
             "categories": "AudioVideo;Audio;Utility;",
             "icon": icon,
-            "windows_icon": win_icon,
+            "windows_icon": icon,
         },
         "MP Gui": {
             "comment": "Launch MP Gui",
@@ -97,7 +96,7 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
             "terminal": False,
             "categories": "AudioVideo;Audio;Utility;",
             "icon": icon,
-            "windows_icon": win_icon,
+            "windows_icon": icon,
         },
         "MP Liquid Visualizer": {
             "comment": "Launch MP Liquid Visualizer",
@@ -106,7 +105,7 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
             "terminal": False,
             "categories": "AudioVideo;Audio;Player;",
             "icon": icon,
-            "windows_icon": win_icon,
+            "windows_icon": icon,
         },
     }
 
@@ -452,10 +451,55 @@ def _trust_desktop_file(path: Path) -> None:
         pass
 
 
+def _windows_shortcut_icon(icon: Path | None) -> Path | None:
+    """Return an .ico Explorer can attach to a shortcut.
+
+    The shared image is assets/mp_liquid_glass_icon.png. Windows stores a
+    real icon file on the shortcut, so a PNG is packaged by the same helper
+    the tray uses.
+    """
+    if not icon:
+        return None
+    icon = Path(icon)
+    if not icon.is_file():
+        return None
+    if icon.suffix.lower() != ".png":
+        return icon
+    helper = Path(__file__).resolve().parent / "windows_liquid_glass_icon.ps1"
+    powershell = _powershell()
+    if not powershell or not helper.is_file():
+        return None
+    root = icon.parent.parent
+    env = os.environ.copy()
+    env.update({
+        "MP_ICON_HELPER": str(helper),
+        "MP_ICON_ROOT": str(root),
+    })
+    subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-Command",
+            ". $env:MP_ICON_HELPER; Get-MpLiquidGlassIconPath -InstallRoot $env:MP_ICON_ROOT",
+        ],
+        env=env,
+        check=False,
+        timeout=30,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    ico = icon.with_suffix(".ico")
+    if ico.is_file():
+        return ico
+    return None
+
+
 def write_powershell_lnk(lnk: Path, target: Path, arguments: str, workdir: Path, description: str, icon: Path | None) -> bool:
     powershell = _powershell()
     if not powershell:
         return False
+    shortcut_icon = _windows_shortcut_icon(icon)
     env = os.environ.copy()
     env.update({
         "MP_LNK": str(lnk),
@@ -463,7 +507,7 @@ def write_powershell_lnk(lnk: Path, target: Path, arguments: str, workdir: Path,
         "MP_LNK_ARGS": arguments or "",
         "MP_LNK_CWD": str(workdir),
         "MP_LNK_DESC": description or "",
-        "MP_LNK_ICON": str(icon) if icon and Path(icon).is_file() else "",
+        "MP_LNK_ICON": str(shortcut_icon) if shortcut_icon else "",
     })
     script = (
         "$s = New-Object -ComObject WScript.Shell\n"
