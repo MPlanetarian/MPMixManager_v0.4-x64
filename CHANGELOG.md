@@ -47,6 +47,9 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **G in the macOS Liquid Player** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_mp_gui.py`):
+  - The embedded player was started with `MP_LIQUID_GLASS=0`, so **G** built a spectrogram instead of opening MP Gui.
+  - That player now gets `MP_LIQUID_GLASS=1`, the same flag as the other Liquid hosts. **G** opens MP Gui.
 - **No tray icon after `install.sh`** (`scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `install.sh`, `tests/test_mp_system_tray.py`):
   - The installer enables KDE's `statusnotifierwatcher` module, writes the autostart entry, and starts the shared tray with `--stay`.
   - The tray loads that module itself when Plasma has it turned off, then waits until the StatusNotifier host is available.

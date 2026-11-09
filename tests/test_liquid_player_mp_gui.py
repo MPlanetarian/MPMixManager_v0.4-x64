@@ -51,6 +51,15 @@ def _status():
 
 
 class TestLiquidPlayerMpGuiShortcut(unittest.TestCase):
+    def test_macos_opengl_player_child_is_marked_liquid_glass(self):
+        import MP_Audio_Player_Liquid_Glass_OpenGL_macOS as host
+
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "0"}, clear=False):
+            os.environ.pop("MP_GUI_SESSION", None)
+            env = host._child_env()
+        self.assertEqual(env["MP_LIQUID_GLASS"], "1")
+        self.assertEqual(env["MP_LIQUID_GLASS_BACKEND"], "opengl")
+
     def test_g_opens_mp_gui_only_inside_liquid_player(self):
         ui = _ui()
         with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \

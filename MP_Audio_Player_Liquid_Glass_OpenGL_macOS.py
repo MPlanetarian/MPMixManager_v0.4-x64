@@ -375,15 +375,16 @@ def manager_argv():
 
 
 def _child_env():
+    """Environment for the program drawn inside the macOS glass window.
+
+    The player must see MP_LIQUID_GLASS=1. With it off, G builds a spectrogram
+    instead of opening MP Gui. The manager session keeps the same flag.
+    """
     env = {key: value for key, value in os.environ.items()}
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
-    if env.get("MP_GUI_SESSION") == "1":
-        env["MP_LIQUID_GLASS"] = "1"
-        env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
-    else:
-        env["MP_LIQUID_GLASS"] = "0"
-        env["MP_LIQUID_GLASS_BACKEND"] = "none"
+    env["MP_LIQUID_GLASS"] = "1"
+    env["MP_LIQUID_GLASS_BACKEND"] = "opengl"
     env["PYTHONUNBUFFERED"] = "1"
     return env
 
