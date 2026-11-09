@@ -233,6 +233,7 @@ from liquid_glass_opengl import (
     read_player_theme,
     get_dynamic_theme_state,
     glass_text_rgb,
+    theme_text_rgb,
     theme_uses_dark_glass,
     raise_macos_process_detached,
     _rgb01,
@@ -402,7 +403,8 @@ class TerminalOverlay:
         self.bg_colors: list[list[tuple | None]] = [[None for _ in range(cols)] for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
-        self.current_fg = (200, 235, 255)
+        self.default_fg = (200, 235, 255)
+        self.current_fg = self.default_fg
         self.current_bg = None
         self._use_dark_ink = None
         self._buf = bytearray()
@@ -682,7 +684,7 @@ class TerminalOverlay:
         while idx < len(params):
             p = params[idx]
             if p == 0:
-                self.current_fg = (200, 235, 255)
+                self.current_fg = self.default_fg
                 self.current_bg = None
             elif 30 <= p <= 37:
                 self.current_fg = ANSI_COLORS.get(p, (200, 235, 255))
@@ -720,13 +722,24 @@ class TerminalOverlay:
         self.cols = cols
         self.rows = rows
         self.grid = [[" " for _ in range(cols)] for _ in range(rows)]
-        self.colors = [[(200, 235, 255) for _ in range(cols)] for _ in range(rows)]
+        self.colors = [[self.default_fg for _ in range(cols)] for _ in range(rows)]
         self.bg_colors = [[None for _ in range(cols)] for _ in range(rows)]
         self.cursor_row = 0
         self.cursor_col = 0
         self.img_w = self.cols * self.char_w
         self.img_h = self.rows * self.char_h
         self.image = None
+        self.dirty = True
+
+    def set_theme_text(self, theme_name):
+        """Reset colour for text that does not name its own colour."""
+        rgb = theme_text_rgb(theme_name)
+        if self.default_fg == rgb:
+            return
+        previous = self.default_fg
+        self.default_fg = rgb
+        if self.current_fg == previous:
+            self.current_fg = rgb
         self.dirty = True
 
     def set_ink(self, theme_name, on_light_glass=True):
@@ -1360,6 +1373,7 @@ class OpenGLGlassHost:
         self._sync_panels()
 
         theme = read_player_theme()
+        self.overlay.set_theme_text(theme)
         theme_at = 0.0
         # open() raises once. The visualizer raises itself when its window
         # appears, which can be later, so raise again for a few seconds.
@@ -1376,6 +1390,7 @@ class OpenGLGlassHost:
                     next_raise = now + 0.5
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
+                    self.overlay.set_theme_text(theme)
                     theme_at = now
 
                 if self.master_fd is not None:

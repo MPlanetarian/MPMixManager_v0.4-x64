@@ -18,6 +18,7 @@ from liquid_glass_opengl import (  # noqa: E402
     glass_metrics,
     glass_text_rgb,
     theme_rgb,
+    theme_text_rgb,
     theme_uses_dark_glass,
 )
 from MP_Audio_Player_Liquid_Glass_OpenGL import embed_check_argv, player_argv  # noqa: E402
@@ -52,6 +53,21 @@ class TestGlassTextInk(unittest.TestCase):
         self.assertLess(cyan[1], 80)
         self.assertLess(cyan[2], 90)
         self.assertEqual(glass_text_rgb(247, 37, 133), (247, 37, 133))
+
+    def test_each_theme_has_its_own_text_colour(self):
+        names = (
+            "stream_of_frequency",
+            "dreamworlds_ultra",
+            "sensorium_interface",
+            "cosmic_supernova",
+            "phosphor",
+            "retro_linux_memories",
+            "retro_terminal",
+        )
+        colours = [theme_text_rgb(name) for name in names]
+        self.assertEqual(len(colours), len(set(colours)))
+        self.assertNotEqual(theme_text_rgb("sensorium_interface"), (255, 255, 255))
+        self.assertEqual(theme_text_rgb("retro_linux_memories"), (255, 183, 20))
 
     def test_default_foreground_follows_the_pane(self):
         self.assertEqual(glass_foreground_rgb("retro_linux_memories"), (236, 240, 244))

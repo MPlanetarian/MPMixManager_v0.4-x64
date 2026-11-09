@@ -47,6 +47,9 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **MP Player text stayed white on every theme** (`MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`):
+  - Playlist rows, track names, and the control labels use that theme's text colour.
+  - Text with no colour of its own uses the same hue. Retro Terminal's hue is white, and the pale pane darkens it to gray. Pale glass darkens a light hue so it can be read.
 - **No menu bar icon or desktop shortcut image on macOS** (`scripts/macos_menu_bar.swift`, `scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `scripts/install_desktop_shortcuts.py`, `install.sh`):
   - The installer starts an AppKit menu-bar icon and a login item. The icon does not use PySide6 or a KDE StatusNotifier host.
   - Click the icon to launch MP Gui, MP Liquid Player, or MP Mix Manager, or to close them.

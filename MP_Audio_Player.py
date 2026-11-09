@@ -2416,6 +2416,15 @@ def _fit_text_line(cands: List[str], max_cols: int) -> str:
         if _display_width(l) <= max_cols: return l
     return _clip_display(cands[-1] if cands else "", max_cols)
 
+def theme_body_ansi(theme_name: str) -> str:
+    """ANSI colour for player body text. Each theme keeps its own hue."""
+    script_dir = str(Path(__file__).resolve().parent / "scripts")
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+    from liquid_glass_opengl import theme_text_rgb
+    red, green, blue = theme_text_rgb(theme_name)
+    return f"\033[38;2;{red};{green};{blue}m"
+
 def _glass_rev() -> str:
     """Selection mark. Reverse video on a color-keyed Windows console punches the letters out."""
     if sys.platform == "win32" and os.environ.get("MP_LIQUID_GLASS") == "1":
@@ -5299,6 +5308,7 @@ class TerminalPlayerUI:
         self._last_seen_bt_state, self._last_seen_bt_device = is_bt, bt_dev
         iw = max(20, w - 6)
         pal = self.visualizer.get_theme_palette()
+        text_col = theme_body_ansi(self.visualizer.theme)
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
         g_key = "MP Gui" if is_lg else "Spek"
         bold_s = "" if is_lg else BOLD
@@ -5348,7 +5358,7 @@ class TerminalPlayerUI:
         pct, bw = float(st.get("progress_pct", 0.0)), max(20, min(max(54, iw - 42), iw - 28))
         fw = int((pct / 100.0) * bw)
         lines.extend([
-            f"  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {WHITE if is_lg else ''}({pct:.1f}%){NC if is_lg else ''}",
+            f"  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('position_fmt', '00:00')}{NC}  {b_col}{'━' * fw + '●' + '─' * max(0, bw - fw - 1)}{NC}  {bold_s}{COLOR_ELECTRIC_CYAN}{st.get('duration_fmt', '00:00')}{NC}  {text_col}({pct:.1f}%){NC}",
             self.visualizer.render_horizontal_pitch_bar(int(st.get("pitch_percent", 0)), width=bw, max_cols=max(20, w - 1)), ""
         ])
         lines.extend(self.visualizer.render(st, width=w, height=(7 if h >= 34 else (5 if h >= 28 else 3))) + [""])
@@ -5417,11 +5427,11 @@ class TerminalPlayerUI:
                     if sel: lines.append(f"  {b_col}│{NC}{_glass_rev()}{bold_s}{hl_col}{ip}\033[0m{b_col}│{NC}")
                     elif act: lines.append(f"  {b_col}│{NC}{bold_s}{act_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{COLOR_ELECTRIC_CYAN}{ip}{NC}{b_col}│{NC}")
-                    else: lines.append(f"  {b_col}│{NC}{WHITE}{ip}{NC}{b_col}│{NC}")
+                    else: lines.append(f"  {b_col}│{NC}{text_col}{ip}{NC}{b_col}│{NC}")
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
             lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col))
 
-        hint_col = WHITE if is_lg else DIM
+        hint_col = text_col
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
         vol = (f"{bold_s}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{bold_s}{COLOR_TRAFFIC_RED}MUTED{NC}")
@@ -5476,6 +5486,7 @@ class TerminalPlayerUI:
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
         g_key = "MP Gui" if is_lg else "Spek"
         bold_s = "" if is_lg else BOLD
+        text_col = theme_body_ansi(self.visualizer.theme)
         if is_lg and self.mp_visualizer_on:
             header_title = "✦ MP LIQUID GLASS VISUALIZER ✦"
         else:
@@ -5488,11 +5499,11 @@ class TerminalPlayerUI:
         is_rec, flash = bool(st.get("recording", False)), (int(t_now * 1.5) % 2 == 0)
         rec_b = f" {bold_s}\033[38;2;255;64;64m● REC{NC}" if (is_rec and flash) else (f" \033[38;2;255;100;100m○ REC{NC}" if is_rec else "")
         mode_str = 'MUSIC' if self.mode == 'MUSIC' else 'MIX'
-        lines.append(f"  {badge} {bold_s}\033[38;2;0;229;255m[{mode_str}]{NC}{rec_b} \033[38;2;255;255;255m♫ {tname}{NC}")
+        lines.append(f"  {badge} {bold_s}\033[38;2;0;229;255m[{mode_str}]{NC}{rec_b} {text_col}♫ {tname}{NC}")
         ext, sr, ch_s = os.path.splitext(st.get("path", ""))[1][1:].upper() or "FLAC", st.get("sample_rate", 44100), ("Stereo" if st.get("channels", 2) == 2 else "Mono")
         dev_s = f"{'🎧' if st.get('bluetooth_connected') else '🔊'} {st.get('output_device', 'Speakers')}"
         if _display_width(dev_s) > 22: dev_s = dev_s[:19] + "..."
-        lines.append(f"  \033[38;2;120;215;255m{ext} • {sr/1000:.1f}kHz • {ch_s}{NC}  │  \033[38;2;235;240;255m{dev_s}{NC}")
+        lines.append(f"  \033[38;2;120;215;255m{ext} • {sr/1000:.1f}kHz • {ch_s}{NC}  │  {text_col}{dev_s}{NC}")
         pct, bw = float(st.get("progress_pct", 0.0)), max(16, min(34, iw - 30))
         fw = int((pct / 100.0) * bw)
         bar_fill = f"\033[38;2;0;229;255m{'━' * fw}\033[38;2;255;255;255m●{NC}"
@@ -5506,8 +5517,8 @@ class TerminalPlayerUI:
         if t_now < self.notification_time and self.notification_msg:
             lines.append(f"  {bold_s}\033[38;2;0;255;127m📂 {self.notification_msg}{NC}")
         else:
-            g_early = f"\033[38;2;0;229;255m[G]{NC} \033[38;2;235;240;255m{g_key}{NC}  " if is_lg else ""
-            lines.append(f"  \033[38;2;0;229;255m[3]{NC} \033[38;2;255;196;0mFavorites{NC}  \033[38;2;0;229;255m[H]{NC} \033[38;2;235;240;255mMark{NC}  \033[38;2;0;229;255m[1]{NC} \033[38;2;235;240;255mMix{NC}  \033[38;2;0;229;255m[2]{NC} \033[38;2;235;240;255mMusic{NC}  \033[38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  {g_early}\033[38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQueue{NC}  \033[38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[38;2;0;229;255m[G]{NC} \033[38;2;235;240;255m{g_key}{NC}  \033[38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[38;2;255;215;0m[M]{NC} \033[38;2;235;240;255mMicro{NC}  \033[38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}")
+            g_early = f"\033[38;2;0;229;255m[G]{NC} {text_col}{g_key}{NC}  " if is_lg else ""
+            lines.append(f"  \033[38;2;0;229;255m[3]{NC} \033[38;2;255;196;0mFavorites{NC}  \033[38;2;0;229;255m[H]{NC} {text_col}Mark{NC}  \033[38;2;0;229;255m[1]{NC} {text_col}Mix{NC}  \033[38;2;0;229;255m[2]{NC} {text_col}Music{NC}  \033[38;2;0;229;255m[D]{NC} {text_col}Clear{NC}  {g_early}\033[38;2;0;229;255m[Space]{NC} {text_col}Play{NC}  \033[38;2;0;229;255m[Q]{NC} {text_col}Queue{NC}  \033[38;2;0;229;255m[R]{NC} {text_col}Rec{NC}  \033[38;2;0;229;255m[G]{NC} {text_col}{g_key}{NC}  \033[38;2;0;229;255m[n/p]{NC} {text_col}Skip{NC}  \033[38;2;255;215;0m[M]{NC} {text_col}Micro{NC}  \033[38;2;255;64;64m[b]{NC} {text_col}Close{NC}")
         if is_lg:
             lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
@@ -5529,6 +5540,7 @@ class TerminalPlayerUI:
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
         g_key = "MP Gui" if is_lg else "Spek"
         bold_s = "" if is_lg else BOLD
+        text_col = theme_body_ansi(self.visualizer.theme)
         state = st.get("state", "stopped")
         badge = f"{bold_s}\033[38;2;0;255;127m▶{NC}" if state == "playing" else (f"{bold_s}\033[38;2;255;191;0m⏸{NC}" if state == "paused" else f"{bold_s}\033[38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
@@ -5562,7 +5574,7 @@ class TerminalPlayerUI:
         pval = int(st.get("pitch_percent", 0))
         p_txt = f"{pval:+d}%" if pval != 0 else "0%"
         vol_str = f"{st.get('volume', 85)}%" if not st.get("muted") else "\033[38;2;255;64;64mMUTED\033[0m"
-        r1 = f" {badge}{rec_d} \033[38;2;255;255;255m{tname}{NC} │ \033[38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[38;2;0;229;255m{vol_str}{NC} │ \033[38;2;255;215;0mPitch: {p_txt}{NC} "
+        r1 = f" {badge}{rec_d} {text_col}{tname}{NC} │ \033[38;2;0;229;255m{st.get('position_fmt', '00:00')}/{st.get('duration_fmt', '00:00')}{NC} │ Vol: \033[38;2;0;229;255m{vol_str}{NC} │ \033[38;2;255;215;0mPitch: {p_txt}{NC} "
         next_mode_lbl = "Full" if is_lg else "Mini"
         r2 = f" 🎛 [{m_str}] │ EQ: {bold_s}{c2}{self.visualizer.get_style_display_name()[:14]}{NC} │ 🎨 {c1}{self.visualizer.get_theme_display_name()[:10]}{NC} │ \033[38;2;255;215;0m[M] {next_mode_lbl}{NC} "
         if is_lg and self.mp_visualizer_on:
@@ -5588,11 +5600,11 @@ class TerminalPlayerUI:
         else:
             m_hint = "[M] Full" if is_lg else "[M] Mini"
             m_hint_short = "M Full" if is_lg else "M Mini"
-            g_micro = f"\033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255m{g_key}{NC}  " if is_lg else ""
+            g_micro = f"\033[1;38;2;0;229;255m[G]{NC} {text_col}{g_key}{NC}  " if is_lg else ""
             lines.append(_fit_text_line([
-                f"  \033[1;38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[G]{NC} \033[38;2;235;240;255m{g_key}{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255m[D]{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255m[Space]{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255m[Q]{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255m[R]{NC} \033[38;2;235;240;255mRec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255m[s]{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255m[e]{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255m[c]{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} \033[38;2;235;240;255mClose{NC}",
-                f"  \033[1;38;2;0;229;255mD{NC} \033[38;2;235;240;255mClear{NC}  \033[1;38;2;0;229;255mSpace{NC} \033[38;2;235;240;255mPlay{NC}  \033[1;38;2;0;229;255mQ{NC} \033[38;2;235;240;255mQue{NC}  \033[1;38;2;0;229;255mR{NC} \033[38;2;235;240;255mRec{NC}  {g_micro}\033[1;38;2;0;229;255mn/p{NC} \033[38;2;235;240;255mSkip{NC}  \033[1;38;2;0;229;255mv/V{NC} \033[38;2;235;240;255mVol{NC}  \033[1;38;2;0;229;255ms{NC} \033[38;2;235;240;255mShuf{NC}  \033[1;38;2;0;229;255me{NC} \033[38;2;235;240;255mEQ{NC}  \033[1;38;2;0;229;255mc{NC} \033[38;2;235;240;255mTheme{NC}  \033[1;38;2;255;215;0m{m_hint_short}{NC}  \033[1;38;2;255;64;64mb{NC} \033[38;2;235;240;255mClose{NC}"
+                f"  \033[1;38;2;0;229;255m[D]{NC} {text_col}Clear{NC}  \033[1;38;2;0;229;255m[Space]{NC} {text_col}Play{NC}  \033[1;38;2;0;229;255m[Q]{NC} {text_col}Que{NC}  \033[1;38;2;0;229;255m[R]{NC} {text_col}Rec{NC}  \033[1;38;2;0;229;255m[G]{NC} {text_col}{g_key}{NC}  \033[1;38;2;0;229;255m[n/p]{NC} {text_col}Skip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} {text_col}Vol{NC}  \033[1;38;2;0;229;255m[s]{NC} {text_col}Shuf{NC}  \033[1;38;2;0;229;255m[e]{NC} {text_col}EQ{NC}  \033[1;38;2;0;229;255m[c]{NC} {text_col}Theme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} {text_col}Close{NC}",
+                f"  \033[1;38;2;0;229;255m[D]{NC} {text_col}Clear{NC}  \033[1;38;2;0;229;255m[Space]{NC} {text_col}Play{NC}  \033[1;38;2;0;229;255m[Q]{NC} {text_col}Que{NC}  \033[1;38;2;0;229;255m[R]{NC} {text_col}Rec{NC}  \033[1;38;2;0;229;255m[n/p]{NC} {text_col}Skip{NC}  \033[1;38;2;0;229;255m[v/V]{NC} {text_col}Vol{NC}  \033[1;38;2;0;229;255m[s]{NC} {text_col}Shuf{NC}  \033[1;38;2;0;229;255m[e]{NC} {text_col}EQ{NC}  \033[1;38;2;0;229;255m[c]{NC} {text_col}Theme{NC}  \033[1;38;2;255;215;0m{m_hint}{NC}  \033[1;38;2;255;64;64m[b]{NC} {text_col}Close{NC}",
+                f"  \033[1;38;2;0;229;255mD{NC} {text_col}Clear{NC}  \033[1;38;2;0;229;255mSpace{NC} {text_col}Play{NC}  \033[1;38;2;0;229;255mQ{NC} {text_col}Que{NC}  \033[1;38;2;0;229;255mR{NC} {text_col}Rec{NC}  {g_micro}\033[1;38;2;0;229;255mn/p{NC} {text_col}Skip{NC}  \033[1;38;2;0;229;255mv/V{NC} {text_col}Vol{NC}  \033[1;38;2;0;229;255ms{NC} {text_col}Shuf{NC}  \033[1;38;2;0;229;255me{NC} {text_col}EQ{NC}  \033[1;38;2;0;229;255mc{NC} {text_col}Theme{NC}  \033[1;38;2;255;215;0m{m_hint_short}{NC}  \033[1;38;2;255;64;64mb{NC} {text_col}Close{NC}"
             ], max(20, w - 1)))
         self._append_player_buttons(lines, max(20, w - 1))
         if is_lg:

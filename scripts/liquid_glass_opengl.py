@@ -396,6 +396,44 @@ def glass_foreground_rgb(theme_name) -> tuple[int, int, int]:
     return (32, 36, 44)
 
 
+# Same hues as the manager menu text. Retro Terminal stays white.
+THEME_TEXT = {
+    "stream_of_frequency": (255, 237, 20),
+    "dreamworlds_ultra": (165, 20, 255),
+    "dynamic_rainbow_liquid_glass": (255, 20, 237),
+    "cosmic_supernova": (255, 129, 20),
+    "dreamworlds_liquid": (20, 255, 147),
+    "dreamworlds_neon": (219, 20, 255),
+    "retro_studio": (180, 140, 20),
+    "cyber_neon": (255, 20, 20),
+    "phosphor": (165, 255, 20),
+    "ice_cold": (20, 147, 255),
+    "retro_terminal": (255, 255, 255),
+    "cosmic_dreamworlds_radioactive": (111, 255, 20),
+    "cosmic_dreamworlds": (255, 20, 183),
+    "orbital_void_reflux": (56, 20, 255),
+    "sensorium_interface": (111, 20, 255),
+    "retro_linux_memories": (255, 183, 20),
+    "solarized": (219, 255, 20),
+    "tokyo": (255, 75, 20),
+    "monokai": (56, 255, 20),
+    "emerald": (20, 255, 93),
+}
+
+
+def theme_text_rgb(name) -> tuple[int, int, int]:
+    """Body-text colour for this theme.
+
+    Pale glass darkens a light hue so it stays readable. Charcoal keeps the
+    bright colour. Retro Terminal's hue is white, and the pale pane darkens it.
+    """
+    key = THEME_ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
+    bright = THEME_TEXT.get(key, THEME_TEXT["dreamworlds_ultra"])
+    if theme_uses_dark_glass(name):
+        return bright
+    return glass_text_rgb(*bright)
+
+
 def get_dynamic_theme_state(theme_name, base_opacity=1.0, current_time=None):
     """
     For 'dynamic_rainbow_liquid_glass':

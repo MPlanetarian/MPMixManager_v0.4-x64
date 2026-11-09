@@ -211,8 +211,8 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         flag = Path.home() / ".config" / "mix-manager" / f"liquid_ui_size.{os.getpid()}"
         flag.unlink(missing_ok=True)
 
-    def test_unselected_playlist_entries_have_high_contrast_bold_white(self):
-        """Verifies unselected playlist rows use explicit bold truecolor white so they do not wash out on Liquid Glass."""
+    def test_unselected_playlist_entries_use_the_theme_text_colour(self):
+        """Unselected playlist rows use that theme's text colour, not white."""
         mock_scanner = MagicMock()
         mock_scanner.get_mixes.return_value = [
             {"name": "Mix 01 - Selected Track.flac", "path": "/path/mix1.flac", "ext": "FLAC", "size_mb": 650},
@@ -224,6 +224,7 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
             ui_size_mode="NORMAL",
             is_remote=True,
         )
+        ui.visualizer.theme = "sensorium_interface"
         ui.selected_row = 0
         st = {
             "title": "Mix 01 - Selected Track.flac",
@@ -251,8 +252,21 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
 
         unselected = [l for l in captured if "Mix 02 - Unselected Track.flac" in l]
         self.assertTrue(unselected, "Unselected playlist entry was not rendered")
-        self.assertIn("\033[38;2;255;255;255m", unselected[0])
-        self.assertNotIn("\033[1;38;2;255;255;255m", unselected[0])
+        sensorium = MP_Audio_Player.theme_body_ansi("sensorium_interface")
+        cosmic = MP_Audio_Player.theme_body_ansi("cosmic_supernova")
+        self.assertIn(sensorium, unselected[0])
+        self.assertNotIn("\033[38;2;255;255;255m", unselected[0])
+        self.assertNotEqual(sensorium, cosmic)
+        ui.visualizer.theme = "cosmic_supernova"
+        captured.clear()
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
+             patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured.extend(lines)), \
+             patch("MP_Audio_Player._win_visible_size", return_value=(120, 40)):
+            ui._draw_frame()
+        cosmic_rows = [l for l in captured if "Mix 02 - Unselected Track.flac" in l]
+        self.assertTrue(cosmic_rows, "Unselected playlist entry was not rendered for the second theme")
+        self.assertIn(cosmic, cosmic_rows[0])
+        self.assertNotIn(sensorium, cosmic_rows[0])
 
     def test_player_argv_forwards_extra_args(self):
         """Verifies player_argv forwards mode/playlist/theme flags to MP_Audio_Player.py."""
