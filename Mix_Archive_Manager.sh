@@ -1172,11 +1172,12 @@ exit_mix_manager() {
     echo ""
     exit 0
 }
-if [[ "$UNAME_S" =~ (MINGW|MSYS|CYGWIN) ]]; then for _py_cand in "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312" "/c/Users/${USER:-Mathe}/AppData/Local/Programs/Python/Python312/Scripts" "/c/Program Files/Python312" "/c/Program Files/Python312/Scripts" "/c/Users/${USER:-Mathe}/AppData/Local/Microsoft/WinGet/Links"; do [ -d "$_py_cand" ] && export PATH="$_py_cand:$PATH"; done; _py3_path="$(type -p python3 2>/dev/null || true)"; if [ -z "$_py3_path" ] || [[ "$_py3_path" =~ WindowsApps ]]; then _py_path="$(type -p python 2>/dev/null || true)"; if [ -n "$_py_path" ] && [[ ! "$_py_path" =~ WindowsApps ]]; then
-python3() { python "$@"; }
-export -f python3 2>/dev/null || true; elif command -v py &>/dev/null; then
-python3() { py -3 "$@"; }
-export -f python3 2>/dev/null || true; fi; fi; fi; OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) case "${OSTYPE:-}" in msys*|cygwin*|win32*) OS_TYPE="windows" ;; darwin*) OS_TYPE="macos" ;; freebsd*) OS_TYPE="freebsd" ;; *) OS_TYPE="linux" ;; esac ;; esac; export OS_TYPE
+if [ -f "$SCRIPT_DIR/scripts/resolve_mp_python.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_DIR/scripts/resolve_mp_python.sh"
+    resolve_mp_python >/dev/null || true
+fi
+OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) case "${OSTYPE:-}" in msys*|cygwin*|win32*) OS_TYPE="windows" ;; darwin*) OS_TYPE="macos" ;; freebsd*) OS_TYPE="freebsd" ;; *) OS_TYPE="linux" ;; esac ;; esac; export OS_TYPE
 if [ -d "$SCRIPT_DIR/venv/bin" ]; then
     export PATH="$SCRIPT_DIR/venv/bin:$PATH"
     export VIRTUAL_ENV="$SCRIPT_DIR/venv"
@@ -1554,7 +1555,17 @@ local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIP
 # Drop the menu's LINES and COLUMNS before starting MP Audio Player.
 # A new window must read its own size. Those variables belong to this menu.
 _run_mp_audio_player() {
-    env -u LINES -u COLUMNS "$@"
+    # env cannot call a python3() function. A bare name hits the Windows Store alias.
+    local bin="$1"
+    shift
+    if [ "$bin" = "python3" ] || [ "$bin" = "python" ] || [ "$bin" = "py" ]; then
+        if command -v mp_python_bin >/dev/null 2>&1; then
+            bin="$(mp_python_bin)"
+        elif [ -n "${MP_PYTHON:-}" ]; then
+            bin="$MP_PYTHON"
+        fi
+    fi
+    env -u LINES -u COLUMNS "$bin" "$@"
 }
 # M on the main screen opens the normal player. Mini and Micro stay inside
 # an already-open player window. The Mini profile is 74x14 and 30% opacity,
@@ -1566,11 +1577,11 @@ launch_mp_audio_player_window() {
         if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
             source "$SCRIPT_DIR/venv/bin/activate"
         fi
-        local py_bin="python3"
-        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
+        local py_bin
+        py_bin="$(mp_python_bin)"
 
         if _run_mp_audio_player "$py_bin" "$mp_py" --new-window &>/dev/null; then return 0; fi
-        launch_in_terminal "MP Audio Player" "env -u LINES -u COLUMNS $py_bin \"$mp_py\" --interactive" "window"
+        launch_in_terminal "MP Audio Player" "env -u LINES -u COLUMNS \"$py_bin\" \"$mp_py\" --interactive" "window"
     fi
 }
 # MP Gui runs the same program with --manager. That window is the manager,
@@ -1715,12 +1726,8 @@ launch_mp_audio_player_liquid_glass() {
     fi
 
     mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
-    local py_bin="python3"
-    if [ -x "$BASE_DIR/venv/bin/python3" ]; then
-        py_bin="$BASE_DIR/venv/bin/python3"
-    elif [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
-        py_bin="$SCRIPT_DIR/venv/bin/python3"
-    fi
+    local py_bin
+    py_bin="$(mp_python_bin)"
 
     local -a py_args=()
     [ -n "$audio_file" ] && py_args=("--play" "$audio_file")
@@ -2289,10 +2296,11 @@ manage_mp_audio_player() {
             source "$SCRIPT_DIR/venv/bin/activate"
         fi
         
-        # Use venv python if available, otherwise fallback to python3
-        local py_bin="python3"
-        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
-        
+        # Absolute path. env cannot see a python3() function, and the Store alias
+        # exits before Play DJ Mixes can draw the archive playlist.
+        local py_bin
+        py_bin="$(mp_python_bin)"
+
         _run_mp_audio_player "$py_bin" "$py_script" --interactive "$@"
     else
         echo -e "${RED}Error: MP_Audio_Player.py not found!${NC}"
@@ -5050,12 +5058,9 @@ ensure_first_run_equalizer() {
     [ ! -f "$mp_py" ] && mp_py="$PWD/MP_Audio_Player.py"
     [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
     if [ -f "$mp_py" ]; then
-        local py_bin="python3"
-        [ -x "$SCRIPT_DIR/venv/bin/python3" ] && py_bin="$SCRIPT_DIR/venv/bin/python3"
-        if ! command -v "$py_bin" &>/dev/null && command -v python &>/dev/null; then
-            py_bin="python"
-        fi
-        "$py_bin" "$mp_py" --reset-eq >/dev/null 2>&1 || python "$mp_py" --reset-eq >/dev/null 2>&1 || true
+        local py_bin
+        py_bin="$(mp_python_bin)"
+        "$py_bin" "$mp_py" --reset-eq >/dev/null 2>&1 || true
         mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
         touch "$flag_file" 2>/dev/null || true
     fi

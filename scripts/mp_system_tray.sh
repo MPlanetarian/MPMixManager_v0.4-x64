@@ -13,6 +13,45 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$_RESOLVED_SRC")" >/dev/null 2>&1 && pwd)"
 unset _RESOLVED_SRC _RESOLVED_DIR
 
+_is_windows_host() {
+    case "$(uname -s)" in
+        CYGWIN*|MINGW*|MSYS*) return 0 ;;
+    esac
+    if [ -r /proc/version ] && grep -qi microsoft /proc/version 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+# Windows 10/11 has no StatusNotifier host. The notification icon and the
+# per-user shortcuts are created by PowerShell, including when python3 is only
+# the Microsoft Store alias.
+if _is_windows_host; then
+    ROOT_DIR="$(cd -P "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
+    HELPER="$SCRIPT_DIR/install_windows_user.sh"
+    if [ ! -f "$HELPER" ]; then
+        echo "install_windows_user.sh was not found beside this script." >&2
+        exit 1
+    fi
+    case "${1:-}" in
+        --status)
+            exec bash "$HELPER" "$ROOT_DIR" --status
+            ;;
+        --install)
+            exec bash "$HELPER" "$ROOT_DIR"
+            ;;
+        --ensure)
+            exec bash "$HELPER" "$ROOT_DIR" --ensure-tray
+            ;;
+        --stay)
+            exec bash "$HELPER" "$ROOT_DIR" --tray-foreground --stay
+            ;;
+        *)
+            exec bash "$HELPER" "$ROOT_DIR" --tray-foreground
+            ;;
+    esac
+fi
+
 PY="$SCRIPT_DIR/mp_system_tray.py"
 if [ ! -f "$PY" ]; then
     echo "mp_system_tray.py was not found beside this script." >&2

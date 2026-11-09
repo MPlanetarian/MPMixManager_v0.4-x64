@@ -254,7 +254,17 @@ echo ""
 
 # 7. Desktop Integration
 echo -e "${BOLD}${BLUE}[7/7] Installing Desktop Integration...${NC}"
-if command -v python3 >/dev/null 2>&1; then
+if [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
+    # python3 on a normal Windows install is the Microsoft Store alias, not an
+    # interpreter. Shortcuts and the tray are written into the signed-in user's
+    # profile (Desktop, Start Menu, and Startup) by PowerShell.
+    if bash "$SCRIPT_DIR/scripts/install_windows_user.sh" "$SCRIPT_DIR"; then
+        echo -e "${GREEN}      ✓ Desktop shortcuts are on this user profile: MP Liquid Player, MP Mix Manager, MP Gui, MP Liquid Visualizer${NC}"
+        echo -e "${GREEN}      ✓ System tray icon installed and started.${NC}"
+    else
+        echo -e "${YELLOW}      ⚠ Desktop shortcuts or the system tray icon could not be installed for this user.${NC}"
+    fi
+elif command -v python3 >/dev/null 2>&1; then
     if python3 "$SCRIPT_DIR/scripts/install_desktop_shortcuts.py" --root "$SCRIPT_DIR"; then
         echo -e "${GREEN}      ✓ Desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, MP Liquid Visualizer${NC}"
     else

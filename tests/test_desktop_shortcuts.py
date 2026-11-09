@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from install_desktop_shortcuts import (  # noqa: E402
     SHORTCUT_NAMES,
+    _is_public_windows_folder,
+    desktop_dir_for,
     ensure_installed,
     install_desktop_shortcuts,
 )
@@ -130,6 +132,15 @@ class TestDesktopShortcuts(unittest.TestCase):
             self.assertIn("MP_Liquid_Visualizer.py", visualizer_cmd)
             self.assertNotIn("--play", visualizer_cmd)
             self.assertEqual(len(list(apps.glob("*.lnk"))), 4)
+
+    def test_windows_desktop_falls_back_to_the_user_profile(self):
+        with patch.dict(os.environ, {"USERPROFILE": r"C:\Users\Ada"}, clear=False), \
+             patch("install_desktop_shortcuts._windows_special_folder", return_value=None):
+            self.assertEqual(desktop_dir_for("windows"), Path(r"C:\Users\Ada") / "Desktop")
+
+    def test_public_desktop_is_not_the_user_profile(self):
+        self.assertTrue(_is_public_windows_folder(r"C:\Users\Public\Desktop"))
+        self.assertFalse(_is_public_windows_folder(r"C:\Users\Administrator\Desktop"))
 
     def test_ensure_installs_only_when_a_shortcut_is_missing(self):
         with patch("install_desktop_shortcuts.desktop_shortcuts_present", return_value=True), \

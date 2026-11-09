@@ -183,11 +183,17 @@ migrate_installation_path() {
     ln -sf "$target_dir/Mix_Archive_Manager.sh" "$HOME/manager.sh" 2>/dev/null || true
     
     # Desktop shortcuts follow the install that was just written.
-    if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/install_desktop_shortcuts.py" ]; then
-        python3 "$target_dir/scripts/install_desktop_shortcuts.py" --root "$target_dir" >/dev/null 2>&1 || true
-    fi
-    if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/mp_system_tray.py" ]; then
-        python3 "$target_dir/scripts/mp_system_tray.py" --install >/dev/null 2>&1 || true
+    if [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
+        if [ -f "$target_dir/scripts/install_windows_user.sh" ]; then
+            bash "$target_dir/scripts/install_windows_user.sh" "$target_dir" >/dev/null 2>&1 || true
+        fi
+    else
+        if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/install_desktop_shortcuts.py" ]; then
+            python3 "$target_dir/scripts/install_desktop_shortcuts.py" --root "$target_dir" >/dev/null 2>&1 || true
+        fi
+        if command -v python3 >/dev/null 2>&1 && [ -f "$target_dir/scripts/mp_system_tray.py" ]; then
+            python3 "$target_dir/scripts/mp_system_tray.py" --install >/dev/null 2>&1 || true
+        fi
     fi
     
     if [ "$mode_opt" = "2" ]; then

@@ -108,11 +108,66 @@ def shortcut_targets(root: Path) -> dict[str, dict]:
     }
 
 
+def _windows_profile() -> Path | None:
+    raw = os.environ.get("USERPROFILE", "").strip().strip('"')
+    if raw:
+        return Path(raw)
+    return None
+
+
+def _is_public_windows_folder(path: str) -> bool:
+    norm = path.replace("/", "\\").rstrip("\\").lower()
+    return norm.endswith("\\users\\public\\desktop")
+
+
+def _powershell() -> str | None:
+    for name in ("powershell.exe", "pwsh.exe", "pwsh", "powershell"):
+        found = shutil.which(name)
+        if found:
+            return found
+    system = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
+    candidate = Path(system) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    if candidate.is_file():
+        return str(candidate)
+    return None
+
+
+def _decode_powershell(raw: bytes) -> str:
+    # powershell.exe writes UTF-16 to a pipe. Reading that as the console
+    # code page puts the shortcuts in a path that is not the user profile.
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or b"\x00" in raw[:80]:
+        return raw.decode("utf-16")
+    return raw.decode("utf-8", errors="replace")
+
+
+def _query_windows_folder(powershell: str, name: str) -> str:
+    command = (
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+        f"[Environment]::GetFolderPath('{name}')"
+    )
+    try:
+        raw = subprocess.check_output(
+            [powershell, "-NoProfile", "-Command", command],
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    lines = []
+    for line in _decode_powershell(raw).splitlines():
+        stripped = line.strip().strip("\x00")
+        if stripped and not stripped.startswith("#<"):
+            lines.append(stripped)
+    return lines[-1] if lines else ""
+
+
 def desktop_dir_for(platform_name: str) -> Path:
     if platform_name == "windows":
         found = _windows_special_folder("Desktop")
         if found is not None:
             return found
+        profile = _windows_profile()
+        if profile is not None:
+            return profile / "Desktop"
     if platform_name == "linux":
         xdg = shutil.which("xdg-user-dir")
         if xdg:
@@ -132,23 +187,31 @@ def apps_dir_for(platform_name: str) -> Path:
         found = _windows_special_folder("Programs")
         if found is not None:
             return found
+        profile = _windows_profile()
+        if profile is not None:
+            return profile / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         return Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs"
     return Path.home() / ".local" / "share" / "applications"
 
 
 def _windows_special_folder(name: str) -> Path | None:
-    powershell = shutil.which("powershell.exe") or shutil.which("pwsh") or shutil.which("powershell")
-    if not powershell:
+    queries = ["DesktopDirectory", "Desktop"] if name == "Desktop" else [name]
+    powershell = _powershell()
+    if powershell:
+        for query in queries:
+            found = _query_windows_folder(powershell, query)
+            if found and not _is_public_windows_folder(found):
+                return Path(found)
+    profile = _windows_profile()
+    if profile is None:
         return None
-    try:
-        out = subprocess.check_output(
-            [powershell, "-NoProfile", "-Command", f"[Environment]::GetFolderPath('{name}')"],
-            text=True,
-            timeout=15,
-        ).strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return Path(out) if out else None
+    if name == "Desktop":
+        return profile / "Desktop"
+    if name == "Programs":
+        return profile / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    if name == "Startup":
+        return profile / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    return None
 
 
 def linux_desktop_entry(name: str, spec: dict, root: Path) -> str:
@@ -259,7 +322,7 @@ def _trust_desktop_file(path: Path) -> None:
 
 
 def write_powershell_lnk(lnk: Path, target: Path, arguments: str, workdir: Path, description: str, icon: Path | None) -> bool:
-    powershell = shutil.which("powershell.exe") or shutil.which("pwsh") or shutil.which("powershell")
+    powershell = _powershell()
     if not powershell:
         return False
     env = os.environ.copy()
@@ -307,6 +370,69 @@ def windows_link_target(name: str, spec: dict, root: Path, launcher_dir: Path) -
     return cmd, ""
 
 
+def _windows_creationflags() -> int:
+    if os.name != "nt":
+        return 0
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def run_windows_user_integration(root: Path, action: str = "Install") -> int:
+    """Create the signed-in user's shortcuts and tray. No Python GUI toolkit."""
+    script = Path(root) / "scripts" / "windows_user_integration.ps1"
+    powershell = _powershell()
+    if powershell is None or not script.is_file():
+        return 1
+    result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", str(script),
+            "-Root", str(root),
+            "-Action", action,
+        ],
+        check=False,
+        creationflags=_windows_creationflags(),
+    )
+    return result.returncode
+
+
+def run_windows_tray(root: Path, stay: bool = False) -> int:
+    script = Path(root) / "scripts" / "windows_tray.ps1"
+    powershell = _powershell()
+    if powershell is None or not script.is_file():
+        return 1
+    argv = [
+        powershell,
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-STA",
+        "-File", str(script),
+        "-Root", str(root),
+    ]
+    if stay:
+        argv.append("-Stay")
+    result = subprocess.run(argv, check=False, creationflags=_windows_creationflags())
+    return result.returncode
+
+
+def _delegate_windows_shortcuts(
+    platform_name: str,
+    desktop_dir: Path | None,
+    apps_dir: Path | None,
+    launcher_dir: Path | None,
+    link_writer,
+) -> bool:
+    return (
+        platform_name == "windows"
+        and desktop_dir is None
+        and apps_dir is None
+        and launcher_dir is None
+        and link_writer is None
+        and os.name == "nt"
+    )
+
+
 def install_desktop_shortcuts(
     root: Path | None = None,
     platform_name: str | None = None,
@@ -318,6 +444,11 @@ def install_desktop_shortcuts(
     """Write the four shortcuts. Returns the desktop paths."""
     root = Path(root) if root else ROOT
     platform_name = platform_name or detect_platform()
+    if _delegate_windows_shortcuts(platform_name, desktop_dir, apps_dir, launcher_dir, link_writer):
+        code = run_windows_user_integration(root, "Install")
+        if code in (0, 3):
+            desktop = desktop_dir_for("windows")
+            return [desktop / f"{name}.lnk" for name in SHORTCUT_NAMES]
     desktop = Path(desktop_dir) if desktop_dir else desktop_dir_for(platform_name)
     apps = Path(apps_dir) if apps_dir else apps_dir_for(platform_name)
     launchers = Path(launcher_dir) if launcher_dir else Path.home() / ".config" / "mix-manager" / "launchers"

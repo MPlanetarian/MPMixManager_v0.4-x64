@@ -169,6 +169,7 @@ class TestHooks(unittest.TestCase):
     def test_shell_scripts_parse(self):
         for name in (
             "scripts/mp_system_tray.sh",
+            "scripts/install_windows_user.sh",
             "install.sh",
             "MP_Gui.sh",
             "scripts/launch-liquid-glass",

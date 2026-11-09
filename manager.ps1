@@ -15,10 +15,46 @@ $UnixDir = $Dir.Replace('\', '/')
 $Bash = @("$env:ProgramFiles\Git\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe", "C:\msys64\usr\bin\bash.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $Bash) { $Bash = (Get-Command bash.exe -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch 'WindowsApps' } | Select-Object -First 1).Source }
 
-# Setup Environment: Python PATH & Encoding
+# Setup Environment: Python PATH & Encoding.
+# Skip the Microsoft Store alias. A real interpreter (Anaconda, python.org, py -3)
+# has to come first or the launchers call the Store stub.
 $env:PYTHONIOENCODING = "utf-8"
-$PyPaths = @("$env:LOCALAPPDATA\Programs\Python\Python312", "$env:ProgramFiles\Python312")
-foreach ($P in $PyPaths) { if (Test-Path $P) { $env:PATH = "$P;$P\Scripts;$env:PATH" } }
+$pythonHomes = @(
+    "$env:ProgramFiles\Python312",
+    "$env:LOCALAPPDATA\Programs\Python\Python312",
+    "$env:USERPROFILE\miniconda3",
+    "$env:USERPROFILE\anaconda3",
+    "$env:LOCALAPPDATA\anaconda3",
+    "$env:ProgramData\anaconda3"
+)
+foreach ($pythonHome in $pythonHomes) {
+    if (Test-Path -LiteralPath (Join-Path $pythonHome "python.exe")) {
+        $env:PATH = "$pythonHome;$pythonHome\Scripts;" + $env:PATH
+    }
+}
+
+# Shortcuts and the tray belong to this user profile even when install.sh ran
+# without a working python3. A failure here must not block the manager.
+$integrate = Join-Path $Dir "scripts\windows_user_integration.ps1"
+if (Test-Path -LiteralPath $integrate) {
+    try {
+        $powershellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+        $integrateArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$integrate`" -Root `"$Dir`" -Action Install"
+        $info = New-Object System.Diagnostics.ProcessStartInfo
+        $info.FileName = $powershellExe
+        $info.Arguments = $integrateArgs
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+        $proc = [System.Diagnostics.Process]::Start($info)
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0) {
+            Write-Host "[WARNING] Desktop shortcuts or the tray icon were not installed for this user (exit $($proc.ExitCode))." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "[WARNING] Desktop shortcuts or the tray icon could not be installed for this user." -ForegroundColor Yellow
+    }
+}
 
 try {
     if ($Bash) {

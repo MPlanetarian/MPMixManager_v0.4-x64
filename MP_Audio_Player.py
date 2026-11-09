@@ -121,6 +121,17 @@ def music_library_label(folder_name: str) -> str:
     n = str(folder_name or "ALL").strip() or "ALL"
     return "All Music Folders" if n.upper() in ("ALL", "ALL_MUSIC_FOLDERS") else n
 
+def _is_bundled_sample(path: Union[str, Path, None]) -> bool:
+    raw = str(path or "").replace("\\", "/")
+    if not raw:
+        return False
+    try:
+        sample_root = (get_base_dir() / "MP_SAMPLES").resolve()
+        target = Path(raw).resolve()
+        return target == sample_root or sample_root in target.parents
+    except Exception:
+        return "/MP_SAMPLES/" in f"/{raw}"
+
 def is_cloud_or_remote_path(p: Union[str, Path, None]) -> bool:
     if not p: return False
     s = str(p)
@@ -666,7 +677,13 @@ class MixArchiveScanner:
                     results.append(m)
 
             return results
-    def get_latest_mix(self) -> Optional[Dict[str, Any]]: return self.mixes[0] if self.mixes else None
+    def get_latest_mix(self) -> Optional[Dict[str, Any]]:
+        # The bundled first-run sample is copied into the app folder and can be
+        # newer than a mix archive that was just configured. Play the archive.
+        for mix in self.mixes:
+            if not _is_bundled_sample(mix.get("path")):
+                return mix
+        return self.mixes[0] if self.mixes else None
 
 class MusicFolderPlaylistScanner:
     def __init__(self, folder_name: Union[str, Path, None] = "ALL", playlist_path: Union[str, Path, None] = None):
@@ -5976,7 +5993,7 @@ def main():
                 except Exception: pass
             elif not tf and not (CONFIG_DIR / ".first_run_sample_loaded").exists():
                 sample_track = base_dir / "MP_SAMPLES" / "MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake).flac"
-                if sample_track.is_file():
+                if sample_track.is_file() and not any(not _is_bundled_sample(m.get("path")) for m in mixes):
                     resume_f = str(sample_track.resolve())
                     resume_pos = 0.0
                     try:

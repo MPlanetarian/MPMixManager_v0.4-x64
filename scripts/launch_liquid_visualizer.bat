@@ -9,22 +9,12 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 set "BASE_DIR=%CD%"
 
-:: Check for Python
+:: Check for Python. windows_find_python.cmd skips the Microsoft Store alias.
 set "PYTHON_BIN="
-where python.exe >nul 2>&1 && set "PYTHON_BIN=python.exe"
-if not defined PYTHON_BIN (
-    where py.exe >nul 2>&1 && set "PYTHON_BIN=py.exe"
-)
-if not defined PYTHON_BIN (
-    for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*" "%ProgramFiles%\Python3*") do (
-        if exist "%%~D\python.exe" (
-            set "PYTHON_BIN=%%~D\python.exe"
-            goto :found_python
-        )
-    )
+for /f "delims=" %%P in ('call "%~dp0windows_find_python.cmd"') do (
+    if not defined PYTHON_BIN set "PYTHON_BIN=%%P"
 )
 
-:found_python
 if not defined PYTHON_BIN (
     echo [ERROR] Python was not found in PATH or standard installation folders.
     echo Please install Python 3.10+ from python.org or the Microsoft Store.

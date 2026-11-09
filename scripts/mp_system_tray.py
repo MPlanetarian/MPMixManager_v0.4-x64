@@ -75,9 +75,14 @@ class TrayLock:
         self._fd = None
 
     def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            return self._acquire_windows()
+        return self._acquire_posix()
+
+    def _acquire_posix(self) -> bool:
         import fcntl
 
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         fd = open(self.path, "a+")
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -91,8 +96,31 @@ class TrayLock:
         self._fd = fd
         return True
 
+    def _acquire_windows(self) -> bool:
+        import msvcrt
+
+        # msvcrt locks a byte range, so the file has to contain that byte.
+        if not self.path.exists() or self.path.stat().st_size < 1:
+            self.path.write_bytes(b" " * 32)
+        fd = open(self.path, "r+b")
+        fd.seek(0)
+        try:
+            msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:
+            fd.close()
+            return False
+        payload = str(os.getpid()).encode("ascii", "replace")[:31].ljust(32, b" ")
+        fd.seek(0)
+        fd.write(payload)
+        fd.flush()
+        self._fd = fd
+        return True
+
     def release(self) -> None:
         if self._fd is None:
+            return
+        if os.name == "nt":
+            self._release_windows()
             return
         import fcntl
 
@@ -102,10 +130,25 @@ class TrayLock:
             self._fd.close()
             self._fd = None
 
+    def _release_windows(self) -> None:
+        import msvcrt
+
+        fd = self._fd
+        self._fd = None
+        try:
+            fd.seek(0)
+            msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        finally:
+            fd.close()
+
     @staticmethod
     def held(path: Path) -> bool:
         if not path.exists():
             return False
+        if os.name == "nt":
+            return TrayLock._held_windows(path)
         import fcntl
 
         fd = open(path, "a+")
@@ -115,6 +158,28 @@ class TrayLock:
             except BlockingIOError:
                 return True
             fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            return False
+        finally:
+            fd.close()
+
+    @staticmethod
+    def _held_windows(path: Path) -> bool:
+        import msvcrt
+
+        if path.stat().st_size < 1:
+            return False
+        fd = open(path, "r+b")
+        try:
+            fd.seek(0)
+            try:
+                msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                return True
+            try:
+                fd.seek(0)
+                msvcrt.locking(fd.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
             return False
         finally:
             fd.close()
@@ -704,6 +769,10 @@ def applications_dir() -> Path:
 
 
 def install_tray(base: Path) -> int:
+    if os.name == "nt":
+        from install_desktop_shortcuts import run_windows_user_integration
+
+        return run_windows_user_integration(base, "Install")
     enable_status_notifier_watcher()
     write_desktop_entry(base, applications_dir())
     write_autostart_entry(base, autostart_dir())
@@ -826,6 +895,15 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
+    if os.name == "nt":
+        from install_desktop_shortcuts import run_windows_tray, run_windows_user_integration
+
+        base = default_base_dir()
+        if "--status" in args:
+            return run_windows_user_integration(base, "Status")
+        if "--install" in args:
+            return run_windows_user_integration(base, "Install")
+        return run_windows_tray(base, stay="--stay" in args)
     config = config_dir()
     lock_path = config / "mp_system_tray.lock"
     if "--status" in args:
