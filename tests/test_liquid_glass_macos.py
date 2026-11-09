@@ -155,42 +155,36 @@ class TestLauncherIntegrations(unittest.TestCase):
         self.assertIn("Metal (Apple Silicon)", content)
         self.assertIn("Intel Macs are not supported", content)
 
-    def test_startup_opens_one_liquid_glass_window(self):
-        """Autoplay and the startup window must not each open a Liquid Glass player."""
+    def test_cli_startup_does_not_open_the_liquid_player(self):
+        """Loading the CLI must not open the MP Liquid player on macOS, Linux, or Windows."""
+        text = (ROOT / "Mix_Archive_Manager.sh").read_text(encoding="utf-8")
+        start = text.index("_open_startup_audio_windows() {")
+        body = text[start:text.index("\n}\n", start)]
+        self.assertNotIn("launch_mp_audio_player_liquid_glass", body)
         script = r"""
         set -e
         export HOME="$(mktemp -d)"
-        eval "$(sed -n '/^_mp_liquid_glass_process_lines() {/,/^}/p' Mix_Archive_Manager.sh)"
-        eval "$(sed -n '/^_liquid_glass_claim_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
-        eval "$(sed -n '/^_liquid_glass_release_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
+        export MP_GUI_SESSION=0
         eval "$(sed -n '/^_open_startup_audio_windows() {/,/^}/p' Mix_Archive_Manager.sh)"
-        pgrep() { return 1; }
         log="$HOME/launches"
         : > "$log"
-        launch_mp_audio_player_liquid_glass() {
-            if ! _liquid_glass_claim_launch; then
-                echo SKIP >> "$log"
-                return 0
-            fi
-            echo LAUNCH >> "$log"
-            _LG_WINDOW_STARTED=1
-            _liquid_glass_release_launch
-        }
-        execute_startup_autoplay() { launch_mp_audio_player_liquid_glass; }
-        export AUTO_PLAY_ON_STARTUP=true
-        export DEFAULT_AUDIO_PLAYER=mp_liquid_glass
-        _LG_WINDOW_STARTED=0
-        _open_startup_audio_windows
-        execute_startup_autoplay() { echo EARLY >> "$log"; }
-        _LG_WINDOW_STARTED=0
-        _open_startup_audio_windows
-        # A second claim while the first holder is alive must fail.
-        _liquid_glass_claim_launch
-        if _liquid_glass_claim_launch; then echo REENTRY:YES; else echo REENTRY:NO; fi
-        (
-            if _liquid_glass_claim_launch; then echo OTHER:YES; else echo OTHER:NO; fi
-        )
-        _liquid_glass_release_launch
+        launch_mp_audio_player_liquid_glass() { echo LAUNCH >> "$log"; }
+        execute_startup_autoplay() { echo AUTOPLAY >> "$log"; }
+        for os in macos linux windows; do
+            export OS_TYPE="$os"
+            export AUTO_PLAY_ON_STARTUP=true
+            export DEFAULT_AUDIO_PLAYER=mp_liquid_glass
+            _open_startup_audio_windows
+            export DEFAULT_AUDIO_PLAYER=liquid
+            _open_startup_audio_windows
+            export DEFAULT_AUDIO_PLAYER=mp_audio_player
+            _open_startup_audio_windows
+            wait
+            export AUTO_PLAY_ON_STARTUP=false
+            export DEFAULT_AUDIO_PLAYER=strawberry
+            _open_startup_audio_windows
+            wait
+        done
         echo "LOG_START"
         cat "$log"
         echo "LOG_END"
@@ -205,10 +199,34 @@ class TestLauncherIntegrations(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, res.stderr)
         log = res.stdout.split("LOG_START", 1)[1].split("LOG_END", 1)[0]
-        # Autoplay opens the window, then a startup that finds no window opens one.
-        self.assertEqual(log.count("LAUNCH"), 2, res.stdout)
-        self.assertNotIn("SKIP", log)
-        self.assertIn("EARLY", log)
+        self.assertNotIn("LAUNCH", log)
+        self.assertEqual(log.count("AUTOPLAY"), 3, res.stdout)
+
+    def test_liquid_launch_claim_is_single_owner(self):
+        """One shell may hold the launch lock. Another shell may not."""
+        script = r"""
+        set -e
+        export HOME="$(mktemp -d)"
+        eval "$(sed -n '/^_mp_liquid_glass_process_lines() {/,/^}/p' Mix_Archive_Manager.sh)"
+        eval "$(sed -n '/^_liquid_glass_claim_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
+        eval "$(sed -n '/^_liquid_glass_release_launch() {/,/^}/p' Mix_Archive_Manager.sh)"
+        pgrep() { return 1; }
+        _liquid_glass_claim_launch
+        if _liquid_glass_claim_launch; then echo REENTRY:YES; else echo REENTRY:NO; fi
+        (
+            if _liquid_glass_claim_launch; then echo OTHER:YES; else echo OTHER:NO; fi
+        )
+        _liquid_glass_release_launch
+        rm -rf "$HOME"
+        """
+        res = subprocess.run(
+            ["bash", "-c", script],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("REENTRY:YES", res.stdout)
         self.assertIn("OTHER:NO", res.stdout)
 

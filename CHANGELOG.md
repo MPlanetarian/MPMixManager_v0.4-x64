@@ -73,6 +73,7 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - **Esc**, **Space**, **Enter**, and **`q`** still skip the intro. The manager menu draws after the video.
 
 ### Changed
+- **CLI startup** (`Mix_Archive_Manager.sh`) no longer opens the MP Liquid player on macOS, Linux, or Windows. Option 3 and `L` still open it. Startup autoplay still resumes every other default player.
 - **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
 - **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–37, including option 36. The retired AI Assistant menu row is not listed. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
 - **First-run welcome** (`scripts/liquid_glass_reward.py`) greets the 0.4.2 Stable (Liquid) release and names the four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.

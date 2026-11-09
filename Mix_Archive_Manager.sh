@@ -5083,42 +5083,21 @@ traktor_app_is_running() {
     running="${running//$'\n'/}"
     [ "$running" = "true" ]
 }
-# Autoplay and the startup window used to launch Liquid Glass together.
-# On macOS that opened two player windows. Autoplay goes first when it is
-# the Liquid Glass player. A second window is opened only if that did not.
+# CLI startup does not open the MP Liquid player on macOS, Linux, or Windows.
+# Option 3 and L still open it. Startup autoplay still resumes every other player.
 _open_startup_audio_windows() {
-    # MP Gui is already open. Startup must not treat that host as the player
-    # and must not open MP Liquid until the user presses L.
+    # MP Gui is already the glass host. It must not open the player.
     if [ "${MP_GUI_SESSION:-0}" = "1" ]; then
         return 0
     fi
-    _startup_liquid_player_open() {
-        local line
-        while IFS= read -r line; do
-            case "$line" in
-                *--manager*) continue ;;
-                *MP_Audio_Player_Liquid_Glass*) return 0 ;;
-            esac
-        done < <(_mp_liquid_glass_process_lines)
-        return 1
-    }
     local _player="${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}"
     case "$_player" in
         mp_liquid_glass|liquid_glass|liquid|glass)
-            if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
-                execute_startup_autoplay
-                if [ "${_LG_WINDOW_STARTED:-0}" != 1 ] && ! _startup_liquid_player_open; then
-                    launch_mp_audio_player_liquid_glass
-                fi
-                return 0
-            fi
+            return 0
             ;;
     esac
     if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then
         (execute_startup_autoplay &>/dev/null &)
-    fi
-    if ! _startup_liquid_player_open; then
-        launch_mp_audio_player_liquid_glass
     fi
 }
 run_deferred_startup() {
