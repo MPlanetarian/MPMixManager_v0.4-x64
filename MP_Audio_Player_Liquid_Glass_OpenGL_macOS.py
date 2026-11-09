@@ -229,6 +229,7 @@ from liquid_glass_opengl import (
     get_dynamic_theme_state,
     glass_text_rgb,
     theme_uses_dark_glass,
+    raise_macos_process_detached,
     _rgb01,
     THEME_ALIASES,
 )
@@ -1268,11 +1269,19 @@ class OpenGLGlassHost:
 
         theme = read_player_theme()
         theme_at = 0.0
+        # open() raises once. The visualizer raises itself when its window
+        # appears, which can be later, so raise again for a few seconds.
+        raise_left = 6
+        next_raise = time.monotonic() + 0.35
         print("DEBUG: Entering OpenGL event loop...", flush=True)
 
         try:
             while not self.renderer.should_close:
                 now = time.monotonic()
+                if raise_left and now >= next_raise:
+                    raise_macos_process_detached()
+                    raise_left -= 1
+                    next_raise = now + 0.5
                 if now - theme_at > 0.4:
                     theme = read_player_theme()
                     theme_at = now

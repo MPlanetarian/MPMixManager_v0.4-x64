@@ -12,6 +12,7 @@ import ctypes
 import math
 import os
 import platform
+import subprocess
 import sys
 import time
 from ctypes import (
@@ -59,6 +60,8 @@ def raise_macos_process() -> None:
 
     A GLFW window started from a background shell is created off the visible
     Space until the app is activated. G then looks like it did nothing.
+    The macOS OpenGL host must use raise_macos_process_detached() instead:
+    that file replaces ctypes.CDLL, and it fork()s before the window exists.
     """
     if not is_macos():
         return
@@ -84,6 +87,54 @@ def raise_macos_process() -> None:
     send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulonglong]
     # NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
     send(app, sel_act, 3)
+
+
+def raise_macos_process_detached(pid: int | None = None) -> None:
+    """Activate pid from a fresh interpreter.
+
+    In-process AppKit does not raise the macOS OpenGL host over a fullscreen
+    Terminal. A new Python process does, including one started in the background.
+    """
+    if not is_macos():
+        return
+    target = os.getpid() if pid is None else int(pid)
+    script = (
+        "import ctypes, sys\n"
+        "pid = int(sys.argv[1])\n"
+        "try:\n"
+        "    objc = ctypes.CDLL('/usr/lib/libobjc.A.dylib')\n"
+        "    ctypes.CDLL('/System/Library/Frameworks/AppKit.framework/AppKit')\n"
+        "except OSError:\n"
+        "    raise SystemExit(1)\n"
+        "objc.objc_getClass.restype = ctypes.c_void_p\n"
+        "objc.objc_getClass.argtypes = [ctypes.c_char_p]\n"
+        "objc.sel_registerName.restype = ctypes.c_void_p\n"
+        "objc.sel_registerName.argtypes = [ctypes.c_char_p]\n"
+        "send = objc.objc_msgSend\n"
+        "cls = objc.objc_getClass(b'NSRunningApplication')\n"
+        "sel_pid = objc.sel_registerName(b'runningApplicationWithProcessIdentifier:')\n"
+        "sel_act = objc.sel_registerName(b'activateWithOptions:')\n"
+        "send.restype = ctypes.c_void_p\n"
+        "send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]\n"
+        "app = send(cls, sel_pid, pid)\n"
+        "if not app:\n"
+        "    raise SystemExit(1)\n"
+        "send.restype = ctypes.c_bool\n"
+        "send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulonglong]\n"
+        "ok = send(app, sel_act, 3)\n"
+        "raise SystemExit(0 if ok else 1)\n"
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", script, str(target)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except OSError:
+        return
 
 
 def is_windows_10_or_11() -> bool:
@@ -643,6 +694,7 @@ class LiquidGlassRendererOpenGL:
         self._alive = True
         if is_macos():
             raise_macos_process()
+            raise_macos_process_detached()
         print(self.summary, flush=True)
         return self
 

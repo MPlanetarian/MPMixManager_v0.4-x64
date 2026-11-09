@@ -175,8 +175,25 @@ class TestGuiLauncher(unittest.TestCase):
         self.assertNotIn("! command -v wmctrl", fn)
         opengl = (ROOT / "scripts" / "liquid_glass_opengl.py").read_text(encoding="utf-8")
         self.assertIn("def raise_macos_process", opengl)
+        self.assertIn("def raise_macos_process_detached", opengl)
         opened = opengl[opengl.index("def open(self):"):opengl.index("def close(self):")]
         self.assertIn("raise_macos_process()", opened)
+        self.assertIn("raise_macos_process_detached()", opened)
+        self.assertIn("mp_gui_raise_host", fn)
+        host = (ROOT / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py").read_text(encoding="utf-8")
+        self.assertIn("raise_macos_process_detached()", host)
+
+    def test_detached_raise_uses_a_fresh_interpreter(self):
+        import liquid_glass_opengl as gl
+
+        with patch.object(gl, "is_macos", return_value=True), patch.object(gl.subprocess, "Popen") as popen:
+            gl.raise_macos_process_detached(42473)
+        cmd = popen.call_args.args[0]
+        self.assertEqual(cmd[0], sys.executable)
+        self.assertEqual(cmd[1], "-c")
+        self.assertIn("activateWithOptions:", cmd[2])
+        self.assertEqual(cmd[3], "42473")
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
     def test_hosts_stop_playback_and_the_visualizer_for_the_manager(self):
         for name in (

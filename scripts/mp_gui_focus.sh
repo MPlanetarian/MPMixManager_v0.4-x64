@@ -54,14 +54,10 @@ _mp_gui_line_is_windowed_host() {
     return 1
 }
 
-# Returns 0 when a glass window is up (and focused, when the OS allows it).
-mp_gui_focus_if_open() {
-    if command -v wmctrl >/dev/null 2>&1; then
-        if wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
-            wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
-            return 0
-        fi
-    fi
+# Bring a windowed --manager host forward. Returns 0 when one is running.
+# Activation comes from this shell: the host's own AppKit call does not
+# beat a fullscreen Terminal.
+mp_gui_raise_host() {
     local line pid cmd
     while IFS= read -r line; do
         [ -n "$line" ] || continue
@@ -73,6 +69,17 @@ mp_gui_focus_if_open() {
         fi
     done < <(_mp_gui_manager_processes)
     return 1
+}
+
+# Returns 0 when a glass window is up (and focused, when the OS allows it).
+mp_gui_focus_if_open() {
+    if command -v wmctrl >/dev/null 2>&1; then
+        if wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
+            wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
+            return 0
+        fi
+    fi
+    mp_gui_raise_host
 }
 
 # Stop a leftover Metal --manager. It keeps G from opening a window and

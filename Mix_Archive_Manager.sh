@@ -525,6 +525,17 @@ _mp_manager_bash_key() {
             nohup bash "$MP_GUI_LAUNCHER" >>"${MP_GUI_LOG:-/dev/null}" 2>&1 </dev/null &
           fi
           disown 2>/dev/null || true
+          if [ -n "${MP_GUI_FOCUS:-}" ] && [ -f "$MP_GUI_FOCUS" ]; then
+            # shellcheck disable=SC1090
+            . "$MP_GUI_FOCUS"
+            _mp_gui_raise_try=0
+            while [ "$_mp_gui_raise_try" -lt 8 ]; do
+              _mp_gui_raise_try=$((_mp_gui_raise_try + 1))
+              sleep 0.2
+              mp_gui_raise_host || true
+            done
+            mp_gui_raise_host || true
+          fi
           printf '\033[0mOpened MP Gui\n'
         else
           printf '\033[0mMP Gui launcher was not found\n'
@@ -553,6 +564,7 @@ printf '\033[0mpress B to return to MP Manager, or G for MP Gui\n'
 MPBASH
 export MP_GUI_LAUNCHER="${SCRIPT_DIR}/MP_Gui.sh"
 export MP_GUI_LOG="${HOME}/.config/mix-manager/mp_gui.log"
+export MP_GUI_FOCUS="${SCRIPT_DIR}/scripts/mp_gui_focus.sh"
 _saved_int="$(trap -p INT || true)"
 case $- in *m*) _monitor=1 ;; esac
 _MENU_CURSOR_LOCK=0
@@ -1853,7 +1865,19 @@ launch_mp_gui_from_menu() {
     fi
     disown 2>/dev/null || true
     local pid=$!
-    sleep 1.2
+    # Retry from this foreground shell. The host process cannot activate
+    # itself over a fullscreen Terminal, and the window appears after the pid.
+    if declare -F mp_gui_raise_host >/dev/null 2>&1; then
+        local _raise_try=0
+        while [ "$_raise_try" -lt 8 ]; do
+            _raise_try=$((_raise_try + 1))
+            sleep 0.2
+            mp_gui_raise_host || true
+        done
+        mp_gui_raise_host || true
+    else
+        sleep 1.2
+    fi
     if kill -0 "$pid" 2>/dev/null || pgrep -f 'MP_Audio_Player_Liquid_Glas[s].*--manager' >/dev/null 2>&1; then
         return 0
     fi
