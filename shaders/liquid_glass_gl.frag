@@ -211,6 +211,9 @@ void main() {
     if (u.themeC.w > 0.0) {
         alpha *= u.themeC.w;
     }
+    float voidOut = 1.0 - step(0.001, dot(theme, vec3(0.299, 0.587, 0.114)));
+    col = mix(col, vec3(0.0), voidOut);
+    alpha = mix(alpha, 1.0, voidOut);
     alpha *= smoothstep(0.8, -0.4, outer);
     vec3 rgb = clamp(col, 0.0, 1.0);
     if (u.bezel.z > 0.5) {

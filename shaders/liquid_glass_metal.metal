@@ -122,9 +122,12 @@ fragment float4 liquid_glass_fragment(
 
     // Alpha with 10% core transparency reduction and dynamic breathing modulation
     float alpha = 0.50 * (1.0 - panel * 0.25);
+    float voidOut = 1.0 - step(0.001, dot(theme, float3(0.299, 0.587, 0.114)));
+    col = mix(col, float3(0.0), voidOut);
     if (u.themeC.w > 0.0) {
         alpha *= u.themeC.w;
     }
+    alpha = mix(alpha, 1.0, voidOut);
     alpha *= smoothstep(0.8, -0.4, outer);
 
     float3 rgb = clamp(col, 0.0, 1.0);
