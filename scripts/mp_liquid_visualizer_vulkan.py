@@ -52,10 +52,11 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
     _mk_preset(4, "sensorium_interface", "Sensorium Interface", "MPlanetarian - Sensorium Interface",
                "sensorium_interface_cover.png", "Sensorium_Interface_Preset.png", _GAMES / "Sensorium_Interface.jpeg",
                aliases=("sensorium", "sensorium interface", "sensorium_interface", "earth_flipper", "earth flipper", "flipper", "yaporigami", "defasten earth flipper")),
-    _mk_preset(5, "stream_of_frequency", "Stream of Frequency", "MPlanetarian - Stream of Frequency",
-               "stream_of_frequency_cover.jpg", "Stream_of_Frequency_Preset.png", _HOME / "Documents/Stream_of_Frequency.jpg",
-               vid="20221004 - NEXTWORLD： Layer 1 (Ambient State) [VPe8PRUVVkU].mkv",
-               aliases=("stream of frequency", "stream_of_frequency", "stream", "frequency", "sof", "stream of frequency preset")),
+    _mk_preset(5, "infinite_complexity_stream037", "Infinite Complexity", "MPlanetarian - Stream of Frequency 037 (Who am I? - Episode 005)",
+               "infinite_complexity_stream037_cover.jpg", "Infinite_Complexity_Stream037_Preset.jpg",
+               _WDB / "2026-05-21_MPlanetarian - Stream of Frequency 037 (Who am I- - Episode 005).jpg",
+               vid="20260212 - XI-N： BIFURCATION (2026) [NMxVKbM8hU8].mkv",
+               aliases=("infinite_complexity_stream037", "bifurcation", "xi-n", "stream 037")),
     _mk_preset(6, "beyond_dimensions", "Beyond Dimensions", "MPlanetarian - Beyond Dimensions",
                "beyond_dimensions_cover.png", "Beyond_Dimensions_Preset.png", _WDB / "Cotangent Dimensions (In Progress) [album].png",
                vid="20231129 - BEYOND BASEL 2023： DEFASTEN [IoEpQ09v2l4].mkv",
@@ -73,6 +74,7 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
                vid="20230607 - Yaporigami - Earth Flipper (2022) [KE8zIfDsloA].mkv",
                aliases=("resonant fluid dynamics", "resonant_fluid_dynamics", "resonant", "fluid dynamics", "fluid_dynamics", "earth flipper", "earth_flipper", "10", "yaporigami", "defasten earth flipper")),
 ]
+VISUALIZER_PRESETS[5]["video_path"] = Path("/run/media/mplanetarian/WD BLACK B/defasten/20260212 - XI-N： BIFURCATION (2026) [NMxVKbM8hU8].mkv")
 
 _SYS = platform.system().lower()
 _IS_WIN = sys.platform == "win32" or _SYS == "windows"

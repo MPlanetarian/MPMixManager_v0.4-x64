@@ -355,6 +355,11 @@ vec3 resonantFluidDynamicsPalette(float t, vec2 uvHint) {
 vec3 getPresetPalette(float t, vec2 uvHint) {
     if (u.preset.x > 8.5) {
         return resonantFluidDynamicsPalette(t, uvHint);
+    } else if (u.preset.x > 4.5) {
+        float s = fract(t * 0.12 + uvHint.x * 0.16 + uvHint.y * 0.09);
+        vec3 prismatic = mix(vec3(0.12, 0.82, 0.94), vec3(0.91, 0.20, 0.68), 0.5 + 0.5 * sin(s * TAU));
+        vec3 pearl = mix(vec3(0.70, 0.75, 0.83), vec3(0.98, 0.98, 1.0), 0.5 + 0.5 * cos(s * TAU));
+        return mix(pearl, prismatic, 0.48);
     } else if (u.preset.x > 3.5) {
         return sensoriumPalette(t, uvHint);
     } else if (u.preset.x > 2.5) {
@@ -579,6 +584,32 @@ vec2 mapScene(vec3 p) {
         if (dTechArmor < res.x)      res = vec2(dTechArmor, 4.0);
 
         return res;
+    } else if (u.preset.x > 4.5) {
+        // BIFURCATION: a splitting chrome spindle with audio-driven fractured plates.
+        float dynTime = (u.preset.w > 0.001) ? u.preset.w : t;
+        vec3 q = p;
+        q.xz *= rot2(dynTime * (0.08 + bass * 0.08));
+        q.xy *= rot2(0.24 * sin(dynTime * 0.22 + midPhase));
+        // A split double-prong body opens away from the center as the beat rises.
+        vec3 leftProng = q - vec3(-0.43 - 0.15 * bass, 0.0, 0.0);
+        leftProng.yz *= rot2(-0.20 - 0.10 * sin(dynTime * 0.4));
+        vec3 rightProng = q - vec3(0.43 + 0.15 * bass, 0.0, 0.0);
+        rightProng.yz *= rot2(0.20 + 0.10 * sin(dynTime * 0.4));
+        float core = min(sdOctahedron(leftProng, 0.84 + 0.12 * subBass + 0.08 * beat),
+                         sdOctahedron(rightProng, 0.84 + 0.12 * subBass + 0.08 * beat));
+        float rings = sdTorus(q, vec2(1.48 + 0.16 * bass, 0.032 + 0.020 * beat));
+        float shards = 1e4;
+        for (int i = 0; i < 8; i++) {
+            float a = float(i) * (TAU / 8.0) + dynTime * (0.12 + 0.05 * mid);
+            vec3 s = q - vec3(cos(a) * 1.22, 0.0, sin(a) * 1.22);
+            s.xy *= rot2(0.38 * sin(dynTime * 0.32 + a) + bassPhase * 0.10);
+            s.yz *= rot2(a * 0.35);
+            shards = min(shards, sdHexPrism(s, vec2(0.56 + 0.08 * treble, 0.055)));
+        }
+        vec2 result = vec2(core, 1.0);
+        if (rings < result.x) result = vec2(rings, 2.0);
+        if (shards < result.x) result = vec2(shards, 4.0);
+        return result;
     } else if (u.preset.x > 3.5) {
         // --- PRESET 4: SENSORIUM INTERFACE (DEFASTEN EARTH FLIPPER CELESTIAL GYROSCOPE) ---
         // Inspired by Defasten's "Yaporigami - Earth Flipper (2022)" and Sensorium_Interface.jpeg:
@@ -1187,6 +1218,19 @@ vec3 renderCosmicBackground(vec3 rd, vec2 screenUv) {
             + vec3(0.902, 0.945, 0.820) * stars;
 
         return bgFinal;
+    } else if (u.preset.x > 4.5) {
+        float dynTime = (u.preset.w > 0.001) ? u.preset.w : t;
+        vec2 p3d = rd.xy / (abs(rd.z) + 0.11);
+        float angle = atan(p3d.y, p3d.x);
+        float fracture = abs(sin(angle * 18.0 + dynTime * 0.11 + bassPhase * 0.2));
+        float shards = smoothstep(0.92, 1.0, fracture) * (0.35 + 0.55 * treble);
+        float dust = pow(hash21(floor(p3d * 34.0 + dynTime * 0.08)), 24.0) * (1.0 + 2.0 * treble);
+        vec2 uv = p3d * 0.25 + 0.5 + 0.035 * vec2(sin(angle * 5.0 + dynTime * 0.2), cos(angle * 7.0 - dynTime * 0.17));
+        vec3 cover = texture(uCoverTex, mirrorUv(uv)).rgb;
+        vec3 pale = mix(vec3(0.72, 0.76, 0.84), vec3(0.94, 0.94, 0.98), 0.5 + 0.5 * sin(angle * 4.0 + dynTime * 0.12));
+        vec3 prism = vec3(0.10, 0.82, 0.92) * (0.5 + 0.5 * sin(angle * 9.0 - dynTime * 0.2))
+                   + vec3(0.95, 0.18, 0.62) * (0.5 + 0.5 * cos(angle * 7.0 + dynTime * 0.18));
+        return mix(pale, cover, 0.52) + prism * (0.12 + 0.28 * shards) + vec3(0.42, 0.48, 0.58) * dust;
     } else if (u.preset.x > 3.5) {
         // --- PRESET 4: SENSORIUM INTERFACE (DEFASTEN EARTH FLIPPER CELESTIAL BACKGROUND) ---
         // 3D ray-projected celestial void with primordial liquidstream parallax,
@@ -1643,6 +1687,12 @@ void main() {
                 + rimColor * fresnel * (1.35 + 0.65 * rms)
                 + vec3(1.0, 0.98, 0.92) * spec1 * (1.6 + 0.9 * beat)
                 + rimLight2 * spec2 * 0.85;
+            if (u.preset.x > 4.5) {
+                vec3 chrome = mix(vec3(0.48, 0.56, 0.68), vec3(0.96, 0.98, 1.0), 0.35 + 0.65 * diff1);
+                vec3 splitPrism = mix(vec3(0.03, 0.88, 1.0), vec3(1.0, 0.12, 0.62), 0.5 + 0.5 * sin(p.x * 5.0 + t * 0.25));
+                col = chrome * (0.42 + 0.48 * ao) + splitPrism * (0.32 + fresnel * 1.25)
+                    + vec3(1.0) * spec1 * (2.4 + beat);
+            }
 
         } else if (matId == 2.0) {
             // --- Material 2: Incandescent Planetary / Accretion Rings ---
@@ -1676,6 +1726,9 @@ void main() {
                     0.5 + 0.5 * ringWave
                 );
                 ringBase = mix(ringBase, vec3(0.996, 0.894, 0.251), smoothstep(0.35, 0.85, sin(p.x * 6.0 + t)));
+            } else if (u.preset.x > 4.5) {
+                ringBase = mix(vec3(0.02, 0.82, 1.0), vec3(1.0, 0.10, 0.58), 0.5 + 0.5 * ringWave);
+                ringBase = mix(ringBase, vec3(0.94, 0.98, 1.0), smoothstep(0.25, 0.9, sin(p.x * 11.0 + t * 1.7)));
             } else if (u.preset.x > 3.5) {
                 ringBase = mix(
                     vec3(0.000, 0.961, 1.000), // Bioluminescent Cyber Cyan
@@ -1750,6 +1803,12 @@ void main() {
             col = mix(vec3(0.02, 0.03, 0.07), envRefl, 0.58 + 0.32 * fresnel) * ao
                 + edgeGlow * fresnel * (1.2 + 0.9 * treble)
                 + vec3(1.0) * spec * 1.35;
+            if (u.preset.x > 4.5) {
+                float facetPulse = 0.5 + 0.5 * sin(dot(p, vec3(3.0, 5.0, 7.0)) + t * 0.6 + highPhase);
+                vec3 chromeFacet = mix(vec3(0.38, 0.45, 0.58), vec3(0.96, 0.98, 1.0), facetPulse);
+                col = chromeFacet * (0.5 + 0.5 * ao) + edgeGlow * (0.35 + 0.95 * fresnel)
+                    + vec3(0.85, 0.95, 1.0) * spec * 2.0;
+            }
         }
 
         // Distance atmospheric blend into cosmic background
