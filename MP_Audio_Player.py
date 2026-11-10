@@ -2834,10 +2834,13 @@ class EqualizerVisualizer:
         self.style_idx = self.theme_idx = 0
         self.dust_particles, self.last_dust_update, self.dust_rng = [], time.time(), random.Random()
         self._sof_buffer, self._sof_particles, self._sof_last_time, self._sof_rng = None, [], time.time(), random.Random()
+        selected_theme = theme or default_theme
         try:
             th_file = CONFIG_DIR / "theme"
-            if saved := (theme or default_theme or (th_file.read_text(encoding="utf-8").strip().lower() if th_file.is_file() else None)):
-                self.set_theme(saved)
+            if not selected_theme and th_file.is_file():
+                selected_theme = th_file.read_text(encoding="utf-8").strip().lower()
+            if selected_theme:
+                self.set_theme(selected_theme)
         except Exception: pass
         try:
             eq_file = CONFIG_DIR / "eq_style"
@@ -2853,6 +2856,10 @@ class EqualizerVisualizer:
                 elif seq in ("neon", "prism", "chroma", "neon_prism"): self.style_idx = self.STYLES.index("neon_prism_eq")
                 elif seq in ("stardust", "particles", "dust", "falling_dust", "stardust_eq", "chroma_dust"): self.style_idx = self.STYLES.index("stardust_particles_eq")
         except Exception: pass
+        # The Stream of Frequency theme owns its matching spectrogram effect.
+        # A stale persisted eq_style must not override the selected theme.
+        if not (style or default_style) and selected_theme and self.theme == "stream_of_frequency":
+            self.style_idx = self.STYLES.index("stream_of_frequency_eq")
 
     @property
     def style(self) -> str: return self.STYLES[self.style_idx]
@@ -2881,6 +2888,10 @@ class EqualizerVisualizer:
         self.theme_idx = (self.theme_idx + 1) % len(self.THEMES)
         try: (CONFIG_DIR / "theme").write_text(self.theme, encoding="utf-8")
         except Exception: pass
+        if self.theme == "stream_of_frequency":
+            self.style_idx = self.STYLES.index("stream_of_frequency_eq")
+            try: (CONFIG_DIR / "eq_style").write_text(self.style, encoding="utf-8")
+            except Exception: pass
 
     def get_style_display_name(self) -> str: return self.STYLE_NAMES.get(self.style, self.style.replace("_", " ").title())
     def get_theme_display_name(self) -> str: return self.THEME_NAMES.get(self.theme, self.theme.replace("_", " ").title())
