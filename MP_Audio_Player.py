@@ -3517,19 +3517,24 @@ class EqualizerVisualizer:
         pad_tot = inner_w - cw
         pad_l = pad_tot // 2
         pad_r = inner_w - cw - pad_l
-        # The CLI draws on an opaque dark terminal background. Liquid's VTE
-        # background is transparent, so give its spectrogram the same dark
-        # backing to preserve contrast across pale glass themes.
-        liquid_bg = "\033[48;2;5;16;38m" if os.environ.get("MP_LIQUID_GLASS") == "1" else ""
         for r in range(H - 1, -1, -1):
-            row_str = "".join(
-                f"{grid_col[r][c]}{grid_c[r][c]}{NC}{liquid_bg}" if grid_c[r][c] != " " else " "
-                for c in range(cw)
-            )
-            if liquid_bg:
-                lines.append(f"  {liquid_bg}{self.b_col}│{NC}{liquid_bg}{' ' * pad_l}{row_str}{' ' * pad_r}{liquid_bg}{self.b_col}│{NC}")
-            else:
-                lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{row_str}{' ' * pad_r}{self.b_col}│{NC}")
+            row_parts = []
+            bold_active = False
+            for c in range(cw):
+                glyph = grid_c[r][c]
+                if glyph == " ":
+                    row_parts.append(" ")
+                    continue
+                color = grid_col[r][c]
+                color_bold = color.startswith("\033[1;")
+                if color_bold != bold_active:
+                    row_parts.append(BOLD if color_bold else "\033[22m")
+                    bold_active = color_bold
+                if color_bold:
+                    color = color.replace("\033[1;", "\033[", 1)
+                row_parts.extend((color, glyph))
+            row_str = "".join(row_parts)
+            lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{row_str}{NC}{' ' * pad_r}{self.b_col}│{NC}")
         lines.append(bot_l)
         return lines
 

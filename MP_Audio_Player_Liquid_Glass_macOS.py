@@ -308,20 +308,26 @@ class MetalGlassHost:
                 if pid_res == self.child_pid:
                     break
 
-                # Non-blocking poll of terminal I/O from the player process
-                r, _, _ = select.select([master_fd], [], [], 0.016)
+                # Match the CLI's 20 ms redraw cadence. Read a full terminal
+                # frame at once so output cannot backlog in 4 KB slices.
+                r, _, _ = select.select([master_fd], [], [], 0.020)
                 if master_fd in r:
                     try:
-                        data = os.read(master_fd, 4096)
-                        if not data:
+                        frame = bytearray()
+                        while True:
+                            data = os.read(master_fd, 65536)
+                            if not data:
+                                break
+                            frame.extend(data)
+                            if not select.select([master_fd], [], [], 0)[0]:
+                                break
+                        if not frame:
                             break
-                        # Write the child's terminal output directly to parent stdout
-                        sys.stdout.buffer.write(data)
+                        # Write the child's terminal frame directly to stdout.
+                        sys.stdout.buffer.write(frame)
                         sys.stdout.buffer.flush()
                     except OSError:
                         break
-
-                time.sleep(0.015)
         finally:
             self.close(master_fd)
 
