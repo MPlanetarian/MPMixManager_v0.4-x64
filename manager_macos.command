@@ -20,6 +20,19 @@ fi
 export PATH="${SCRIPT_DIR}/venv/bin:/opt/homebrew/bin:/usr/local/bin:$SCRIPT_DIR/bin:$SCRIPT_DIR:$HOME/.local/bin:$PATH"
 export OS_TYPE="macos"
 
+# Keep this command's Terminal window visible on the main display while
+# Manager startup finishes and any companion windows are opened.
+if [ -f "$SCRIPT_DIR/scripts/place_manager_terminal_on_primary.py" ]; then
+    _manager_tty="$(tty 2>/dev/null || true)"
+    if [ -n "$_manager_tty" ]; then
+        mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
+        nohup python3 "$SCRIPT_DIR/scripts/place_manager_terminal_on_primary.py" "$_manager_tty" \
+            >>"$HOME/.config/mix-manager/manager_display.log" 2>&1 </dev/null &
+        disown 2>/dev/null || true
+    fi
+    unset _manager_tty
+fi
+
 if [ -x "/opt/homebrew/bin/bash" ]; then
     exec /opt/homebrew/bin/bash "$SCRIPT_DIR/Mix_Archive_Manager.sh" "$@"
 elif [ -x "/usr/local/bin/bash" ]; then
