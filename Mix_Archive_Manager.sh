@@ -87,6 +87,219 @@ update_terminal_geometry() {
 _set_menu_box_width() {
 local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"; [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80; [[ "$_cols" -lt 1 ]] && _cols=1; local _w; if [[ "$_cols" -ge 8 ]]; then _w=$((_cols - 4)); elif [[ "$_cols" -ge 3 ]]; then _w=$((_cols - 2)); else _w=1; fi; printf -v "$_dest" '%s' "$_w"
 }
+# Keep painted text on the header panel's right border. Wide glyphs take two
+# columns and colour sequences take none. A │ row gives up columns from its
+# widest field so the fields on the right stay visible.
+_fit_block_to_panel() {
+  local _dest="$1" _src="$2" _max="$3" _fitted=""
+  [[ "${_max}" =~ ^[0-9]+$ ]] || _max=118
+  (( _max < 4 )) && _max=4
+  if [ -z "${_src}" ]; then printf -v "${_dest}" '%s' ""; return 0; fi
+  _fitted=$(printf '%b\n' "${_src}" | LC_ALL=C awk -v max="${_max}" '
+    # Fit each line to max display columns. LC_ALL=C so substr() is bytes.
+    # A line with │ separators loses columns from its widest field, so the
+    # fields on the right stay visible. Any other long line ends with "...".
+    BEGIN {
+        if (max == "" || max + 0 < 4) max = 4
+        for (i = 0; i < 256; i++) ORD[sprintf("%c", i)] = i
+    }
+    function byte(s, i) { return ORD[substr(s, i, 1)] + 0 }
+    function glyph_width(line, i,    b, cp, adv, w) {
+        b = byte(line, i)
+        adv = 1
+        w = 1
+        if (b >= 240 && i + 3 <= length(line)) { adv = 4; w = 2 }
+        else if (b >= 224 && i + 2 <= length(line)) {
+            cp = ((b % 16) * 4096) + ((byte(line, i + 1) % 64) * 64) + (byte(line, i + 2) % 64)
+            adv = 3
+            if (cp == 65039 || cp == 65038 || cp == 8205 || cp == 8203) w = 0
+            else if ((cp >= 4352 && cp <= 4447) || (cp >= 11904 && cp <= 42191) || (cp >= 44032 && cp <= 55203) || (cp >= 63744 && cp <= 64255) || (cp >= 65072 && cp <= 65103) || (cp >= 65281 && cp <= 65376) || (cp >= 65504 && cp <= 65510) || cp == 9889 || cp == 9200 || cp == 8986 || cp == 8987 || cp == 11088) w = 2
+            else w = 1
+        } else if (b >= 192 && i + 1 <= length(line)) { adv = 2; w = 1 }
+        return adv " " w
+    }
+    function fit_plain_tokens(text, limit,    n, i, b, j, seq, info, adv, w, col, out, cut) {
+        # Returns text clipped to limit columns, with "..." if it was cut.
+        n = length(text)
+        col = 0
+        i = 1
+        cut = 0
+        out = ""
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                seq = substr(text, i, 1)
+                if (j <= n && byte(text, j) == 91) {
+                    seq = seq substr(text, j, 1)
+                    j++
+                    while (j <= n) {
+                        seq = seq substr(text, j, 1)
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                }
+                out = out seq
+                i = j
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            adv = info[1] + 0
+            w = info[2] + 0
+            if (col + w > limit) { cut = 1; break }
+            out = out substr(text, i, adv)
+            col += w
+            i += adv
+        }
+        if (!cut && i > n) return out
+        # Redo with room for the ellipsis. Trailing colour stays after it.
+        limit = limit - 3
+        if (limit < 1) limit = 1
+        col = 0
+        i = 1
+        out = ""
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                seq = substr(text, i, 1)
+                if (j <= n && byte(text, j) == 91) {
+                    seq = seq substr(text, j, 1)
+                    j++
+                    while (j <= n) {
+                        seq = seq substr(text, j, 1)
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                }
+                # Hold a colour sequence that sits at the cut so it is not lost,
+                # but only once the visible budget is spent.
+                if (col >= limit) break
+                out = out seq
+                i = j
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            adv = info[1] + 0
+            w = info[2] + 0
+            if (col + w > limit) break
+            out = out substr(text, i, adv)
+            col += w
+            i += adv
+        }
+        return out "...\033[0m"
+    }
+    function visible_width(text,    n, i, b, j, f, info, col) {
+        n = length(text)
+        col = 0
+        i = 1
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                if (j <= n && byte(text, j) == 91) {
+                    j++
+                    while (j <= n) {
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                    i = j
+                    continue
+                }
+                i++
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            col += info[2] + 0
+            i += info[1] + 0
+        }
+        return col
+    }
+    {
+        line = $0
+        nseg = 0
+        rest = line
+        bars = 0
+        while (1) {
+            p = index(rest, "\342\224\202")
+            if (p == 0) {
+                nseg++
+                seg[nseg] = rest
+                break
+            }
+            nseg++
+            seg[nseg] = substr(rest, 1, p - 1)
+            bars++
+            rest = substr(rest, p + 3)
+        }
+        total = bars
+        widest = 1
+        for (s = 1; s <= nseg; s++) {
+            sw[s] = visible_width(seg[s])
+            total += sw[s]
+            if (sw[s] > sw[widest]) widest = s
+        }
+        if (total <= max) { print line; next }
+        if (nseg == 1) {
+            print fit_plain_tokens(line, max)
+            next
+        }
+        # Shrink the widest field until the row lands on the panel edge.
+        guard = 0
+        while (total > max && guard < 8) {
+            guard++
+            widest = 1
+            for (s = 1; s <= nseg; s++) if (sw[s] > sw[widest]) widest = s
+            excess = total - max
+            target = sw[widest] - excess
+            if (target < 4) target = 4
+            room = target
+            pad = ""
+            if (widest < nseg && target > 5) { room = target - 1; pad = " " }
+            seg[widest] = fit_plain_tokens(seg[widest], room) pad
+            neww = visible_width(seg[widest])
+            total += neww - sw[widest]
+            sw[widest] = neww
+            if (neww <= 4) break
+        }
+        out = seg[1]
+        for (s = 2; s <= nseg; s++) out = out "\342\224\202" seg[s]
+        # Safety: a field that cannot shrink further is end-clipped.
+        if (visible_width(out) > max) out = fit_plain_tokens(out, max)
+        print out
+    }
+') || _fitted=""
+  if [ -z "${_fitted}" ]; then printf -v "${_dest}" '%s' "${_src}"; else printf -v "${_dest}" '%s' "${_fitted}"; fi
+}
+_clip_plain_line() {
+  local _s="$1" _max="$2" _keep
+  [[ "${_max}" =~ ^[0-9]+$ ]] || _max=118
+  (( ${#_s} <= _max )) && { printf '%s' "${_s}"; return 0; }
+  _keep=$(( _max - 3 ))
+  (( _keep < 1 )) && _keep=1
+  printf '%s' "${_s:0:_keep}..."
+}
+# Menu descriptions are single-width. Drop the tail so the row ends on the
+# same column as the header panel's right border.
+_fit_menu_extra() {
+  local _key="$1" _label="$2" _extra="$3" _edge="$4" _fmt _base _room _keep
+  [ -n "${_extra}" ] || return 0
+  printf -v _fmt '[%2s]' "${_key}"
+  _base="     ${_fmt} ${_label}"
+  _room=$(( _edge - ${#_base} - 2 ))
+  (( _room >= ${#_extra} )) && { printf '%s' "${_extra}"; return 0; }
+  (( _room < 4 )) && return 0
+  _keep=$(( _room - 3 ))
+  printf '%s' "${_extra:0:_keep}..."
+}
+_append_fitted_hint() {
+  local _edge="$1" _body="$2" _line
+  _line="$(_clip_plain_line "  ${_body}" "${_edge}")"
+  cached_header_block+="  ${DIM}${BLUE}${_line#  }\033[K${NC}\n"
+}
 set_theme_colors() {
 local theme_name="${1:-dreamworlds}"; NC='\033[0m' BOLD='\033[1m' DIM='\033[2m'; case "$theme_name" in stream_of_frequency|stream|frequency|sof|frequency_stream|"Stream of Frequency"|"Stream of Frequency Theme"|"Stream of Frequency [Special Edition]"|"Stream of Frequency MP Mix Manager")
 RED='\033[38;2;240;32;24m'; GREEN='\033[38;2;76;217;123m'; YELLOW='\033[38;2;245;237;106m'; BLUE='\033[38;2;48;49;131m'; MAGENTA='\033[38;2;151;79;249m'; CYAN='\033[38;2;0;242;255m'; CURRENT_THEME="stream_of_frequency" ;;
@@ -628,14 +841,14 @@ run_interactive_submenu() {
 [ -z "${_LAST_SET_TITLE:-}" ] && ensure_manager_windowed
 local _menu_exit_hint="q to exit"; [ "${MP_GUI_SESSION:-0}" = "1" ] && _menu_exit_hint="q or Esc to close"; local menu_title="$1"; local menu_header="$2"; local -n _opts_ref="$3"; local cur_idx="${4:-0}"; local total_opts="${#_opts_ref[@]}"; command -v update_mp_bridge_menu &>/dev/null && update_mp_bridge_menu "${menu_title:-Main Console / Workstation Menu}" "true"; if [ "$total_opts" -eq 0 ]; then REPLY="0"; return 0; fi; local start_attempts=0; while [ "$start_attempts" -lt "$total_opts" ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then break; fi; cur_idx=$(( (cur_idx + 1) % total_opts )); ((start_attempts++)); done; local -a selectable_map=(); local s_count=0; local i; for (( i=0; i<total_opts; i++ )); do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$i]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then selectable_map[i]=$s_count; ((s_count++)); else selectable_map[i]=-1; fi; done; _find_menu_search_match() { local q="${1,,}" start="${2:-0}" dir="${3:-1}"; [ -z "$q" ] && return 0; local step=0 idx="$start"; while [ "$step" -lt "$total_opts" ]; do local ok="" ol="" oe=""; IFS='|' read -r ok ol oe <<< "${_opts_ref[$idx]}"; if [ "$ok" != "SECTION" ] && [ "$ok" != "SEP" ]; then local haystack="${ok} ${ol} ${oe}"; haystack="${haystack,,}"; if [[ "$haystack" == *"$q"* ]]; then cur_idx=$idx; return 0; fi; fi; idx=$(( (idx + dir + total_opts) % total_opts )); ((step++)); done; return 1; }; if [ ! -t 0 ]; then clear; if [ -n "$menu_title" ]; then echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}       $menu_title${NC}\n${BOLD}${MAGENTA}${S70}${NC}"; elif [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header &>/dev/null; then update_terminal_geometry 0; render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; [ -n "$menu_header" ] && echo -e "$menu_header"; if get_mp_audio_player_track_info 2>/dev/null; then local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"; [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"; local disp_title="$MP_PLAYER_TITLE"; [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."; local p_hdr="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_hdr="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local p_dashes=$(( 74 - ${#p_hdr} - 4 )); [ "$p_dashes" -lt 0 ] && p_dashes=0; local p_dash_str; printf -v p_dash_str '%*s' "$p_dashes" ''; p_dash_str="${p_dash_str// /─}"; echo -e "  ${BOLD}${MAGENTA}╭── ${p_hdr} ${p_dash_str}╮${NC}"; printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"; printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [L] Liquid [C] Theme [n] Next [</>] Track [p] UI [f] FM ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"; fi; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"; case "$o_key" in SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $o_label ] ─────────${NC}" ;; SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;; *) echo -e "  ${BOLD}${MENU_NUM:-${CYAN}}$o_key)${NC} $o_label ${DIM}$o_extra${NC}" ;; esac; done; echo ""; run_deferred_startup; read -r -p "Enter choice: " REPLY; return 0; fi; update_terminal_geometry 0; local box_w; _set_menu_box_width box_w "${_TERM_COLS:-80}"; _CURRENT_BOX_W="$box_w"; _MENU_CURSOR_LOCK=1; local header_count=0; local cached_header_block=""; local cached_header_lines=0; local overhead=4
 build_header_block() {
-header_count=0; cached_header_block=""; cached_header_lines=0; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; if [ -n "$menu_title" ]; then cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"; local title_line; printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"; cached_header_block+="$title_line"; cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; cached_header_lines=$((cached_header_lines + 3)); fi; if [ -z "$menu_title" ] && command -v render_main_header &>/dev/null; then render_main_header "$box_w" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; if [ -n "$menu_header" ]; then local exp_hdr=""; printf -v exp_hdr "%b" "$menu_header"; exp_hdr="${exp_hdr%$'\n'}"; while IFS= read -r h_line; do cached_header_block+="${h_line}\033[K\n"; ((header_count++)); done <<< "$exp_hdr"; cached_header_lines=$((cached_header_lines + header_count)); fi; if [ -n "$menu_title" ]; then cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Esc] to return immediately\033[K${NC}\n"; else cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [C] Theme, ${_menu_exit_hint}\033[K${NC}\n"; fi; ((cached_header_lines++)); overhead=$((cached_header_lines + 4))
+header_count=0; cached_header_block=""; cached_header_lines=0; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; if [ -n "$menu_title" ]; then cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"; local title_line; printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"; cached_header_block+="$title_line"; cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; cached_header_lines=$((cached_header_lines + 3)); fi; if [ -z "$menu_title" ] && command -v render_main_header &>/dev/null; then render_main_header "$box_w" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; if [ -n "$menu_header" ]; then local exp_hdr=""; printf -v exp_hdr "%b" "$menu_header"; exp_hdr="${exp_hdr%$'\n'}"; while IFS= read -r h_line; do cached_header_block+="${h_line}\033[K\n"; ((header_count++)); done <<< "$exp_hdr"; cached_header_lines=$((cached_header_lines + header_count)); fi; if [ -n "$menu_title" ]; then _append_fitted_hint "$(( box_w + 2 ))" "Use [↑/↓] Arrows to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Esc] to return immediately"; else _append_fitted_hint "$(( box_w + 2 ))" "Use [↑/↓] Arrows to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [C] Theme, ${_menu_exit_hint}"; fi; ((cached_header_lines++)); overhead=$((cached_header_lines + 4))
 }
 build_header_block
 _compose_menu_status() {
 local _out="$1"; local cur_key="" cur_lbl="" cur_ext=""; local line=""; IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"; if [ "${search_mode:-0}" -eq 1 ] || [ -n "${search_query:-}" ]; then line="  ${BOLD}${CYAN}Filter / Search:${NC} ${BOLD}${YELLOW}[${search_query}█]${NC} ▏ ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}(Type to search, ↑/↓ Navigate, Enter: Select, Esc: Clear)\033[K"; elif [ -n "$typed_buffer" ]; then if [ -n "$menu_title" ]; then line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"; else line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"; fi; else if [ -n "$menu_title" ]; then line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, [/] to Search, Enter to Select, Esc to Return]\033[K"; else line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, [/] to Search, Enter to Select, ${_menu_exit_hint}]\033[K"; fi; fi; printf -v "$_out" '%s' "$line"
 }
 _menu_line_plain() {
-local idx="$1"; local _out="$2"; local o_key="" o_label="" o_extra=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; local key_formatted=""; printf -v key_formatted "[%2s]" "$o_key"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"; printf -v "$_out" '%s' "     ${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
+local idx="$1"; local _out="$2"; local o_key="" o_label="" o_extra=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; local key_formatted=""; printf -v key_formatted "[%2s]" "$o_key"; local extra_display=""; local _fitted_extra=""; _fitted_extra="$(_fit_menu_extra "$o_key" "$o_label" "$o_extra" "$(( box_w + 2 ))")"; [ -n "$_fitted_extra" ] && extra_display="  ${DIM}${_fitted_extra}${NC}"; printf -v "$_out" '%s' "     ${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
 }
 _menu_fast_paint_selection() {
 local old_idx="$1"; [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1; [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1; [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1; [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1; [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1; [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1; [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1; [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1; local plain sel status; _menu_line_plain "$old_idx" plain
@@ -645,7 +858,7 @@ cleanup_submenu_screen() {
 _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
 }                                            
 _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local menu_rule; printf -v menu_rule '%*s' "$((inner_w + 1))" ''; menu_rule="${menu_rule// /─}"; local p_rule; printf -v p_rule '%*s' "$((inner_w - 1))" ''; p_rule="${p_rule// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 5 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}${NC}${BOLD}\033[1;37m╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - ${#st_raw} - 4 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len - 1 )); if [ "$l1_pad" -lt 1 ]; then local _over=$((1 - l1_pad)); local _tlen=${#disp_title}; if [ $((_tlen - _over)) -gt 3 ]; then disp_title="${disp_title:0:$((_tlen - _over - 3))}..."; else disp_title="${disp_title:0:$(( _tlen > _over ? _tlen - _over : 0 ))}"; fi; l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); l1_pad=$(( text_w - raw_l1_len - 1 )); [ "$l1_pad" -lt 1 ] && l1_pad=1; fi; local l1_sp
-printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${NC}${BOLD}\033[1;37m│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"; local eq_raw="${MP_PLAYER_MINI_EQ:-        }"; [ -z "$eq_raw" ] && eq_raw="        "; local eq_disp="${CYAN}${eq_raw}${NC}"; local l2_pad=$(( text_w - 17 - ${#eq_raw} - ${#line2_ctrl} )); if [ "$l2_pad" -lt 0 ]; then local _keep=$(( ${#line2_ctrl} + l2_pad )); [ "$_keep" -lt 0 ] && _keep=0; if [ "$_keep" -gt 3 ]; then line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."; else line2_ctrl="${line2_ctrl:0:$_keep}"; fi; l2_pad=0; fi; local l2_sp=""; [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${NC}${BOLD}\033[1;37m│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${p_rule}${NC}${BOLD}\033[1;37m╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 2 ? 2 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; if [ "$cur_idx" -le 1 ]; then view_top=0; elif [ "$cur_idx" -gt 0 ]; then local _pk=""; IFS='|' read -r _pk _ _ <<< "${_opts_ref[$((cur_idx - 1))]}"; [ "$_pk" = "SECTION" ] && [ "$((cur_idx - 1))" -lt "$view_top" ] && view_top=$((cur_idx - 1)); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
+printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${NC}${BOLD}\033[1;37m│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"; local eq_raw="${MP_PLAYER_MINI_EQ:-        }"; [ -z "$eq_raw" ] && eq_raw="        "; local eq_disp="${CYAN}${eq_raw}${NC}"; local l2_pad=$(( text_w - 17 - ${#eq_raw} - ${#line2_ctrl} )); if [ "$l2_pad" -lt 0 ]; then local _keep=$(( ${#line2_ctrl} + l2_pad )); [ "$_keep" -lt 0 ] && _keep=0; if [ "$_keep" -gt 3 ]; then line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."; else line2_ctrl="${line2_ctrl:0:$_keep}"; fi; l2_pad=0; fi; local l2_sp=""; [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${NC}${BOLD}\033[1;37m│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${p_rule}${NC}${BOLD}\033[1;37m╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 2 ? 2 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; if [ "$cur_idx" -le 1 ]; then view_top=0; elif [ "$cur_idx" -gt 0 ]; then local _pk=""; IFS='|' read -r _pk _ _ <<< "${_opts_ref[$((cur_idx - 1))]}"; [ "$_pk" = "SECTION" ] && [ "$((cur_idx - 1))" -lt "$view_top" ] && view_top=$((cur_idx - 1)); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; local _fitted_extra=""; _fitted_extra="$(_fit_menu_extra "$o_key" "$o_label" "$o_extra" "$(( box_w + 2 ))")"; [ -n "$_fitted_extra" ] && extra_display="  ${DIM}${_fitted_extra}${NC}"
 frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
 
 RESIZE) 
@@ -5246,7 +5459,7 @@ fi; local _s4_conn=0; _s4_hardware_connected && _s4_conn=1; if [ "$_s4_conn" -eq
 hdr+=$'\n\n  '"${BOLD}${GREEN}🎛️  Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]!${NC}
   ${BOLD}${CYAN}Please navigate to Option 19 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
   ${DIM}${GREEN}(Control player transport, mixer, and pitch sliders directly from your S4 hardware)${NC}"
-fi; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
+fi; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _fit_block_to_panel _RENDERED_MAIN_HEADER "$hdr" "$(( cur_box_w + 2 ))"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 # True only when the Traktor application itself is running.
 # Do not search the full command line: traktor_s4_midi.py and traktor_monitor
