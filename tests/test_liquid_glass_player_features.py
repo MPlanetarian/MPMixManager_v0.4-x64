@@ -496,15 +496,19 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         self.assertGreater(len(spv_bytes), 1000)
         self.assertEqual(spv_bytes[:4], b"\x03\x02#\x07")
 
-    def test_default_window_opacity_is_80_percent(self):
-        """MP Liquid Player and MP Gui open at 80% opacity."""
+    def test_glass_opacity_does_not_dim_terminal_text(self):
+        """The GL shader controls glass opacity while VTE text stays crisp."""
         self.assertEqual(lg_opengl.DEFAULT_WINDOW_OPACITY, 0.80)
         host = lg_opengl.GlassHost.__new__(lg_opengl.GlassHost)
         host.renderer = MagicMock()
         host.renderer.slider_val = lg_opengl.DEFAULT_WINDOW_OPACITY
         host.gtk_window = MagicMock()
         host._apply_slider_opacity()
-        host.gtk_window.set_opacity.assert_called_once_with(0.80)
+        host.gtk_window.set_opacity.assert_called_once_with(1.0)
+        host.gtk_window.reset_mock()
+        host._update_slider_val(40, 1000)
+        host.gtk_window.set_opacity.assert_not_called()
+        self.assertEqual(host.renderer.slider_val, 0.20)
 
         macos = (BASE_DIR / "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py").read_text(encoding="utf-8")
         self.assertIn("DEFAULT_WINDOW_OPACITY = 0.80", macos)

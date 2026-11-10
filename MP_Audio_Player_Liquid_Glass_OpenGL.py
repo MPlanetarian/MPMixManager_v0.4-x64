@@ -26,7 +26,8 @@ from liquid_glass_opengl import (
 COLS, ROWS = 120, 40
 # Used when Hack is not installed, and when a measured cell has no face yet.
 DEFAULT_FONT = "Monospace 11"
-# Opacity when the window opens. 0.80 is 80% opaque. The slider runs from 0.20 to 0.80.
+# Glass shader opacity when the window opens. VTE text remains fully opaque.
+# The slider runs from 0.20 to 0.80.
 # MP Liquid Player and MP Gui both use this host.
 DEFAULT_WINDOW_OPACITY = 0.80
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
@@ -735,8 +736,6 @@ class GlassHost:
         slider_right = max(80.0, float(w) - 40.0)
         t = max(0.0, min(1.0, (x - slider_left) / (slider_right - slider_left)))
         self.renderer.slider_val = 0.20 + t * (0.80 - 0.20)
-        if self.gtk_window is not None:
-            self.gtk_window.set_opacity(float(self.renderer.slider_val))
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
         if getattr(self, "_os_dragging", False):
@@ -1064,15 +1063,11 @@ class GlassHost:
         self._glass_css_provider = provider
 
     def _apply_slider_opacity(self):
-        """Open the Liquid Player and MP Gui at the transparency slider's default."""
+        """Keep terminal text opaque; the GL shader applies the glass opacity."""
         if self.gtk_window is None:
             return
-        opacity = DEFAULT_WINDOW_OPACITY
-        renderer = getattr(self, "renderer", None)
-        if renderer is not None:
-            opacity = float(getattr(renderer, "slider_val", opacity))
         try:
-            self.gtk_window.set_opacity(opacity)
+            self.gtk_window.set_opacity(1.0)
         except Exception:
             pass
 
@@ -1085,10 +1080,6 @@ class GlassHost:
             active = bool(read_player_visualizer_state().get("active"))
         except Exception:
             return
-        if active:
-            self.gtk_window.set_opacity(1.0)
-        elif getattr(self, "_vis_text_css", None) is not None:
-            self.gtk_window.set_opacity(float(getattr(self.renderer, "slider_val", DEFAULT_WINDOW_OPACITY)))
         if active == getattr(self, "_vis_text_on", False):
             return
         if self.terminal is None or Gtk is None:
