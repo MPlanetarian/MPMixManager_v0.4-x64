@@ -314,6 +314,20 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         cols, rows = vis.macos_player_grid(1094, 734)
         self.assertEqual((cols, rows), (120, 40))
 
+    def test_linux_raymarch_matches_the_framebuffer(self):
+        os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
+        self.assertEqual(vis.march_target_size(2784, 1685, platform="linux"), (2784, 1685))
+        self.assertEqual(vis.march_target_size(1920, 1080, platform="linux"), (1920, 1080))
+        self.assertEqual(vis.march_target_size(1094, 778, platform="linux"), (1094, 778))
+        self.assertEqual(vis.march_target_size(100, 80, platform="linux"), (100, 80))
+        self.assertEqual(vis.march_target_size(700, 700, platform="win32"), (224, 224))
+        self.assertEqual(vis.march_target_size(1094, 734, platform="darwin"), (768, 515))
+        os.environ["MP_VISUALIZER_GL_LONG_EDGE"] = "512"
+        try:
+            self.assertEqual(vis.march_target_size(2784, 1685, platform="linux"), (512, 310))
+        finally:
+            os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
+
     def test_linux_visualizer_matches_the_liquid_player_window(self):
         self.assertEqual(vis.linux_liquid_player_window_size(), (1094, 778))
         self.assertEqual(vis.linux_liquid_player_window_size(char_w=13, char_h=30), (1574, 1258))

@@ -1282,9 +1282,14 @@ class LiquidVisualizerVulkanRenderer:
         self._march_pass = rp.value
 
     def _resolve_frag_spv(self) -> Path:
-        """Folded preset shader on macOS, otherwise the full shipped module."""
+        """Folded preset shader, so the march contains the selected scene.
+
+        Linux draws at the framebuffer size. The full shader still carries
+        every preset, which is why the Linux picture used to be 224 pixels
+        on the long edge. macOS uses these same folded modules.
+        """
         folded = None
-        if _IS_MAC:
+        if _IS_MAC or _IS_LINUX:
             try:
                 from liquid_player_visualizer import vulkan_preset_spirv
             except ImportError:
@@ -1296,10 +1301,11 @@ class LiquidVisualizerVulkanRenderer:
         return SHADER_DIR / "mp_liquid_visualizer.frag.spv"
 
     def _ensure_march_target(self):
-        """Draw the raymarch below the window size and scale it up.
+        """Draw the raymarch, and scale it up only when it is smaller.
 
-        On macOS the long edge is 768, so a 1094×734 window marches at
-        768×515. A full-window march is about 9 fps through MoltenVK.
+        Linux marches at the framebuffer size. macOS uses a 768 long edge,
+        so a 1094×734 window marches at 768×515. A full-window march is
+        about 9 fps through MoltenVK.
         """
         self._destroy_march_target()
         try:

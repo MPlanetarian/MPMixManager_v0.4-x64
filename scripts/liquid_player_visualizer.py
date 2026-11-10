@@ -145,10 +145,11 @@ def write_player_visualizer_state(active: bool, preset: Dict[str, Any]) -> Dict[
     return dict(state)
 
 
-# The player window stays at its own size. The raymarch long edge is 768,
-# so a 1094×734 window is drawn at 768×515 and scaled up. A full-window
-# march of this shader is about 9 fps through MoltenVK. 768 is about three
-# times the old 224-wide image on the long edge and still moves.
+# The player window stays at its own size. On macOS the raymarch long edge
+# is 768, so a 1094×734 window is drawn at 768×515 and scaled up. A
+# full-window march of this shader is about 9 fps through MoltenVK.
+# Linux marches at the framebuffer size, one raymarch pixel per window
+# pixel, so the picture stays sharp. Windows keeps the 224 cap.
 # MP_VISUALIZER_GL_LONG_EDGE still overrides the long edge.
 # MP_VISUALIZER_GL_MARCH_STEPS clamps to 24..84.
 MACOS_FULLSCREEN_SIZE = (1920, 1080)
@@ -599,20 +600,30 @@ def _scale_long_edge(rw: int, rh: int, cap: int) -> tuple:
     return max(2, int(round(rw * scale))), max(2, int(round(rh * scale)))
 
 
-def march_target_size(width: int, height: int, long_edge: Optional[int] = None) -> tuple:
+def march_target_size(
+    width: int,
+    height: int,
+    long_edge: Optional[int] = None,
+    *,
+    platform: Optional[str] = None,
+) -> tuple:
     """Raymarch pixels for a window of this size.
 
-    On macOS the long edge defaults to 768. A 1094×734 window therefore
-    marches at 768×515 and is scaled onto the window. Other platforms keep
-    the 224 cap unless an override is set.
+    Linux uses the framebuffer as it is, so a 1920×1200 window marches at
+    1920×1200 and is not scaled up. macOS keeps a 768 long edge: a 1094×734
+    window marches at 768×515. Windows keeps the 224 cap.
+    ``MP_VISUALIZER_GL_LONG_EDGE`` still overrides the long edge.
     """
+    host = sys.platform if platform is None else platform
+    width_i, height_i = max(2, int(width)), max(2, int(height))
     if long_edge is not None or bool((os.environ.get("MP_VISUALIZER_GL_LONG_EDGE") or "").strip()):
         cap = macos_visualizer_long_edge() if long_edge is None else max(160, int(long_edge))
-    elif sys.platform == "darwin":
-        cap = macos_visualizer_long_edge()
-    else:
-        cap = _UNFOLDED_LONG_EDGE
-    return _scale_long_edge(width, height, cap)
+        return _scale_long_edge(width_i, height_i, cap)
+    if host == "darwin":
+        return _scale_long_edge(width_i, height_i, macos_visualizer_long_edge())
+    if host.startswith("linux"):
+        return width_i, height_i
+    return _scale_long_edge(width_i, height_i, _UNFOLDED_LONG_EDGE)
 
 
 def visualizer_internal_size(

@@ -98,6 +98,7 @@ An enterprise-grade workstation orchestration console and media management suite
 | Change | What you see |
 | :--- | :--- |
 | **Visualizer window** | On Linux the window matches the Liquid Player after the font is measured. When MP Gui starts the visualizer, the window uses MP Gui's fitted size. macOS stays **1094×734**, the same size as the Liquid Player. Windows stays **700×700** and still shrinks to the work area. Fullscreen on a 4K TV is unchanged. Keys **`1`** through **`9`** select the first nine presets. Preset 10, Resonant Fluid Dynamics, opens with `--preset 10`. |
+| **Visualizer picture on Linux** | The raymarch is one pixel for each pixel of the window, so the picture is sharp. The old Linux image was 224 pixels on the long edge and was scaled up. macOS still uses a 768 long edge. Fullscreen on a 4K TV stays 1920×1080. |
 | **The manager no longer opens the Liquid Player by itself** | Starting the console manager leaves the player closed. Main menu option **3** and **`L`** still open it. |
 | **Your volume stays put** | Opening MP Gui or the Liquid Player keeps the volume you already set. |
 | **`G` opens MP Gui from the Liquid Player** | Inside the Liquid Player, **`G`** opens MP Gui. In the terminal player, **`G`** still builds a Spek spectrogram. On macOS, and when a fullscreen Terminal is in front, MP Gui is raised. A player opened from MP Gui is raised the same way. |
@@ -359,7 +360,7 @@ flowchart LR
 
 ### 🔮 MP Liquid Visualizer Highlights:
 - ⚡ **Built from the Ground Up in Vulkan 1.x (Cross-Platform)**: Native Vulkan graphics pipeline (`libvulkan` / `MoltenVK` / `vulkan-1.dll` + `GLFW`) with custom compiled SPIR-V vertex and fragment shaders (`shaders/mp_liquid_visualizer.frag.spv`), UBO telemetry binding, and GPU device-local cover image samplers. Fully supported across Linux, macOS (Apple Silicon via MoltenVK), and Windows 10 & 11.
-- 🖼️ **Borderless Pure Visual Window**: Designed for pure visual immersion, with **zero text overlay ever displayed**, no scrollbars, and no HUD clutter. On Linux the window matches the Liquid Player after the font is measured. When MP Gui starts the visualizer, that window uses MP Gui's fitted size. macOS opens at **1094×734**. Windows opens at **700×700** and shrinks to the work area. Fullscreen on a 4K TV is unchanged. Closes instantly on pressing `Esc` or `q`.
+- 🖼️ **Borderless Pure Visual Window**: Designed for pure visual immersion, with **zero text overlay ever displayed**, no scrollbars, and no HUD clutter. On Linux the window matches the Liquid Player after the font is measured, and the picture is drawn at that window's pixel size. When MP Gui starts the visualizer, that window uses MP Gui's fitted size. macOS opens at **1094×734** and marches with a 768 long edge. Windows opens at **700×700** and shrinks to the work area. Fullscreen on a 4K TV is unchanged. Closes instantly on pressing `Esc` or `q`.
 - 🎵 **Continuous 3D Audio Reactivity & Instant Pause Freeze**:
   - Continuously ingests real-time 24-band FFT telemetry and playback state from `MP_Audio_Player` via shared memory/IPC (`~/.config/mix-manager/mp_player_state.json`).
   - Animates 3D Signed Distance Field (SDF) geometry, displacement ripples, reactive accretion rings, and kinetic shards in sync with the music.
