@@ -42,6 +42,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - **`A`**, **`All`**, or **`2`** skips splitting for that mix and every mix left in the batch.
 - **Main menu Section 1 title** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `README.md`):
   - The section label is `SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More`.
+- **Linux TTY Desktop Switcher** (`Mix_Archive_Manager.sh`, `scripts/MP_Desktop_CLI_Switch.sh`, `scripts/show_help.sh`, `tests/test_tty_desktop_switch.py`):
+  - Main menu option **37** is **Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)**. It is shown on Linux only. Exit moves to option **38**. `q` and `exit` still leave the manager.
+  - The option runs `scripts/MP_Desktop_CLI_Switch.sh`. From Plasma it enables **MP Mix Manager TTY Audio Mode** and drops to a TTY login. From that console it turns the mode off and returns to the Plasma login.
+  - The mode is stored in `~/.config/mix-manager/tty_audio_mode`. Playback stays in the terminal player. Liquid Glass, MP Gui, the visualizer, and other desktop windows stay closed.
 - **Bash prompt on B** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_manager_bash_toggle.py`):
   - Press **B** on a manager menu to turn that same window into an interactive Bash prompt. The shell loads `~/.bashrc`.
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.

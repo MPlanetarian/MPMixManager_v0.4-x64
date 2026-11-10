@@ -83,9 +83,11 @@ class TestManagerMenu(unittest.TestCase):
         self.assertNotIn('CURRENT_THEME="charcoal_vault"', text)
         self.assertNotIn("23|Charcoal Vault", text)
         self.assertIn("MP_GUI_SESSION", text)
-        self.assertIn("37|77|", text)
+        self.assertIn("38|77|", text)
+        self.assertNotIn("37|77|", text)
         self.assertNotIn("36|77|", text)
-        self.assertIn("between 0 and 37", text)
+        self.assertIn("between 0 and 38", text)
+        self.assertIn("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|", text)
 
     def test_shell_parses(self):
         result = subprocess.run(

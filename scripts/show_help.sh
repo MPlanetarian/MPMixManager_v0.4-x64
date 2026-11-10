@@ -180,7 +180,13 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        Press C on the main menu to cycle themes.
   ${BOLD}${CYAN}36${NC}   ${BOLD}MP Mix Manager GUI${NC}
        Same Liquid Glass manager as the MP row. Press G on the main menu. Also: gui, mp-gui, MP_Gui, ./MP_Gui.sh.
-  ${BOLD}${CYAN}37${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
+  ${BOLD}${CYAN}37${NC}   ${BOLD}Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)${NC}
+       Linux only. This row is hidden on macOS, Windows, and FreeBSD.
+       Runs scripts/MP_Desktop_CLI_Switch.sh. From Plasma it leaves the desktop for a TTY login
+       and enables MP Mix Manager TTY Audio Mode. From that console it returns to the Plasma login
+       and turns the mode off. In TTY Audio Mode, playback stays in the terminal player. Liquid Glass,
+       MP Gui, the visualizer, and other desktop windows stay closed. Also: tty, tty-mode, desktop-cli.
+  ${BOLD}${CYAN}38${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.
 
 ${BOLD}SYSTEM TRAY:${NC}
@@ -209,6 +215,7 @@ ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
     ${CYAN}geexlab${NC}           Launch GeeXLab 3D demos
     ${CYAN}gpu-screen-recorder${NC}  Record a DJ mix with GPU Screen Recorder (Linux)
     ${CYAN}gui${NC} | ${CYAN}mp-gui${NC} | ${CYAN}36${NC}   Open the MP Mix Manager GUI (Liquid Glass)
+    ${CYAN}tty${NC} | ${CYAN}37${NC}          Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)
     ${CYAN}visualizer${NC} | ${CYAN}Z${NC}   Launch the MP Liquid Visualizer
     ${CYAN}alarm${NC} | ${CYAN}alarm-clock${NC}   Launch MPlanetarians Alarm Clock (Wake Up Edition)
     ${CYAN}congen${NC} | ${CYAN}kdeconnect${NC}    Launch Congen KDE Connect Commands Generator & Remote Control

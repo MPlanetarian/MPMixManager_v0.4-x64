@@ -69,7 +69,7 @@ An enterprise-grade workstation orchestration console and media management suite
 - [🖥️ KDE Plasma Desktop Shortcuts & Global Keyboard Binder](#️-spotlight-kde-plasma-desktop-shortcuts--global-keyboard-binder)
 - [📢 Unified Multi-Channel Notification Dispatcher](#-spotlight-unified-multi-channel-notification-dispatcher)
 - [🚀 Quick Start by Operating System](#-quick-start-by-operating-system)
-- [🎛️ Master Feature Matrix (3 Sections, Options 0–37)](#️-master-feature-matrix-3-sections-options-037)
+- [🎛️ Master Feature Matrix (3 Sections, Options 0–38)](#️-master-feature-matrix-3-sections-options-038)
 - [💻 Command Line Interface & Direct Shortcuts](#-command-line-interface--direct-shortcuts)
 - [📂 Repository & Codebase Layout](#-repository--codebase-layout)
 - [⚙️ Configuration Guide (`config.env`)](#️-configuration-guide-configenv)
@@ -906,7 +906,7 @@ chmod +x manager_freebsd.sh install.sh
 
 ---
 
-## 🎛️ Master Feature Matrix (3 Sections, Options 0–37)
+## 🎛️ Master Feature Matrix (3 Sections, Options 0–38)
 
 ### ─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────
 | # | Operation | Description & Sub-Features |
@@ -960,7 +960,8 @@ chmod +x manager_freebsd.sh install.sh
 | **34**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting live running kernel (`uname -r`), recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
 | **35**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch among the built-in TrueColor themes, including Retro Linux Memories (theme option **22**), MPlanetarian Dreamworlds, Dreamworlds Ultra, Cosmic Supernova, Sensorium Interface, and Stream of Frequency. Press **`C`** on the main menu to cycle the same list as the Liquid Player. The choice is written to `~/.config/mix-manager/theme`. Also manages installation paths, snapshot backups, and portable config export/import (`manage_installation_config.sh`); runs an interactive Bash CLI; checks for updates (`update_manager.sh`); and reboots. |
 | **36**| **MP Mix Manager GUI** | Liquid Glass manager (`MP_Gui.sh`, also menu row **MP** and `mix-archive-manager gui`). Same glass, bezel, and VTE terminal as the Liquid Player, started with `--manager`. Opens on Retro Linux Memories unless `--keep-theme` or `--theme NAME` is set. A second launch focuses the existing `MP Mix Manager (Liquid Glass` window. Closing the GUI stops playback and force-closes the MP Liquid Visualizer. **`L`** still opens the Liquid Player beside it. |
-| **37**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
+| **37**| **Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)** | Linux only. The row is hidden on macOS, Windows, and FreeBSD. `scripts/MP_Desktop_CLI_Switch.sh` leaves a Plasma session for a TTY login, or returns from that console to the Plasma login screen. Choosing it from the desktop writes `~/.config/mix-manager/tty_audio_mode` and enables **MP Mix Manager TTY Audio Mode**. Playback then stays in the terminal player. Liquid Glass, MP Gui, the visualizer, cover art, and other desktop windows stay closed. Choosing it again from the TTY turns the mode off and brings the desktop login back. Also: `tty`, `tty-mode`, `desktop-cli`. |
+| **38**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
 
 ---
 
@@ -1036,7 +1037,7 @@ mix-archive-manager --backup          # Run automated multi-cloud backup to Goog
 
 ```
 MPMixManager_v0.4-x64/
-├── Mix_Archive_Manager.sh       # Master interactive console (options 0–37, plus the MP GUI row)
+├── Mix_Archive_Manager.sh       # Master interactive console (options 0–38, plus the MP GUI row)
 ├── MP_Gui.sh                    # MP Mix Manager GUI — Liquid Glass host with --manager
 ├── .probe_mgr.sh                # Ultra-compact zero-fork telemetry & probe engine (264 lines)
 ├── MP_Mix_Manager.exe           # Native 64-bit Windows PE32+ console executable launcher

@@ -1408,8 +1408,12 @@ ensure_manager_windowed() {
     _IS_FULLSCREEN=0
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}]"
+    if mp_tty_audio_mode_active; then
+        new_title="MP Mix Manager TTY Audio Mode [${app_ver}]"
+    fi
     # CSI 10/9 window-ops make macOS Terminal drop the tab title and restore it.
-    if [ "${OS_TYPE:-}" != "macos" ]; then
+    # A Linux console has no window to resize.
+    if [ "${OS_TYPE:-}" != "macos" ] && ! mp_tty_audio_mode_active; then
         printf '\033[10;0t\033[9;0t' 2>/dev/null || true
     fi
     apply_manager_console_tab_title "$new_title"
@@ -1418,7 +1422,7 @@ ensure_manager_fullscreen() {
     _IS_FULLSCREEN=1
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
-    if [ "${OS_TYPE:-}" != "macos" ]; then
+    if [ "${OS_TYPE:-}" != "macos" ] && ! mp_tty_audio_mode_active; then
         printf '\033[10;1t\033[9;1t' 2>/dev/null || true
     fi
     apply_manager_console_tab_title "$new_title"
@@ -1428,6 +1432,7 @@ align_mix_windows_on_screen() {
 disown 2>/dev/null || true; fi
 }
 open_cover_art_window() {
+if mp_tty_audio_mode_active; then return 0; fi
 local target="$1"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; local cover_title="Mix Cover Art Viewer"; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if _has_flatpak "org.kde.gwenview"; then nohup flatpak run org.kde.gwenview "$target" &>/dev/null &
 disown 2>/dev/null || true; align_mix_windows_on_screen --expect-cover; return 0; fi; for viewer in gwenview loupe eog feh xdg-open; do if command -v "$viewer" &>/dev/null; then nohup "$viewer" "$target" &>/dev/null &
 disown 2>/dev/null || true; align_mix_windows_on_screen --expect-cover; return 0; fi; done; fi; if [ "$OS_TYPE" = "macos" ]; then open -a Preview "$target" &>/dev/null &
@@ -1470,8 +1475,154 @@ local saved_mode="${AUTO_PLAY_MIX_SELECTION:-latest}"; local selected_mix=""; AU
 copy_to_clipboard() {
 local text="$1"; local cmd; if [ "$OS_TYPE" = "macos" ] || [ "$OS_TYPE" = "wsl" ]; then cmd="pbcopy"; elif [ "$OS_TYPE" = "windows" ]; then cmd="clip.exe"; else if command -v wl-copy &>/dev/null; then cmd="wl-copy"; elif command -v xclip &>/dev/null; then cmd="xclip -selection clipboard"; elif command -v pbcopy &>/dev/null; then cmd="pbcopy"; elif command -v clip.exe &>/dev/null; then cmd="clip.exe"; fi; fi; if [ -n "$cmd" ]; then printf "%s" "$text" | $cmd; return 0; fi; return 1
 }
+# MP_TTY_AUDIO_MODE_BEGIN
+# MP Mix Manager TTY Audio Mode.
+# Menu option 37 on Linux runs scripts/MP_Desktop_CLI_Switch.sh, which leaves
+# Plasma for a TTY login or brings the desktop back. The flag file keeps the
+# mode across that logout. While it is set, playback stays in the terminal
+# player and desktop windows stay closed.
+MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+
+mp_tty_audio_mode_active() {
+    [ "${MP_MIX_MANAGER_TTY_MODE:-0}" = "1" ] && return 0
+    [ -n "${MP_TTY_AUDIO_MODE_FILE:-}" ] && [ -f "$MP_TTY_AUDIO_MODE_FILE" ] && return 0
+    return 1
+}
+
+mp_tty_audio_mode_load() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    if [ -f "$MP_TTY_AUDIO_MODE_FILE" ]; then
+        export MP_MIX_MANAGER_TTY_MODE=1
+        AUTO_SHOW_COVER_ON_STARTUP=false
+        AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+    fi
+}
+
+mp_tty_audio_mode_enable() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    mkdir -p "${HOME:-}/.config/mix-manager" 2>/dev/null || true
+    printf '1\n' > "$MP_TTY_AUDIO_MODE_FILE"
+    export MP_MIX_MANAGER_TTY_MODE=1
+    AUTO_SHOW_COVER_ON_STARTUP=false
+    AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+}
+
+mp_tty_audio_mode_disable() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    rm -f "$MP_TTY_AUDIO_MODE_FILE" 2>/dev/null || true
+    export MP_MIX_MANAGER_TTY_MODE=0
+}
+
+# 0 = refused because TTY Audio Mode is on. 1 = desktop actions may proceed.
+mp_tty_skip_desktop() {
+    mp_tty_audio_mode_active || return 1
+    local what="${1:-This action}"
+    echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+    echo -e "${YELLOW}${what} needs a graphical desktop, so it stays closed.${NC}"
+    echo -e "${DIM}Audio stays in the terminal player. Option 37 returns to the desktop.${NC}"
+    return 0
+}
+
+# tty     = a graphical session, so option 37 drops to the text console
+# desktop = the boot target is already the text console, so option 37 returns to Plasma
+# here    = already a text console, and the desktop login is still the boot target
+_mp_tty_switch_target() {
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+        printf '%s\n' tty
+        return 0
+    fi
+    if [ "$(systemctl get-default 2>/dev/null || true)" = "multi-user.target" ]; then
+        printf '%s\n' desktop
+        return 0
+    fi
+    printf '%s\n' here
+}
+
+manage_linux_tty_desktop_switch() {
+    if [ "${OS_TYPE:-}" != "linux" ]; then
+        echo -e "\n${YELLOW}Linux TTY Desktop Switcher is available on Linux only.${NC}"
+        press_enter
+        return 0
+    fi
+    local switch="$SCRIPT_DIR/scripts/MP_Desktop_CLI_Switch.sh"
+    if [ ! -f "$switch" ] && [ -f "$SCRIPT_DIR/MP_Desktop_CLI_Switch.sh" ]; then
+        switch="$SCRIPT_DIR/MP_Desktop_CLI_Switch.sh"
+    fi
+    if [ ! -f "$switch" ]; then
+        echo -e "\n${RED}MP_Desktop_CLI_Switch.sh was not found.${NC}"
+        press_enter
+        return 1
+    fi
+    local target ans="" rc=0
+    target="$(_mp_tty_switch_target)"
+    echo
+    case "$target" in
+        desktop)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This returns to the Plasma login screen and turns ${BOLD}MP Mix Manager TTY Audio Mode${NC} off."
+            printf '%s' "Return to the desktop now? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_disable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is off.${NC}"
+                    bash "$switch" || rc=$?
+                    if [ "$rc" -ne 0 ]; then
+                        echo -e "${YELLOW}The desktop login did not start.${NC}"
+                        press_enter
+                    fi
+                    return "$rc"
+                    ;;
+            esac
+            echo -e "${DIM}Staying on this console.${NC}"
+            press_enter
+            return 0
+            ;;
+        tty)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This enables ${BOLD}MP Mix Manager TTY Audio Mode${NC} and leaves the desktop for a text console."
+            echo -e "Log in on the TTY and start MP Mix Manager. Playback uses the terminal player."
+            echo -e "Liquid Glass, MP Gui, and the visualizer stay closed. Option 37 on the TTY returns to the desktop."
+            printf '%s' "Switch to the TTY now? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_enable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is on.${NC}"
+                    bash "$switch" || rc=$?
+                    if [ "$rc" -ne 0 ]; then
+                        echo -e "${YELLOW}The desktop is still up. TTY Audio Mode stays on in this window.${NC}"
+                        press_enter
+                    fi
+                    return "$rc"
+                    ;;
+            esac
+            echo -e "${DIM}Left the desktop session as it is.${NC}"
+            press_enter
+            return 0
+            ;;
+        *)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This console is already a text session. Enabling ${BOLD}MP Mix Manager TTY Audio Mode${NC} keeps audio in the terminal player."
+            printf '%s' "Enable MP Mix Manager TTY Audio Mode? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_enable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is on.${NC}"
+                    press_enter
+                    return 0
+                    ;;
+            esac
+            echo -e "${DIM}TTY Audio Mode was not changed.${NC}"
+            press_enter
+            return 0
+            ;;
+    esac
+}
+# MP_TTY_AUDIO_MODE_END
 launch_in_terminal() {
-local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
+local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if mp_tty_audio_mode_active; then echo -e "\n${BOLD}${CYAN}${title}${NC} ${DIM}(MP Mix Manager TTY Audio Mode, this console)${NC}\n"; bash -c "$cmd"; return $?; fi; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
 osascript - "$cmd" <<'APPLESCRIPT' &>/dev/null
 on run argv
     set cmdText to item 1 of argv
@@ -1621,6 +1772,10 @@ _run_mp_audio_player() {
 # an already-open player window. The Mini profile is 74x14 and 30% opacity,
 # and that window was opening gray and empty.
 launch_mp_audio_player_window() {
+    if mp_tty_audio_mode_active; then
+        manage_mp_audio_player
+        return 0
+    fi
     local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
     if [ -f "$mp_py" ]; then
@@ -1724,6 +1879,12 @@ _liquid_glass_release_launch() {
     fi
 }
 launch_mp_audio_player_liquid_glass() {
+    if mp_tty_audio_mode_active; then
+        echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+        echo -e "${YELLOW}Liquid Glass stays closed on this console. Opening the terminal player.${NC}\n"
+        manage_mp_audio_player
+        return 0
+    fi
     local audio_file="${1:-}"
     local seek_pos="${2:-}"
     local mode="${3:-MIX_ARCHIVE}"
@@ -1863,6 +2024,12 @@ launch_mp_audio_player_liquid_glass() {
 # Use this tree's launcher. ~/.local/bin/launch-liquid-glass points at another install,
 # and hiding its output made a missing VTE typelib look like a dead menu item.
 launch_liquid_glass_from_menu() {
+    if mp_tty_audio_mode_active; then
+        echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+        echo -e "${YELLOW}Liquid Glass stays closed on this console. Opening the terminal player.${NC}\n"
+        manage_mp_audio_player
+        return 0
+    fi
     local launcher="" s
     for s in \
         "$SCRIPT_DIR/scripts/launch-liquid-glass" \
@@ -1909,6 +2076,10 @@ launch_liquid_glass_from_menu() {
 # Option 36 opens the Mix Manager inside the same Liquid Glass window as the player.
 # A second launch focuses that window. The Liquid Player may stay open beside it.
 launch_mp_gui_from_menu() {
+    if mp_tty_skip_desktop "MP Mix Manager GUI"; then
+        press_enter
+        return 0
+    fi
     local launcher="$SCRIPT_DIR/MP_Gui.sh"
     if [ ! -f "$launcher" ]; then
         echo -e "\n${RED}MP_Gui.sh was not found in ${SCRIPT_DIR}.${NC}"
@@ -1959,6 +2130,10 @@ launch_mp_gui_from_menu() {
 }
 
 launch_mp_liquid_visualizer() {
+    if mp_tty_skip_desktop "MP Liquid Visualizer"; then
+        press_enter
+        return 0
+    fi
     local preset_arg="${1:-}"
     local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/scripts/mp_liquid_visualizer_vulkan.py"
@@ -3430,6 +3605,7 @@ if [ -x "$HOME/.local/share/electricsheep/electricsheep.AppImage" ]; then nohup 
 echo -e "${GREEN}✓ Electric Sheep launched (AppImage).${NC}"; sleep 1.2; return 0; fi; launch_gui_app "Electric Sheep" "electricsheep" "" "Electric Sheep" "" "ElectricSheep/electricsheep.exe" ""
 }
 launch_gpu_screen_recorder() {
+if mp_tty_skip_desktop "GPU Screen Recorder"; then return 0; fi
 echo -e "\n${BOLD}${YELLOW}Launching GPU Screen Recorder in a new window...${NC}\n"; if [ "$OS_TYPE" != "linux" ]; then echo -e "${RED}GPU Screen Recorder is available on Linux only.${NC}"; return 1; fi; if command -v gpu-screen-recorder-gtk &>/dev/null; then nohup gpu-screen-recorder-gtk &>/dev/null &
 disown 2>/dev/null || true; echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; if command -v flatpak &>/dev/null && flatpak info com.dec05eba.gpu_screen_recorder &>/dev/null; then nohup flatpak run --command=gpu-screen-recorder-gtk com.dec05eba.gpu_screen_recorder &>/dev/null &
 disown 2>/dev/null || true; echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; if command -v gtk-launch &>/dev/null && gtk-launch com.dec05eba.gpu_screen_recorder &>/dev/null; then echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; echo -e "${RED}Error: GPU Screen Recorder is not installed.${NC}\n${YELLOW}Install it on Linux with: flatpak install flathub com.dec05eba.gpu_screen_recorder${NC}"; return 1
@@ -3523,6 +3699,10 @@ play_audio_file() {
     local file="$2"
     local seek_pos="${3:-}"
     local mode="${4:-MIX_ARCHIVE}"
+
+    if mp_tty_audio_mode_active; then
+        player="mp_audio_player"
+    fi
     
     [ -z "$file" ] && return 1
     file="$(realpath "$file" 2>/dev/null || echo "$file")"
@@ -3935,7 +4115,7 @@ try:
         print(f"{p}\t{pos}\t{dur}\tmp_audio_player\t{mode}")
 except Exception: pass
 PY
-); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_liquid_glass}}"; local player_display="$player"; case "$player" in mp_liquid_glass|liquid_glass|liquid|glass) player_display="MP Liquid Glass Player" ;; mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
+); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_liquid_glass}}"; if mp_tty_audio_mode_active; then player="mp_audio_player"; fi; local player_display="$player"; case "$player" in mp_liquid_glass|liquid_glass|liquid|glass) player_display="MP Liquid Glass Player" ;; mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
 fi; return 0
 }
 configure_audio_player_and_startup() {
@@ -5057,6 +5237,7 @@ local hdr="  ${b_mag}╭${h_border}╮${NC}
   ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
   ${b_mag}╰${h_border}╯${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
+if mp_tty_audio_mode_active; then hdr+=$'\n  '"${BOLD}${GREEN}MP Mix Manager TTY Audio Mode${NC}  ${DIM}console player • desktop windows stay closed${NC}"; fi
 [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; _reflow_audio_iface_display; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder,${NC}"$'\n  '"${BOLD}${RED}Please use Option 16 or 13 to Configure this now.${NC}"$'\n  '"${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
 fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json" _mf_line; if [ -f "$_mf_f" ]; then while IFS= read -r _mf_line; do [[ "$_mf_line" == *'"id":'* ]] && _mf_cnt=$((_mf_cnt + 1)); done < "$_mf_f"; fi; if [ "${_mf_cnt:-0}" -eq 0 ]; then
@@ -5153,6 +5334,9 @@ ensure_liquid_glass_first_run_reward() {
     fi
 }
 _ensure_mp_system_tray() {
+    if mp_tty_audio_mode_active; then
+        return 0
+    fi
     local tray="$SCRIPT_DIR/scripts/mp_system_tray.sh"
     [ -f "$tray" ] || return 0
     if command -v setsid >/dev/null 2>&1; then
@@ -5163,6 +5347,7 @@ _ensure_mp_system_tray() {
     disown 2>/dev/null || true
 }
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+mp_tty_audio_mode_load
 MANAGER_MAIN_PID=$BASHPID
 _cleanup_mix_manager_exit() {
     [ "${BASHPID:-$$}" -ne "${MANAGER_MAIN_PID:-$$}" ] && return 0
@@ -5174,9 +5359,9 @@ display_startup_loader_video 0
 ensure_first_run_equalizer
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|"); if [ "${OS_TYPE:-}" = "linux" ]; then main_opts+=("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|(Text console • enables MP Mix Manager TTY Audio Mode)"); fi; main_opts+=("38|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
 manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*) launch_liquid_glass_from_menu ;; liquid-config|glass-config|liquid-backend|glass-backend) configure_liquid_glass_backend ;; 4) if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then launch_mp_audio_player_liquid_glass; else manage_mix_conversion; fi ;; convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
 manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;
-14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; 36|mp-gui|gui|MP_Gui|g|G|"MP Mix Manager GUI"*) launch_mp_gui_from_menu ;; ESC) [ "${MP_GUI_SESSION:-0}" = "1" ] && exit_mix_manager ;; 37|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [cC]) cycle_menu_theme ;; [zZ]|visualizer|liquid-visualizer|mp-visualizer|mp_liquid_visualizer) launch_mp_liquid_visualizer ;; visualizer-preset|visualizer-presets) manage_mp_liquid_visualizer_presets ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 37, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; 36|mp-gui|gui|MP_Gui|g|G|"MP Mix Manager GUI"*) launch_mp_gui_from_menu ;; ESC) [ "${MP_GUI_SESSION:-0}" = "1" ] && exit_mix_manager ;; 37|tty|tty-mode|tty-audio|desktop-cli|"Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)"*) manage_linux_tty_desktop_switch ;; 38|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [cC]) cycle_menu_theme ;; [zZ]|visualizer|liquid-visualizer|mp-visualizer|mp_liquid_visualizer) launch_mp_liquid_visualizer ;; visualizer-preset|visualizer-presets) manage_mp_liquid_visualizer_presets ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 38, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
 fi
