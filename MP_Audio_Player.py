@@ -2749,6 +2749,7 @@ _THEME_PALETTES = {
     "orbital_void_reflux": {"highlight": "\033[38;2;0;240;255m", "active": "\033[38;2;255;0;127m", "border": "\033[38;2;0;240;255m", "accent": "\033[38;2;157;78;221m"},
     "sensorium_interface": {"highlight": "\033[38;2;0;245;255m", "active": "\033[38;2;240;168;216m", "border": "\033[38;2;0;245;255m", "accent": "\033[38;2;184;72;196m"},
     "retro_linux_memories": {"highlight": "\033[38;2;91;134;187m", "active": "\033[38;2;21;83;158m", "border": "\033[38;2;84;84;83m", "accent": "\033[38;2;240;173;78m"},
+    "into_darkness_void_out": {"highlight": "\033[1;37m", "active": "\033[38;2;200;200;200m", "border": "\033[38;2;72;72;72m", "accent": "\033[1;37m"},
 }
 _DEFAULT_PALETTE = {"highlight": COLOR_HOT_PURPLE, "active": COLOR_NEON_PINK, "border": COLOR_HOT_PURPLE, "accent": COLOR_ELECTRIC_CYAN}
 
@@ -2780,6 +2781,10 @@ _THEME_ALIASES = {
     "liquid_transparency": "dreamworlds_liquid", "liquid": "dreamworlds_liquid", "glass": "dreamworlds_liquid",
     "liquid_glass": "dreamworlds_liquid", "mp_liquid": "dreamworlds_liquid",
     "retro_linux_memories": "retro_linux_memories",
+    "into_darkness_void_out": "into_darkness_void_out",
+    "into darkness (void out)": "into_darkness_void_out",
+    "into darkness": "into_darkness_void_out",
+    "void out": "into_darkness_void_out",
     "retro_linux": "retro_linux_memories",
     "linux_memories": "retro_linux_memories",
     "retro-linux-memories": "retro_linux_memories",
@@ -2834,6 +2839,7 @@ class EqualizerVisualizer:
         "orbital_void_reflux",
         "sensorium_interface",
         "retro_linux_memories",
+        "into_darkness_void_out",
     ]
     THEME_NAMES = {
         "stream_of_frequency": "Stream of Frequency [Special Edition]",
@@ -2852,6 +2858,7 @@ class EqualizerVisualizer:
         "orbital_void_reflux": "Orbital Void Reflux (Liquid Glass Skin)",
         "sensorium_interface": "Sensorium Interface (Liquid Glass Skin)",
         "retro_linux_memories": "Retro Linux Memories",
+        "into_darkness_void_out": "Into Darkness (Void Out)",
     }
 
     def __init__(self, default_style: Optional[str] = None, default_theme: Optional[str] = None, theme: Optional[str] = None, style: Optional[str] = None):
