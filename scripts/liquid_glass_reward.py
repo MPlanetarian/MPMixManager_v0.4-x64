@@ -6,8 +6,9 @@ When a user runs MP Mix Manager or MP Audio Player for the very first time:
 1. Installs four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui,
    and MP Liquid Visualizer.
 2. Sets the Liquid Glass Audio Player as the Default Audio Player in config.
-3. Displays a heartfelt welcome message from MPlanetarian thanking them and wishing
-   them a great journey.
+3. Displays the welcome installer message for 0.4.2 (Liquid) - [Stable Release]
+   from MPlanetarian: features added since 0.4.1, five tips, a Mix Archive and
+   Music Folder quick start, and a thank-you.
 4. Marks the first-run reward as completed in ~/.config/mix-manager/.liquid_glass_welcomed.
 """
 
@@ -216,6 +217,35 @@ def setup_first_run_sample_track(force: bool = False) -> bool:
     return True
 
 
+def _wrap_welcome(text, width):
+    words = text.split()
+    lines, cur = [], ""
+    for word in words:
+        trial = word if not cur else f"{cur} {word}"
+        if len(trial) <= width:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def _welcome_items(items, color, nc, label_for, width=72):
+    """Paint a readable list. label_for(index, item) supplies the item prefix."""
+    lines = []
+    for index, item in enumerate(items, 1):
+        label = label_for(index, item)
+        wrapped = _wrap_welcome(item, width - len(label))
+        lines.append(f"  {color}{label}{wrapped[0]}{nc}")
+        pad = " " * len(label)
+        for extra in wrapped[1:]:
+            lines.append(f"  {color}{pad}{extra}{nc}")
+    return lines
+
+
 def show_welcome_message(wait_for_input=True):
     NC = "\033[0m"
     BOLD = "\033[1m"
@@ -228,31 +258,77 @@ def show_welcome_message(wait_for_input=True):
     GOLD = "\033[38;2;255;215;0m"
 
     w = 78
-    title = "✦ WELCOME TO MP MIX MANAGER 0.4.2 STABLE (LIQUID) ✦"
-    sub = "Welcome to the 0.4.2 Stable Release from MPlanetarian"
+    title = "✦ WELCOME TO MP MIX MANAGER ✦"
+    version = "0.4.2 (Liquid) - [Stable Release]"
+    sub = "Welcome Installer Message from MPlanetarian"
+
+    features_since_041 = [
+        "Shared system tray. One icon for MP Mix Manager, MP Gui, and MP Liquid Player. Right-click it to launch any of them, or choose Close MP Mix Manager to close all of them.",
+        "Favorites. Press H to mark or unmark the selected mix or track. Press 3, or the Favorites button, to open the Favorites playlist. The audio files are not rewritten.",
+        "Drag and drop. Drop audio files, or an M3U playlist, onto the Liquid Player and they join the list that is open.",
+        "In-window visualizer. The MP Visualizer can draw behind the player text. The separate visualizer window uses the Liquid Player size. When MP Gui starts it, that window uses MP Gui's fitted size.",
+        "Visualizer close. Leaving the Liquid Player closes the companion visualizer. Closing MP Gui stops playback and closes it too.",
+        "Pointer follow. When MP Gui opens the Liquid Player, the pointer moves into that player window. G brings MP Gui in front of a fullscreen terminal, and the player opened from MP Gui is raised the same way.",
+        "Bash on B. Press B on a manager menu for a Bash prompt in the same window. Press B again on an empty line to return.",
+        "Theme menu numbers. Each theme paints its menu numbers in its own colour, including the selection bar.",
+        "Status line. Latency and the audio engine move onto the next line so they stay inside the window.",
+        "Black startup loader. The console behind the loader video stays black. Esc, Space, Enter, and q still skip the intro.",
+        "Escape closes MP Gui. On the MP Gui main menu, Escape closes the window. In a submenu, Escape still goes back one menu.",
+        "Linux TTY Desktop Switcher. On Linux, main menu option 37 turns on MP Mix Manager TTY Audio Mode and uses tty1. A console service restarts the manager if it exits. The terminal is restored on the way out. Playback stays in the terminal player. Desktop windows stay closed. Exit is option 38.",
+        "Primary display. MP Mix Manager and the MP Liquid shortcut open on the main desktop.",
+        "Windows player. After the Liquid Player loads you can drag it. The tray icon sits on the taskbar, the shortcuts use the Liquid Glass icon, and the console scrollbar stays hidden.",
+        "macOS player. MP Gui and the Liquid Player open the OpenGL host. Press G in that player to open MP Gui. The visualizer shader stays compiled. The player, MP Gui, and visualizer shortcuts open as apps.",
+        "Your volume stays put. Opening MP Gui or the Liquid Player keeps the volume you already set.",
+        "Music Folders skip a Logic Pro Library bundle, so those WAV files are not added as tracks.",
+        "Mix conversion. A zero-byte WAV no longer stops the rest of the batch.",
+        "Startup. The manager no longer opens the Liquid Player by itself. Main menu option 3 and the L key still open it.",
+        "Console colour. Each theme paints its own dark console background. The Dreamworlds console background is black.",
+    ]
+    tips = [
+        "In the player, press 1 for the Mix Archive playlist, 2 for Music Folders, and 3 for Favorites. Press H to mark the row you are on.",
+        "Press L for MP Liquid Player, G for MP Gui, and Z for the MP Liquid Visualizer. Press C to cycle themes. The choice is saved.",
+        "Press B on a menu for Bash in that same window, then B on an empty line to come back. Press D twice to clear the open playlist. Esc cancels, and the files stay on disk.",
+        "For music on an SMB share, open main menu 2, then option 8, and save the login before option 3 builds the playlists. Enter keeps the login you already saved.",
+        "Add the four MP desktop shortcuts yourself, then run them. Their names are MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.",
+    ]
+    steps = [
+        "Start MP Mix Manager. In a terminal run manager or ./manager.sh. On macOS, open manager_macos.command. On Windows, open MP Mix Manager.exe or manager.bat.",
+        "Set up your Mix Archive Folders. On the main menu choose 16, Configure Mix Archive Storage Locations. Choice 1 sets the primary folder, the one that holds your FLAC mixes. Choice 4 adds another Mix Archive folder. Choice 2 picks a folder found on a connected drive. Main menu option 13 shows the space those folders use. Then choose main menu 1, Play DJ Mixes. In the player, press 1 any time to reload the Mix Archive playlist.",
+        "Set up your Music Folders. On the main menu choose 2, Play Tracks from MUSIC Folders. Choice 4 adds a local folder or an SMB share. Choice 8 saves the SMB username and password. Choice 3 generates the playlists. Choice 1 plays every Music Folder. In the player, press 2 any time to reload the Music playlist.",
+        "Add the MP desktop shortcuts yourself, then run them to play what you just set up. Put these four on your Desktop: MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer. MP Liquid Player plays the Mix Archive and Music playlists. MP Mix Manager opens this manager. MP Gui opens the manager in the Liquid Glass window. MP Liquid Visualizer draws the picture that follows the audio.",
+    ]
 
     banner = [
         "",
         f"  {BOLD}{CYAN}╭{'─' * w}╮{NC}",
         f"  {BOLD}{CYAN}│{BOLD}{WHITE}{title.center(w)}{BOLD}{CYAN}│{NC}",
+        f"  {BOLD}{CYAN}│{BOLD}{GOLD}{version.center(w)}{BOLD}{CYAN}│{NC}",
         f"  {BOLD}{CYAN}│{BOLD}{PURPLE}{sub.center(w)}{BOLD}{CYAN}│{NC}",
         f"  {BOLD}{CYAN}╰{'─' * w}╯{NC}",
         "",
-        f"  {WHITE}\"Thank you for downloading and running the MP Mix Archive Manager & MP Audio Player!{NC}",
-        f"  {WHITE} As a special welcome reward, I have designed and installed the new{NC}",
-        f"  {BOLD}{CYAN} MP Liquid Transparent Glass Icon{NC}{WHITE} right onto your Desktop.{NC}",
+        f"  {WHITE}Thank you for supporting MP Mix Manager.{NC}",
+        f"  {WHITE}Version {BOLD}{GOLD}{version}{NC}",
         "",
-        f"  {WHITE} To celebrate the 0.4.2 Stable (Liquid) release, I have also included a free exclusive track{NC}",
-        f"  {WHITE} and original art piece in the MP_SAMPLES folder:{NC}",
-        f"  {BOLD}{GOLD} MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake){NC}",
-        f"  {WHITE} It is ready loaded in the Liquid Transparent Audio Player for you to enjoy!\"{NC}",
-        f"                                                       {BOLD}{PURPLE}— MPlanetarian ♫{NC}",
+        f"  {WHITE}A gift is ready in the Liquid Transparent Audio Player:{NC}",
+        f"  {BOLD}{GOLD}MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake){NC}",
+        f"  {WHITE}The track and its art are in MP_SAMPLES. Press play when you are ready.{NC}",
         "",
-        f"  {BOLD}{MINT}✓ Special Desktop Reward Unlocked:{NC} {WHITE}MP Liquid Player, MP Mix Manager, MP Gui, MP Liquid Visualizer{NC}",
-        f"  {BOLD}{MINT}✓ High-Resolution Glass Icon:{NC}      {WHITE}{ICON_PNG}{NC}",
-        f"  {BOLD}{MINT}✓ Default Audio Player Configured:{NC}  {BOLD}{CYAN}MP Liquid Glass Audio Player{NC}",
-        f"  {BOLD}{MINT}✓ Free v0.4 Release Track Preloaded:{NC}{WHITE} MP_SAMPLES/MPlanetarian - Ecology of the Earth.flac{NC}",
-        f"  {BOLD}{MINT}✓ Free Art Piece Included:{NC}          {WHITE} MP_SAMPLES/Cosmic_Dreamworlds_Cover.png{NC}",
+        f"  {BOLD}{MINT}What's new since 0.4.1{NC}",
+        f"  {DIM}{WHITE}Read each item below. These are the features added after 0.4.1.{NC}",
+        *_welcome_items(features_since_041, WHITE, NC, lambda _i, _item: "• "),
+        "",
+        f"  {BOLD}{MINT}Five tips{NC}",
+        *_welcome_items(tips, WHITE, NC, lambda i, _item: f"Tip {i}. "),
+        "",
+        f"  {BOLD}{MINT}Quick start{NC}",
+        f"  {DIM}{WHITE}Mix Archive Folders, then Music Folders, then the shortcuts you add.{NC}",
+        *_welcome_items(steps, WHITE, NC, lambda i, _item: f"Step {i}. "),
+        "",
+        f"  {BOLD}{PURPLE}Wishing you a Magical Journey with MP Mix Manager.{NC}",
+        f"  {WHITE}Thank you again for supporting it.{NC}",
+        f"  {BOLD}{PURPLE}— MPlanetarian ♫{NC}",
+        "",
+        f"  {DIM}{GOLD}Last updated by MPlanetarian on November 10, 2026.{NC}",
         "",
         f"  {BOLD}{BLUE}{'─' * (w + 2)}{NC}",
     ]

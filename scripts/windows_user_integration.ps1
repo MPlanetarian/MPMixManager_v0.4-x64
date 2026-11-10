@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "windows_liquid_glass_icon.ps1")
 
 function Resolve-MpRoot {
     param([string]$Path)
@@ -281,6 +282,16 @@ function Start-MpHiddenPowerShell {
     }
 }
 
+function Stop-MpTrayProcess {
+    $deadline = (Get-Date).AddSeconds(5)
+    do {
+        $proc = Get-MpTrayProcess
+        if (-not $proc) { return }
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+}
+
 function Start-MpTray {
     param([string]$InstallRoot, [switch]$Stay)
     $existing = Get-MpTrayProcess
@@ -312,20 +323,11 @@ function New-MpGuiLauncher {
     $launchers = Join-Path $Profile ".config\mix-manager\launchers"
     New-MpFolder -Path $launchers
     $cmdPath = Join-Path $launchers "MP Gui.cmd"
-    $script = ($InstallRoot -replace '\\', '/') + "/MP_Gui.sh"
+    $bat = Join-Path $InstallRoot "launch_mp_gui.bat"
     $content = @"
 @echo off
 setlocal
-set "BASH="
-if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH=%ProgramFiles%\Git\bin\bash.exe"
-if not defined BASH if exist "%ProgramFiles(x86)%\Git\bin\bash.exe" set "BASH=%ProgramFiles(x86)%\Git\bin\bash.exe"
-if not defined BASH if exist "%LOCALAPPDATA%\Programs\Git\bin\bash.exe" set "BASH=%LOCALAPPDATA%\Programs\Git\bin\bash.exe"
-if not defined BASH (
-    echo Git Bash was not found. Install Git for Windows and try again.
-    pause
-    exit /b 1
-)
-"%BASH%" "$script" %*
+call "$bat" %*
 exit /b %ERRORLEVEL%
 "@
     $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -350,9 +352,13 @@ function Install-MpUserShortcuts {
     Remove-MpStaleShortcut -Directory $desktop
     Remove-MpStaleShortcut -Directory $programs
 
-    $icon = Join-Path $InstallRoot "assets\MP_Mix_Manager_Windows_Icon.ico"
-    if (-not (Test-Path -LiteralPath $icon)) { $icon = "" }
-    $gui = New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile
+    $icon = Get-MpLiquidGlassIconPath -InstallRoot $InstallRoot
+    $gui = Join-Path $InstallRoot "launch_mp_gui.bat"
+    if (-not (Test-Path -LiteralPath $gui)) {
+        $gui = New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile
+    } else {
+        New-MpGuiLauncher -InstallRoot $InstallRoot -Profile $context.Profile | Out-Null
+    }
 
     $player = Join-Path $InstallRoot "launch_liquid_glass.bat"
     if (-not (Test-Path -LiteralPath $player)) { $player = Join-Path $InstallRoot "scripts\launch_liquid_glass.bat" }
@@ -411,6 +417,7 @@ if ($Action -eq "EnsureTray") {
 
 $context = Install-MpUserShortcuts -InstallRoot $Root
 if ($context.IsCurrent) {
+    Stop-MpTrayProcess
     if (-not (Start-MpTray -InstallRoot $Root -Stay)) {
         Write-Host "Desktop shortcuts are on the user profile. The tray icon did not start."
         exit 3

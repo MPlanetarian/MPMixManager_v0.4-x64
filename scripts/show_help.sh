@@ -98,7 +98,11 @@ ${BOLD}LAUNCH FLAGS & OPTIONS:${NC}
 ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
   Press B on any menu to turn this window into a Bash prompt. Press B again on an empty line to return to the manager.
 
+  Press Shift+A on any menu to open MP Harmony. Press Shift+A again on an empty assistant line to return.
+
   ${BOLD}${BLUE}─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────${NC}
+  ${BOLD}${CYAN}AI${NC}  ${BOLD}Load MP Mix Manager AI Assistant (MP Harmony) (New)${NC}
+       First row. Ollama must already be running. Loads gpt-oss-pinned:latest, or asks before installing that model. Shift+A opens it. Shift+A on an empty assistant line returns here.
   ${BOLD}${CYAN}MP${NC}  ${BOLD}MP GUI Mix Manager (New)${NC}
        Open the manager in the Liquid Glass window (MP_Gui.sh). Press G on the main menu. Also: gui, mp-gui, 36.
    ${BOLD}${CYAN}0${NC}   ${BOLD}Run Any Desktop Shortcuts — Linux${NC}
@@ -180,8 +184,22 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        Press C on the main menu to cycle themes.
   ${BOLD}${CYAN}36${NC}   ${BOLD}MP Mix Manager GUI${NC}
        Same Liquid Glass manager as the MP row. Press G on the main menu. Also: gui, mp-gui, MP_Gui, ./MP_Gui.sh.
-  ${BOLD}${CYAN}37${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
+  ${BOLD}${CYAN}37${NC}   ${BOLD}Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)${NC}
+       Linux only. This row is hidden on macOS, Windows, and FreeBSD.
+       Runs scripts/MP_Desktop_CLI_Switch.sh. From Plasma it leaves the desktop for tty1
+       and enables MP Mix Manager TTY Audio Mode. The console service
+       mp-mix-manager-tty.service starts the manager there and restarts it if it exits.
+       Ctrl+Alt+F2 stays a login shell. From that console, option 37 turns the mode off
+       and returns to the Plasma login. Playback stays in the terminal player. The console
+       is restored on exit, including a crash: echo, the cursor, and stty sane. The player
+       repaints changed cells and does not clear the screen on every tick. Liquid Glass,
+       MP Gui, the visualizer, and other desktop windows stay closed. Also: tty, tty-mode, desktop-cli.
+  ${BOLD}${CYAN}38${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.
+
+${BOLD}HEADER SESSION:${NC}
+  A desktop Bash terminal shows ${CYAN}CLI Mode${NC} on the right of the main header title.
+  The Linux text console shows ${GREEN}TTY CLI Mode${NC}. MP Gui does not show either label.
 
 ${BOLD}SYSTEM TRAY:${NC}
   MP Mix Manager, MP Gui, and MP Liquid Player share one tray icon while any of them is open.
@@ -209,6 +227,7 @@ ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
     ${CYAN}geexlab${NC}           Launch GeeXLab 3D demos
     ${CYAN}gpu-screen-recorder${NC}  Record a DJ mix with GPU Screen Recorder (Linux)
     ${CYAN}gui${NC} | ${CYAN}mp-gui${NC} | ${CYAN}36${NC}   Open the MP Mix Manager GUI (Liquid Glass)
+    ${CYAN}tty${NC} | ${CYAN}37${NC}          Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)
     ${CYAN}visualizer${NC} | ${CYAN}Z${NC}   Launch the MP Liquid Visualizer
     ${CYAN}alarm${NC} | ${CYAN}alarm-clock${NC}   Launch MPlanetarians Alarm Clock (Wake Up Edition)
     ${CYAN}congen${NC} | ${CYAN}kdeconnect${NC}    Launch Congen KDE Connect Commands Generator & Remote Control

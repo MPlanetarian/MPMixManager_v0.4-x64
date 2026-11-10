@@ -55,6 +55,34 @@ def _ensure_audio_backends():
 try: import termios, tty
 except ImportError: termios = tty = None
 
+_TTY_RUNTIME_MOD = None
+_TTY_RUNTIME_TRIED = False
+
+def _load_tty_runtime():
+    """TTY Audio Mode helpers. Absent when the mode is off."""
+    global _TTY_RUNTIME_MOD, _TTY_RUNTIME_TRIED
+    if os.environ.get("MP_MIX_MANAGER_TTY_MODE") != "1":
+        return None
+    if _TTY_RUNTIME_TRIED:
+        return _TTY_RUNTIME_MOD
+    _TTY_RUNTIME_TRIED = True
+    for name in ("scripts.mp_tty_runtime", "mp_tty_runtime"):
+        try:
+            _TTY_RUNTIME_MOD = __import__(name, fromlist=["configure_stdio"])
+            return _TTY_RUNTIME_MOD
+        except ImportError:
+            continue
+    return None
+
+def _tty_resized() -> bool:
+    runtime = _load_tty_runtime()
+    if runtime is None:
+        return False
+    try:
+        return bool(runtime.consume_resize())
+    except Exception:
+        return False
+
 BOLD, DIM, ITALIC, NC = "\033[1m", "\033[2m", "\033[3m", "\033[0m"
 COLOR_HOT_PURPLE, COLOR_INDIGO_BLUE, COLOR_LILAC = "\033[38;2;166;77;255m", "\033[38;2;102;102;255m", "\033[38;2;153;153;255m"
 COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER, COLOR_TRAFFIC_RED = "\033[38;2;0;255;0m", "\033[38;2;255;153;51m", "\033[38;2;255;0;0m"
@@ -2408,8 +2436,13 @@ def _clip_display(text: str, max_cols: int) -> str:
 
 def _boxed_rule(left: str, text: str, right: str, inner: int, color: str) -> str:
     inner = max(4, int(inner))
-    sh = text if _display_width(text) <= inner else _clip_display(text, inner)
-    return f"  {color}{left}{sh}{'─' * (inner - _display_width(sh))}{right}{NC}"
+    if _display_width(text) <= inner:
+        sh, restore = text, ""
+    else:
+        # Clipping ends in a reset. Put the border colour back so the right
+        # corner stays on the panel edge instead of the terminal's default ink.
+        sh, restore = _clip_display(text, inner), color
+    return f"  {color}{left}{sh}{restore}{'─' * (inner - _display_width(sh))}{right}{NC}"
 
 def _fit_text_line(cands: List[str], max_cols: int) -> str:
     for l in cands:
@@ -2491,6 +2524,7 @@ def _win_console_begin():
         if not k.GetConsoleMode(h, ctypes.byref(m)): return None
         k.SetConsoleMode(h, (m.value | 0x0004) & ~0x0002)
         _win_apply_glass_colorkey(k, h)
+        _win_hide_console_scrollbar()
         _WIN_CONSOLE = {"handle": h, "mode": m.value, "kernel32": k}
         return _WIN_CONSOLE
     except Exception: return None
@@ -2520,6 +2554,19 @@ def _tty_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
 
 def _win_visible_size(fallback: Tuple[int, int] = (80, 24)) -> Tuple[int, int]:
     return _tty_size(fallback)
+
+def _win_hide_console_scrollbar():
+    """Drop the conhost scrollbar. A taller screen buffer draws it on the right."""
+    if sys.platform != "win32":
+        return
+    try:
+        script_dir = Path(__file__).resolve().parent / "scripts"
+        if str(script_dir) not in sys.path:
+            sys.path.insert(0, str(script_dir))
+        from windows_console_scroll import hide_attached_console_scrollbar
+        hide_attached_console_scrollbar()
+    except Exception:
+        pass
 
 def _win_console_end(state):
     global _WIN_CONSOLE
@@ -2579,7 +2626,10 @@ def _present_frame(lines: List[str], width: int, height: int):
     clipped = [_clip_display(l, usable) + "\033[K" for l in lines[:height]]
     clipped.extend(["\033[K"] * (height - len(clipped)))
     body = "\n".join(clipped)
-    sys.stdout.write(f"\033[?2026h\033[?7l\033[H{body}\033[?2026l")
+    # Steady frames park the cursor and overwrite cells. A full clear is only
+    # for SIGWINCH, where the old cells would otherwise sit past the new size.
+    clear = "\033[2J" if _tty_resized() else ""
+    sys.stdout.write(f"\033[?2026h\033[?7l{clear}\033[H{body}\033[?2026l")
     sys.stdout.flush()
 
 _THEME_PALETTES = {
@@ -3954,11 +4004,24 @@ def launch_mp_gui(base_dir: Optional[Path] = None) -> bool:
         return False
 
 
+def _liquid_visualizer_size_label() -> str:
+    if sys.platform == "darwin":
+        return "1094x734"
+    if sys.platform.startswith("linux"):
+        try:
+            from liquid_player_visualizer import linux_visualizer_window_size
+        except ImportError:
+            from scripts.liquid_player_visualizer import linux_visualizer_window_size
+        width, height = linux_visualizer_window_size()
+        return f"{int(width)}x{int(height)}"
+    return "700x700"
+
+
 def launch_liquid_visualizer(
     base_dir: Optional[Path] = None,
     preset: Optional[str] = None,
 ) -> bool:
-    """Launch MP_Liquid_Visualizer. macOS uses the Liquid Player size, 1094x734. Other platforms use 700x700."""
+    """Launch MP_Liquid_Visualizer. macOS uses 1094x734. Linux matches the Liquid Player. Other platforms use 700x700."""
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
@@ -4945,6 +5008,9 @@ class TerminalPlayerUI:
 
     def _cleanup_terminal(self):
         self._clear_liquid_ui_size()
+        runtime = _load_tty_runtime()
+        if runtime is not None:
+            runtime.restore_terminal()
         fd = getattr(self, "_orig_fd", None)
         old_settings = getattr(self, "_orig_termios", None)
         if fd is not None and old_settings and termios:
@@ -4960,7 +5026,12 @@ class TerminalPlayerUI:
     def run(self):
         fd = sys.stdin.fileno() if sys.stdin.isatty() else None
         old_settings = None
-        if fd is not None and termios and tty:
+        tty_rt = _load_tty_runtime()
+        if tty_rt is not None:
+            tty_rt.configure_stdio()
+        if tty_rt is not None and fd is not None and tty_rt.arm_terminal(fd=fd, raw=False):
+            old_settings = tty_rt.saved_attributes()
+        elif fd is not None and termios and tty:
             try:
                 old_settings = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
@@ -4983,10 +5054,12 @@ class TerminalPlayerUI:
             _set_terminal_title("MP Audio Player")
         self._publish_liquid_ui_size()
         sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h\033[2J\033[H"); sys.stdout.flush()
+        _win_hide_console_scrollbar()
         threading.Thread(target=self._input_loop, daemon=True).start()
         try:
             while self.running:
                 if not self.is_remote and self.engine: self.engine.check_track_end()
+                _win_hide_console_scrollbar()
                 try:
                     self._draw_frame()
                 except (KeyboardInterrupt, SystemExit):
@@ -5016,6 +5089,21 @@ class TerminalPlayerUI:
                 except Exception: time.sleep(0.02)
             return
         fd = sys.stdin.fileno()
+        tty_rt = _load_tty_runtime()
+        if tty_rt is not None:
+            while self.running:
+                try:
+                    d = tty_rt.wait_for_input(fd, 0.05)
+                    if not d or not self.running:
+                        continue
+                    if d == b"\x1b":
+                        extra = tty_rt.wait_for_input(fd, 0.03)
+                        if extra:
+                            d += extra
+                    self._consume_input(d)
+                except Exception:
+                    pass
+            return
         while self.running:
             try:
                 if select.select([fd], [], [], 0.05)[0] and self.running:
@@ -5244,7 +5332,7 @@ class TerminalPlayerUI:
             self._notify("✦ Launched MP Audio Player (Liquid Glass)" if ok else "Failed to open Liquid Glass Player window", 3.0)
         elif data in (b"z", b"Z"):
             ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
-            self._notify("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 1094x734 Vulkan" if ok and sys.platform == "darwin" else ("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 700x700 Vulkan" if ok else "Failed to launch MP Liquid Visualizer"), 3.5)
+            self._notify(f"✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — {_liquid_visualizer_size_label()} Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
         elif data in (b"y", b"Y"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
@@ -5329,7 +5417,14 @@ class TerminalPlayerUI:
             btitle = f"✦ MP LIQUID GLASS VISUALIZER — {preset.get('id', 0)} {preset.get('name', '')} ✦"
             bsub = "Press 0-9 to change the visualizer theme  •  Shift+V returns to liquid glass"
         btitle, bsub = btitle[:max(0, iw - 1)], bsub[:max(0, iw - 1)]
-        lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {bold_s}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
+        # Side bars stay on the border colour. Accent colours the subtitle text only,
+        # so the header edge is one colour all the way around.
+        lines.extend([
+            f"  {b_col}╭{'─'*iw}╮{NC}",
+            f"  {b_col}│{btitle.center(iw)}│{NC}",
+            f"  {b_col}│{NC}{bold_s}{accent_col}{bsub.center(iw)}{NC}{b_col}│{NC}",
+            f"  {b_col}╰{'─'*iw}╯{NC}",
+        ])
 
         dim_s = DIM
         tname, maxlen = st.get("title", "Unknown Mix"), max(58, iw - 20)
@@ -5384,7 +5479,8 @@ class TerminalPlayerUI:
             else:
                 list_title = f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{qb}) "
             lines.append(_boxed_rule("┌", list_title, "┐", iw, b_col))
-            vrows = max(0, h - len(lines) - 4)
+            # Bottom rule, one blank row, the Vol status line, and two control rows.
+            vrows = max(0, h - len(lines) - 5)
             if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
             elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
             elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
@@ -5431,7 +5527,13 @@ class TerminalPlayerUI:
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
             lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col))
 
+<<<<<<< HEAD
         hint_col = text_col
+=======
+        # One blank row keeps the Vol footer off the playlist edge.
+        lines.append("")
+        hint_col = WHITE if is_lg else DIM
+>>>>>>> 79fc597e212d13d1d570f0a97091edf0cdac8a38
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
         vol = (f"{bold_s}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{bold_s}{COLOR_TRAFFIC_RED}MUTED{NC}")
@@ -5674,7 +5776,7 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
-        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, 700x700 elsewhere)")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere)")),
         (("--visualizer-preset",), dict(type=str, default=None, help="Select MP Liquid Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
         (("--list-visualizer-presets",), dict(action="store_true", help="List available MP Liquid Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
@@ -5775,7 +5877,7 @@ def main():
         ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
         if ok:
             p_label = args.visualizer_preset or "Active Preset"
-            vis_size = "1094x734" if sys.platform == "darwin" else "700x700"
+            vis_size = _liquid_visualizer_size_label()
             print(f"✔ Launched MP Liquid Visualizer [{p_label}] — {vis_size} Fixed Borderless Vulkan")
             sys.exit(0)
         print("✖ Failed to launch MP Liquid Visualizer", file=sys.stderr)
@@ -6025,6 +6127,9 @@ def main():
             sys.exit(1)
 
     if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
+        _tty_rt = _load_tty_runtime()
+        if _tty_rt is not None:
+            _tty_rt.configure_stdio()
         # Paint before the library scan. A Mix Archive walk or a slow status
         # reply used to leave the new Konsole on an empty gray profile.
         if sys.stdout.isatty():
@@ -6128,6 +6233,11 @@ def main():
 
         ui_mode = "MICRO" if args.micro else ("MINI" if args.mini else "NORMAL")
         def _term_sig(s, f):
+            try:
+                runtime = _load_tty_runtime()
+                if runtime is not None:
+                    runtime.restore_terminal()
+            except Exception: pass
             try:
                 sys.stdout.write("\033[?25h\033[?1049l\033[0m")
                 sys.stdout.flush()

@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
+    from desktop_launch_screen import fit_square_on_main, place_on_main_screen, window_launch_origin
 except ImportError:
-    from scripts.desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
+    from scripts.desktop_launch_screen import fit_square_on_main, place_on_main_screen, window_launch_origin
 
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
@@ -77,7 +77,12 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
 _SYS = platform.system().lower()
 _IS_WIN = sys.platform == "win32" or _SYS == "windows"
 _IS_MAC = sys.platform == "darwin" or _SYS == "darwin"
+_IS_LINUX = sys.platform.startswith("linux") or _SYS == "linux"
 _IS_ARM = _IS_MAC and platform.machine().lower() in ("arm64", "aarch64")
+
+def preferred_window_edge() -> int:
+    """Square window edge where the visualizer is not matched to the Liquid Player."""
+    return WINDOW_WIDTH
 
 def is_windows() -> bool: return _IS_WIN
 def is_windows_10_or_11() -> bool: return _IS_WIN and getattr(sys.getwindowsversion(), "major", 10) >= 10 if hasattr(sys, "getwindowsversion") else _IS_WIN
@@ -504,10 +509,20 @@ class LiquidVisualizerVulkanRenderer:
             # Same corner offset the fitter uses when the square fits. The
             # size matches the Liquid Player; this only keeps the old position.
             self._windowed_offset = (160, 80)
+        elif _IS_LINUX:
+            try:
+                from liquid_player_visualizer import linux_visualizer_match_window_size
+            except ImportError:
+                from scripts.liquid_player_visualizer import linux_visualizer_match_window_size
+            player_w, player_h = linux_visualizer_match_window_size()
+            self._windowed_size = (int(player_w), int(player_h))
+            # Same corner offset the Linux Liquid Player uses on the main monitor.
+            self._windowed_offset = (72, 64)
         else:
-            fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(min(WINDOW_WIDTH, WINDOW_HEIGHT))
+            fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(preferred_window_edge())
             self._windowed_size = (int(fitted_w), int(fitted_h))
             self._windowed_offset = (int(fitted_x), int(fitted_y))
+        self._player_match_at = 0.0
         self.width, self.height = self._windowed_size
         self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
@@ -525,7 +540,69 @@ class LiquidVisualizerVulkanRenderer:
     def summary(self) -> str:
         return f"MP_Liquid_Visualizer Vulkan device: {self.device_name} (vendor 0x{self.vendor_id:04x}, {'discrete' if self.device_type == DISCRETE_GPU else 'gpu'}) | Preset: {self.preset['name']} | Window: {self.width}x{self.height} Fixed Borderless"
 
+    def _set_windowed_size(self, width: int, height: int, apply: bool = False) -> None:
+        width, height = int(width), int(height)
+        if width < 64 or height < 64:
+            return
+        if (width, height) == tuple(self._windowed_size) and not apply:
+            return
+        changed = (width, height) != tuple(self._windowed_size)
+        self._windowed_size = (width, height)
+        if not self.is_fullscreen:
+            self.width, self.height = width, height
+        window = getattr(self, "_window", None)
+        glfw = getattr(self, "_glfw", None)
+        if not apply or not window or not glfw or self.is_fullscreen:
+            return
+        if not changed:
+            return
+        try:
+            glfw.glfwSetWindowSizeLimits(window, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE)
+        except Exception:
+            pass
+        glfw.glfwSetWindowSize(window, width, height)
+        try:
+            glfw.glfwSetWindowSizeLimits(window, width, height, width, height)
+        except Exception:
+            pass
+        self._resize = True
+
+    def _match_player_window(self, wait: bool = False) -> None:
+        """Use the fitted player window, or the MP Gui window when MP Gui started this visualizer."""
+        if not wait:
+            now = time.monotonic()
+            if now < getattr(self, "_player_match_at", 0.0):
+                return
+            self._player_match_at = now + 0.2
+        try:
+            from liquid_player_visualizer import (
+                read_published_gui_window_size,
+                read_published_player_window_size,
+                visualizer_matches_gui,
+                wait_for_published_gui_window_size,
+                wait_for_published_player_window_size,
+            )
+        except ImportError:
+            from scripts.liquid_player_visualizer import (
+                read_published_gui_window_size,
+                read_published_player_window_size,
+                visualizer_matches_gui,
+                wait_for_published_gui_window_size,
+                wait_for_published_player_window_size,
+            )
+        match_gui = visualizer_matches_gui()
+        if wait and _IS_LINUX and not self.target_4k and not self.fullscreen_on_start:
+            size = wait_for_published_gui_window_size() if match_gui else wait_for_published_player_window_size()
+        else:
+            size = read_published_gui_window_size() if match_gui else read_published_player_window_size()
+        if not size:
+            return
+        self._set_windowed_size(size[0], size[1], apply=bool(getattr(self, "_window", None)))
+
     def open(self):
+        # The player refits after its font is measured. Wait for that size
+        # before the window is shown, or the visualizer stays at the guess.
+        self._match_player_window(wait=True)
         self._silence_overlays()
         self._x11 = None
         if not _IS_WIN and not _IS_MAC:
@@ -670,7 +747,7 @@ class LiquidVisualizerVulkanRenderer:
         except Exception: pass
 
         ox, oy = self._windowed_offset
-        ix, iy = main_desktop_origin(ox, oy)
+        ix, iy = window_launch_origin(ox, oy)
         if getattr(self, "target_4k", False):
             m4k = self._find_4k_monitor()
             if m4k:
@@ -907,6 +984,7 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwPollEvents()
         if g.glfwWindowShouldClose(w): self.should_close = True
         if not self.is_fullscreen:
+            self._match_player_window(wait=False)
             if self._is_4k_cached and not getattr(self, "_user_toggled_windowed", False):
                 self.toggle_fullscreen()
             else:
@@ -1204,9 +1282,14 @@ class LiquidVisualizerVulkanRenderer:
         self._march_pass = rp.value
 
     def _resolve_frag_spv(self) -> Path:
-        """Folded preset shader on macOS, otherwise the full shipped module."""
+        """Folded preset shader, so the march contains the selected scene.
+
+        Linux draws at the framebuffer size. The full shader still carries
+        every preset, which is why the Linux picture used to be 224 pixels
+        on the long edge. macOS uses these same folded modules.
+        """
         folded = None
-        if _IS_MAC:
+        if _IS_MAC or _IS_LINUX:
             try:
                 from liquid_player_visualizer import vulkan_preset_spirv
             except ImportError:
@@ -1218,10 +1301,11 @@ class LiquidVisualizerVulkanRenderer:
         return SHADER_DIR / "mp_liquid_visualizer.frag.spv"
 
     def _ensure_march_target(self):
-        """Draw the raymarch below the window size and scale it up.
+        """Draw the raymarch, and scale it up only when it is smaller.
 
-        On macOS the long edge is 768, so a 1094×734 window marches at
-        768×515. A full-window march is about 9 fps through MoltenVK.
+        Linux marches at the framebuffer size. macOS uses a 768 long edge,
+        so a 1094×734 window marches at 768×515. A full-window march is
+        about 9 fps through MoltenVK.
         """
         self._destroy_march_target()
         try:
@@ -1817,7 +1901,7 @@ def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[floa
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan borderless 3D audio-reactive visualizer (1094x734 on macOS, 700x700 elsewhere)")
+    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan borderless 3D audio-reactive visualizer (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere)")
     p.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
     p.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     p.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")

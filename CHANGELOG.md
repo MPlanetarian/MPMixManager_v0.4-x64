@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before this release and was not published with its own notes. The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
 
 ### Added
+- **MP Harmony AI Assistant** (`scripts/launch_mp_harmony.sh`, `Mix_Archive_Manager.sh`):
+  - The first main-menu row is **AI**, **Load MP Mix Manager AI Assistant (MP Harmony) (New)**.
+  - **Shift+A** on any menu opens it. **Shift+A** on an empty assistant line returns to the manager.
+  - The option runs only when Ollama is already answering on port 11434. It does not start Ollama.
+  - It loads the local model **gpt-oss-pinned:latest** (OpenAI gpt-oss-20b, Harmony format). If that tag is missing, it describes the model and the assistant, then asks before installing it.
 - **Shared system tray** (`scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `Mix_Archive_Manager.sh`, `MP_Gui.sh`, `scripts/launch-liquid-glass`, `scripts/launch_liquid_glass.sh`, `tests/test_mp_system_tray.py`):
   - MP Mix Manager, MP Gui, and MP Liquid Player use one tray icon.
   - Right-click it to launch MP Gui, MP Liquid Player, or MP Mix Manager. A program that is already open is focused.
@@ -42,11 +47,23 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - **`A`**, **`All`**, or **`2`** skips splitting for that mix and every mix left in the batch.
 - **Main menu Section 1 title** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `README.md`):
   - The section label is `SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More`.
+- **Linux TTY Desktop Switcher** (`Mix_Archive_Manager.sh`, `scripts/MP_Desktop_CLI_Switch.sh`, `scripts/show_help.sh`, `tests/test_tty_desktop_switch.py`):
+  - Main menu option **37** is **Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)**. It is shown on Linux only. Exit moves to option **38**. `q` and `exit` still leave the manager.
+  - The option runs `scripts/MP_Desktop_CLI_Switch.sh`. From Plasma it enables **MP Mix Manager TTY Audio Mode** and drops to a TTY login. From that console it turns the mode off and returns to the Plasma login.
+  - The mode is stored in `~/.config/mix-manager/tty_audio_mode`. Playback stays in the terminal player. Liquid Glass, MP Gui, the visualizer, and other desktop windows stay closed.
+  - The console session restores the terminal on the way out. Bash traps EXIT, INT, TERM, and SEGV, runs `stty sane`, and shows the cursor. The player saves the original termios, reads single keys without waiting for Enter, and puts the console back if the process is signalled.
+  - `scripts/mp_tty_runtime.py` leaves standard output unbuffered, waits for keys with `select`, and overwrites changed cells. A full screen clear happens when the console size changes (SIGWINCH), not on every frame.
+  - `scripts/mp_tty_kiosk.sh` installs `mp-mix-manager-tty.service` on `/dev/tty1` with restart, `Nice=-10`, and realtime I/O. Ctrl+Alt+F2 stays a login shell. Returning to the desktop stops that service. The console font stays Terminus 24 in `/etc/vconsole.conf`, and in `/etc/default/console-setup` when that file exists.
+- **Header session label** (`Mix_Archive_Manager.sh`, `tests/test_header_cli_mode.py`):
+  - A desktop Bash terminal shows **CLI Mode** on the right of the main header title.
+  - The Linux text console (`/dev/ttyN`, `/dev/console`, or the TTY kiosk on tty1) shows **TTY CLI Mode**.
+  - MP Gui does not show either label.
 - **Bash prompt on B** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_manager_bash_toggle.py`):
   - Press **B** on a manager menu to turn that same window into an interactive Bash prompt. The shell loads `~/.bashrc`.
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+<<<<<<< HEAD
 - **MP Player text stayed white on every theme** (`MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`):
   - Playlist rows, track names, and the control labels use that theme's text colour.
   - Text with no colour of its own uses the same hue. Retro Terminal's hue is white, and the pale pane darkens it to gray. Pale glass darkens a light hue so it can be read.
@@ -54,6 +71,24 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - The installer starts an AppKit menu-bar icon and a login item. The icon does not use PySide6 or a KDE StatusNotifier host.
   - Click the icon to launch MP Gui, MP Liquid Player, or MP Mix Manager, or to close them.
   - The desktop shortcuts use `assets/mp_liquid_glass_icon.png`. MP Gui, MP Liquid Player, and MP Liquid Visualizer get that same Finder image as `MP Mix Manager.command`, so macOS does not place the artwork on the gray application plate. Each application bundle also keeps an `.icns`.
+=======
+- **Linux font for MP Liquid and MP Gui** (`scripts/liquid_glass_font.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`):
+  - Both windows use Hack at 11 pt when the Hack family is installed.
+  - When Hack is not installed, they use Monospace 11.
+  - `--font`, `MP_LIQUID_GLASS_FONT`, and a saved font in `~/.config/mix-manager/liquid_glass_font` still choose another face.
+- **MP Visualizer looked blocky on Linux** (`scripts/liquid_player_visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `tests/test_liquid_player_visualizer_mode.py`):
+  - The window was already the size of the Liquid Player, but the raymarch was 224 pixels on the long edge and then scaled up to fill that window.
+  - Linux now marches at the framebuffer size, one pixel of the picture for each pixel of the window. The preset shader is the folded one, so the march is the selected scene.
+  - macOS stays at a 768 long edge. Windows stays at 224 unless `MP_VISUALIZER_GL_LONG_EDGE` is set. Fullscreen on a 4K TV stays 1920×1080.
+- **MP Mix Manager opened on another monitor** (`scripts/desktop_launch_screen.py`, `scripts/mp_gui_focus.sh`, `tests/test_desktop_launch_screen.py`):
+  - The manager opens on the primary desktop, the connected output with the lowest positive KDE priority. HDMI-A-1, the Hisense, is not that screen.
+  - On Wayland, X11 positions are a multiple of the KWin position. The launch request uses that multiple, so the window does not open on the monitor beside the primary display.
+  - Starting the manager again moves an existing manager window onto the primary display when it is on another screen.
+- **MP Liquid Player could not be moved after it loaded on Windows** (`scripts/windows_glass_drag.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `tests/test_windows_glass_drag.py`):
+  - The player console is an owned window over the borderless glass. After it appears, drags on the top of the player never reach the glass, so the window stays where it opened.
+  - The top strip, the outer bezel, and Alt or the Windows key move the glass. The console follows. A second click on that strip still maximizes. The close button and the opacity slider still receive their clicks.
+  - A mouse button released over the console no longer leaves the glass drag stuck on.
+>>>>>>> 79fc597e212d13d1d570f0a97091edf0cdac8a38
 - **G in the macOS Liquid Player** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_mp_gui.py`):
   - The embedded player was started with `MP_LIQUID_GLASS=0`, so **G** built a spectrogram instead of opening MP Gui.
   - That player now gets `MP_LIQUID_GLASS=1`, the same flag as the other Liquid hosts. **G** opens MP Gui.
@@ -83,10 +118,13 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - **Esc**, **Space**, **Enter**, and **`q`** still skip the intro. The manager menu draws after the video.
 
 ### Changed
+- **Default glass opacity** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_glass_player_features.py`):
+  - MP Liquid Player and MP Gui open at 80% opacity. The transparency slider starts there.
+  - Linux and Windows still slide from 20% to 80%. macOS still slides from 40% to 80%.
 - **CLI startup** (`Mix_Archive_Manager.sh`) no longer opens the MP Liquid player on macOS, Linux, or Windows. Option 3 and `L` still open it. Startup autoplay still resumes every other default player.
 - **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
-- **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–37, including option 36. The retired AI Assistant menu row is not listed. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
-- **First-run welcome** (`scripts/liquid_glass_reward.py`) greets the 0.4.2 Stable (Liquid) release and names the four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui, and MP Liquid Visualizer.
+- **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–38, including option 36 and the first-row MP Harmony assistant. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
+- **First-run welcome** (`scripts/liquid_glass_reward.py`) greets 0.4.2 (Liquid) - [Stable Release], lists the features added since 0.4.1, gives five tips and a Mix Archive, Music Folder, and desktop-shortcut quick start, and is dated November 10, 2026 by MPlanetarian.
 
 ### macOS
 - **MP Visualizer OpenGL performance** (`shaders/mp_liquid_visualizer.frag`, `scripts/liquid_player_visualizer.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_visualizer_mode.py`):

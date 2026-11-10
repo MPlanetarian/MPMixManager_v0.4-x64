@@ -84,8 +84,8 @@ class TestManagerBashToggle(unittest.TestCase):
             text,
         )
         self.assertIn("enter_manager_bash_terminal; typed_buffer=\"\"", text)
-        self.assertIn("[B] Bash, [C] Theme", text)
-        self.assertIn("[B] Bash, [Esc] to return", text)
+        self.assertIn("[B] Bash, [Shift+A] MP Harmony, [C] Theme", text)
+        self.assertIn("[B] Bash, [Shift+A] MP Harmony, [Esc] to return", text)
         self.assertNotIn('typed_buffer" = "b"', text)
         self.assertIn("_nav_just_arrowed; then continue; fi; if [ -z \"$typed_buffer\" ]", text)
 

@@ -40,7 +40,7 @@ class TestNvidiaSelection(unittest.TestCase):
 
 
 class TestMenuOption(unittest.TestCase):
-    def test_option_three_is_liquid_glass_and_exit_is_thirty_seven(self):
+    def test_option_three_is_liquid_glass_and_exit_is_thirty_eight(self):
         text = (ROOT / "Mix_Archive_Manager.sh").read_text(encoding="utf-8")
         start = text.index("main_opts=(")
         end = text.index('); if [ -n "$CLI_INITIAL_ACTION" ]', start)
@@ -51,18 +51,25 @@ class TestMenuOption(unittest.TestCase):
                 continue
             keys.append((key, title.split("|", 1)[0]))
         by_key = {key: title for key, title in keys}
-        self.assertEqual(keys[0], ("MP", "MP GUI Mix Manager (New)"))
-        self.assertEqual(keys[1][0], "0")
+        self.assertEqual(keys[0], ("AI", "Load MP Mix Manager AI Assistant (MP Harmony) (New)"))
+        self.assertEqual(keys[1], ("MP", "MP GUI Mix Manager (New)"))
+        self.assertEqual(keys[2][0], "0")
         self.assertEqual(by_key["3"], "MP Audio Player (Liquid Glass Mode)")
         self.assertIn("Run Mix Conversion", by_key["4"])
-        self.assertEqual(keys[-1][0], "37")
+        self.assertEqual(keys[-1][0], "38")
         self.assertIn("Exit Manager", keys[-1][1])
+        self.assertEqual(
+            by_key["37"],
+            "Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)",
+        )
         self.assertIn('3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*', text)
         self.assertIn("3|liquid|liquid-glass|glass|\"MP Audio Player (Liquid Glass Mode)\"*) launch_liquid_glass_from_menu", text)
         self.assertNotIn("/home/mplanetarian/.local/bin/launch-liquid-glass", text)
-        self.assertIn("37|77|", text)
+        self.assertIn("38|77|", text)
+        self.assertNotIn("37|77|", text)
         self.assertNotIn("36|77|", text)
-        self.assertIn("between 0 and 37", text)
+        self.assertIn("between 0 and 38", text)
+        self.assertIn('[ "${OS_TYPE:-}" = "linux" ]', text)
         self.assertGreaterEqual(text.count("launch_mp_audio_player_liquid_glass"), 2)
 
     def test_shell_parses(self):

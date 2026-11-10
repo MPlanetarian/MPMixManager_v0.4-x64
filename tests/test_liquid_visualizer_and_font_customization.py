@@ -4,6 +4,7 @@ liquid text effects, and default font customization.
 """
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,33 +14,83 @@ from unittest.mock import MagicMock, patch
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts"))
 
+import liquid_glass_font as fonts
 import MP_Audio_Player as player
 import MP_Audio_Player_Liquid_Glass as lg_vk
 import MP_Audio_Player_Liquid_Glass_OpenGL as lg_gl
 
 
 class TestLiquidVisualizerAndFontCustomization(unittest.TestCase):
-    def test_default_font_is_monospace_normal_weight(self):
-        """Default font must be Monospace 11 (normal weight, unbolded)."""
+    def test_fallback_font_is_monospace_normal_weight(self):
+        """Hack and the Monospace fallback stay regular weight."""
         self.assertEqual(lg_vk.DEFAULT_FONT, "Monospace 11")
         self.assertEqual(lg_gl.DEFAULT_FONT, "Monospace 11")
-        self.assertNotIn("Bold", lg_vk.DEFAULT_FONT)
-        self.assertNotIn("Bold", lg_gl.DEFAULT_FONT)
+        self.assertEqual(fonts.HACK_FONT, "Hack 11")
+        self.assertEqual(fonts.FALLBACK_FONT, "Monospace 11")
+        for face in (lg_vk.DEFAULT_FONT, lg_gl.DEFAULT_FONT, fonts.HACK_FONT, fonts.FALLBACK_FONT):
+            self.assertNotIn("Bold", face)
+
+    def test_linux_default_uses_hack_when_installed(self):
+        """MP Liquid and MP Gui use Hack on Linux, then Monospace."""
+        with patch.object(fonts, "hack_font_installed", return_value=True):
+            self.assertEqual(fonts.default_liquid_glass_font(), "Hack 11")
+        with patch.object(fonts, "hack_font_installed", return_value=False):
+            self.assertEqual(fonts.default_liquid_glass_font(), "Monospace 11")
+
+    def test_hack_detection_requires_the_hack_family(self):
+        """An empty fontconfig result means Hack is not installed."""
+        with patch.object(fonts.sys, "platform", "linux"), \
+             patch.object(fonts.shutil, "which", return_value="/usr/bin/fc-list"), \
+             patch.object(fonts.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="/usr/share/fonts/source-foundry-hack-fonts/Hack-Regular.ttf: Hack\n",
+            )
+            self.assertTrue(fonts.hack_font_installed())
+            self.assertEqual(run.call_args.args[0][1], ":family=Hack")
+
+        with patch.object(fonts.sys, "platform", "linux"), \
+             patch.object(fonts.shutil, "which", return_value="/usr/bin/fc-list"), \
+             patch.object(fonts.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="")
+            self.assertFalse(fonts.hack_font_installed())
+
+        with patch.object(fonts.sys, "platform", "linux"), \
+             patch.object(fonts.shutil, "which", return_value=None):
+            self.assertFalse(fonts.hack_font_installed())
+
+        with patch.object(fonts.sys, "platform", "darwin"):
+            self.assertFalse(fonts.hack_font_installed())
+            self.assertEqual(fonts.default_liquid_glass_font(), "Monospace 11")
 
     def test_font_override_and_persistence(self):
-        """Test that font can be customized via parameter or persistent file."""
+        """CLI and a saved font still win. With neither, both hosts follow Hack or Monospace."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_cfg = Path(tmpdir) / "liquid_glass_font"
+            env = {"MP_LIQUID_GLASS_FONT": "", "LIQUID_GLASS_FONT": ""}
             with patch.object(lg_vk, "FONT_CONFIG_FILE", test_cfg), \
-                 patch.object(lg_vk, "CONFIG_DIR", Path(tmpdir)):
-                # Default without file
-                self.assertEqual(lg_vk.get_liquid_glass_font(), "Monospace 11")
-                # CLI override
-                self.assertEqual(lg_vk.get_liquid_glass_font("Fira Code 11"), "Fira Code 11")
-                # Persistence via set_liquid_glass_font
-                lg_vk.set_liquid_glass_font("Hack 11")
+                 patch.object(lg_vk, "CONFIG_DIR", Path(tmpdir)), \
+                 patch.object(lg_gl, "FONT_CONFIG_FILE", test_cfg), \
+                 patch.object(lg_gl, "CONFIG_DIR", Path(tmpdir)), \
+                 patch.dict(os.environ, env), \
+                 patch.object(fonts, "hack_font_installed", return_value=True):
                 self.assertEqual(lg_vk.get_liquid_glass_font(), "Hack 11")
+                self.assertEqual(lg_gl.get_liquid_glass_font(), "Hack 11")
+                self.assertEqual(lg_vk.get_liquid_glass_font("Fira Code 11"), "Fira Code 11")
+                self.assertEqual(lg_gl.get_liquid_glass_font("Fira Code 11"), "Fira Code 11")
+                lg_vk.set_liquid_glass_font("Liberation Mono 11")
+                self.assertEqual(lg_vk.get_liquid_glass_font(), "Liberation Mono 11")
+                self.assertEqual(lg_gl.get_liquid_glass_font(), "Liberation Mono 11")
+
+            missing = Path(tmpdir) / "missing_font"
+            with patch.object(lg_vk, "FONT_CONFIG_FILE", missing), \
+                 patch.object(lg_gl, "FONT_CONFIG_FILE", missing), \
+                 patch.dict(os.environ, env), \
+                 patch.object(fonts, "hack_font_installed", return_value=False):
+                self.assertEqual(lg_vk.get_liquid_glass_font(), "Monospace 11")
+                self.assertEqual(lg_gl.get_liquid_glass_font(), "Monospace 11")
 
     def test_liquid_glass_vte_css_unbolded_and_liquid_glow(self):
         """VTE terminal styling in Liquid Glass must disable bold and include liquid text glow."""

@@ -314,6 +314,203 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         cols, rows = vis.macos_player_grid(1094, 734)
         self.assertEqual((cols, rows), (120, 40))
 
+    def test_linux_raymarch_matches_the_framebuffer(self):
+        os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
+        self.assertEqual(vis.march_target_size(2784, 1685, platform="linux"), (2784, 1685))
+        self.assertEqual(vis.march_target_size(1920, 1080, platform="linux"), (1920, 1080))
+        self.assertEqual(vis.march_target_size(1094, 778, platform="linux"), (1094, 778))
+        self.assertEqual(vis.march_target_size(100, 80, platform="linux"), (100, 80))
+        self.assertEqual(vis.march_target_size(700, 700, platform="win32"), (224, 224))
+        self.assertEqual(vis.march_target_size(1094, 734, platform="darwin"), (768, 515))
+        os.environ["MP_VISUALIZER_GL_LONG_EDGE"] = "512"
+        try:
+            self.assertEqual(vis.march_target_size(2784, 1685, platform="linux"), (512, 310))
+        finally:
+            os.environ.pop("MP_VISUALIZER_GL_LONG_EDGE", None)
+
+    def test_linux_visualizer_matches_the_liquid_player_window(self):
+        self.assertEqual(vis.linux_liquid_player_window_size(), (1094, 778))
+        self.assertEqual(vis.linux_liquid_player_window_size(char_w=13, char_h=30), (1574, 1258))
+        tree = '\n'.join([
+            '     0x1000007 "MP Audio Player (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  1574x1258+510+385  +510+385',
+            '     0x2000001 "MP Mix Manager (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  800x600+10+10  +10+10',
+            '     0x1000008 "MP Audio Player (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  680x266+20+20  +20+20',
+        ])
+        self.assertEqual(vis.parse_liquid_player_window_size(tree), (1574, 1258))
+        self.assertIsNone(vis.parse_liquid_player_window_size(""))
+        self.assertEqual(vis.linux_visualizer_window_size(tree), (1574, 1258))
+        self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
+
+    def test_linux_visualizer_started_by_mp_gui_matches_the_gui_window(self):
+        tree = "\n".join([
+            '     0x1000007 "MP Audio Player (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  680x266+20+20  +20+20',
+            '     0x2000001 "MP Mix Manager (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  1574x1258+72+64  +72+64',
+        ])
+        self.assertEqual(vis.parse_liquid_gui_window_size(tree), (1574, 1258))
+        self.assertEqual(vis.parse_liquid_player_window_size(tree), (680, 266))
+        self.assertEqual(vis.linux_gui_visualizer_window_size(tree), (1574, 1258))
+        self.assertEqual(vis.linux_visualizer_window_size(tree), (680, 266))
+        previous = os.environ.get("MP_VISUALIZER_MATCH_GUI")
+        os.environ["MP_VISUALIZER_MATCH_GUI"] = "1"
+        try:
+            self.assertTrue(vis.visualizer_matches_gui())
+            self.assertEqual(vis.linux_visualizer_match_window_size(tree), (1574, 1258))
+        finally:
+            if previous is None:
+                os.environ.pop("MP_VISUALIZER_MATCH_GUI", None)
+            else:
+                os.environ["MP_VISUALIZER_MATCH_GUI"] = previous
+        self.assertEqual(vis.linux_visualizer_match_window_size(tree), (680, 266))
+        gui = (BASE / "MP_Gui.sh").read_text(encoding="utf-8")
+        self.assertIn("MP_VISUALIZER_MATCH_GUI=1", gui)
+        for name in ("MP_Audio_Player_Liquid_Glass_OpenGL.py", "MP_Audio_Player_Liquid_Glass.py"):
+            host = (BASE / name).read_text(encoding="utf-8")
+            self.assertIn("publish_liquid_gui_window_size", host)
+
+    def test_published_player_size_is_the_visualizer_size(self):
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "liquid_player_window.json"
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(path)
+            try:
+                vis.publish_liquid_player_window_size(1574, 1258, pid=os.getpid())
+                self.assertEqual(vis.read_published_player_window_size(), (1574, 1258))
+                self.assertEqual(vis.linux_visualizer_window_size(), (1574, 1258))
+                # A caller that already captured a window tree keeps that listing.
+                self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
+                gui_path = Path(directory) / "liquid_gui_window.json"
+                os.environ["MP_LIQUID_GUI_WINDOW_FILE"] = str(gui_path)
+                vis.publish_liquid_gui_window_size(1600, 1200, pid=os.getpid())
+                self.assertEqual(vis.read_published_gui_window_size(), (1600, 1200))
+                os.environ["MP_VISUALIZER_MATCH_GUI"] = "1"
+                self.assertEqual(vis.linux_visualizer_match_window_size(), (1600, 1200))
+                os.environ.pop("MP_VISUALIZER_MATCH_GUI", None)
+                # The player lookup does not follow the MP Gui file.
+                self.assertEqual(vis.linux_visualizer_window_size(), (1574, 1258))
+                path.write_text(json.dumps({"width": 1574, "height": 1258, "pid": 99999999}) + "\n", encoding="utf-8")
+                self.assertIsNone(vis.read_published_player_window_size())
+            finally:
+                os.environ.pop("MP_VISUALIZER_MATCH_GUI", None)
+                os.environ.pop("MP_LIQUID_GUI_WINDOW_FILE", None)
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+
+    def test_visualizer_waits_until_the_mapped_player_matches(self):
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "liquid_player_window.json"
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(path)
+            clock = {"t": 0.0, "wall": 1_000_000.0}
+            trees = {
+                "text": '0x1 "MP Audio Player (Liquid Glass - OpenGL)": ()  1094x778+10+10  +10+10',
+            }
+
+            def now():
+                return clock["t"]
+
+            def wall_now():
+                return clock["wall"]
+
+            def pause(seconds):
+                clock["t"] += seconds
+                clock["wall"] += seconds
+                if clock["t"] >= 0.4:
+                    trees["text"] = '0x1 "MP Audio Player (Liquid Glass - OpenGL)": ()  1574x1258+10+10  +10+10'
+
+            try:
+                vis.publish_liquid_player_window_size(1574, 1258, pid=os.getpid())
+                # The file mtime is the real clock. Pin the record age to the fake clock.
+                os.utime(path, (clock["wall"], clock["wall"]))
+                found = vis.wait_for_published_player_window_size(
+                    timeout=2.0,
+                    idle_timeout=0.2,
+                    stable_for=0.3,
+                    require_mapped=True,
+                    now=now,
+                    wall_now=wall_now,
+                    sleep=pause,
+                    host_running=lambda: True,
+                    read_tree=lambda: trees["text"],
+                )
+                self.assertEqual(found, (1574, 1258))
+                self.assertGreaterEqual(clock["t"], 0.4)
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+                os.environ.pop("MP_LIQUID_GUI_WINDOW_FILE", None)
+
+    def test_visualizer_waits_until_the_mapped_gui_matches(self):
+        previous = os.environ.get("MP_LIQUID_GUI_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "liquid_gui_window.json"
+            os.environ["MP_LIQUID_GUI_WINDOW_FILE"] = str(path)
+            clock = {"t": 0.0, "wall": 1_000_000.0}
+            trees = {
+                "text": '0x1 "MP Audio Player (Liquid Glass - OpenGL)": ()  680x266+10+10  +10+10',
+            }
+
+            def now():
+                return clock["t"]
+
+            def wall_now():
+                return clock["wall"]
+
+            def pause(seconds):
+                clock["t"] += seconds
+                clock["wall"] += seconds
+                if clock["t"] >= 0.4:
+                    trees["text"] = '0x2 "MP Mix Manager (Liquid Glass - OpenGL)": ()  1574x1258+72+64  +72+64'
+
+            try:
+                vis.publish_liquid_gui_window_size(1574, 1258, pid=os.getpid())
+                os.utime(path, (clock["wall"], clock["wall"]))
+                found = vis.wait_for_published_gui_window_size(
+                    timeout=2.0,
+                    idle_timeout=0.2,
+                    stable_for=0.3,
+                    require_mapped=True,
+                    now=now,
+                    wall_now=wall_now,
+                    sleep=pause,
+                    host_running=lambda: True,
+                    read_tree=lambda: trees["text"],
+                )
+                self.assertEqual(found, (1574, 1258))
+                self.assertGreaterEqual(clock["t"], 0.4)
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_GUI_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_GUI_WINDOW_FILE"] = previous
+        # The second wait still sees the published file until the env is restored.
+        # Re-run it with no file so an absent player does not invent a size.
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(Path(directory) / "missing.json")
+            clock = {"t": 0.0}
+            try:
+                missing = vis.wait_for_published_player_window_size(
+                    timeout=2.0,
+                    idle_timeout=0.2,
+                    stable_for=0.3,
+                    require_mapped=False,
+                    now=lambda: clock["t"],
+                    wall_now=lambda: clock["t"],
+                    sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+                    host_running=lambda: False,
+                    read_tree=lambda: "",
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+        self.assertIsNone(missing)
+
     def test_vulkan_preset_is_folded_and_shipped(self):
         raw = (vis.ROOT / "shaders" / "mp_liquid_visualizer.frag").read_text(encoding="utf-8")
         folded = vis.specialize_vulkan_source(raw, 4, march_steps=64)

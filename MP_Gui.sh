@@ -72,6 +72,60 @@ if [ ! -f "$TARGET_PY" ] || [ ! -f "$BASE_DIR/Mix_Archive_Manager.sh" ]; then
     exit 1
 fi
 
+# Git Bash on Windows resolves python3 to the Microsoft Store alias, which
+# prints "No installed Python found!" and never starts the window. The project
+# venv and windows_find_python.cmd are the same search the .bat launchers use.
+_mp_python() {
+    if [ -n "${MP_PYTHON:-}" ] && [ -x "${MP_PYTHON}" ]; then
+        printf '%s\n' "$MP_PYTHON"
+        return 0
+    fi
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            local candidate="$BASE_DIR/venv/Scripts/python.exe"
+            if [ -x "$candidate" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+            local finder="$BASE_DIR/scripts/windows_find_python.cmd"
+            if [ -f "$finder" ] && command -v cmd.exe >/dev/null 2>&1; then
+                local win_root="$BASE_DIR"
+                if command -v cygpath >/dev/null 2>&1; then
+                    win_root="$(cygpath -w "$BASE_DIR" 2>/dev/null | tr -d '\r')"
+                fi
+                local found
+                found="$(MSYS_NO_PATHCONV=1 cmd.exe //d //c "call \"${win_root}\\scripts\\windows_find_python.cmd\"" 2>/dev/null | tr -d '\r' | head -n 1)"
+                case "$found" in
+                    *WindowsApps*) found="" ;;
+                esac
+                if [ -n "$found" ]; then
+                    if command -v cygpath >/dev/null 2>&1; then
+                        cygpath -u "$found"
+                    else
+                        printf '%s\n' "$found"
+                    fi
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+    local py=""
+    if command -v python3 >/dev/null 2>&1; then
+        py="$(command -v python3)"
+    elif command -v python >/dev/null 2>&1; then
+        py="$(command -v python)"
+    fi
+    case "$py" in
+        *WindowsApps*) py="" ;;
+    esac
+    if [ -n "$py" ]; then
+        printf '%s\n' "$py"
+        return 0
+    fi
+    printf '%s\n' python3
+}
+MP_PY="$(_mp_python)"
+
 KEEP_THEME=0
 THEME_NAME="retro_linux_memories"
 NO_VISUALIZER=0
@@ -116,6 +170,13 @@ if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
     fi
     mp_gui_stop_windowless_hosts
 fi
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ -f "$BASE_DIR/scripts/mp_gui_focus_win.py" ] && "$MP_PY" "$BASE_DIR/scripts/mp_gui_focus_win.py"; then
+            exit 0
+        fi
+        ;;
+esac
 
 # One tray icon shared with the console manager and MP Liquid Player.
 if [ -f "$BASE_DIR/scripts/mp_system_tray.sh" ]; then
@@ -142,7 +203,7 @@ fi
 #    pactl set-sink-volume @DEFAULT_SINK@ 100% 2>/dev/null || true
 #fi
 
-python3 - "$BASE_DIR" << 'PY' || true
+"$MP_PY" - "$BASE_DIR" << 'PY' || true
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
@@ -154,7 +215,7 @@ if [ "$NO_VISUALIZER" -eq 0 ] && ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visu
     VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
     if [ -f "$VIS_PY" ]; then
-        nohup python3 "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
+        MP_VISUALIZER_MATCH_GUI=1 nohup "$MP_PY" "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
     fi
 fi
 
@@ -164,4 +225,4 @@ if [ -f "$_VTE_BASE/girepository-1.0/Vte-2.91.typelib" ]; then
     export GI_TYPELIB_PATH="${_VTE_BASE}/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 fi
 cd "$BASE_DIR" || exit 1
-exec python3 "$TARGET_PY" --manager "${NEW_ARGS[@]}"
+exec "$MP_PY" "$TARGET_PY" --manager "${NEW_ARGS[@]}"

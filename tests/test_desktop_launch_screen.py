@@ -15,7 +15,10 @@ from desktop_launch_screen import (  # noqa: E402
     parse_xwininfo_origin,
     placement_adjustment,
     select_main,
+    to_x11_position,
     unscale_reported_position,
+    window_launch_origin,
+    x11_coordinate_scale,
 )
 
 
@@ -138,6 +141,55 @@ class TestDesktopLaunchScreen(unittest.TestCase):
         # which is the left monitor.
         self.assertIsNone(placement_adjustment((1992, 64), (1992, 64)))
         self.assertEqual(placement_adjustment((1992, 64), (3984, 128)), (996, 32))
+
+    def test_xwayland_scale_puts_the_request_on_the_primary(self):
+        outputs = parse_kscreen(
+            """
+Output: 1 DP-2 aaaa
+	enabled
+	connected
+	priority 1
+	Geometry: 1920,0 1920x1200
+Output: 2 DP-1 bbbb
+	enabled
+	connected
+	priority 2
+	Geometry: 0,120 1920x1200
+Output: 3 HDMI-A-1 cccc
+	enabled
+	connected
+	priority 3
+	Geometry: 1579,1200 2649x1490
+Output: 4 DP-3 dddd
+	enabled
+	connected
+	priority 4
+	Geometry: 3840,120 1920x1200
+"""
+        )
+        monitors = parse_xrandr_monitors("\n".join([
+            "Monitors: 4",
+            " 0: +*DP-2 2784/546x1740/352+2784+0  DP-2",
+            " 1: +HDMI-A-1 3840/698x2160/392+2290+1740  HDMI-A-1",
+            " 2: +DP-1 2784/519x1740/324+0+174  DP-1",
+            " 3: +DP-3 2784/519x1740/324+5568+174  DP-3",
+        ]))
+        self.assertEqual(select_main(outputs)["name"], "DP-2")
+        self.assertAlmostEqual(x11_coordinate_scale(outputs, monitors), 1.45, places=4)
+        # KWin (1992, 64) is on DP-2. The same numbers in X11 land on DP-1.
+        self.assertEqual(main_desktop_origin(72, 64, outputs), (1992, 64))
+        self.assertEqual(window_launch_origin(72, 64, outputs, monitors), (2888, 93))
+
+    def test_matching_x11_coordinates_stay_on_the_kwin_position(self):
+        outputs = parse_kscreen(CURRENT_DESKTOP)
+        monitors = parse_xrandr_monitors("\n".join([
+            "Monitors: 2",
+            " 0: +*DP-2 1920/546x1200/352+1920+0  DP-2",
+            " 1: +DP-1 1920/519x1200/324+0+120  DP-1",
+        ]))
+        self.assertEqual(x11_coordinate_scale(outputs, monitors), 1.0)
+        self.assertEqual(to_x11_position(1992, 64, 1.0), (1992, 64))
+        self.assertEqual(window_launch_origin(72, 64, outputs, monitors), (1992, 64))
 
     def test_preferred_square_stays_on_a_large_screen(self):
         outputs = parse_kscreen(

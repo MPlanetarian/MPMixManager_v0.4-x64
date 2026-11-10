@@ -11,7 +11,7 @@ MGR_SH = BASE_DIR / "Mix_Archive_Manager.sh"
 # One truecolor hue per theme. These replace the shared light-blue menu-number cyan.
 EXPECTED = {
     "stream_of_frequency": "255;237;20",
-    "dreamworlds": "255;20;129",
+    "dreamworlds": "46;107;255",
     "dreamworlds_ultra": "165;20;255",
     "dynamic_rainbow_liquid_glass": "255;20;237",
     "cosmic_supernova": "255;129;20",
@@ -59,6 +59,7 @@ class TestMenuNumberThemeColor(unittest.TestCase):
         script = f"""
         set -e
         eval "$(awk '/^set_theme_colors\\(\\)/{{f=1}} f{{print}} f&&/^}}/{{exit}}' "{MGR_SH}")"
+        eval "$(sed -n '/^_fit_menu_extra() {{/,/^}}/p' "{MGR_SH}")"
         eval "$(sed -n '/^_menu_line_plain() {{/,/^}}/p' "{MGR_SH}")"
         declare -a opts=('4|Play Mix|')
         declare -n _opts_ref=opts

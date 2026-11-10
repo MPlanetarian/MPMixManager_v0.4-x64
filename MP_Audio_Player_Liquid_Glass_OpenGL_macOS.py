@@ -909,6 +909,11 @@ class TerminalOverlay:
             print(f"Overlay draw error: {e}", flush=True)
 
 
+# Opacity when the window opens. 0.80 is 80% opaque. The slider runs from 0.40 to 0.80.
+# MP Liquid Player and MP Gui both use this host.
+DEFAULT_WINDOW_OPACITY = 0.80
+
+
 class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def __init__(self, overlay, host_ref, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -924,8 +929,8 @@ class CustomGlassRenderer(LiquidGlassRendererOpenGL):
         self._last_top_click_x = 0.0
         self._last_top_click_y = 0.0
         
-        self.clear_opacity = 0.60
-        self.slider_val = 0.60
+        self.clear_opacity = DEFAULT_WINDOW_OPACITY
+        self.slider_val = DEFAULT_WINDOW_OPACITY
         self._slider_dragging = False
 
     def open(self):

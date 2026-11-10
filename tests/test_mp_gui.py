@@ -83,9 +83,11 @@ class TestManagerMenu(unittest.TestCase):
         self.assertNotIn('CURRENT_THEME="charcoal_vault"', text)
         self.assertNotIn("23|Charcoal Vault", text)
         self.assertIn("MP_GUI_SESSION", text)
-        self.assertIn("37|77|", text)
+        self.assertIn("38|77|", text)
+        self.assertNotIn("37|77|", text)
         self.assertNotIn("36|77|", text)
-        self.assertIn("between 0 and 37", text)
+        self.assertIn("between 0 and 38", text)
+        self.assertIn("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|", text)
 
     def test_shell_parses(self):
         result = subprocess.run(
@@ -151,6 +153,9 @@ class TestGuiLauncher(unittest.TestCase):
         self.assertTrue(mode & stat.S_IXUSR)
         text = path.read_text(encoding="utf-8")
         self.assertIn("--manager", text)
+        self.assertIn("windows_find_python.cmd", text)
+        self.assertIn('exec "$MP_PY"', text)
+        self.assertNotIn("exec python3 ", text)
         self.assertIn("retro_linux_memories", text)
         self.assertNotIn("charcoal_vault", text)
         self.assertIn("--keep-theme", text)

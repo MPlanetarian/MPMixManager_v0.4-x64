@@ -71,7 +71,24 @@ class TestCliThemeBackground(unittest.TestCase):
             theme, r, g, b = raw.split("\t")
             seen[theme] = (int(r), int(g), int(b))
         self.assertEqual(set(seen), set(THEMES))
-        colours = list(seen.values())
+        # MPlanetarian Dreamworlds is black. The white-on-black retro
+        # terminal uses the same pane, so that one pair is shared.
+        self.assertEqual(seen["dreamworlds"], (0, 0, 0))
+        alias = _bash(
+            f"""
+            set -e
+            eval "$(awk '/^set_theme_colors\\(\\)/{{f=1}} f{{print}} f&&/^}}/{{exit}}' "{MGR_SH}")"
+            for theme in default mplanetarian mplanetarian_dreamworlds; do
+                set_theme_colors "$theme"
+                printf '%s\\t%s\\t%s\\t%s\\n' "$theme" "$THEME_BG_R" "$THEME_BG_G" "$THEME_BG_B"
+            done
+            """
+        )
+        self.assertEqual(alias.returncode, 0, alias.stderr)
+        for raw in alias.stdout.splitlines():
+            theme, r, g, b = raw.split("\t")
+            self.assertEqual((int(r), int(g), int(b)), (0, 0, 0), theme)
+        colours = [rgb for theme, rgb in seen.items() if theme != "dreamworlds"]
         self.assertEqual(len(colours), len(set(colours)))
         for theme, (r, g, b) in seen.items():
             for channel in (r, g, b):

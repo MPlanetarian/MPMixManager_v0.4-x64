@@ -8,21 +8,23 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from desktop_launch_screen import main_desktop_origin  # noqa: E402
+from desktop_launch_screen import window_launch_origin  # noqa: E402
+from liquid_glass_font import default_liquid_glass_font  # noqa: E402
 from liquid_glass_opengl import glass_foreground_rgb  # noqa: E402
 from liquid_glass_vulkan import LiquidGlassRenderer, NVIDIA_VENDOR_ID, read_player_theme  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 
 COLS, ROWS = 120, 40
+# Used when Hack is not installed. Linux uses Hack 11 when that family is present.
 DEFAULT_FONT = "Monospace 11"
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
 IS_WIN = sys.platform == "win32"
 
 RECOMMENDED_FONTS = [
-    ("Monospace 11", "System Default Monospace (Clean, unbolded standard)"),
+    ("Monospace 11", "Fallback when the Hack family is not installed"),
     ("Fira Code 11", "Modern Programming Font (Clean shapes, sleek proportions)"),
-    ("Hack 11", "Crisp Open-Source Terminal Monospace"),
+    ("Hack 11", "Linux default when the Hack family is installed"),
     ("Adwaita Mono 11", "Modern GNOME Desktop Monospace"),
     ("Liberation Mono 11", "Classic Clean Monospace"),
 ]
@@ -36,10 +38,12 @@ def get_liquid_glass_font(cli_font=None):
         return env_f
     try:
         if FONT_CONFIG_FILE.is_file():
-            return FONT_CONFIG_FILE.read_text(encoding="utf-8").strip() or DEFAULT_FONT
+            saved = FONT_CONFIG_FILE.read_text(encoding="utf-8").strip()
+            if saved:
+                return saved
     except Exception:
         pass
-    return DEFAULT_FONT
+    return default_liquid_glass_font()
 
 
 def set_liquid_glass_font(font_str: str) -> None:
@@ -98,8 +102,8 @@ def _import_gtk():
 
 
 def manager_argv():
-    bash = shutil.which("bash") or "bash"
-    return [bash, str(ROOT / "Mix_Archive_Manager.sh")]
+    from windows_bash import find_bash
+    return [find_bash(), str(ROOT / "Mix_Archive_Manager.sh")]
 
 
 def player_argv(mode="NORMAL", extra_args=None):
@@ -119,7 +123,8 @@ def tracklist_argv(tracklist_path, audio_path=None, theme=None):
     v_sh = ROOT / "scripts" / "view_tracklist_console.sh"
     if not v_sh.is_file():
         v_sh = ROOT / "view_tracklist_console.sh"
-    cmd = [shutil.which("bash") or "bash", str(v_sh)]
+    from windows_bash import find_bash
+    cmd = [find_bash(), str(v_sh)]
     if theme:
         cmd.extend(["--theme", str(theme)])
     cmd.append(str(tracklist_path))
@@ -213,6 +218,7 @@ class GlassHost:
             cols, rows = max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m) // ch))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(wx, wy)
+            self._note_player_window(ww, wh)
             self.renderer.set_window_size(ww, wh)
             self.renderer.poll()
             if self.terminal is not None:
@@ -220,11 +226,13 @@ class GlassHost:
             self._place_terminal()
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or (main_desktop_origin(72, 64), (1280, 820))
+            pos, _ = self._saved_rect or (window_launch_origin(72, 64), (1280, 820))
             cols, rows = (74, 14) if self.mode == "MINI" else ((74, 7) if self.mode == "MICRO" else (COLS, ROWS))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(pos[0], pos[1])
-            self.renderer.set_window_size(cols * cw + 2 * m, rows * ch + 2 * m)
+            restore_w, restore_h = cols * cw + 2 * m, rows * ch + 2 * m
+            self._note_player_window(restore_w, restore_h)
+            self.renderer.set_window_size(restore_w, restore_h)
             self.renderer.poll()
             if self.terminal is not None:
                 self.terminal.set_size(cols, rows)
@@ -240,7 +248,9 @@ class GlassHost:
         self._target_cols, self._target_rows = cols, rows
         cw, ch = self._char_dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(cols * cw + 2 * m, rows * ch + 2 * m)
+        mode_w, mode_h = cols * cw + 2 * m, rows * ch + 2 * m
+        self._note_player_window(mode_w, mode_h)
+        self.renderer.set_window_size(mode_w, mode_h)
         if self.terminal is not None:
             self.terminal.set_size(cols, rows)
         self._place_terminal()
@@ -324,6 +334,8 @@ class GlassHost:
         return False
 
     def _track_drag(self, was_down, dragging, origin, press_screen):
+        if getattr(self, "_os_dragging", False):
+            return False, False, origin, press_screen
         r = self.renderer
         x, y = r.cursor
         w, h = r.window_size()
@@ -357,10 +369,49 @@ class GlassHost:
             dragging = False
         return down, dragging, origin, press_screen
 
+    def _note_player_window(self, width, height):
+        """Publish the outer window. Tracklist is not the player or MP Gui."""
+        if self.mode == "TRACKLIST":
+            return
+        try:
+            width_i, height_i = int(width), int(height)
+        except (TypeError, ValueError):
+            return
+        if width_i < 64 or height_i < 64:
+            return
+        self._window_target = (width_i, height_i)
+        self._window_target_until = time.monotonic() + 3.0
+        if self.mode == "MANAGER":
+            from liquid_player_visualizer import publish_liquid_gui_window_size
+            publish_liquid_gui_window_size(width_i, height_i)
+            return
+        from liquid_player_visualizer import publish_liquid_player_window_size
+        publish_liquid_player_window_size(width_i, height_i)
+
+    def _sync_player_window(self):
+        """Keep the fitted size if the window manager has not applied it yet."""
+        if self.mode == "TRACKLIST" or self.renderer is None:
+            return
+        target = getattr(self, "_window_target", None)
+        if not target:
+            return
+        try:
+            actual = tuple(int(v) for v in self.renderer.window_size())
+        except Exception:
+            return
+        if actual != target and time.monotonic() < getattr(self, "_window_target_until", 0.0):
+            self.renderer.set_window_size(*target)
+            return
+        if actual != target and min(actual) >= 64:
+            self._note_player_window(*actual)
+
     def _fit_to_terminal(self, term):
         cw, ch = self._char_dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m)
+        width = self._target_cols * cw + 2 * m
+        height = self._target_rows * ch + 2 * m
+        self._note_player_window(width, height)
+        self.renderer.set_window_size(width, height)
         term.set_size(self._target_cols, self._target_rows)
 
     def run(self):
@@ -398,6 +449,7 @@ class GlassHost:
             r.draw(read_player_theme())
             return True
 
+        self._sync_windows_drag()
         proc = subprocess.Popen(self.argv, cwd=str(ROOT), env=_child_env(True), creationflags=0x00000010)
         self.child_pid = proc.pid
         child_hwnd = None
@@ -420,10 +472,12 @@ class GlassHost:
                     break
                 time.sleep(0.02)
             if child_hwnd:
-                u32.SetWindowLongPtrW(child_hwnd, -16, (u32.GetWindowLongPtrW(child_hwnd, -16) & ~0x00C40000) | 0x80000000)
+                u32.SetWindowLongPtrW(child_hwnd, -16, (u32.GetWindowLongPtrW(child_hwnd, -16) & ~0x00C40000 & ~0x00300000) | 0x80000000)
                 glass_hwnd = r.win32_window()
                 if glass_hwnd:
                     u32.SetParent(child_hwnd, glass_hwnd)
+                from windows_console_scroll import hide_process_console_scrollbar
+                hide_process_console_scrollbar(proc.pid, int(child_hwnd))
         except Exception:
             pass
 
@@ -431,16 +485,23 @@ class GlassHost:
         if child_hwnd:
             self._place_terminal()
 
+        self._sync_windows_drag()
         down = dragging = False
         origin, press_screen, theme, theme_at = r.window_pos(), (0, 0), read_player_theme(), 0.0
         monotonic, sleep, draw, poll = time.monotonic, time.sleep, r.draw, r.poll
+        scroll_at = 0.0
         try:
             while not r.should_close and proc.poll() is None:
                 now = monotonic()
+                if child_hwnd and now >= scroll_at:
+                    from windows_console_scroll import hide_process_console_scrollbar
+                    hide_process_console_scrollbar(proc.pid, int(child_hwnd))
+                    scroll_at = now + 0.5
                 if now - theme_at > 0.4:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()
                 self._sync_panels()
+                self._pump_windows_drag()
                 draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
                 if dragging:
@@ -535,6 +596,7 @@ class GlassHost:
                     if self.terminal is not None:
                         self._apply_glass_foreground(self.terminal, theme)
             self._follow_child_ui_size()
+            self._sync_player_window()
             self._sync_panels()
             draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -631,7 +693,29 @@ class GlassHost:
         term.get_style_context().add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         window.get_style_context().add_provider(prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+    def _sync_windows_drag(self) -> None:
+        if not IS_WIN or self.renderer is None:
+            return
+        from windows_glass_drag import install_on_host
+        install_on_host(self)
+
+    def _pump_windows_drag(self) -> None:
+        if not IS_WIN:
+            return
+        from windows_glass_drag import release_stuck_mouse
+        release_stuck_mouse(self.renderer)
+        drag = getattr(self, "_glass_drag", None)
+        if drag is not None:
+            drag.update()
+
+    def _release_windows_drag(self) -> None:
+        if sys.platform != "win32":
+            return
+        from windows_glass_drag import release_on_host
+        release_on_host(self)
+
     def close(self):
+        self._release_windows_drag()
         pid, self.child_pid = self.child_pid, 0
         if pid:
             try:

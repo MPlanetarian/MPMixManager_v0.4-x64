@@ -252,6 +252,163 @@ class TestPlaylistThemeHighlight(unittest.TestCase):
             self.assertTrue(len(pl_top) > 0, "Playlist box top line not found")
             self.assertIn(b_col, pl_top[0], f"Playlist box top line does not use theme b_col for theme {test_theme}")
 
+    def test_liquid_header_side_bars_match_panel_edge(self):
+        """Header left and right bars use the border colour on every row, including the subtitle."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_mixes.return_value = [
+            {"name": "Mix 01 - Astral Projection", "path": "/path/to/mix1.mp3", "folder": "Chill"},
+        ]
+        ui = TerminalPlayerUI(
+            engine=None,
+            scanner=mock_scanner,
+            ui_size_mode="STANDARD",
+            is_remote=True,
+        )
+        st = {
+            "title": "Mix 01 - Astral Projection",
+            "path": "/path/to/mix1.mp3",
+            "state": "playing",
+            "index": 0,
+            "position_sec": 120,
+            "duration_sec": 3600,
+            "position_fmt": "02:00",
+            "duration_fmt": "60:00",
+            "progress_pct": 3.3,
+            "volume": 80,
+            "pitch_percent": 0,
+            "levels": [0.5] * 24,
+            "peaks": [0.7] * 24,
+            "levels_left": [0.5] * 24,
+            "levels_right": [0.5] * 24,
+            "peaks_left": [0.7] * 24,
+            "peaks_right": [0.7] * 24,
+            "rms_level": 0.1,
+            "peak_db": -3.0,
+        }
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+
+        def colors_at(line, glyphs):
+            active = ""
+            found = []
+            i = 0
+            while i < len(line):
+                match = ansi.match(line, i)
+                if match:
+                    code = match.group(0)
+                    active = "" if code == "\x1b[0m" else active + code
+                    i = match.end()
+                    continue
+                if line[i] in glyphs:
+                    found.append((line[i], active))
+                i += 1
+            return found
+
+        for test_theme in ("retro_linux_memories", "dreamworlds_liquid", "retro_studio"):
+            ui.visualizer.theme = test_theme
+            pal = ui.visualizer.get_theme_palette()
+            border = pal["border"]
+            accent = pal["accent"]
+            captured_lines = []
+            with patch.dict("os.environ", {"MP_LIQUID_GLASS": "1"}), \
+                 patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured_lines.extend(lines)), \
+                 patch("MP_Audio_Player._win_visible_size", return_value=(100, 35)):
+                ui._get_status = MagicMock(return_value=st)
+                ui._draw_frame()
+
+            sub_idx = next(i for i, line in enumerate(captured_lines) if "Fluid Audio Navigation" in line)
+            header = captured_lines[sub_idx - 2:sub_idx + 2]
+            self.assertEqual(len(header), 4, f"Header panel was not four rows for {test_theme}")
+            edge_colors = []
+            for line in header:
+                edge_colors.extend(color for glyph, color in colors_at(line, "│╭╮╰╯─"))
+            self.assertGreaterEqual(len(edge_colors), 6, f"Header edge glyphs missing for {test_theme}")
+            for color in edge_colors:
+                self.assertEqual(color, border, f"Header edge {color!r} is not border {border!r} for {test_theme}")
+                if accent != border:
+                    self.assertNotIn(accent, color)
+            self.assertIn(accent, header[2], f"Subtitle text lost the accent colour for {test_theme}")
+            side_bars = [color for glyph, color in colors_at(header[2], "│")]
+            self.assertEqual(side_bars, [border, border], f"Subtitle side bars differ for {test_theme}")
+
+    def test_liquid_playlist_edge_matches_panel_colour(self):
+        """The playlist box, including the clipped bottom-right corner, uses the theme border."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_mixes.return_value = [
+            {"name": f"Mix {i:02d} - Astral Projection", "path": f"/path/to/mix{i}.mp3", "folder": "Chill", "ext": "FLAC", "size_mb": 80 + i}
+            for i in range(12)
+        ]
+        ui = TerminalPlayerUI(
+            engine=None,
+            scanner=mock_scanner,
+            ui_size_mode="STANDARD",
+            is_remote=True,
+        )
+        st = {
+            "title": "Mix 01 - Astral Projection",
+            "path": "/path/to/mix1.mp3",
+            "state": "playing",
+            "index": 0,
+            "position_sec": 120,
+            "duration_sec": 3600,
+            "position_fmt": "02:00",
+            "duration_fmt": "60:00",
+            "progress_pct": 3.3,
+            "volume": 80,
+            "pitch_percent": 0,
+            "levels": [0.5] * 24,
+            "peaks": [0.7] * 24,
+            "levels_left": [0.5] * 24,
+            "levels_right": [0.5] * 24,
+            "peaks_left": [0.7] * 24,
+            "peaks_right": [0.7] * 24,
+            "rms_level": 0.1,
+            "peak_db": -3.0,
+        }
+        ansi = re.compile(r"\x1b\[[0-9;]*m")
+
+        def glyph_colors(line):
+            active = ""
+            found = []
+            i = 0
+            while i < len(line):
+                match = ansi.match(line, i)
+                if match:
+                    code = match.group(0)
+                    active = "" if code == "\033[0m" else active + code
+                    i = match.end()
+                    continue
+                found.append((line[i], active))
+                i += 1
+            return found
+
+        border = "\033[38;2;84;84;83m"
+        clipped = MP_Audio_Player._boxed_rule("└", "── " + ("Scroll • " * 20), "┘", 24, border)
+        self.assertEqual(glyph_colors(clipped)[-1], ("┘", border))
+
+        for test_theme in ("retro_linux_memories", "dreamworlds_liquid", "retro_studio"):
+            ui.visualizer.theme = test_theme
+            border = ui.visualizer.get_theme_palette()["border"]
+            captured_lines = []
+            with patch.dict("os.environ", {"MP_LIQUID_GLASS": "1"}), \
+                 patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured_lines.extend(lines)), \
+                 patch("MP_Audio_Player._win_visible_size", return_value=(120, 40)):
+                ui._get_status = MagicMock(return_value=st)
+                ui._draw_frame()
+
+            top = next(i for i, line in enumerate(captured_lines) if "┌" in line and "PLAYLIST" in line)
+            bottom = next(i for i, line in enumerate(captured_lines) if i > top and "┘" in MP_Audio_Player._ANSI_RE.sub("", line))
+            panel = captured_lines[top:bottom + 1]
+            self.assertGreaterEqual(len(panel), 3, f"Playlist panel was too short for {test_theme}")
+            for line in (panel[0], panel[-1]):
+                edges = [(glyph, color) for glyph, color in glyph_colors(line) if glyph in "┌┐└┘─│"]
+                self.assertGreaterEqual(len(edges), 3, f"Playlist rule lost its edge for {test_theme}")
+                for glyph, color in edges:
+                    self.assertEqual(color, border, f"Playlist {glyph} is {color!r}, not {border!r}, for {test_theme}")
+            self.assertEqual(glyph_colors(panel[-1])[-1], ("┘", border), f"Bottom-right corner differs for {test_theme}")
+            for line in panel[1:-1]:
+                bars = [color for glyph, color in glyph_colors(line) if glyph == "│"]
+                self.assertEqual(bars, [border, border], f"Playlist side bars differ for {test_theme}")
+
 
 if __name__ == "__main__":
     unittest.main()

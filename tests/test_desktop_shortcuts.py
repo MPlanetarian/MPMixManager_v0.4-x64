@@ -152,7 +152,7 @@ class TestDesktopShortcuts(unittest.TestCase):
         created = []
 
         def writer(path, target, arguments, workdir, description, icon):
-            created.append((Path(path), Path(target).name, arguments, description))
+            created.append((Path(path), Path(target).name, arguments, description, Path(icon).name))
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             Path(path).write_text("shortcut\n", encoding="utf-8")
 
@@ -172,9 +172,11 @@ class TestDesktopShortcuts(unittest.TestCase):
             self.assertEqual([item[0].name for item in desktop_links], [f"{name}.lnk" for name in SHORTCUT_NAMES])
             by_name = {item[0].name: item for item in desktop_links}
             self.assertEqual(by_name["MP Liquid Player.lnk"][1], "launch_liquid_glass.bat")
+            self.assertTrue(all(item[4] == "mp_liquid_glass_icon.png" for item in created))
             self.assertEqual(by_name["MP Mix Manager.lnk"][1], "manager.bat")
-            self.assertEqual(by_name["MP Gui.lnk"][1], "MP Gui.cmd")
-            self.assertIn("MP_Gui.sh", (launchers / "MP Gui.cmd").read_text(encoding="utf-8"))
+            self.assertEqual(by_name["MP Gui.lnk"][1], "launch_mp_gui.bat")
+            self.assertIn("windows_find_python.cmd", (ROOT / "scripts" / "launch_mp_gui.bat").read_text(encoding="utf-8"))
+            self.assertIn("--manager", (ROOT / "scripts" / "launch_mp_gui.bat").read_text(encoding="utf-8"))
             visualizer_cmd = (launchers / "MP Liquid Visualizer.cmd").read_text(encoding="utf-8")
             self.assertIn("MP_Liquid_Visualizer.py", visualizer_cmd)
             self.assertNotIn("--play", visualizer_cmd)

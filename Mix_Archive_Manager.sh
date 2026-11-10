@@ -87,12 +87,225 @@ update_terminal_geometry() {
 _set_menu_box_width() {
 local _dest="$1" _cols="${2:-${_TERM_COLS:-80}}"; [[ "$_cols" =~ ^[0-9]+$ ]] || _cols=80; [[ "$_cols" -lt 1 ]] && _cols=1; local _w; if [[ "$_cols" -ge 8 ]]; then _w=$((_cols - 4)); elif [[ "$_cols" -ge 3 ]]; then _w=$((_cols - 2)); else _w=1; fi; printf -v "$_dest" '%s' "$_w"
 }
+# Keep painted text on the header panel's right border. Wide glyphs take two
+# columns and colour sequences take none. A │ row gives up columns from its
+# widest field so the fields on the right stay visible.
+_fit_block_to_panel() {
+  local _dest="$1" _src="$2" _max="$3" _fitted=""
+  [[ "${_max}" =~ ^[0-9]+$ ]] || _max=118
+  (( _max < 4 )) && _max=4
+  if [ -z "${_src}" ]; then printf -v "${_dest}" '%s' ""; return 0; fi
+  _fitted=$(printf '%b\n' "${_src}" | LC_ALL=C awk -v max="${_max}" '
+    # Fit each line to max display columns. LC_ALL=C so substr() is bytes.
+    # A line with │ separators loses columns from its widest field, so the
+    # fields on the right stay visible. Any other long line ends with "...".
+    BEGIN {
+        if (max == "" || max + 0 < 4) max = 4
+        for (i = 0; i < 256; i++) ORD[sprintf("%c", i)] = i
+    }
+    function byte(s, i) { return ORD[substr(s, i, 1)] + 0 }
+    function glyph_width(line, i,    b, cp, adv, w) {
+        b = byte(line, i)
+        adv = 1
+        w = 1
+        if (b >= 240 && i + 3 <= length(line)) { adv = 4; w = 2 }
+        else if (b >= 224 && i + 2 <= length(line)) {
+            cp = ((b % 16) * 4096) + ((byte(line, i + 1) % 64) * 64) + (byte(line, i + 2) % 64)
+            adv = 3
+            if (cp == 65039 || cp == 65038 || cp == 8205 || cp == 8203) w = 0
+            else if ((cp >= 4352 && cp <= 4447) || (cp >= 11904 && cp <= 42191) || (cp >= 44032 && cp <= 55203) || (cp >= 63744 && cp <= 64255) || (cp >= 65072 && cp <= 65103) || (cp >= 65281 && cp <= 65376) || (cp >= 65504 && cp <= 65510) || cp == 9889 || cp == 9200 || cp == 8986 || cp == 8987 || cp == 11088) w = 2
+            else w = 1
+        } else if (b >= 192 && i + 1 <= length(line)) { adv = 2; w = 1 }
+        return adv " " w
+    }
+    function fit_plain_tokens(text, limit,    n, i, b, j, seq, info, adv, w, col, out, cut) {
+        # Returns text clipped to limit columns, with "..." if it was cut.
+        n = length(text)
+        col = 0
+        i = 1
+        cut = 0
+        out = ""
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                seq = substr(text, i, 1)
+                if (j <= n && byte(text, j) == 91) {
+                    seq = seq substr(text, j, 1)
+                    j++
+                    while (j <= n) {
+                        seq = seq substr(text, j, 1)
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                }
+                out = out seq
+                i = j
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            adv = info[1] + 0
+            w = info[2] + 0
+            if (col + w > limit) { cut = 1; break }
+            out = out substr(text, i, adv)
+            col += w
+            i += adv
+        }
+        if (!cut && i > n) return out
+        # Redo with room for the ellipsis. Trailing colour stays after it.
+        limit = limit - 3
+        if (limit < 1) limit = 1
+        col = 0
+        i = 1
+        out = ""
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                seq = substr(text, i, 1)
+                if (j <= n && byte(text, j) == 91) {
+                    seq = seq substr(text, j, 1)
+                    j++
+                    while (j <= n) {
+                        seq = seq substr(text, j, 1)
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                }
+                # Hold a colour sequence that sits at the cut so it is not lost,
+                # but only once the visible budget is spent.
+                if (col >= limit) break
+                out = out seq
+                i = j
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            adv = info[1] + 0
+            w = info[2] + 0
+            if (col + w > limit) break
+            out = out substr(text, i, adv)
+            col += w
+            i += adv
+        }
+        return out "...\033[0m"
+    }
+    function visible_width(text,    n, i, b, j, f, info, col) {
+        n = length(text)
+        col = 0
+        i = 1
+        while (i <= n) {
+            b = byte(text, i)
+            if (b == 27) {
+                j = i + 1
+                if (j <= n && byte(text, j) == 91) {
+                    j++
+                    while (j <= n) {
+                        f = byte(text, j)
+                        j++
+                        if (f >= 64 && f <= 126) break
+                    }
+                    i = j
+                    continue
+                }
+                i++
+                continue
+            }
+            split(glyph_width(text, i), info, " ")
+            col += info[2] + 0
+            i += info[1] + 0
+        }
+        return col
+    }
+    {
+        line = $0
+        nseg = 0
+        rest = line
+        bars = 0
+        while (1) {
+            p = index(rest, "\342\224\202")
+            if (p == 0) {
+                nseg++
+                seg[nseg] = rest
+                break
+            }
+            nseg++
+            seg[nseg] = substr(rest, 1, p - 1)
+            bars++
+            rest = substr(rest, p + 3)
+        }
+        total = bars
+        widest = 1
+        for (s = 1; s <= nseg; s++) {
+            sw[s] = visible_width(seg[s])
+            total += sw[s]
+            if (sw[s] > sw[widest]) widest = s
+        }
+        if (total <= max) { print line; next }
+        if (nseg == 1) {
+            print fit_plain_tokens(line, max)
+            next
+        }
+        # Shrink the widest field until the row lands on the panel edge.
+        guard = 0
+        while (total > max && guard < 8) {
+            guard++
+            widest = 1
+            for (s = 1; s <= nseg; s++) if (sw[s] > sw[widest]) widest = s
+            excess = total - max
+            target = sw[widest] - excess
+            if (target < 4) target = 4
+            room = target
+            pad = ""
+            if (widest < nseg && target > 5) { room = target - 1; pad = " " }
+            seg[widest] = fit_plain_tokens(seg[widest], room) pad
+            neww = visible_width(seg[widest])
+            total += neww - sw[widest]
+            sw[widest] = neww
+            if (neww <= 4) break
+        }
+        out = seg[1]
+        for (s = 2; s <= nseg; s++) out = out "\342\224\202" seg[s]
+        # Safety: a field that cannot shrink further is end-clipped.
+        if (visible_width(out) > max) out = fit_plain_tokens(out, max)
+        print out
+    }
+') || _fitted=""
+  if [ -z "${_fitted}" ]; then printf -v "${_dest}" '%s' "${_src}"; else printf -v "${_dest}" '%s' "${_fitted}"; fi
+}
+_clip_plain_line() {
+  local _s="$1" _max="$2" _keep
+  [[ "${_max}" =~ ^[0-9]+$ ]] || _max=118
+  (( ${#_s} <= _max )) && { printf '%s' "${_s}"; return 0; }
+  _keep=$(( _max - 3 ))
+  (( _keep < 1 )) && _keep=1
+  printf '%s' "${_s:0:_keep}..."
+}
+# Menu descriptions are single-width. Drop the tail so the row ends on the
+# same column as the header panel's right border.
+_fit_menu_extra() {
+  local _key="$1" _label="$2" _extra="$3" _edge="$4" _fmt _base _room _keep
+  [ -n "${_extra}" ] || return 0
+  printf -v _fmt '[%2s]' "${_key}"
+  _base="     ${_fmt} ${_label}"
+  _room=$(( _edge - ${#_base} - 2 ))
+  (( _room >= ${#_extra} )) && { printf '%s' "${_extra}"; return 0; }
+  (( _room < 4 )) && return 0
+  _keep=$(( _room - 3 ))
+  printf '%s' "${_extra:0:_keep}..."
+}
+_append_fitted_hint() {
+  local _edge="$1" _body="$2" _line
+  _line="$(_clip_plain_line "  ${_body}" "${_edge}")"
+  cached_header_block+="  ${DIM}${BLUE}${_line#  }\033[K${NC}\n"
+}
 set_theme_colors() {
 local theme_name="${1:-dreamworlds}"; NC='\033[0m' BOLD='\033[1m' DIM='\033[2m'; case "$theme_name" in stream_of_frequency|stream|frequency|sof|frequency_stream|"Stream of Frequency"|"Stream of Frequency Theme"|"Stream of Frequency [Special Edition]"|"Stream of Frequency MP Mix Manager")
 RED='\033[38;2;240;32;24m'; GREEN='\033[38;2;76;217;123m'; YELLOW='\033[38;2;245;237;106m'; BLUE='\033[38;2;48;49;131m'; MAGENTA='\033[38;2;151;79;249m'; CYAN='\033[38;2;0;242;255m'; CURRENT_THEME="stream_of_frequency" ;;
 sensorium_interface|sensorium|"Sensorium Interface"|"Sensorium Interface (Liquid Glass Skin)")
 RED='\033[38;2;240;168;216m'; GREEN='\033[38;2;0;245;255m'; YELLOW='\033[38;2;245;232;180m'; BLUE='\033[38;2;184;72;196m'; MAGENTA='\033[38;2;240;168;216m'; CYAN='\033[38;2;0;245;255m'; CURRENT_THEME="sensorium_interface" ;;
-dreamworlds|mplanetarian_dreamworlds|mplanetarian|default) RED='\033[38;2;237;37;78m' GREEN='\033[38;2;0;229;255m' YELLOW='\033[38;2;255;170;0m'; BLUE='\033[38;2;155;89;182m' MAGENTA='\033[38;2;247;37;133m' CYAN='\033[38;2;0;193;228m'; CURRENT_THEME="dreamworlds" ;;
+dreamworlds|mplanetarian_dreamworlds|mplanetarian|default) RED='\033[38;2;46;107;255m' GREEN='\033[38;2;125;186;255m' YELLOW='\033[38;2;198;220;255m'; BLUE='\033[38;2;20;58;160m' MAGENTA='\033[38;2;46;107;255m' CYAN='\033[38;2;90;164;255m'; CURRENT_THEME="dreamworlds" ;;
 cosmic_dreamworlds|cosmic_dreamworld|cosmic_dream|"Cosmic Dreamworlds (Liquid Glass Skin)"|"Cosmic Dreamworlds")
 RED='\033[38;2;232;13;104m'; GREEN='\033[38;2;0;245;212m'; YELLOW='\033[38;2;254;228;64m'; BLUE='\033[38;2;94;96;206m'; MAGENTA='\033[38;2;176;88;255m'; CYAN='\033[38;2;0;245;212m'; CURRENT_THEME="cosmic_dreamworlds" ;;
 cosmic_dreamworlds_radioactive|radioactive|cosmic_radioactive|"Cosmic Dreamworlds Radioactive (Liquid Glass Skin)"|"Cosmic Dreamworlds Radioactive")
@@ -160,7 +373,7 @@ cosmic_dreamworlds) _mr=255; _mg=20; _mb=183 ;;
 orbital_void_reflux) _mr=56; _mg=20; _mb=255 ;;
 sensorium_interface) _mr=111; _mg=20; _mb=255 ;;
 retro_linux_memories) _mr=255; _mg=183; _mb=20 ;;
-dreamworlds) _mr=255; _mg=20; _mb=129 ;;
+dreamworlds) _mr=46; _mg=107; _mb=255 ;;
 cyberpunk) _mr=200; _mg=0; _mb=180 ;;
 dracula) _mr=255; _mg=20; _mb=75 ;;
 nord) _mr=70; _mg=140; _mb=90 ;;
@@ -195,7 +408,7 @@ cosmic_dreamworlds) THEME_BG_R=40; THEME_BG_G=6; THEME_BG_B=32 ;;
 orbital_void_reflux) THEME_BG_R=10; THEME_BG_G=6; THEME_BG_B=40 ;;
 sensorium_interface) THEME_BG_R=28; THEME_BG_G=8; THEME_BG_B=36 ;;
 retro_linux_memories) THEME_BG_R=26; THEME_BG_G=30; THEME_BG_B=33 ;;
-dreamworlds) THEME_BG_R=42; THEME_BG_G=8; THEME_BG_B=28 ;;
+dreamworlds) THEME_BG_R=0; THEME_BG_G=0; THEME_BG_B=0 ;;
 cyberpunk) THEME_BG_R=18; THEME_BG_G=4; THEME_BG_B=28 ;;
 dracula) THEME_BG_R=40; THEME_BG_G=42; THEME_BG_B=54 ;;
 nord) THEME_BG_R=46; THEME_BG_G=52; THEME_BG_B=64 ;;
@@ -554,6 +767,9 @@ _mp_manager_bash_key() {
   trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
   if [ -z "$trimmed" ]; then
     case "$key" in
+      A)
+        exit 42
+        ;;
       g|G)
         if [ -n "${MP_GUI_LAUNCHER:-}" ] && [ -f "$MP_GUI_LAUNCHER" ]; then
           mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
@@ -592,13 +808,15 @@ if [ "$(bind -v 2>/dev/null | sed -n 's/^set editing-mode //p')" = "vi" ]; then
   bind -m vi-insert -x '"B": _mp_manager_bash_key B'
   bind -m vi-insert -x '"g": _mp_manager_bash_key g'
   bind -m vi-insert -x '"G": _mp_manager_bash_key G'
+  bind -m vi-insert -x '"A": _mp_manager_bash_key A'
 else
   bind -x '"b": _mp_manager_bash_key b'
   bind -x '"B": _mp_manager_bash_key B'
   bind -x '"g": _mp_manager_bash_key g'
   bind -x '"G": _mp_manager_bash_key G'
+  bind -x '"A": _mp_manager_bash_key A'
 fi
-printf '\033[0mpress B to return to MP Manager, or G for MP Gui\n'
+printf '\033[0mpress B to return to MP Manager, or G for MP Gui, or Shift+A for MP Harmony\n'
 MPBASH
 export MP_GUI_LAUNCHER="${SCRIPT_DIR}/MP_Gui.sh"
 export MP_GUI_LOG="${HOME}/.config/mix-manager/mp_gui.log"
@@ -610,8 +828,10 @@ printf '\033[?25h\033[?12h\033[?7h\033[0m\033[H\033[2J\033[3J' >/dev/tty
 stty sane </dev/tty >/dev/tty 2>&1 || true
 trap '' INT
 set -m
+local _bash_rc=0
 while true; do
-  MP_MANAGER_BASH=1 "$_bash" --rcfile "$_rcfile" -i </dev/tty >/dev/tty 2>&1 || true
+  _bash_rc=0
+  MP_MANAGER_BASH=1 "$_bash" --rcfile "$_rcfile" -i </dev/tty >/dev/tty 2>&1 || _bash_rc=$?
   if jobs -l 2>/dev/null | grep -q Stopped; then
     fg >/dev/tty 2>&1 || break
     continue
@@ -623,19 +843,22 @@ if [ -n "$_saved_int" ]; then eval "$_saved_int"; else trap - INT; fi
 rm -f "$_rcfile"
 _MENU_CURSOR_LOCK=1
 printf '\033[?25l\033[?12l\033[?7l\033[0m\033[H\033[2J' >/dev/tty
+if [ "${_bash_rc:-0}" -eq 42 ]; then
+  launch_mp_harmony_from_menu
+fi
 }
 run_interactive_submenu() {
 [ -z "${_LAST_SET_TITLE:-}" ] && ensure_manager_windowed
 local _menu_exit_hint="q to exit"; [ "${MP_GUI_SESSION:-0}" = "1" ] && _menu_exit_hint="q or Esc to close"; local menu_title="$1"; local menu_header="$2"; local -n _opts_ref="$3"; local cur_idx="${4:-0}"; local total_opts="${#_opts_ref[@]}"; command -v update_mp_bridge_menu &>/dev/null && update_mp_bridge_menu "${menu_title:-Main Console / Workstation Menu}" "true"; if [ "$total_opts" -eq 0 ]; then REPLY="0"; return 0; fi; local start_attempts=0; while [ "$start_attempts" -lt "$total_opts" ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then break; fi; cur_idx=$(( (cur_idx + 1) % total_opts )); ((start_attempts++)); done; local -a selectable_map=(); local s_count=0; local i; for (( i=0; i<total_opts; i++ )); do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$i]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then selectable_map[i]=$s_count; ((s_count++)); else selectable_map[i]=-1; fi; done; _find_menu_search_match() { local q="${1,,}" start="${2:-0}" dir="${3:-1}"; [ -z "$q" ] && return 0; local step=0 idx="$start"; while [ "$step" -lt "$total_opts" ]; do local ok="" ol="" oe=""; IFS='|' read -r ok ol oe <<< "${_opts_ref[$idx]}"; if [ "$ok" != "SECTION" ] && [ "$ok" != "SEP" ]; then local haystack="${ok} ${ol} ${oe}"; haystack="${haystack,,}"; if [[ "$haystack" == *"$q"* ]]; then cur_idx=$idx; return 0; fi; fi; idx=$(( (idx + dir + total_opts) % total_opts )); ((step++)); done; return 1; }; if [ ! -t 0 ]; then clear; if [ -n "$menu_title" ]; then echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}       $menu_title${NC}\n${BOLD}${MAGENTA}${S70}${NC}"; elif [ -z "$menu_title" ] && [ -z "$menu_header" ] && command -v render_main_header &>/dev/null; then update_terminal_geometry 0; render_main_header "$(( _TERM_COLS - 4 ))" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; [ -n "$menu_header" ] && echo -e "$menu_header"; if get_mp_audio_player_track_info 2>/dev/null; then local st_sym="${BOLD}${GREEN}▶ PLAYING${NC}"; [ "$MP_PLAYER_STATE" = "paused" ] && st_sym="${BOLD}${YELLOW}⏸ PAUSED${NC}"; local disp_title="$MP_PLAYER_TITLE"; [ ${#disp_title} -gt 40 ] && disp_title="${disp_title:0:37}..."; local p_hdr="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_hdr="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local p_dashes=$(( 74 - ${#p_hdr} - 4 )); [ "$p_dashes" -lt 0 ] && p_dashes=0; local p_dash_str; printf -v p_dash_str '%*s' "$p_dashes" ''; p_dash_str="${p_dash_str// /─}"; echo -e "  ${BOLD}${MAGENTA}╭── ${p_hdr} ${p_dash_str}╮${NC}"; printf "  ${BOLD}${MAGENTA}│${NC} %b  ${BOLD}${YELLOW}%-40s${NC}  ${CYAN}%s/%s${NC} ${DIM}(%2s%%)${NC} ${BOLD}${MAGENTA}│\n" "$st_sym" "$disp_title" "$MP_PLAYER_POS_FMT" "$MP_PLAYER_DUR_FMT" "${MP_PLAYER_PROGRESS_PCT%.*}"; printf "  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} %b  ${DIM}Controls: [Space] Toggle [L] Liquid [C] Theme [n] Next [</>] Track [p] UI [f] FM ${NC} ${BOLD}${MAGENTA}│\n" "${CYAN}${MP_PLAYER_MINI_EQ:-        }${NC}"; echo -e "  ${BOLD}${MAGENTA}╰──────────────────────────────────────────────────────────────────────────╯${NC}"; fi; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key o_label o_extra <<< "$opt_entry"; case "$o_key" in SECTION) echo -e "\n  ${BOLD}${BLUE}─── [ $o_label ] ─────────${NC}" ;; SEP) echo -e "  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────────${NC}" ;; *) echo -e "  ${BOLD}${MENU_NUM:-${CYAN}}$o_key)${NC} $o_label ${DIM}$o_extra${NC}" ;; esac; done; echo ""; run_deferred_startup; read -r -p "Enter choice: " REPLY; return 0; fi; update_terminal_geometry 0; local box_w; _set_menu_box_width box_w "${_TERM_COLS:-80}"; _CURRENT_BOX_W="$box_w"; _MENU_CURSOR_LOCK=1; local header_count=0; local cached_header_block=""; local cached_header_lines=0; local overhead=4
 build_header_block() {
-header_count=0; cached_header_block=""; cached_header_lines=0; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; if [ -n "$menu_title" ]; then cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"; local title_line; printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"; cached_header_block+="$title_line"; cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; cached_header_lines=$((cached_header_lines + 3)); fi; if [ -z "$menu_title" ] && command -v render_main_header &>/dev/null; then render_main_header "$box_w" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; if [ -n "$menu_header" ]; then local exp_hdr=""; printf -v exp_hdr "%b" "$menu_header"; exp_hdr="${exp_hdr%$'\n'}"; while IFS= read -r h_line; do cached_header_block+="${h_line}\033[K\n"; ((header_count++)); done <<< "$exp_hdr"; cached_header_lines=$((cached_header_lines + header_count)); fi; if [ -n "$menu_title" ]; then cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Esc] to return immediately\033[K${NC}\n"; else cached_header_block+="  ${DIM}${BLUE}Use [↑/↓] Arrow Keys to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [C] Theme, ${_menu_exit_hint}\033[K${NC}\n"; fi; ((cached_header_lines++)); overhead=$((cached_header_lines + 4))
+header_count=0; cached_header_block=""; cached_header_lines=0; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; if [ -n "$menu_title" ]; then cached_header_block+="  ${BOLD}${MAGENTA}╭${h_border}╮\033[K${NC}\n"; local title_line; printf -v title_line "  ${BOLD}${MAGENTA}│ %-${text_w}s │\033[K${NC}\n" "  ${menu_title}"; cached_header_block+="$title_line"; cached_header_block+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; cached_header_lines=$((cached_header_lines + 3)); fi; if [ -z "$menu_title" ] && command -v render_main_header &>/dev/null; then render_main_header "$box_w" >/dev/null; menu_header="${_RENDERED_MAIN_HEADER:-}"; fi; if [ -n "$menu_header" ]; then local exp_hdr=""; printf -v exp_hdr "%b" "$menu_header"; exp_hdr="${exp_hdr%$'\n'}"; while IFS= read -r h_line; do cached_header_block+="${h_line}\033[K\n"; ((header_count++)); done <<< "$exp_hdr"; cached_header_lines=$((cached_header_lines + header_count)); fi; if [ -n "$menu_title" ]; then _append_fitted_hint "$(( box_w + 2 ))" "Use [↑/↓] Arrows to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Shift+A] MP Harmony, [Esc] to return immediately"; else _append_fitted_hint "$(( box_w + 2 ))" "Use [↑/↓] Arrows to navigate, [/] to search, [Enter] to select, [G] MP Gui, [B] Bash, [Shift+A] MP Harmony, [C] Theme, ${_menu_exit_hint}"; fi; ((cached_header_lines++)); overhead=$((cached_header_lines + 4))
 }
 build_header_block
 _compose_menu_status() {
 local _out="$1"; local cur_key="" cur_lbl="" cur_ext=""; local line=""; IFS='|' read -r cur_key cur_lbl cur_ext <<< "${_opts_ref[$cur_idx]}"; if [ "${search_mode:-0}" -eq 1 ] || [ -n "${search_query:-}" ]; then line="  ${BOLD}${CYAN}Filter / Search:${NC} ${BOLD}${YELLOW}[${search_query}█]${NC} ▏ ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}(Type to search, ↑/↓ Navigate, Enter: Select, Esc: Clear)\033[K"; elif [ -n "$typed_buffer" ]; then if [ -n "$menu_title" ]; then line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, Esc to return)\033[K"; else line="  ${BOLD}${CYAN}Selection:${NC} ${BOLD}${YELLOW}${typed_buffer}${NC} ▏ ${DIM}(Press Enter to confirm, 'q' to exit)\033[K"; fi; else if [ -n "$menu_title" ]; then line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, [/] to Search, Enter to Select, Esc to Return]\033[K"; else line="  ${BOLD}${CYAN}Selection:${NC} ${DIM}[Option ${cur_key}: ${cur_lbl}]${NC} ▏ ${DIM}[↑/↓ to Navigate, [/] to Search, Enter to Select, ${_menu_exit_hint}]\033[K"; fi; fi; printf -v "$_out" '%s' "$line"
 }
 _menu_line_plain() {
-local idx="$1"; local _out="$2"; local o_key="" o_label="" o_extra=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; local key_formatted=""; printf -v key_formatted "[%2s]" "$o_key"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"; printf -v "$_out" '%s' "     ${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
+local idx="$1"; local _out="$2"; local o_key="" o_label="" o_extra=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; local key_formatted=""; printf -v key_formatted "[%2s]" "$o_key"; local extra_display=""; local _fitted_extra=""; _fitted_extra="$(_fit_menu_extra "$o_key" "$o_label" "$o_extra" "$(( box_w + 2 ))")"; [ -n "$_fitted_extra" ] && extra_display="  ${DIM}${_fitted_extra}${NC}"; printf -v "$_out" '%s' "     ${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC} ${o_label}${extra_display}\033[K"
 }
 _menu_fast_paint_selection() {
 local old_idx="$1"; [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1; [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1; [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1; [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1; [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1; [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1; [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1; [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1; local plain sel status; _menu_line_plain "$old_idx" plain
@@ -644,9 +867,9 @@ IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_me
 cleanup_submenu_screen() {
 _MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
 }                                            
-_MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 4 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - 16 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 2 ] && l1_pad=2; local l1_sp
-printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"; local eq_raw="${MP_PLAYER_MINI_EQ:-        }"; [ -z "$eq_raw" ] && eq_raw="        "; local eq_disp="${CYAN}${eq_raw}${NC}"; local l2_pad=$(( text_w - 16 - ${#eq_raw} - ${#line2_ctrl} )); if [ "$l2_pad" -lt 0 ]; then local _keep=$(( ${#line2_ctrl} + l2_pad )); [ "$_keep" -lt 0 ] && _keep=0; if [ "$_keep" -gt 3 ]; then line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."; else line2_ctrl="${line2_ctrl:0:$_keep}"; fi; l2_pad=0; fi; local l2_sp=""; [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 2 ? 2 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; if [ "$cur_idx" -le 1 ]; then view_top=0; elif [ "$cur_idx" -gt 0 ]; then local _pk=""; IFS='|' read -r _pk _ _ <<< "${_opts_ref[$((cur_idx - 1))]}"; [ "$_pk" = "SECTION" ] && [ "$((cur_idx - 1))" -lt "$view_top" ] && view_top=$((cur_idx - 1)); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; [ -n "$o_extra" ] && extra_display="  ${DIM}${o_extra}${NC}"
-frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${h_border}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
+_MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local menu_rule; printf -v menu_rule '%*s' "$((inner_w + 1))" ''; menu_rule="${menu_rule// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 4 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - ${#st_raw} - 4 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); if [ "$l1_pad" -lt 1 ]; then local _over=$((1 - l1_pad)); local _tlen=${#disp_title}; if [ $((_tlen - _over)) -gt 3 ]; then disp_title="${disp_title:0:$((_tlen - _over - 3))}..."; else disp_title="${disp_title:0:$(( _tlen > _over ? _tlen - _over : 0 ))}"; fi; l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 1 ] && l1_pad=1; fi; local l1_sp
+printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"; local eq_raw="${MP_PLAYER_MINI_EQ:-        }"; [ -z "$eq_raw" ] && eq_raw="        "; local eq_disp="${CYAN}${eq_raw}${NC}"; local l2_pad=$(( text_w - 16 - ${#eq_raw} - ${#line2_ctrl} )); if [ "$l2_pad" -lt 0 ]; then local _keep=$(( ${#line2_ctrl} + l2_pad )); [ "$_keep" -lt 0 ] && _keep=0; if [ "$_keep" -gt 3 ]; then line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."; else line2_ctrl="${line2_ctrl:0:$_keep}"; fi; l2_pad=0; fi; local l2_sp=""; [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 2 ? 2 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; if [ "$cur_idx" -le 1 ]; then view_top=0; elif [ "$cur_idx" -gt 0 ]; then local _pk=""; IFS='|' read -r _pk _ _ <<< "${_opts_ref[$((cur_idx - 1))]}"; [ "$_pk" = "SECTION" ] && [ "$((cur_idx - 1))" -lt "$view_top" ] && view_top=$((cur_idx - 1)); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; local _fitted_extra=""; _fitted_extra="$(_fit_menu_extra "$o_key" "$o_label" "$o_extra" "$(( box_w + 2 ))")"; [ -n "$_fitted_extra" ] && extra_display="  ${DIM}${_fitted_extra}${NC}"
+frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
 
 RESIZE) 
     update_terminal_geometry 1
@@ -694,6 +917,7 @@ TICK)
         fi
         _MENU_FRAME_FRESH=0
     fi ; local _idle_time=$(( _now_s - _LAST_NAV_TIME )); if [ "$_idle_time" -ge 10 ] && [ "${search_mode:-0}" -ne 1 ] && [ -z "${typed_buffer:-}" ]; then _IS_BREATHING=1; ((_BREATH_TICK_DIV++)); if [ "$_BREATH_TICK_DIV" -ge 2 ]; then _BREATH_TICK_DIV=0; _BREATH_STEP=$(( (_BREATH_STEP + 1) % 32 )); local cur_f="${_BREATH_FACTORS[_BREATH_STEP]}"; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_breath=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_breath "$box_w" "$cur_f"; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_breath"; fi; fi; elif [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; if [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ]; then local o_key="" o_label="" o_extra="" sel_restored=""; IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel_restored "$box_w" 100; printf '\033[?25l\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$cur_idx]}" "$sel_restored"; fi; fi; continue ;; CHAR:/) if [ "$search_mode" -eq 1 ]; then search_query+="/"; _find_menu_search_match "$search_query" 0 1; else search_mode=1; search_query=""; typed_buffer=""; fi; _MENU_FRAME_FRESH=0; continue ;; SPACE) if [ "$search_mode" -eq 1 ]; then search_query+=" "; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; toggle_mp_audio_player; _MENU_FRAME_FRESH=0; continue ;; CHAR:m|CHAR:M) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_window; _MENU_FRAME_FRESH=0; continue ;; CHAR:l|CHAR:L) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_audio_player_liquid_glass >/dev/null 2>&1; _MENU_FRAME_FRESH=0; continue ;; CHAR:z|CHAR:Z) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_liquid_visualizer >/dev/null 2>&1; _MENU_FRAME_FRESH=0; continue ;;
+CHAR:A) if [ "$search_mode" -eq 1 ]; then search_query+="A"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && _nav_just_arrowed; then continue; fi; cleanup_submenu_screen; launch_mp_harmony_from_menu; _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; clear; typed_buffer=""; _last_menu_frame=""; _MENU_FRAME_FRESH=0; last_term_lines=0; continue ;;
 CHAR:g|CHAR:G) if [ "$search_mode" -eq 1 ]; then search_query+="${key_action#CHAR:}"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; launch_mp_gui_from_menu; _last_menu_frame=""; _MENU_FRAME_FRESH=0; continue ;;
 CHAR:K) if [ "$search_mode" -eq 1 ]; then search_query+="K"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped"; typed_buffer=""; _last_menu_frame=""; _MENU_FRAME_FRESH=0; continue ;;
 CHAR:n|CHAR:N|CHAR:\>|CHAR:\])
@@ -707,7 +931,7 @@ if [ "$search_mode" -eq 1 ]; then search_query+="+"; _find_menu_search_match "$s
 ;; CHAR:-|CHAR:_) if [ "$search_mode" -eq 1 ]; then search_query+="-"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-down &>/dev/null &
 ;; CHAR:0) if [ "$search_mode" -eq 1 ]; then search_query+="0"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; local has_exact_0=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "0" ]; then has_exact_0=1; break; fi; done; if [ "$has_exact_0" -eq 1 ]; then cleanup_submenu_screen; clear; REPLY="0"; return 0; fi; local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --pitch-reset &>/dev/null &
 ;; UP) if [ "$search_mode" -eq 1 ] && [ -n "$search_query" ]; then _find_menu_search_match "$search_query" $(( (cur_idx - 1 + total_opts) % total_opts )) -1; _MENU_FRAME_FRESH=0; continue; fi; local old_idx="$cur_idx"; local hops=0; while [ "$hops" -lt "$total_opts" ]; do cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((hops++)); done; typed_buffer=""; if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then _MENU_FRAME_FRESH=1; fi; _ARROW_HOLD=1; _NAV_ARROW_AT="${EPOCHREALTIME:-0}"; ;; PAGE_UP) local hops=0; local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 )); while [ "$hops" -lt "$target_step" ]; do cur_idx=$(( (cur_idx - 1 + total_opts) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then ((hops++)); fi; done; typed_buffer=""; ;; DOWN) if [ "$search_mode" -eq 1 ] && [ -n "$search_query" ]; then _find_menu_search_match "$search_query" $(( (cur_idx + 1) % total_opts )) 1; _MENU_FRAME_FRESH=0; continue; fi; local old_idx="$cur_idx"; local hops=0; while [ "$hops" -lt "$total_opts" ]; do cur_idx=$(( (cur_idx + 1) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((hops++)); done; typed_buffer=""; if [ "$old_idx" -ne "$cur_idx" ] && _menu_fast_paint_selection "$old_idx"; then _MENU_FRAME_FRESH=1; fi; _ARROW_HOLD=1; _NAV_ARROW_AT="${EPOCHREALTIME:-0}"; ;; PAGE_DOWN) local hops=0; local target_step=$(( max_visible > 5 ? max_visible - 2 : 5 )); while [ "$hops" -lt "$target_step" ]; do cur_idx=$(( (cur_idx + 1) % total_opts )); IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; if [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ]; then ((hops++)); fi; done; typed_buffer=""; ;; HOME) cur_idx=0; while [ "$cur_idx" -lt "$total_opts" ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((cur_idx++)); done; typed_buffer="" ;; END) cur_idx=$(( total_opts - 1 )); while [ "$cur_idx" -ge 0 ]; do IFS='|' read -r k_chk _ _ <<< "${_opts_ref[$cur_idx]}"; [ "$k_chk" != "SECTION" ] && [ "$k_chk" != "SEP" ] && break; ((cur_idx--)); done; typed_buffer=""; ;; ENTER) cleanup_submenu_screen; clear; if [ "$search_mode" -eq 1 ] || [ -n "$search_query" ]; then IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; elif [ -n "$typed_buffer" ]; then REPLY="$typed_buffer"; else IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; fi; return 0 ;; ESC) if [ "$search_mode" -eq 1 ] || [ -n "$search_query" ]; then search_mode=0; search_query=""; _MENU_FRAME_FRESH=0; continue; fi; cleanup_submenu_screen; clear; REPLY="ESC"; return 0 ;; BACKSPACE) if [ "$search_mode" -eq 1 ]; then search_query="${search_query%?}"; if [ -n "$search_query" ]; then _find_menu_search_match "$search_query" 0 1; fi; _MENU_FRAME_FRESH=0; continue; fi; typed_buffer="${typed_buffer%?}"; ;; CHAR:*) local ch="${key_action#CHAR:}"; if [ "$search_mode" -eq 1 ]; then search_query+="$ch"; _find_menu_search_match "$search_query" 0 1; _MENU_FRAME_FRESH=0; continue; fi; if [ -z "$typed_buffer" ] && { [ "$ch" = "c" ] || [ "$ch" = "C" ]; }; then local has_exact_c=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "c" ] || [ "$o_key" = "C" ]; then has_exact_c=1; break; fi; done; if [ "$has_exact_c" -eq 0 ]; then cycle_menu_theme; last_term_lines=0; _last_menu_frame=""; _MENU_FRAME_FRESH=0; continue; fi; fi; if [ "${_NAV_WIN_CON:-0}" -eq 1 ] && [[ "$ch" == "A" || "$ch" == "B" ]] && _nav_just_arrowed; then continue; fi; if [ -z "$typed_buffer" ] && { [ "$ch" = "b" ] || [ "$ch" = "B" ]; }; then local has_exact_b=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "b" ] || [ "$o_key" = "B" ]; then has_exact_b=1; break; fi; done; if [ "$has_exact_b" -eq 0 ]; then enter_manager_bash_terminal; typed_buffer=""; _last_menu_frame=""; _MENU_FRAME_FRESH=0; last_term_lines=0; continue; fi; fi; if [ -z "$typed_buffer" ] && ([ "$ch" = "p" ] || [ "$ch" = "P" ]); then local has_exact_p=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "p" ] || [ "$o_key" = "P" ]; then has_exact_p=1; break; fi; done; if [ "$has_exact_p" -eq 0 ]; then cleanup_submenu_screen; manage_mp_audio_player; _MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; clear; continue; fi; fi; if [ -z "$typed_buffer" ] && ([ "$ch" = "f" ] || [ "$ch" = "F" ]) && [ "${MP_PLAYER_ACTIVE:-0}" -eq 1 ]; then local has_exact_f=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "f" ] || [ "$o_key" = "F" ]; then has_exact_f=1; break; fi; done; if [ "$has_exact_f" -eq 0 ]; then local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"; [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"; [ -f "$mp_py" ] && python3 "$mp_py" --open-file-manager &>/dev/null &
-continue; fi; fi; typed_buffer+="$ch"; local m_idx=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "$typed_buffer" ]; then cur_idx=$m_idx; break; fi; ((m_idx++)); done; if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ]; then cleanup_submenu_screen; clear; REPLY="$typed_buffer"; return 0; fi ;; esac; done
+continue; fi; fi; typed_buffer+="$ch"; local m_idx=0; for opt_entry in "${_opts_ref[@]}"; do IFS='|' read -r o_key _ _ <<< "$opt_entry"; if [ "$o_key" = "$typed_buffer" ] || [ "${o_key,,}" = "${typed_buffer,,}" ]; then cur_idx=$m_idx; break; fi; ((m_idx++)); done; if [ "$typed_buffer" = "q" ] || [ "$typed_buffer" = "Q" ]; then cleanup_submenu_screen; clear; REPLY="$typed_buffer"; return 0; fi ;; esac; done
 }
 load_theme() {
 local theme_file="$HOME/.config/mix-manager/theme" saved_theme=""
@@ -1212,8 +1436,17 @@ exit_mix_manager() {
     fi
     # Hand the console back to the user's own profile colours.
     _restore_cli_theme_background
+    # TTY Audio Mode also puts the line discipline back. A crash path uses
+    # the same restore so the console is not left raw or without a cursor.
+    if type mp_tty_restore_terminal >/dev/null 2>&1 && { [ "${MP_TTY_ABNORMAL_EXIT:-0}" = "1" ] || { type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; }; }; then
+        mp_tty_restore_terminal
+    fi
     # Switch back from alternate screen buffer and restore cursor/wrap
     printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
+    if [ "${MP_TTY_ABNORMAL_EXIT:-0}" = "1" ]; then
+        printf '\n[!] Application terminated.\n'
+        exit 139
+    fi
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"
     if [ "$_lg_open" -eq 1 ]; then
@@ -1408,8 +1641,12 @@ ensure_manager_windowed() {
     _IS_FULLSCREEN=0
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}]"
+    if mp_tty_audio_mode_active; then
+        new_title="MP Mix Manager TTY Audio Mode [${app_ver}]"
+    fi
     # CSI 10/9 window-ops make macOS Terminal drop the tab title and restore it.
-    if [ "${OS_TYPE:-}" != "macos" ]; then
+    # A Linux console has no window to resize.
+    if [ "${OS_TYPE:-}" != "macos" ] && ! mp_tty_audio_mode_active; then
         printf '\033[10;0t\033[9;0t' 2>/dev/null || true
     fi
     apply_manager_console_tab_title "$new_title"
@@ -1418,7 +1655,7 @@ ensure_manager_fullscreen() {
     _IS_FULLSCREEN=1
     local app_ver; app_ver="v${VERSION#v}"
     local new_title="MP Mix Archive Manager [${app_ver}] (Fullscreen)"
-    if [ "${OS_TYPE:-}" != "macos" ]; then
+    if [ "${OS_TYPE:-}" != "macos" ] && ! mp_tty_audio_mode_active; then
         printf '\033[10;1t\033[9;1t' 2>/dev/null || true
     fi
     apply_manager_console_tab_title "$new_title"
@@ -1428,6 +1665,7 @@ align_mix_windows_on_screen() {
 disown 2>/dev/null || true; fi
 }
 open_cover_art_window() {
+if mp_tty_audio_mode_active; then return 0; fi
 local target="$1"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; local cover_title="Mix Cover Art Viewer"; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if _has_flatpak "org.kde.gwenview"; then nohup flatpak run org.kde.gwenview "$target" &>/dev/null &
 disown 2>/dev/null || true; align_mix_windows_on_screen --expect-cover; return 0; fi; for viewer in gwenview loupe eog feh xdg-open; do if command -v "$viewer" &>/dev/null; then nohup "$viewer" "$target" &>/dev/null &
 disown 2>/dev/null || true; align_mix_windows_on_screen --expect-cover; return 0; fi; done; fi; if [ "$OS_TYPE" = "macos" ]; then open -a Preview "$target" &>/dev/null &
@@ -1470,8 +1708,208 @@ local saved_mode="${AUTO_PLAY_MIX_SELECTION:-latest}"; local selected_mix=""; AU
 copy_to_clipboard() {
 local text="$1"; local cmd; if [ "$OS_TYPE" = "macos" ] || [ "$OS_TYPE" = "wsl" ]; then cmd="pbcopy"; elif [ "$OS_TYPE" = "windows" ]; then cmd="clip.exe"; else if command -v wl-copy &>/dev/null; then cmd="wl-copy"; elif command -v xclip &>/dev/null; then cmd="xclip -selection clipboard"; elif command -v pbcopy &>/dev/null; then cmd="pbcopy"; elif command -v clip.exe &>/dev/null; then cmd="clip.exe"; fi; fi; if [ -n "$cmd" ]; then printf "%s" "$text" | $cmd; return 0; fi; return 1
 }
+# MP_TTY_AUDIO_MODE_BEGIN
+# MP Mix Manager TTY Audio Mode.
+# Menu option 37 on Linux runs scripts/MP_Desktop_CLI_Switch.sh, which leaves
+# Plasma for a TTY login or brings the desktop back. The flag file keeps the
+# mode across that logout. While it is set, playback stays in the terminal
+# player and desktop windows stay closed.
+MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+
+mp_tty_audio_mode_active() {
+    [ "${MP_MIX_MANAGER_TTY_MODE:-0}" = "1" ] && return 0
+    [ -n "${MP_TTY_AUDIO_MODE_FILE:-}" ] && [ -f "$MP_TTY_AUDIO_MODE_FILE" ] && return 0
+    return 1
+}
+
+mp_tty_audio_mode_load() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    if [ -f "$MP_TTY_AUDIO_MODE_FILE" ] || [ "${MP_MIX_MANAGER_TTY_MODE:-0}" = "1" ]; then
+        export MP_MIX_MANAGER_TTY_MODE=1
+        AUTO_SHOW_COVER_ON_STARTUP=false
+        AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+        mp_tty_session_begin
+    fi
+}
+
+mp_tty_audio_mode_enable() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    mkdir -p "${HOME:-}/.config/mix-manager" 2>/dev/null || true
+    printf '1\n' > "$MP_TTY_AUDIO_MODE_FILE"
+    export MP_MIX_MANAGER_TTY_MODE=1
+    AUTO_SHOW_COVER_ON_STARTUP=false
+    AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+    mp_tty_session_begin
+}
+
+# The kernel keeps the last termios state. Restore echo, canonical input,
+# and the cursor on the way out, including SEGV. INT and TERM still go
+# through exit_mix_manager, which calls this same restore.
+mp_tty_restore_terminal() {
+    stty sane </dev/tty >/dev/tty 2>/dev/null || stty sane 2>/dev/null || true
+    printf '\033[?25h\033[?7h\033[?1049l' >/dev/tty 2>/dev/null || printf '\033[?25h\033[?7h\033[?1049l' 2>/dev/null || true
+}
+
+mp_tty_crash_restore() {
+    trap - SEGV EXIT INT TERM HUP
+    MP_TTY_ABNORMAL_EXIT=1
+    mp_tty_restore_terminal
+    printf '\n[!] Application terminated.\n' >/dev/tty 2>/dev/null || printf '\n[!] Application terminated.\n'
+    exit 139
+}
+
+mp_tty_on_linux_console() {
+    local name=""
+    name="$(tty 2>/dev/null || true)"
+    case "$name" in
+        /dev/tty[0-9]|/dev/tty[0-9][0-9]|/dev/console) return 0 ;;
+    esac
+    return 1
+}
+
+# Nice and realtime I/O only on the console service or a real virtual console.
+# A desktop confirmation must not renice the Plasma session.
+mp_tty_tune_priority() {
+    [ "${MP_TTY_PRIORITY_TUNED:-0}" = "1" ] && return 0
+    if [ "${MP_TTY_KIOSK:-0}" != "1" ] && ! mp_tty_on_linux_console; then
+        return 0
+    fi
+    MP_TTY_PRIORITY_TUNED=1
+    renice -n -10 -p $$ >/dev/null 2>&1 || true
+    if command -v ionice >/dev/null 2>&1; then
+        ionice -c 1 -n 0 -p $$ >/dev/null 2>&1 || ionice -c 2 -n 0 -p $$ >/dev/null 2>&1 || true
+    fi
+}
+
+mp_tty_session_begin() {
+    [ "${MP_TTY_SESSION_READY:-0}" = "1" ] && return 0
+    MP_TTY_SESSION_READY=1
+    export PYTHONUNBUFFERED=1
+    export MP_MIX_MANAGER_TTY_MODE=1
+    if [ "${MP_TTY_TRAPS_READY:-0}" != "1" ]; then
+        MP_TTY_TRAPS_READY=1
+        trap 'mp_tty_crash_restore' SEGV
+    fi
+    mp_tty_tune_priority
+}
+
+mp_tty_audio_mode_disable() {
+    MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
+    rm -f "$MP_TTY_AUDIO_MODE_FILE" 2>/dev/null || true
+    export MP_MIX_MANAGER_TTY_MODE=0
+}
+
+# 0 = refused because TTY Audio Mode is on. 1 = desktop actions may proceed.
+mp_tty_skip_desktop() {
+    mp_tty_audio_mode_active || return 1
+    local what="${1:-This action}"
+    echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+    echo -e "${YELLOW}${what} needs a graphical desktop, so it stays closed.${NC}"
+    echo -e "${DIM}Audio stays in the terminal player. Option 37 returns to the desktop.${NC}"
+    return 0
+}
+
+# tty     = a graphical session, so option 37 drops to the text console
+# desktop = the boot target is already the text console, so option 37 returns to Plasma
+# here    = already a text console, and the desktop login is still the boot target
+_mp_tty_switch_target() {
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+        printf '%s\n' tty
+        return 0
+    fi
+    if [ "$(systemctl get-default 2>/dev/null || true)" = "multi-user.target" ]; then
+        printf '%s\n' desktop
+        return 0
+    fi
+    printf '%s\n' here
+}
+
+manage_linux_tty_desktop_switch() {
+    if [ "${OS_TYPE:-}" != "linux" ]; then
+        echo -e "\n${YELLOW}Linux TTY Desktop Switcher is available on Linux only.${NC}"
+        press_enter
+        return 0
+    fi
+    local switch="$SCRIPT_DIR/scripts/MP_Desktop_CLI_Switch.sh"
+    if [ ! -f "$switch" ] && [ -f "$SCRIPT_DIR/MP_Desktop_CLI_Switch.sh" ]; then
+        switch="$SCRIPT_DIR/MP_Desktop_CLI_Switch.sh"
+    fi
+    if [ ! -f "$switch" ]; then
+        echo -e "\n${RED}MP_Desktop_CLI_Switch.sh was not found.${NC}"
+        press_enter
+        return 1
+    fi
+    local target ans="" rc=0
+    target="$(_mp_tty_switch_target)"
+    echo
+    case "$target" in
+        desktop)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This returns to the Plasma login screen and turns ${BOLD}MP Mix Manager TTY Audio Mode${NC} off."
+            printf '%s' "Return to the desktop now? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_disable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is off.${NC}"
+                    bash "$switch" || rc=$?
+                    if [ "$rc" -ne 0 ]; then
+                        echo -e "${YELLOW}The desktop login did not start.${NC}"
+                        press_enter
+                    fi
+                    return "$rc"
+                    ;;
+            esac
+            echo -e "${DIM}Staying on this console.${NC}"
+            press_enter
+            return 0
+            ;;
+        tty)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This enables ${BOLD}MP Mix Manager TTY Audio Mode${NC} and leaves the desktop for a text console."
+            echo -e "MP Mix Manager opens on tty1 and restarts if it exits. Playback uses the terminal player."
+            echo -e "Ctrl+Alt+F2 stays a login shell. Liquid Glass, MP Gui, and the visualizer stay closed."
+            echo -e "Option 37 on the TTY turns the mode off and brings the desktop login back."
+            printf '%s' "Switch to the TTY now? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_enable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is on.${NC}"
+                    bash "$switch" || rc=$?
+                    if [ "$rc" -ne 0 ]; then
+                        echo -e "${YELLOW}The desktop is still up. TTY Audio Mode stays on in this window.${NC}"
+                        press_enter
+                    fi
+                    return "$rc"
+                    ;;
+            esac
+            echo -e "${DIM}Left the desktop session as it is.${NC}"
+            press_enter
+            return 0
+            ;;
+        *)
+            echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
+            echo -e "This console is already a text session. Enabling ${BOLD}MP Mix Manager TTY Audio Mode${NC} keeps audio in the terminal player."
+            printf '%s' "Enable MP Mix Manager TTY Audio Mode? [y/N]: "
+            read -r ans || ans=""
+            case "$ans" in
+                y|Y|yes|YES)
+                    mp_tty_audio_mode_enable
+                    echo -e "${GREEN}MP Mix Manager TTY Audio Mode is on.${NC}"
+                    press_enter
+                    return 0
+                    ;;
+            esac
+            echo -e "${DIM}TTY Audio Mode was not changed.${NC}"
+            press_enter
+            return 0
+            ;;
+    esac
+}
+# MP_TTY_AUDIO_MODE_END
 launch_in_terminal() {
-local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
+local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if mp_tty_audio_mode_active; then echo -e "\n${BOLD}${CYAN}${title}${NC} ${DIM}(MP Mix Manager TTY Audio Mode, this console)${NC}\n"; local _tty_rc=0; PYTHONUNBUFFERED=1 bash -c "$cmd" || _tty_rc=$?; mp_tty_restore_terminal; return $_tty_rc; fi; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
 osascript - "$cmd" <<'APPLESCRIPT' &>/dev/null
 on run argv
     set cmdText to item 1 of argv
@@ -1615,12 +2053,22 @@ _run_mp_audio_player() {
             bin="$MP_PYTHON"
         fi
     fi
+    local rc=0
+    if type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; then
+        env -u LINES -u COLUMNS PYTHONUNBUFFERED=1 MP_MIX_MANAGER_TTY_MODE=1 "$bin" "$@" || rc=$?
+        type mp_tty_restore_terminal >/dev/null 2>&1 && mp_tty_restore_terminal
+        return "$rc"
+    fi
     env -u LINES -u COLUMNS "$bin" "$@"
 }
 # M on the main screen opens the normal player. Mini and Micro stay inside
 # an already-open player window. The Mini profile is 74x14 and 30% opacity,
 # and that window was opening gray and empty.
 launch_mp_audio_player_window() {
+    if mp_tty_audio_mode_active; then
+        manage_mp_audio_player
+        return 0
+    fi
     local mp_py="$SCRIPT_DIR/MP_Audio_Player.py"
     [ ! -f "$mp_py" ] && mp_py="$SCRIPT_DIR/scripts/MP_Audio_Player.py"
     if [ -f "$mp_py" ]; then
@@ -1724,6 +2172,12 @@ _liquid_glass_release_launch() {
     fi
 }
 launch_mp_audio_player_liquid_glass() {
+    if mp_tty_audio_mode_active; then
+        echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+        echo -e "${YELLOW}Liquid Glass stays closed on this console. Opening the terminal player.${NC}\n"
+        manage_mp_audio_player
+        return 0
+    fi
     local audio_file="${1:-}"
     local seek_pos="${2:-}"
     local mode="${3:-MIX_ARCHIVE}"
@@ -1863,6 +2317,12 @@ launch_mp_audio_player_liquid_glass() {
 # Use this tree's launcher. ~/.local/bin/launch-liquid-glass points at another install,
 # and hiding its output made a missing VTE typelib look like a dead menu item.
 launch_liquid_glass_from_menu() {
+    if mp_tty_audio_mode_active; then
+        echo -e "\n${BOLD}${YELLOW}MP Mix Manager TTY Audio Mode${NC}"
+        echo -e "${YELLOW}Liquid Glass stays closed on this console. Opening the terminal player.${NC}\n"
+        manage_mp_audio_player
+        return 0
+    fi
     local launcher="" s
     for s in \
         "$SCRIPT_DIR/scripts/launch-liquid-glass" \
@@ -1906,9 +2366,28 @@ launch_liquid_glass_from_menu() {
     return 1
 }
 
+# First main-menu row. Shift+A opens it from any menu. The launcher
+# refuses to start unless Ollama is already answering.
+launch_mp_harmony_from_menu() {
+    local launcher="$SCRIPT_DIR/scripts/launch_mp_harmony.sh"
+    if [ ! -f "$launcher" ]; then
+        echo -e "\n${RED}scripts/launch_mp_harmony.sh was not found.${NC}"
+        press_enter
+        return 1
+    fi
+    stty sane </dev/tty >/dev/tty 2>&1 || true
+    printf '\033[?25h\033[?7h\033[0m\n' >/dev/tty 2>/dev/null || true
+    bash "$launcher" </dev/tty >/dev/tty 2>&1 || true
+    stty sane </dev/tty >/dev/tty 2>&1 || true
+}
+
 # Option 36 opens the Mix Manager inside the same Liquid Glass window as the player.
 # A second launch focuses that window. The Liquid Player may stay open beside it.
 launch_mp_gui_from_menu() {
+    if mp_tty_skip_desktop "MP Mix Manager GUI"; then
+        press_enter
+        return 0
+    fi
     local launcher="$SCRIPT_DIR/MP_Gui.sh"
     if [ ! -f "$launcher" ]; then
         echo -e "\n${RED}MP_Gui.sh was not found in ${SCRIPT_DIR}.${NC}"
@@ -1959,6 +2438,10 @@ launch_mp_gui_from_menu() {
 }
 
 launch_mp_liquid_visualizer() {
+    if mp_tty_skip_desktop "MP Liquid Visualizer"; then
+        press_enter
+        return 0
+    fi
     local preset_arg="${1:-}"
     local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/scripts/mp_liquid_visualizer_vulkan.py"
@@ -1996,7 +2479,7 @@ launch_mp_liquid_visualizer() {
             *) preset_label="Cosmic Dreamworlds (Liquid)" ;;
         esac
     fi
-    echo -e "\n${BOLD}${CYAN}Opening MP_Liquid_Visualizer [Preset: ${preset_label}] — 1094x734 on macOS, 700x700 elsewhere, fixed borderless Vulkan window...${NC}"
+    echo -e "\n${BOLD}${CYAN}Opening MP_Liquid_Visualizer [Preset: ${preset_label}] — 1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere, fixed borderless Vulkan window...${NC}"
     echo -e "${DIM}Continually generates 3D synced to currently playing music (pauses in-place when stopped). Press Esc or 'q' to close.${NC}\n"
     if [ -n "$preset_arg" ]; then
         nohup python3 "$vis_py" --preset "$preset_arg" >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
@@ -2048,7 +2531,7 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "${BOLD}${MAGENTA}         MP_LIQUID_VISUALIZER — NATIVE VULKAN 3D PRESET SUITE         ${NC}"
         echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
         echo -e "  ${BOLD}${CYAN}Engine:${NC}            Vulkan 1.x Native 3D Raymarching & Liquid Glass"
-        echo -e "  ${BOLD}${CYAN}Window:${NC}            1094x734 on macOS, 700x700 elsewhere (fixed borderless • Esc/q to Close)"
+        echo -e "  ${BOLD}${CYAN}Window:${NC}            1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere (fixed borderless • Esc/q to Close)"
         echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
         echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
         echo -e "${BOLD}Available Visualizer Presets (9 Official Presets):${NC}"
@@ -2062,7 +2545,7 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "  ${BOLD}${CYAN}8)${NC} ${BOLD}${GREEN}${p8_mark}Particle Accelerator${NC}                ${DIM}[Defasten TOROID & Vortex Sync (Mateh's Version)]${NC}"
         echo -e "  ${BOLD}${CYAN}9)${NC} ${BOLD}${GREEN}${p9_mark}Cosmic Universe${NC}                     ${DIM}[Defasten Constellation & The Cosmological Horizon]${NC}"
         echo -e "  ${BOLD}${CYAN}r)${NC} ${BOLD}${GREEN}${pr_mark}Random Preset Mode${NC}                  ${DIM}[Randomly Selects a Visualizer Preset on Each Run]${NC}"
-        echo -e "  ${BOLD}${CYAN}l)${NC} Launch MP_Liquid_Visualizer Now (1094x734 on macOS, 700x700 elsewhere Borderless Vulkan Window)"
+        echo -e "  ${BOLD}${CYAN}l)${NC} Launch MP_Liquid_Visualizer Now (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless Vulkan Window)"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
         read -r -p "Select option [0-9, r, l]: " vp_choice
         case "$vp_choice" in
@@ -3430,6 +3913,7 @@ if [ -x "$HOME/.local/share/electricsheep/electricsheep.AppImage" ]; then nohup 
 echo -e "${GREEN}✓ Electric Sheep launched (AppImage).${NC}"; sleep 1.2; return 0; fi; launch_gui_app "Electric Sheep" "electricsheep" "" "Electric Sheep" "" "ElectricSheep/electricsheep.exe" ""
 }
 launch_gpu_screen_recorder() {
+if mp_tty_skip_desktop "GPU Screen Recorder"; then return 0; fi
 echo -e "\n${BOLD}${YELLOW}Launching GPU Screen Recorder in a new window...${NC}\n"; if [ "$OS_TYPE" != "linux" ]; then echo -e "${RED}GPU Screen Recorder is available on Linux only.${NC}"; return 1; fi; if command -v gpu-screen-recorder-gtk &>/dev/null; then nohup gpu-screen-recorder-gtk &>/dev/null &
 disown 2>/dev/null || true; echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; if command -v flatpak &>/dev/null && flatpak info com.dec05eba.gpu_screen_recorder &>/dev/null; then nohup flatpak run --command=gpu-screen-recorder-gtk com.dec05eba.gpu_screen_recorder &>/dev/null &
 disown 2>/dev/null || true; echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; if command -v gtk-launch &>/dev/null && gtk-launch com.dec05eba.gpu_screen_recorder &>/dev/null; then echo -e "${GREEN}✓ GPU Screen Recorder launched in a new window.${NC}"; return 0; fi; echo -e "${RED}Error: GPU Screen Recorder is not installed.${NC}\n${YELLOW}Install it on Linux with: flatpak install flathub com.dec05eba.gpu_screen_recorder${NC}"; return 1
@@ -3523,6 +4007,10 @@ play_audio_file() {
     local file="$2"
     local seek_pos="${3:-}"
     local mode="${4:-MIX_ARCHIVE}"
+
+    if mp_tty_audio_mode_active; then
+        player="mp_audio_player"
+    fi
     
     [ -z "$file" ] && return 1
     file="$(realpath "$file" 2>/dev/null || echo "$file")"
@@ -3935,7 +4423,7 @@ try:
         print(f"{p}\t{pos}\t{dur}\tmp_audio_player\t{mode}")
 except Exception: pass
 PY
-); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_liquid_glass}}"; local player_display="$player"; case "$player" in mp_liquid_glass|liquid_glass|liquid|glass) player_display="MP Liquid Glass Player" ;; mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
+); fi; if [ -z "$resume_info" ]; then return 0; fi; local selected_mix="" resume_pos=0 resume_dur=0 saved_player="" saved_mode="MIX_ARCHIVE"; IFS=$'\t' read -r selected_mix resume_pos resume_dur saved_player saved_mode <<< "$resume_info"; [ -z "$selected_mix" ] || [ ! -f "$selected_mix" ] && return 0; if is_remote_or_cloud_path "$selected_mix" && ! is_internet_connected; then STARTUP_AUTOPLAY_NOTICE="Previous mix is on cloud storage (offline, playback skipped)"; return 0; fi; player="${DEFAULT_AUDIO_PLAYER:-${saved_player:-mp_liquid_glass}}"; if mp_tty_audio_mode_active; then player="mp_audio_player"; fi; local player_display="$player"; case "$player" in mp_liquid_glass|liquid_glass|liquid|glass) player_display="MP Liquid Glass Player" ;; mp_audio_player|mp_player|mp-player|mpplayer|mp) player_display="MP Audio Player" ;; audacious) player_display="Audacious" ;; strawberry) player_display="Strawberry" ;; cliamp) player_display="cliamp" ;; esac; local pos_fmt; if command -v _fmt_sec &>/dev/null; then pos_fmt=$(_fmt_sec "${resume_pos%.*}"); else pos_fmt="${resume_pos%.*}s"; fi; STARTUP_AUTOPLAY_NOTICE="Resumed playback: $(basename "$selected_mix") at ${pos_fmt} (${player_display})"; if [ "$player" = "audacious" ]; then if same_mix_file "${AUDACIOUS_RESOLVED_PATH:-}" "$selected_mix" 2>/dev/null; then qdbus org.atheme.audacious /org/atheme/audacious org.atheme.audacious.Play &>/dev/null || audtool playback-play &>/dev/null || true; if [ -n "$resume_pos" ] && [ "$resume_pos" != "0" ] && [ "$resume_pos" != "0.0" ]; then audtool playback-seek "${resume_pos%.*}" &>/dev/null || true; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; else play_audio_file "$player" "$selected_mix" "$resume_pos" "$saved_mode"; fi; local found_cover=""; if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then found_cover=$(find_mix_cover "$selected_mix" 2>/dev/null); if [ -n "$found_cover" ] && [ -f "$found_cover" ]; then open_cover_art_window "$found_cover"; fi; fi; local align_args=(); [ "$player" = "audacious" ] && align_args+=(--expect-audacious); [ "$player" = "strawberry" ] && align_args+=(--expect-strawberry); [ -n "$found_cover" ] && align_args+=(--expect-cover); align_mix_windows_on_screen "${align_args[@]}"; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
 fi; return 0
 }
 configure_audio_player_and_startup() {
@@ -3962,7 +4450,7 @@ launch_apple_podcasts ;; 12|audacity) launch_audacity; ;; 13|midi) list_usb_midi
 manage_bluetooth_audio ;; 17|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.5; ;; esac; done
 }
 manage_visual_media_launchers() {
-local vml_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         VISUAL, VIDEO & ART LAUNCHERS SUITE        ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a visual or media application to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch MP_Liquid_Visualizer — 3D Vulkan Audio-Reactive Visualizer (${GREEN}1094x734 on macOS, 700x700 elsewhere Borderless • Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}2)${NC} Select MP_Liquid_Visualizer Preset (${GREEN}Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Video Playlists (${GREEN}NFT Videos in VLC${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Specific Video in Default Video Player (${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}5)${NC} Launch GIMP Image Editor (${GREEN}gimp / org.gimp.GIMP${NC})\n  ${BOLD}${CYAN}6)${NC} Launch Electric Sheep Generative Screensaver (${GREEN}electricsheep / infinidream${NC})\n  ${BOLD}${CYAN}7)${NC} Launch GeeXLab Demo Launcher (${GREEN}FurMark_linux64/demo_launcher.sh${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-7]: " vml_choice; case "$vml_choice" in 1|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 2|preset|presets) manage_mp_liquid_visualizer_presets ;; 3) launch_video_playlists ;; 4) manage_video_dispatcher ;; 5) launch_gimp ;; 6) launch_electricsheep ;; 7) launch_geexlab_demos ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
+local vml_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         VISUAL, VIDEO & ART LAUNCHERS SUITE        ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a visual or media application to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch MP_Liquid_Visualizer — 3D Vulkan Audio-Reactive Visualizer (${GREEN}1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless • Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}2)${NC} Select MP_Liquid_Visualizer Preset (${GREEN}Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Video Playlists (${GREEN}NFT Videos in VLC${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Specific Video in Default Video Player (${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}5)${NC} Launch GIMP Image Editor (${GREEN}gimp / org.gimp.GIMP${NC})\n  ${BOLD}${CYAN}6)${NC} Launch Electric Sheep Generative Screensaver (${GREEN}electricsheep / infinidream${NC})\n  ${BOLD}${CYAN}7)${NC} Launch GeeXLab Demo Launcher (${GREEN}FurMark_linux64/demo_launcher.sh${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-7]: " vml_choice; case "$vml_choice" in 1|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 2|preset|presets) manage_mp_liquid_visualizer_presets ;; 3) launch_video_playlists ;; 4) manage_video_dispatcher ;; 5) launch_gimp ;; 6) launch_electricsheep ;; 7) launch_geexlab_demos ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
 }
 manage_live_monitors() {
 local lm_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         LIVE SESSION & STREAM MONITORS SUITE       ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a live monitor to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch Live Tracklist Monitor (${GREEN}SOF_Live_Tracker.sh${NC})\n  ${BOLD}${CYAN}2)${NC} Launch Traktor Live Monitor & Audio Recorder (${GREEN}New Window - CPU, Tracks, Audio I/O${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Live File Transfer Monitor (${GREEN}transfer-monitor${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Chrome Upload Monitor (${GREEN}Podcast Connect / Web Uploads${NC})\n  ${BOLD}${CYAN}5)${NC} View Running Background Tasks (${GREEN}Track and inspect background jobs${NC})\n  ${BOLD}${CYAN}6)${NC} Live Audio & Video Output Conversion Monitor (${GREEN}MP_Mix_Manager_Audio_File_Output_Monitor.py${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-6]: " lm_choice; case "$lm_choice" in 1) echo -e "\n${BOLD}${YELLOW}Launching Live Tracklist Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; run_sub_script "SOF_Live_Tracker.sh"; trap 'exit_mix_manager' INT; press_enter; ;; 2) launch_traktor_monitor_window ;; 3) echo -e "\n${BOLD}${YELLOW}Launching Live File Transfer Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; if command -v transfer-monitor &>/dev/null; then transfer-monitor; elif [ -x "$HOME/.local/bin/transfer-monitor" ]; then "$HOME/.local/bin/transfer-monitor"; else echo -e "${RED}Error: transfer-monitor command not found in PATH or ~/.local/bin!${NC}"; fi; trap 'exit_mix_manager' INT; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Launching Chrome Upload Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; if command -v chrome-upload-monitor &>/dev/null; then chrome-upload-monitor; elif [ -x "$HOME/.local/bin/chrome-upload-monitor" ]; then "$HOME/.local/bin/chrome-upload-monitor"; elif [ -x "./chrome_upload_monitor.py" ]; then python3 ./chrome_upload_monitor.py; elif [ -x "$SCRIPT_DIR/chrome_upload_monitor.py" ]; then python3 "$SCRIPT_DIR/chrome_upload_monitor.py"; elif [ -x "./Monitor_Chrome_Uploads.sh" ]; then ./Monitor_Chrome_Uploads.sh; elif [ -x "$SCRIPT_DIR/Monitor_Chrome_Uploads.sh" ]; then "$SCRIPT_DIR/Monitor_Chrome_Uploads.sh"; else echo -e "${RED}Error: chrome-upload-monitor command not found in PATH or ~/.local/bin!${NC}"; fi; trap 'exit_mix_manager' INT; press_enter ;; 5) view_tasks; press_enter ;; 6) local mon_py="$SCRIPT_DIR/scripts/MP_Mix_Manager_Audio_File_Output_Monitor.py"; [ ! -f "$mon_py" ] && mon_py="$SCRIPT_DIR/MP_Mix_Manager_Audio_File_Output_Monitor.py"; if [ -f "$mon_py" ]; then python3 "$mon_py"; else echo -e "${RED}Error: MP_Mix_Manager_Audio_File_Output_Monitor.py not found!${NC}"; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
@@ -3974,7 +4462,7 @@ run_bash_cli() {
 local cli_choice user_cmd; echo -e "\n${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}             Interactive Bash CLI Runner            ${NC}\n${BOLD}${MAGENTA}====================================================${NC}\n${CYAN}Choose an option:${NC}\n  ${BOLD}${CYAN}1)${NC} Open an interactive Bash shell session ${DIM}(type 'exit' to return to Manager)${NC}\n  ${BOLD}${CYAN}2)${NC} Execute a single Bash command and return\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-2]: " cli_choice; case "$cli_choice" in 1) echo -e "\n${BOLD}${GREEN}Spawning interactive Bash subshell. Type 'exit' to return.${NC}\n"; export PS1="\[\033[01;32m\][MixManager-CLI] \[\033[01;34m\]\w\[\033[00m\]\$ "; bash --norc -i 2>/dev/null || bash -i; echo -e "\n${GREEN}Returned from Bash subshell.${NC}"; sleep 1 ;; 2) echo ""; read -r -p "Enter Bash command to execute: " user_cmd; if [ -n "$user_cmd" ]; then echo -e "\n${BOLD}${YELLOW}Executing:${NC} $user_cmd\n"; eval "$user_cmd"; echo ""; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
 }
 manage_themes() {
-while true; do local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13="" m14="" m15="" m16="" m17="" m18="" m19="" m20="" m21="" m22=""; case "$CURRENT_THEME" in dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;; dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;; cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;; dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;; nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;; matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;; solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;; tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;; monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;; gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;; emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;; classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;; cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;; retro_terminal)   m14=" ${GREEN}★ ACTIVE (RETRO)${NC}" ;; dreamworlds_liquid) m15=" ${GREEN}★ ACTIVE (LIQUID GLASS)${NC}" ;; dynamic_rainbow_liquid_glass) m16=" ${GREEN}★ ACTIVE (DYNAMIC RAINBOW)${NC}" ;; cosmic_dreamworlds_radioactive) m17=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; cosmic_dreamworlds) m18=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; orbital_void_reflux) m19=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; stream_of_frequency) m20=" ${GREEN}★ ACTIVE (STREAM OF FREQUENCY)${NC}" ;; sensorium_interface) m21=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; retro_linux_memories) m22=" ${GREEN}★ ACTIVE (RETRO LINUX)${NC}" ;; esac; local opts=("1|MPlanetarian Dreamworlds [Default]|[Sweet Hot Pink, Electric Cyan, Lavender & Violet]${m1}" "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}" "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}" "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}" "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}" "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}" "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}" "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}" "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}" "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}" "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}" "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}" "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}" "14|Old Style Unix Terminal Retro Mode (White on Black)|[Monochrome VT100: White Text Only on Black Background]${m14}" "15|MP Dreamworlds Liquid Transparency [Special Edition]|[Deep Liquid Ocean Glass, Crystalline Aqua, Seafoam Mint & Liquid Amethyst]${m15}" "16|Dynamic Liquid Glass [Rainbow Colours] (New)|[Dynamic Rainbow Liquid Glass • ±9% Breathing Transparency • 6-Second Cycle]${m16}" "17|Cosmic Dreamworlds Radioactive (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Neon Radioactive & Cosmic Glow]${m17}" "18|Cosmic Dreamworlds (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Cosmic Dreamworlds Pink & Neon Cyan]${m18}" "19|Orbital Void Reflux (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Orbital Void Violet & Reflux Cyan]${m19}" "20|Stream of Frequency [Special Edition]|[Electric Cyan, Frequency Mint, Solar Gold & Stream Indigo]${m20}" "21|Sensorium Interface (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Iridescent Mauve, Cyber Cyan & Earth Flipper Jade]${m21}" "22|Retro Linux Memories [GTK / VeraCrypt Dark Slate]|[Classic Retro Linux GTK Dark Slate, VeraCrypt Blue Selection & Beveled Steel]${m22}" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0; local tchoice="$REPLY"; case "$tchoice" in 1|dreamworlds|default) save_theme "dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"; sleep 0.8 ;;
+while true; do local m1="" m2="" m3="" m4="" m5="" m6="" m7="" m8="" m9="" m10="" m11="" m12="" m13="" m14="" m15="" m16="" m17="" m18="" m19="" m20="" m21="" m22=""; case "$CURRENT_THEME" in dreamworlds)       m1=" ${GREEN}★ ACTIVE (DEFAULT)${NC}" ;; dreamworlds_ultra) m2=" ${GREEN}★ ACTIVE${NC}" ;; cyberpunk)         m3=" ${GREEN}★ ACTIVE${NC}" ;; dracula)           m4=" ${GREEN}★ ACTIVE${NC}" ;; nord)              m5=" ${GREEN}★ ACTIVE${NC}" ;; matrix)            m6=" ${GREEN}★ ACTIVE${NC}" ;; solarized)         m7=" ${GREEN}★ ACTIVE${NC}" ;; tokyo)             m8=" ${GREEN}★ ACTIVE${NC}" ;; monokai)           m9=" ${GREEN}★ ACTIVE${NC}" ;; gruvbox)           m10=" ${GREEN}★ ACTIVE${NC}" ;; emerald)           m11=" ${GREEN}★ ACTIVE${NC}" ;; classic)           m12=" ${GREEN}★ ACTIVE${NC}" ;; cosmic_supernova)  m13=" ${GREEN}★ ACTIVE (SPECIAL)${NC}" ;; retro_terminal)   m14=" ${GREEN}★ ACTIVE (RETRO)${NC}" ;; dreamworlds_liquid) m15=" ${GREEN}★ ACTIVE (LIQUID GLASS)${NC}" ;; dynamic_rainbow_liquid_glass) m16=" ${GREEN}★ ACTIVE (DYNAMIC RAINBOW)${NC}" ;; cosmic_dreamworlds_radioactive) m17=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; cosmic_dreamworlds) m18=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; orbital_void_reflux) m19=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; stream_of_frequency) m20=" ${GREEN}★ ACTIVE (STREAM OF FREQUENCY)${NC}" ;; sensorium_interface) m21=" ${GREEN}★ ACTIVE (LIQUID GLASS SKIN)${NC}" ;; retro_linux_memories) m22=" ${GREEN}★ ACTIVE (RETRO LINUX)${NC}" ;; esac; local opts=("1|MPlanetarian Dreamworlds [Default]|[Azure Blue on Black]${m1}" "2|Dreamworlds Ultra MP Mix Manager|[BTOP HotPurpleTrafficLight: Hot Purple, Indigo & Traffic Light RGB]${m2}" "3|Cyberpunk|[Neon Hot Pink, Electric Cyan & High-Volt Yellow]${m3}" "4|Dracula|[Vampiric Purple, Neon Green & Coral Pink]${m4}" "5|Nord|[Arctic Slate, Frost Polar Ice & Sage Aurora]${m5}" "6|The Matrix|[Pure Phosphor Green, Terminal Crimson & Mint]${m6}" "7|Solarized|[Warm Amber, Solar Yellow, Cyan & Terracotta]${m7}" "8|Tokyo Night|[Deep Violet, Lavender, Soft Blue & Coral]${m8}" "9|Monokai|[Electric Pink, Tangerine, Lime & Vivid Blue]${m9}" "10|Gruvbox|[Retro Warm Earth, Dusty Rose, Rust & Gold]${m10}" "11|Emerald Isle|[Deep Ocean, Spring Emerald & Mint Cyan]${m11}" "12|Classic ANSI|[Standard 16-Color Terminal Fallback]${m12}" "13|Cosmic Supernova [Special Edition]|[Supernova Crimson, Aurora Mint, Solar Gold & Nebula Orchid]${m13}" "14|Old Style Unix Terminal Retro Mode (White on Black)|[Monochrome VT100: White Text Only on Black Background]${m14}" "15|MP Dreamworlds Liquid Transparency [Special Edition]|[Deep Liquid Ocean Glass, Crystalline Aqua, Seafoam Mint & Liquid Amethyst]${m15}" "16|Dynamic Liquid Glass [Rainbow Colours] (New)|[Dynamic Rainbow Liquid Glass • ±9% Breathing Transparency • 6-Second Cycle]${m16}" "17|Cosmic Dreamworlds Radioactive (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Neon Radioactive & Cosmic Glow]${m17}" "18|Cosmic Dreamworlds (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Cosmic Dreamworlds Pink & Neon Cyan]${m18}" "19|Orbital Void Reflux (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Crystal Clear Refractive Water • Orbital Void Violet & Reflux Cyan]${m19}" "20|Stream of Frequency [Special Edition]|[Electric Cyan, Frequency Mint, Solar Gold & Stream Indigo]${m20}" "21|Sensorium Interface (Liquid Glass Skin)|[Cover Wrapped Liquid Glass • Iridescent Mauve, Cyber Cyan & Earth Flipper Jade]${m21}" "22|Retro Linux Memories [GTK / VeraCrypt Dark Slate]|[Classic Retro Linux GTK Dark Slate, VeraCrypt Blue Selection & Beveled Steel]${m22}" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "Themes & Color Palette Switcher" "  Current Active Theme: ${BOLD}${YELLOW}${CURRENT_THEME}${NC}\n" opts 0; local tchoice="$REPLY"; case "$tchoice" in 1|dreamworlds|default) save_theme "dreamworlds"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to MPlanetarian Dreamworlds [Default]!${NC}"; sleep 0.8 ;;
 2|ultra|dreamworlds_ultra|hotpurple|trafficlight|"dreamworlds ultra"|"Dreamworlds Ultra MP Mix Manager")
 save_theme "dreamworlds_ultra"; echo -e "\n${BOLD}${GREEN}✓ Theme switched to Dreamworlds Ultra MP Mix Manager!${NC}"; sleep 0.8 ;; 3|cyberpunk) save_theme "cyberpunk"; echo -e "\n${GREEN}✓ Theme switched to Cyberpunk!${NC}"; sleep 0.8; ;; 4|dracula) save_theme "dracula"; echo -e "\n${GREEN}✓ Theme switched to Dracula!${NC}"; sleep 0.8 ;; 5|nord) save_theme "nord"; echo -e "\n${GREEN}✓ Theme switched to Nord!${NC}"; sleep 0.8; ;; 6|matrix) save_theme "matrix"; echo -e "\n${GREEN}✓ Theme switched to The Matrix!${NC}"; sleep 0.8 ;; 7|solarized) save_theme "solarized"; echo -e "\n${GREEN}✓ Theme switched to Solarized!${NC}"; sleep 0.8; ;; 8|tokyo) save_theme "tokyo"; echo -e "\n${GREEN}✓ Theme switched to Tokyo Night!${NC}"; sleep 0.8 ;; 9|monokai) save_theme "monokai"; echo -e "\n${GREEN}✓ Theme switched to Monokai!${NC}"; sleep 0.8; ;; 10|gruvbox) save_theme "gruvbox"; echo -e "\n${GREEN}✓ Theme switched to Gruvbox!${NC}"; sleep 0.8 ;; 11|emerald) save_theme "emerald"; echo -e "\n${GREEN}✓ Theme switched to Emerald Isle!${NC}"; sleep 0.8; ;; 12|classic) save_theme "classic"; echo -e "\n${GREEN}✓ Theme switched to Classic ANSI!${NC}"; sleep 0.8 ;;
 13|cosmic|supernova|cosmic_supernova|"cosmic supernova"|"Cosmic Supernova"|"Cosmic Supernova [Special Edition]"|"Cosmic Supernova MP Mix Manager")
@@ -5007,7 +5495,7 @@ awk -v act="$action" -v app="$sel_name" -v sc="$norm_shortcut" '
 else printf "[services][%s.desktop]\n_k_friendly_name=%s\n%s=%s,%s,Launch %s\n\n" "$action" "$sel_name" "$action" "$norm_shortcut" "$norm_shortcut" "$sel_name" >> "$kglobal_cfg"; fi; command -v qdbus &>/dev/null && qdbus org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.reloadConfig &>/dev/null || true; command -v kbuildsycoca6 &>/dev/null && { kbuildsycoca6 --noincremental &>/dev/null & disown; } || command -v kbuildsycoca5 &>/dev/null && { kbuildsycoca5 --noincremental &>/dev/null & disown; }; clear; echo -e "${BOLD}${MAGENTA}${S70}==\n${GREEN}   ✔  Keyboard Shortcut Successfully Bound!\n${MAGENTA}${S70}==${NC}\n\n  ${BOLD}Application:${NC}       ${GREEN}${BOLD}${sel_name}${NC}\n  ${BOLD}Keyboard Shortcut:${NC} ${CYAN}${BOLD}${norm_shortcut}${NC}\n  ${BOLD}Desktop File:${NC}      ${DIM}${target_desktop}${NC}\n"; press_enter; shortcut_existing_keys[sel]="$norm_shortcut"; done
 }
 manage_visual_media_suite() {
-local opts=("1|Visual, Video & Art Launchers Suite|(MP_Liquid_Visualizer 3D Vulkan, NFT Videos, GIMP, Electric Sheep, GeeXLab)" "2|Launch MP_Liquid_Visualizer — 3D Vulkan Visualizer|(1094x734 on macOS, 700x700 elsewhere Fixed Borderless • Cosmic Dreamworlds / Orbital Void Reflux)" "3|Select MP_Liquid_Visualizer Preset|(Cosmic Dreamworlds / Orbital Void Reflux)" "4|Cut or Split Video File (.mp4 / .mkv)|(Cut_Video.sh / Split_Video_File.sh)" "5|Convert Cover Art & Resize / Byte Target|(1MB Podcast, WebP/JPG/PNG, Sizes)" "6|View Cover Art by Mix Number|(External Viewer)" "7|Procedural Gradient .PPM Cover Art Generator|(Netpbm P6 Binary, Palettes)" "8|Synchronized Mix-Video Companion Player Daemon|(Auto-play Video on Mix Start, Close on Stop)" "9|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts)" "10|Play Startup Loader Video (MP_loader.mp4)|(Test or play startup intro video)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "VISUAL MEDIA, COVER ART & COMPANION VIDEO SUITE" "" opts 0; case "$REPLY" in 1) manage_visual_media_launchers ;; 2|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 3|preset|presets) manage_mp_liquid_visualizer_presets ;; 4) manage_video_cut_and_split ;; 5) manage_cover_converter ;; 6) view_cover; press_enter ;; 7) generate_ppm_cover_menu ;; 8) manage_sync_video_companion_menu ;; 9) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter ;; 10) display_startup_loader_video 1 ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local opts=("1|Visual, Video & Art Launchers Suite|(MP_Liquid_Visualizer 3D Vulkan, NFT Videos, GIMP, Electric Sheep, GeeXLab)" "2|Launch MP_Liquid_Visualizer — 3D Vulkan Visualizer|(1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Fixed Borderless • Cosmic Dreamworlds / Orbital Void Reflux)" "3|Select MP_Liquid_Visualizer Preset|(Cosmic Dreamworlds / Orbital Void Reflux)" "4|Cut or Split Video File (.mp4 / .mkv)|(Cut_Video.sh / Split_Video_File.sh)" "5|Convert Cover Art & Resize / Byte Target|(1MB Podcast, WebP/JPG/PNG, Sizes)" "6|View Cover Art by Mix Number|(External Viewer)" "7|Procedural Gradient .PPM Cover Art Generator|(Netpbm P6 Binary, Palettes)" "8|Synchronized Mix-Video Companion Player Daemon|(Auto-play Video on Mix Start, Close on Stop)" "9|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts)" "10|Play Startup Loader Video (MP_loader.mp4)|(Test or play startup intro video)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "VISUAL MEDIA, COVER ART & COMPANION VIDEO SUITE" "" opts 0; case "$REPLY" in 1) manage_visual_media_launchers ;; 2|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 3|preset|presets) manage_mp_liquid_visualizer_presets ;; 4) manage_video_cut_and_split ;; 5) manage_cover_converter ;; 6) view_cover; press_enter ;; 7) generate_ppm_cover_menu ;; 8) manage_sync_video_companion_menu ;; 9) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter ;; 10) display_startup_loader_video 1 ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 manage_promo_and_syndication() {
 local opts=("1|Promotional & Publisher Outreach Emails|(Promoters, Publishers, Radio, Labels)" "2|Mix Publishing Schedule & Multi-Platform Syndication|(Apple Podcasts, Spotify, YouTube, SoundCloud, RSS, iCal)" "3|Go Shopping for New Music|(Beatport, Apple Music & Bandcamp Tabs)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "PROMOTIONAL OUTREACH, SYNDICATION & SHOPPING" "" opts 0; case "$REPLY" in 1) manage_promo_outreach ;; 2) manage_publishing_schedule ;; 3) shop_for_new_music_menu ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
@@ -5045,6 +5533,40 @@ local pad_left=$(( (text_w - ${#title}) / 2 ))
 (( pad_left < 0 )) && pad_left=0
 local pad_right=$(( text_w - ${#title} - pad_left ))
 (( pad_right < 0 )) && pad_right=0
+# Desktop Bash shows "CLI Mode". The Linux console shows "TTY CLI Mode".
+# MP Gui (MP_GUI_SESSION=1) shows neither. A pipe, such as a test, stays blank.
+local _mode_plain="" _mode_paint="" _mode_name="" _mode_in_title=0 _mode_need=0
+if [ "${MP_GUI_SESSION:-0}" != "1" ]; then
+    case "${MP_HEADER_CLI_MODE:-}" in
+        tty|TTY) _mode_plain="TTY CLI Mode" ;;
+        cli|CLI|desktop|bash) _mode_plain="CLI Mode" ;;
+        off|none|gui) ;;
+        *)
+            if [ "${MP_TTY_KIOSK:-0}" = "1" ]; then
+                _mode_plain="TTY CLI Mode"
+            else
+                _mode_name="$(tty 2>/dev/null || true)"
+                case "$_mode_name" in
+                    /dev/tty[0-9]|/dev/tty[0-9][0-9]|/dev/console)
+                        _mode_plain="TTY CLI Mode"
+                        ;;
+                    *)
+                        if [ -t 0 ] || [ -t 1 ]; then
+                            _mode_plain="CLI Mode"
+                        fi
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+fi
+if [ -n "$_mode_plain" ]; then
+    _mode_need=$(( ${#_mode_plain} + 1 ))
+    if (( pad_right >= _mode_need )); then
+        pad_right=$(( pad_right - _mode_need ))
+        _mode_in_title=1
+    fi
+fi
 local sp_left="" sp_right=""
 (( pad_left > 0 )) && printf -v sp_left '%*s' "$pad_left" ''
 (( pad_right > 0 )) && printf -v sp_right '%*s' "$pad_right" ''
@@ -5053,10 +5575,22 @@ local sp_left="" sp_right=""
 local net="${GREEN}Online${NC}";
 [[ "${_CACHED_INTERNET_STATUS:-online}" == "offline" ]] && net="${YELLOW}Offline (LAN Only)${NC}";
 local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
+if [ "$_mode_plain" = "TTY CLI Mode" ]; then
+    _mode_paint="${BOLD}${GREEN}"
+elif [ -n "$_mode_plain" ]; then
+    _mode_paint="${BOLD}${CYAN}"
+fi
+local _title_fill="${sp_left}${b_mag}${title}${NC}${sp_right}"
+[ "$_mode_in_title" -eq 1 ] && _title_fill="${_title_fill} ${_mode_paint}${_mode_plain}${NC}"
 local hdr="  ${b_mag}╭${h_border}╮${NC}
-  ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
-  ${b_mag}╰${h_border}╯${NC}
+  ${b_mag}│${NC} ${_title_fill} ${b_mag}│${NC}
+  ${b_mag}╰${h_border}╯${NC}"
+if [ -n "$_mode_plain" ] && [ "$_mode_in_title" -eq 0 ]; then
+    hdr+=$'\n  '"${_mode_paint}${_mode_plain}${NC}"
+fi
+hdr+="
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
+if type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; then hdr+=$'\n  '"${BOLD}${GREEN}MP Mix Manager TTY Audio Mode${NC}  ${DIM}console player • desktop windows stay closed${NC}"; if [ "${MP_TTY_KIOSK:-0}" = "1" ]; then hdr+=$'\n  '"${DIM}This console is the TTY service. Ctrl+Alt+F2 is a login shell.${NC}"; fi; fi
 [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; _reflow_audio_iface_display; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder,${NC}"$'\n  '"${BOLD}${RED}Please use Option 16 or 13 to Configure this now.${NC}"$'\n  '"${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
 fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json" _mf_line; if [ -f "$_mf_f" ]; then while IFS= read -r _mf_line; do [[ "$_mf_line" == *'"id":'* ]] && _mf_cnt=$((_mf_cnt + 1)); done < "$_mf_f"; fi; if [ "${_mf_cnt:-0}" -eq 0 ]; then
@@ -5065,7 +5599,7 @@ fi; local _s4_conn=0; _s4_hardware_connected && _s4_conn=1; if [ "$_s4_conn" -eq
 hdr+=$'\n\n  '"${BOLD}${GREEN}🎛️  Traktor Kontrol S4 Hardware MIDI Device Detected [hw:0,0]!${NC}
   ${BOLD}${CYAN}Please navigate to Option 19 (Studio Hardware & MIDI) to enable and configure Traktor Kontrol S4 MIDI Device Mapping Controls.${NC}
   ${DIM}${GREEN}(Control player transport, mixer, and pitch sliders directly from your S4 hardware)${NC}"
-fi; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _RENDERED_MAIN_HEADER="$hdr"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
+fi; fi; get_manager_uptime >/dev/null; hdr+=$'\n  '"${_MANAGER_UPTIME_LINE}"; _fit_block_to_panel _RENDERED_MAIN_HEADER "$hdr" "$(( cur_box_w + 2 ))"; printf '%b\n' "$_RENDERED_MAIN_HEADER"
 }
 # True only when the Traktor application itself is running.
 # Do not search the full command line: traktor_s4_midi.py and traktor_monitor
@@ -5153,6 +5687,9 @@ ensure_liquid_glass_first_run_reward() {
     fi
 }
 _ensure_mp_system_tray() {
+    if mp_tty_audio_mode_active; then
+        return 0
+    fi
     local tray="$SCRIPT_DIR/scripts/mp_system_tray.sh"
     [ -f "$tray" ] || return 0
     if command -v setsid >/dev/null 2>&1; then
@@ -5163,6 +5700,7 @@ _ensure_mp_system_tray() {
     disown 2>/dev/null || true
 }
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+mp_tty_audio_mode_load
 MANAGER_MAIN_PID=$BASHPID
 _cleanup_mix_manager_exit() {
     [ "${BASHPID:-$$}" -ne "${MANAGER_MAIN_PID:-$$}" ] && return 0
@@ -5170,13 +5708,13 @@ _cleanup_mix_manager_exit() {
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 _ensure_mp_system_tray
-display_startup_loader_video 0
+if mp_tty_audio_mode_active && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then :; else display_startup_loader_video 0; fi
 ensure_first_run_equalizer
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|" "37|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "AI|Load MP Mix Manager AI Assistant (MP Harmony) (New)|(Shift+A • Ollama must already be running • loads gpt-oss-pinned:latest)" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|"); if [ "${OS_TYPE:-}" = "linux" ]; then main_opts+=("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|(Text console • enables MP Mix Manager TTY Audio Mode)"); fi; main_opts+=("38|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in AI|ai|"Load MP Mix Manager AI Assistant (MP Harmony) (New)"*) launch_mp_harmony_from_menu ;; MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
 manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*) launch_liquid_glass_from_menu ;; liquid-config|glass-config|liquid-backend|glass-backend) configure_liquid_glass_backend ;; 4) if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then launch_mp_audio_player_liquid_glass; else manage_mix_conversion; fi ;; convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
 manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;
-14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; 36|mp-gui|gui|MP_Gui|g|G|"MP Mix Manager GUI"*) launch_mp_gui_from_menu ;; ESC) [ "${MP_GUI_SESSION:-0}" = "1" ] && exit_mix_manager ;; 37|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [cC]) cycle_menu_theme ;; [zZ]|visualizer|liquid-visualizer|mp-visualizer|mp_liquid_visualizer) launch_mp_liquid_visualizer ;; visualizer-preset|visualizer-presets) manage_mp_liquid_visualizer_presets ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 37, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
+14) manage_tracklist_suite; ;; 15|manage-audio-players|players) manage_audio_players ;; 16|config-archive|archive-dir|archive-folder) play_sound_effect "storage"; configure_mix_archive_folder ;; specs|metadata|inspect) inspect_playing_audio_file; ;; 17) manage_playlists_and_history ;; 18) manage_daws_suite; ;; 19|studio|midi|hardware) manage_studio_hardware_and_volume ;; s4|kontrol|kontrol-s4|traktor-s4|traktor_s4) manage_traktor_s4_midi_menu ;; 20) manage_spek_generation; ;; 21) manage_mix_scheduler ;; 22) generate_youtube_video; ;; 23|manage-visual-media|visual-launchers|video-launchers) manage_visual_media_suite ;; 24|gpu-screen-recorder|record-mix) launch_gpu_screen_recorder; press_enter ;; 25|top5|top-5|top_5|top|mystery|special) manage_top_5_tracks; ;; 26|manage-live-monitors|live-monitors) manage_live_monitors ;; 27|manage-process-monitors|process-monitors) manage_system_process_monitors; ;; 28|reports|daily-reports|report|mp-reporter|reporter) manage_mix_reports_menu ;; 29) manage_promo_and_syndication ;; 30) manage_network_and_internet; ;; 31) manage_desktop_and_display ;; 32) manage_system_maintenance; ;; 33|monitor|mp-monitor|bash-monitor) manage_process_and_bash_monitor ;; infinite-talk*|inftlk*|stephen-hawking*|infinite-talker*) run_wan2gp_infinite_talker ;; open-webui|openwebui|webui|web-chat) manage_open_webui ;; harmony|mp-harmony|mp_harmony|harmony-agent|ha) manage_harmony_agent; ;; 34) manage_motd_and_tools ;; 35) manage_settings_and_system; ;; 36|mp-gui|gui|MP_Gui|g|G|"MP Mix Manager GUI"*) launch_mp_gui_from_menu ;; ESC) [ "${MP_GUI_SESSION:-0}" = "1" ] && exit_mix_manager ;; 37|tty|tty-mode|tty-audio|desktop-cli|"Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)"*) manage_linux_tty_desktop_switch ;; 38|77|[qQ]|[eE][xX][iI][tT]) exit_mix_manager ;; audacious|audacious-launch) launch_audacious; ;; audacity|audacity-launch) launch_audacity ;; strawberry|strawberry-launch) launch_strawberry; ;; vlc|vlc-launch) launch_vlc ;; haruna|haruna-launch) launch_haruna; ;; kodi|kodi-launch) launch_kodi ;; gimp|gimp-launch) launch_gimp; ;; electricsheep|screensaver) launch_electricsheep ;; geexlab|geexlab-launch) launch_geexlab_demos; ;; btop|btop-launch) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found!${NC}"; press_enter; fi ;; nvtop|nvtop-launch) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT; ;; top|top-launch) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; split-flac|split_flac) split_flac_audio; press_enter ;; split-video|split_video|split-mp4|split_mp4) split_video_clip; press_enter ;; cut-video|cut_video) cut_video_clip; press_enter ;; beszel|beszel-start|beszel_start|beszel-hub|beszel-agent) manage_beszel; press_enter ;; ollama|ollama-serve|ollama_serve|ollama-start|ollama_start) manage_ollama; press_enter ;; dsh|dsh-mobile|dsh_mobile|dsh-start|dsh_start|dsh-web|dsh_web|deepseek|deepseek-harness) manage_dsh_mobile; press_enter ;; alarm|alarm-clock|alarm_clock|alarm.sh) manage_mix_scheduler; ;; congen|kdeconnect|congen-launch) manage_congen ;; block-internet|--block-internet|block_internet) block_internet; ;; unblock-internet|--unblock-internet|unblock_internet) unblock_internet ;; 0|[Ss]|shortcuts|desktop-shortcuts|ds|kioclient|run-shortcuts|desktop_shortcuts) manage_desktop_shortcuts; ;; " ") toggle_mp_audio_player ;; [mM]) launch_mp_audio_player_window ;; [lL]) launch_mp_audio_player_liquid_glass ;; [cC]) cycle_menu_theme ;; [zZ]|visualizer|liquid-visualizer|mp-visualizer|mp_liquid_visualizer) launch_mp_liquid_visualizer ;; visualizer-preset|visualizer-presets) manage_mp_liquid_visualizer_presets ;; K) pkill -9 -f "MP_Audio_Player" 2>/dev/null || true; rm -f "${HOME}/.config/mix-manager/mp_player.pid" "${HOME}/.config/mix-manager/mp_audio_player.port" "${HOME}/.config/mix-manager/mp_audio_player.sock" 2>/dev/null || true; _CACHED_PLAYER_CHECK_TIME=0; _CACHED_PLAYER_ACTIVE_RES=1; MP_PLAYER_RUNNING=0; MP_PLAYER_STATE="stopped" ;; *) case "$choice" in ""|A|B|"[A"|"[B"|OA|OB|UP|DOWN|UNKNOWN|SECTION|SEP) ;; *) echo -e "\n${RED}Invalid option! Please enter a number between 0 and 38, or q to exit.${NC}"; sleep 2 ;; esac ;; esac; done
 fi

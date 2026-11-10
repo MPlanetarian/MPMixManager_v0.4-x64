@@ -1,0 +1,47 @@
+# MP Mix Manager TTY Audio Mode.
+# Installed by scripts/mp_tty_kiosk.sh. The process owns /dev/tty1.
+# Ctrl+Alt+F2 stays a getty login if this service fails.
+# Bazzite reads the console font from /etc/vconsole.conf. When
+# /etc/default/console-setup exists, the switcher sets Terminus there too.
+
+[Unit]
+Description=MP Mix Manager TTY Audio Mode
+After=systemd-user-sessions.service sound.target
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@WORKDIR@
+ExecStart=/usr/bin/bash @MANAGER@
+Environment=HOME=@HOME@
+Environment=USER=@USER@
+Environment=LOGNAME=@USER@
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=MP_MIX_MANAGER_TTY_MODE=1
+Environment=MP_TTY_KIOSK=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+Environment=TERM=linux
+UnsetEnvironment=DISPLAY
+UnsetEnvironment=WAYLAND_DISPLAY
+PAMName=login
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+Nice=-10
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
