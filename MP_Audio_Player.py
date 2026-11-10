@@ -5335,7 +5335,14 @@ class TerminalPlayerUI:
             btitle = f"✦ MP LIQUID GLASS VISUALIZER — {preset.get('id', 0)} {preset.get('name', '')} ✦"
             bsub = "Press 0-9 to change the visualizer theme  •  Shift+V returns to liquid glass"
         btitle, bsub = btitle[:max(0, iw - 1)], bsub[:max(0, iw - 1)]
-        lines.extend([f"  {b_col}╭{'─'*iw}╮{NC}", f"  {b_col}│{btitle.center(iw)}│{NC}", f"  {bold_s}{accent_col}│{bsub.center(iw)}│{NC}", f"  {b_col}╰{'─'*iw}╯{NC}"])
+        # Side bars stay on the border colour. Accent colours the subtitle text only,
+        # so the header edge is one colour all the way around.
+        lines.extend([
+            f"  {b_col}╭{'─'*iw}╮{NC}",
+            f"  {b_col}│{btitle.center(iw)}│{NC}",
+            f"  {b_col}│{NC}{bold_s}{accent_col}{bsub.center(iw)}{NC}{b_col}│{NC}",
+            f"  {b_col}╰{'─'*iw}╯{NC}",
+        ])
 
         dim_s = DIM
         tname, maxlen = st.get("title", "Unknown Mix"), max(58, iw - 20)
