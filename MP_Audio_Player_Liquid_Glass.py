@@ -214,6 +214,7 @@ class GlassHost:
             cols, rows = max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m) // ch))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(wx, wy)
+            self._note_player_window(ww, wh)
             self.renderer.set_window_size(ww, wh)
             self.renderer.poll()
             if self.terminal is not None:
@@ -225,7 +226,9 @@ class GlassHost:
             cols, rows = (74, 14) if self.mode == "MINI" else ((74, 7) if self.mode == "MICRO" else (COLS, ROWS))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(pos[0], pos[1])
-            self.renderer.set_window_size(cols * cw + 2 * m, rows * ch + 2 * m)
+            restore_w, restore_h = cols * cw + 2 * m, rows * ch + 2 * m
+            self._note_player_window(restore_w, restore_h)
+            self.renderer.set_window_size(restore_w, restore_h)
             self.renderer.poll()
             if self.terminal is not None:
                 self.terminal.set_size(cols, rows)
@@ -241,7 +244,9 @@ class GlassHost:
         self._target_cols, self._target_rows = cols, rows
         cw, ch = self._char_dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(cols * cw + 2 * m, rows * ch + 2 * m)
+        mode_w, mode_h = cols * cw + 2 * m, rows * ch + 2 * m
+        self._note_player_window(mode_w, mode_h)
+        self.renderer.set_window_size(mode_w, mode_h)
         if self.terminal is not None:
             self.terminal.set_size(cols, rows)
         self._place_terminal()
@@ -360,10 +365,45 @@ class GlassHost:
             dragging = False
         return down, dragging, origin, press_screen
 
+    def _note_player_window(self, width, height):
+        """Publish the outer window. The Manager and tracklist windows are not the player."""
+        if self.mode in ("MANAGER", "TRACKLIST"):
+            return
+        try:
+            width_i, height_i = int(width), int(height)
+        except (TypeError, ValueError):
+            return
+        if width_i < 64 or height_i < 64:
+            return
+        self._window_target = (width_i, height_i)
+        self._window_target_until = time.monotonic() + 3.0
+        from liquid_player_visualizer import publish_liquid_player_window_size
+        publish_liquid_player_window_size(width_i, height_i)
+
+    def _sync_player_window(self):
+        """Keep the fitted size if the window manager has not applied it yet."""
+        if self.mode in ("MANAGER", "TRACKLIST") or self.renderer is None:
+            return
+        target = getattr(self, "_window_target", None)
+        if not target:
+            return
+        try:
+            actual = tuple(int(v) for v in self.renderer.window_size())
+        except Exception:
+            return
+        if actual != target and time.monotonic() < getattr(self, "_window_target_until", 0.0):
+            self.renderer.set_window_size(*target)
+            return
+        if actual != target and min(actual) >= 64:
+            self._note_player_window(*actual)
+
     def _fit_to_terminal(self, term):
         cw, ch = self._char_dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m)
+        width = self._target_cols * cw + 2 * m
+        height = self._target_rows * ch + 2 * m
+        self._note_player_window(width, height)
+        self.renderer.set_window_size(width, height)
         term.set_size(self._target_cols, self._target_rows)
 
     def run(self):
@@ -548,6 +588,7 @@ class GlassHost:
                     if self.terminal is not None:
                         self._apply_glass_foreground(self.terminal, theme)
             self._follow_child_ui_size()
+            self._sync_player_window()
             self._sync_panels()
             draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -660,6 +701,8 @@ class GlassHost:
             drag.update()
 
     def _release_windows_drag(self) -> None:
+        if sys.platform != "win32":
+            return
         from windows_glass_drag import release_on_host
         release_on_host(self)
 

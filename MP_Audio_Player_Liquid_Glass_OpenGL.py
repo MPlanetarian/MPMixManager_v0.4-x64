@@ -173,6 +173,49 @@ def _mode_grid(mode):
     return COLS, ROWS
 
 
+def _measure_terminal_cell(font_name: str) -> tuple:
+    """Pixel size of one VTE cell. The 9×18 guess is only used when VTE has no font yet."""
+    if Gtk is None or Vte is None or GLib is None:
+        return 9, 18
+    window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+    window.set_decorated(False)
+    window.set_skip_taskbar_hint(True)
+    window.set_skip_pager_hint(True)
+    try:
+        window.set_opacity(0)
+    except Exception:
+        pass
+    term = Vte.Terminal()
+    window.add(term)
+    try:
+        import gi
+        gi.require_version("Pango", "1.0")
+        from gi.repository import Pango
+        desc = Pango.FontDescription.from_string(font_name or DEFAULT_FONT)
+        desc.set_weight(Pango.Weight.NORMAL)
+        term.set_font(desc)
+    except Exception:
+        pass
+    window.move(-3000, -3000)
+    window.show_all()
+    term.realize()
+    ctx = GLib.MainContext.default()
+    for _ in range(8):
+        while ctx.pending():
+            ctx.iteration(False)
+    try:
+        cell_w = int(term.get_char_width() or 0)
+        cell_h = int(term.get_char_height() or 0)
+    except Exception:
+        cell_w, cell_h = 0, 0
+    window.destroy()
+    while ctx.pending():
+        ctx.iteration(False)
+    if cell_w >= 4 and cell_h >= 8:
+        return cell_w, cell_h
+    return 9, 18
+
+
 class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -516,13 +559,47 @@ class GlassHost:
             self._last_panel_state = state
             self.renderer.set_panels(player_panel_rects(cols, rows, cw, ch, m, m, mode=self.mode))
 
+    def _note_player_window(self, width, height):
+        """Publish the outer window. The Manager and tracklist windows are not the player."""
+        if self.mode in ("MANAGER", "TRACKLIST"):
+            return
+        try:
+            width_i, height_i = int(width), int(height)
+        except (TypeError, ValueError):
+            return
+        if width_i < 64 or height_i < 64:
+            return
+        self._window_target = (width_i, height_i)
+        self._window_target_until = time.monotonic() + 3.0
+        from liquid_player_visualizer import publish_liquid_player_window_size
+        publish_liquid_player_window_size(width_i, height_i)
+
+    def _sync_player_window(self):
+        """Keep the fitted size if the window manager has not applied it yet."""
+        if self.mode in ("MANAGER", "TRACKLIST") or self.renderer is None:
+            return
+        target = getattr(self, "_window_target", None)
+        if not target:
+            return
+        try:
+            actual = tuple(int(v) for v in self.renderer.window_size())
+        except Exception:
+            return
+        if actual != target and time.monotonic() < getattr(self, "_window_target_until", 0.0):
+            self.renderer.set_window_size(*target)
+            return
+        if actual != target and min(actual) >= 64:
+            self._note_player_window(*actual)
+
     def _apply_grid(self, cols, rows, pos=None, size=None):
         cw, ch = self._dims()
         m = self.renderer.bezel_px
         self._target_cols, self._target_rows = cols, rows
         if pos:
             self.renderer.set_window_pos(pos[0], pos[1])
-        self.renderer.set_window_size(*(size or (cols * cw + 2 * m, rows * ch + 2 * m + 44)))
+        width, height = size or (cols * cw + 2 * m, rows * ch + 2 * m + 44)
+        self._note_player_window(width, height)
+        self.renderer.set_window_size(width, height)
         self.renderer.poll()
         if self.terminal is not None:
             self.terminal.set_size(cols, rows)
@@ -683,7 +760,10 @@ class GlassHost:
     def _fit_to_terminal(self, term):
         cw, ch = self._dims()
         m = self.renderer.bezel_px
-        self.renderer.set_window_size(self._target_cols * cw + 2 * m, self._target_rows * ch + 2 * m + 44)
+        width = self._target_cols * cw + 2 * m
+        height = self._target_rows * ch + 2 * m + 44
+        self._note_player_window(width, height)
+        self.renderer.set_window_size(width, height)
         term.set_size(self._target_cols, self._target_rows)
 
     def run(self):
@@ -705,6 +785,9 @@ class GlassHost:
         glib, gtk, vte = _import_gtk()
         self.glib = glib
         gtk.init([])
+        cell_w, cell_h = _measure_terminal_cell(self.font_name)
+        iw, ih = self._target_cols * cell_w + 2 * m, self._target_rows * cell_h + 2 * m + 44
+        self._note_player_window(iw, ih)
         self.renderer = CustomGlassRenderer(iw, ih, title)
         self.renderer.allow_player_visualizer = self.mode not in ("MANAGER", "TRACKLIST")
         try:
@@ -862,6 +945,7 @@ class GlassHost:
                     if self.terminal is not None:
                         self._apply_glass_foreground(self.terminal, theme)
             self._follow_child_ui_size()
+            self._sync_player_window()
             self._sync_panels()
             self.renderer.draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -1005,6 +1089,8 @@ class GlassHost:
             drag.update()
 
     def _release_windows_drag(self) -> None:
+        if sys.platform != "win32":
+            return
         from windows_glass_drag import release_on_host
         release_on_host(self)
 

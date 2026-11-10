@@ -253,9 +253,166 @@ def _read_xwininfo_tree() -> str:
     return result.stdout or ""
 
 
+def player_window_size_path() -> Path:
+    override = (os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE") or "").strip()
+    if override:
+        return Path(override)
+    return CONFIG_DIR / "liquid_player_window.json"
+
+
+# (path, width, height, pid). Skips rewriting the same size every frame.
+_PUBLISHED_CACHE: Optional[tuple] = None
+
+
+def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int] = None) -> None:
+    """Record the Liquid Player's outer window so the visualizer can match it."""
+    global _PUBLISHED_CACHE
+    try:
+        width_i = int(width)
+        height_i = int(height)
+        pid_i = int(os.getpid() if pid is None else pid)
+    except (TypeError, ValueError):
+        return
+    if width_i < 64 or height_i < 64 or pid_i <= 0:
+        return
+    path = player_window_size_path()
+    token = (str(path), width_i, height_i, pid_i)
+    if token == _PUBLISHED_CACHE:
+        return
+    body = json.dumps({"width": width_i, "height": height_i, "pid": pid_i}) + "\n"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name + ".tmp")
+        temporary.write_text(body, encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        return
+    _PUBLISHED_CACHE = token
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except OSError:
+        return False
+    return True
+
+
+def read_published_player_window_record() -> Optional[tuple]:
+    """(width, height, mtime) for a player process that is still running."""
+    path = player_window_size_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        mtime = path.stat().st_mtime
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    try:
+        width = int(payload["width"])
+        height = int(payload["height"])
+        pid = int(payload.get("pid") or 0)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if width < 64 or height < 64 or not _pid_alive(pid):
+        return None
+    return width, height, float(mtime)
+
+
+def read_published_player_window_size() -> Optional[tuple]:
+    record = read_published_player_window_record()
+    if not record:
+        return None
+    return int(record[0]), int(record[1])
+
+
+def liquid_player_host_running() -> bool:
+    """True when a Liquid Player host is up. The Manager GUI does not count."""
+    root = Path("/proc")
+    if not root.is_dir():
+        return False
+    marker = b"MP_Audio_Player_Liquid_Glass"
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            command = (root / entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if marker in command and b"--manager" not in command:
+            return True
+    return False
+
+
+def wait_for_published_player_window_size(
+    timeout: float = 5.0,
+    idle_timeout: float = 0.45,
+    stable_for: float = 0.3,
+    *,
+    require_mapped: bool = True,
+    now=None,
+    wall_now=None,
+    sleep=None,
+    host_running=None,
+    read_tree=None,
+) -> Optional[tuple]:
+    """Fitted Liquid Player size, once the on-screen window matches it.
+
+    The player opens at a 9×18 guess, then refits to the real VTE cell.
+    A visualizer that reads the first size stays smaller. This waits until
+    the published size has settled and, on the desktop, until the mapped
+    window agrees. No player returns None after idle_timeout.
+    """
+    import time
+    clock = time.monotonic if now is None else now
+    wall = time.time if wall_now is None else wall_now
+    pause = time.sleep if sleep is None else sleep
+    running = liquid_player_host_running if host_running is None else host_running
+    tree_of = _read_xwininfo_tree if read_tree is None else read_tree
+    start = clock()
+    seen = None
+    seen_at = start
+    while True:
+        record = read_published_player_window_record()
+        current = clock()
+        size = None
+        settled = False
+        if record:
+            size = (int(record[0]), int(record[1]))
+            if size != seen:
+                seen = size
+                seen_at = current
+            age = wall() - float(record[2])
+            settled = age >= float(stable_for) or (current - seen_at) >= float(stable_for)
+        mapped_ok = True
+        if settled and size and require_mapped:
+            mapped = parse_liquid_player_window_size(tree_of() or "")
+            mapped_ok = mapped == size
+        if settled and size and mapped_ok:
+            return size
+        elapsed = current - start
+        host_up = bool(running())
+        if host_up and elapsed >= float(timeout):
+            return seen
+        if not host_up and elapsed >= float(idle_timeout):
+            return seen
+        pause(0.05)
+
+
 def linux_visualizer_window_size(tree_text: Optional[str] = None) -> tuple:
-    """Linux MP Visualizer size: the open Liquid Player, or that player's formula."""
+    """Linux MP Visualizer size: the fitted Liquid Player, or that player's formula.
+
+    An explicit window-tree listing is parsed as given. The live lookup
+    prefers the size the player published after measuring its font.
+    """
     if tree_text is None:
+        published = read_published_player_window_size()
+        if published:
+            return published
         tree_text = _read_xwininfo_tree()
     found = parse_liquid_player_window_size(tree_text or "")
     if found:

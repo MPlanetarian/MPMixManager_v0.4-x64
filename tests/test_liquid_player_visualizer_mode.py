@@ -327,6 +327,94 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         self.assertEqual(vis.linux_visualizer_window_size(tree), (1574, 1258))
         self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
 
+    def test_published_player_size_is_the_visualizer_size(self):
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "liquid_player_window.json"
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(path)
+            try:
+                vis.publish_liquid_player_window_size(1574, 1258, pid=os.getpid())
+                self.assertEqual(vis.read_published_player_window_size(), (1574, 1258))
+                self.assertEqual(vis.linux_visualizer_window_size(), (1574, 1258))
+                # A caller that already captured a window tree keeps that listing.
+                self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
+                path.write_text(json.dumps({"width": 1574, "height": 1258, "pid": 99999999}) + "\n", encoding="utf-8")
+                self.assertIsNone(vis.read_published_player_window_size())
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+
+    def test_visualizer_waits_until_the_mapped_player_matches(self):
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "liquid_player_window.json"
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(path)
+            clock = {"t": 0.0, "wall": 1_000_000.0}
+            trees = {
+                "text": '0x1 "MP Audio Player (Liquid Glass - OpenGL)": ()  1094x778+10+10  +10+10',
+            }
+
+            def now():
+                return clock["t"]
+
+            def wall_now():
+                return clock["wall"]
+
+            def pause(seconds):
+                clock["t"] += seconds
+                clock["wall"] += seconds
+                if clock["t"] >= 0.4:
+                    trees["text"] = '0x1 "MP Audio Player (Liquid Glass - OpenGL)": ()  1574x1258+10+10  +10+10'
+
+            try:
+                vis.publish_liquid_player_window_size(1574, 1258, pid=os.getpid())
+                # The file mtime is the real clock. Pin the record age to the fake clock.
+                os.utime(path, (clock["wall"], clock["wall"]))
+                found = vis.wait_for_published_player_window_size(
+                    timeout=2.0,
+                    idle_timeout=0.2,
+                    stable_for=0.3,
+                    require_mapped=True,
+                    now=now,
+                    wall_now=wall_now,
+                    sleep=pause,
+                    host_running=lambda: True,
+                    read_tree=lambda: trees["text"],
+                )
+                self.assertEqual(found, (1574, 1258))
+                self.assertGreaterEqual(clock["t"], 0.4)
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+        # The second wait still sees the published file until the env is restored.
+        # Re-run it with no file so an absent player does not invent a size.
+        previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = str(Path(directory) / "missing.json")
+            clock = {"t": 0.0}
+            try:
+                missing = vis.wait_for_published_player_window_size(
+                    timeout=2.0,
+                    idle_timeout=0.2,
+                    stable_for=0.3,
+                    require_mapped=False,
+                    now=lambda: clock["t"],
+                    wall_now=lambda: clock["t"],
+                    sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds),
+                    host_running=lambda: False,
+                    read_tree=lambda: "",
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
+                else:
+                    os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+        self.assertIsNone(missing)
+
     def test_vulkan_preset_is_folded_and_shipped(self):
         raw = (vis.ROOT / "shaders" / "mp_liquid_visualizer.frag").read_text(encoding="utf-8")
         folded = vis.specialize_vulkan_source(raw, 4, march_steps=64)

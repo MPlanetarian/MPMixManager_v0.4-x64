@@ -522,6 +522,7 @@ class LiquidVisualizerVulkanRenderer:
             fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(preferred_window_edge())
             self._windowed_size = (int(fitted_w), int(fitted_h))
             self._windowed_offset = (int(fitted_x), int(fitted_y))
+        self._player_match_at = 0.0
         self.width, self.height = self._windowed_size
         self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
@@ -539,7 +540,62 @@ class LiquidVisualizerVulkanRenderer:
     def summary(self) -> str:
         return f"MP_Liquid_Visualizer Vulkan device: {self.device_name} (vendor 0x{self.vendor_id:04x}, {'discrete' if self.device_type == DISCRETE_GPU else 'gpu'}) | Preset: {self.preset['name']} | Window: {self.width}x{self.height} Fixed Borderless"
 
+    def _set_windowed_size(self, width: int, height: int, apply: bool = False) -> None:
+        width, height = int(width), int(height)
+        if width < 64 or height < 64:
+            return
+        if (width, height) == tuple(self._windowed_size) and not apply:
+            return
+        changed = (width, height) != tuple(self._windowed_size)
+        self._windowed_size = (width, height)
+        if not self.is_fullscreen:
+            self.width, self.height = width, height
+        window = getattr(self, "_window", None)
+        glfw = getattr(self, "_glfw", None)
+        if not apply or not window or not glfw or self.is_fullscreen:
+            return
+        if not changed:
+            return
+        try:
+            glfw.glfwSetWindowSizeLimits(window, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE)
+        except Exception:
+            pass
+        glfw.glfwSetWindowSize(window, width, height)
+        try:
+            glfw.glfwSetWindowSizeLimits(window, width, height, width, height)
+        except Exception:
+            pass
+        self._resize = True
+
+    def _match_player_window(self, wait: bool = False) -> None:
+        """Use the Liquid Player's fitted window. Fullscreen keeps its own size."""
+        if not wait:
+            now = time.monotonic()
+            if now < getattr(self, "_player_match_at", 0.0):
+                return
+            self._player_match_at = now + 0.2
+        try:
+            from liquid_player_visualizer import (
+                read_published_player_window_size,
+                wait_for_published_player_window_size,
+            )
+        except ImportError:
+            from scripts.liquid_player_visualizer import (
+                read_published_player_window_size,
+                wait_for_published_player_window_size,
+            )
+        if wait and _IS_LINUX and not self.target_4k and not self.fullscreen_on_start:
+            size = wait_for_published_player_window_size()
+        else:
+            size = read_published_player_window_size()
+        if not size:
+            return
+        self._set_windowed_size(size[0], size[1], apply=bool(getattr(self, "_window", None)))
+
     def open(self):
+        # The player refits after its font is measured. Wait for that size
+        # before the window is shown, or the visualizer stays at the guess.
+        self._match_player_window(wait=True)
         self._silence_overlays()
         self._x11 = None
         if not _IS_WIN and not _IS_MAC:
@@ -921,6 +977,7 @@ class LiquidVisualizerVulkanRenderer:
         g.glfwPollEvents()
         if g.glfwWindowShouldClose(w): self.should_close = True
         if not self.is_fullscreen:
+            self._match_player_window(wait=False)
             if self._is_4k_cached and not getattr(self, "_user_toggled_windowed", False):
                 self.toggle_fullscreen()
             else:
