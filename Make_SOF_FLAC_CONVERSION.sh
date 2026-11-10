@@ -512,7 +512,7 @@ select_menu_option "YOUTUBE VIDEO RESOLUTION" "Select YouTube Video Resolution:"
 for vcand in "$SCRIPT_DIR/generate_youtube_video.sh" "$PARENT_DIR/generate_youtube_video.sh" "${MIX_ARCHIVE_DIR:-}/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/generate_youtube_video.sh" "/var/home/mplanetarian/MP_Mix_Manager_v0.3/scripts/generate_youtube_video.sh" "$SCRIPT_DIR/Make_SOF_Episode_From_PNG_FLAC_Output_MP4_1080p_Video.sh"; do if [ -f "$vcand" ]; then vid_script="$vcand"; break; fi; done
 for exp_audio in "${newly_exported_flacs[@]}"; do if [ -f "$exp_audio" ]; then cov_for_vid="$(find_cover_for_audio "$exp_audio")"; echo " -> Generating YouTube video for ${exp_audio##*/}..."; if [ -n "$vid_script" ]; then if [[ "$vid_script" == *"generate_youtube_video.sh" ]]; then bash "$vid_script" -r "$vid_res" -i "$exp_audio" -c "$cov_for_vid" -o "${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}" </dev/tty; else bash "$vid_script" "$exp_audio" "$cov_for_vid" </dev/tty; fi; else echo "WARNING: YouTube video generation script not found."; fi; fi; done ;;
 *) echo " -> Skipping YouTube video generation." >/dev/tty ;;
-es:
+esac
 fi
 local aud_opts=(
 "n|Skip Audacity Post-Processing|(Default, finish conversion)"
