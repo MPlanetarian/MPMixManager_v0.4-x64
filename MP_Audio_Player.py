@@ -3517,9 +3517,19 @@ class EqualizerVisualizer:
         pad_tot = inner_w - cw
         pad_l = pad_tot // 2
         pad_r = inner_w - cw - pad_l
+        # The CLI draws on an opaque dark terminal background. Liquid's VTE
+        # background is transparent, so give its spectrogram the same dark
+        # backing to preserve contrast across pale glass themes.
+        liquid_bg = "\033[48;2;5;16;38m" if os.environ.get("MP_LIQUID_GLASS") == "1" else ""
         for r in range(H - 1, -1, -1):
-            row_str = "".join(f"{grid_col[r][c]}{grid_c[r][c]}{NC}" if grid_c[r][c] != " " else " " for c in range(cw))
-            lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{row_str}{' ' * pad_r}{self.b_col}│{NC}")
+            row_str = "".join(
+                f"{grid_col[r][c]}{grid_c[r][c]}{NC}{liquid_bg}" if grid_c[r][c] != " " else " "
+                for c in range(cw)
+            )
+            if liquid_bg:
+                lines.append(f"  {liquid_bg}{self.b_col}│{NC}{liquid_bg}{' ' * pad_l}{row_str}{' ' * pad_r}{liquid_bg}{self.b_col}│{NC}")
+            else:
+                lines.append(f"  {self.b_col}│{NC}{' ' * pad_l}{row_str}{' ' * pad_r}{self.b_col}│{NC}")
         lines.append(bot_l)
         return lines
 

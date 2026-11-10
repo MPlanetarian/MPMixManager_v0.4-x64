@@ -13,6 +13,7 @@ import unittest
 import sys
 import time
 import math
+import os
 import numpy as np
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -153,6 +154,16 @@ class TestStreamOfFrequencyEqualizer(unittest.TestCase):
         _ = self.eq.render_stream_of_frequency(playing_st, width=80, height=7)
         rightmost_slice = self.eq._sof_buffer[:, -1]
         self.assertGreater(np.max(rightmost_slice), 0.5, "Rightmost slice must reflect high audio energy")
+
+    def test_liquid_spectrogram_rows_use_cli_like_dark_backing(self):
+        """Transparent Liquid themes need an opaque dark row behind the same glyphs."""
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}):
+            liquid_lines = self.eq.render_stream_of_frequency(self.st, width=80, height=7)
+        self.assertTrue(all("\033[48;2;5;16;38m" in line for line in liquid_lines[1:-1]))
+
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": ""}):
+            cli_lines = self.eq.render_stream_of_frequency(self.st, width=80, height=7)
+        self.assertFalse(any("\033[48;2;5;16;38m" in line for line in cli_lines))
 
     def test_micro_mode_inline_stream_meter(self):
         """Verifies that _draw_micro_frame generates a 14-char rainbow stream in MICRO mode."""
