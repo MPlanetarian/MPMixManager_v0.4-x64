@@ -77,7 +77,14 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
 _SYS = platform.system().lower()
 _IS_WIN = sys.platform == "win32" or _SYS == "windows"
 _IS_MAC = sys.platform == "darwin" or _SYS == "darwin"
+_IS_LINUX = sys.platform.startswith("linux") or _SYS == "linux"
 _IS_ARM = _IS_MAC and platform.machine().lower() in ("arm64", "aarch64")
+
+def preferred_window_edge() -> int:
+    """Square window edge. Linux is twice the 700px window. macOS uses the player size."""
+    if _IS_LINUX:
+        return WINDOW_WIDTH * 2
+    return WINDOW_WIDTH
 
 def is_windows() -> bool: return _IS_WIN
 def is_windows_10_or_11() -> bool: return _IS_WIN and getattr(sys.getwindowsversion(), "major", 10) >= 10 if hasattr(sys, "getwindowsversion") else _IS_WIN
@@ -505,7 +512,7 @@ class LiquidVisualizerVulkanRenderer:
             # size matches the Liquid Player; this only keeps the old position.
             self._windowed_offset = (160, 80)
         else:
-            fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(min(WINDOW_WIDTH, WINDOW_HEIGHT))
+            fitted_w, fitted_h, fitted_x, fitted_y = fit_square_on_main(preferred_window_edge())
             self._windowed_size = (int(fitted_w), int(fitted_h))
             self._windowed_offset = (int(fitted_x), int(fitted_y))
         self.width, self.height = self._windowed_size
@@ -1817,7 +1824,7 @@ def run_visualizer(preset_name: Optional[str] = None, max_seconds: Optional[floa
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan borderless 3D audio-reactive visualizer (1094x734 on macOS, 700x700 elsewhere)")
+    p = argparse.ArgumentParser(prog="MP_Liquid_Visualizer", description="MP Liquid Visualizer — Native Vulkan borderless 3D audio-reactive visualizer (1094x734 on macOS, 1400x1400 on Linux, 700x700 elsewhere)")
     p.add_argument("--preset", type=str, default=None, help="Select visualizer preset by name, key, or ID")
     p.add_argument("--random", "--random-preset", dest="random_preset", action="store_true", help="Launch with a random visualizer preset")
     p.add_argument("--set-preset", type=str, default=None, help="Persist active preset and exit")

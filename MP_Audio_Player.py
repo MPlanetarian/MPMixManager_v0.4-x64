@@ -3959,11 +3959,19 @@ def launch_mp_gui(base_dir: Optional[Path] = None) -> bool:
         return False
 
 
+def _liquid_visualizer_size_label() -> str:
+    if sys.platform == "darwin":
+        return "1094x734"
+    if sys.platform.startswith("linux"):
+        return "1400x1400"
+    return "700x700"
+
+
 def launch_liquid_visualizer(
     base_dir: Optional[Path] = None,
     preset: Optional[str] = None,
 ) -> bool:
-    """Launch MP_Liquid_Visualizer. macOS uses the Liquid Player size, 1094x734. Other platforms use 700x700."""
+    """Launch MP_Liquid_Visualizer. macOS uses 1094x734. Linux uses 1400x1400. Other platforms use 700x700."""
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
@@ -5251,7 +5259,7 @@ class TerminalPlayerUI:
             self._notify("✦ Launched MP Audio Player (Liquid Glass)" if ok else "Failed to open Liquid Glass Player window", 3.0)
         elif data in (b"z", b"Z"):
             ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
-            self._notify("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 1094x734 Vulkan" if ok and sys.platform == "darwin" else ("✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — 700x700 Vulkan" if ok else "Failed to launch MP Liquid Visualizer"), 3.5)
+            self._notify(f"✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — {_liquid_visualizer_size_label()} Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
         elif data in (b"y", b"Y"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
@@ -5685,7 +5693,7 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
-        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, 700x700 elsewhere)")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, 1400x1400 on Linux, 700x700 elsewhere)")),
         (("--visualizer-preset",), dict(type=str, default=None, help="Select MP Liquid Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
         (("--list-visualizer-presets",), dict(action="store_true", help="List available MP Liquid Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),
@@ -5786,7 +5794,7 @@ def main():
         ok = launch_liquid_visualizer(base_dir, preset=args.visualizer_preset)
         if ok:
             p_label = args.visualizer_preset or "Active Preset"
-            vis_size = "1094x734" if sys.platform == "darwin" else "700x700"
+            vis_size = _liquid_visualizer_size_label()
             print(f"✔ Launched MP Liquid Visualizer [{p_label}] — {vis_size} Fixed Borderless Vulkan")
             sys.exit(0)
         print("✖ Failed to launch MP Liquid Visualizer", file=sys.stderr)
