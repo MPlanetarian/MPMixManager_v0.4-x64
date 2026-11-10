@@ -5493,8 +5493,17 @@ class TerminalPlayerUI:
             )
             self._notify("✦ Launched MP Audio Player (Liquid Glass)" if ok else "Failed to open Liquid Glass Player window", 3.0)
         elif data in (b"z", b"Z"):
-            ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
-            self._notify(f"✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — {_liquid_visualizer_size_label()} Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
+            if sys.platform.startswith("linux") and os.environ.get("MP_LIQUID_GLASS") == "1":
+                self.mp_visualizer_on = True
+                preset = self._publish_mp_visualizer()
+                self._ensure_standalone_mp_visualizer(preset)
+                self._notify(
+                    f"✦ MP Liquid Visualizer behind player — {preset.get('name', 'Cosmic Dreamworlds (Liquid)')}",
+                    3.5,
+                )
+            else:
+                ok = launch_liquid_visualizer(base_dir=getattr(self.scanner, "base_dir", None))
+                self._notify(f"✦ Launched MP Liquid Visualizer [Cosmic Dreamworlds (Liquid)] — {_liquid_visualizer_size_label()} Vulkan" if ok else "Failed to launch MP Liquid Visualizer", 3.5)
         elif data in (b"y", b"Y"):
             self._send_cmd("repeat")
             modes = ["all", "one", "off"]
