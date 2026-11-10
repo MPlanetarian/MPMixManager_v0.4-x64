@@ -63,6 +63,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **Linux font for MP Liquid and MP Gui** (`scripts/liquid_glass_font.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`):
+  - Both windows use Hack at 11 pt when the Hack family is installed.
+  - When Hack is not installed, they use Monospace 11.
+  - `--font`, `MP_LIQUID_GLASS_FONT`, and a saved font in `~/.config/mix-manager/liquid_glass_font` still choose another face.
 - **MP Visualizer looked blocky on Linux** (`scripts/liquid_player_visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `tests/test_liquid_player_visualizer_mode.py`):
   - The window was already the size of the Liquid Player, but the raymarch was 224 pixels on the long edge and then scaled up to fill that window.
   - Linux now marches at the framebuffer size, one pixel of the picture for each pixel of the window. The preset shader is the folded one, so the march is the selected scene.

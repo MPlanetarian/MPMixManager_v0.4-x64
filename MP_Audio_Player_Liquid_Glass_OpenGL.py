@@ -12,6 +12,7 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from desktop_launch_screen import window_launch_origin  # noqa: E402
+from liquid_glass_font import default_liquid_glass_font  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
@@ -23,6 +24,7 @@ from liquid_glass_opengl import (
 )
 
 COLS, ROWS = 120, 40
+# Used when Hack is not installed, and when a measured cell has no face yet.
 DEFAULT_FONT = "Monospace 11"
 # Opacity when the window opens. 0.80 is 80% opaque. The slider runs from 0.20 to 0.80.
 # MP Liquid Player and MP Gui both use this host.
@@ -31,9 +33,9 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
 
 RECOMMENDED_FONTS = [
-    ("Monospace 11", "System Default Monospace (Clean, unbolded standard)"),
+    ("Monospace 11", "Fallback when the Hack family is not installed"),
     ("Fira Code 11", "Modern Programming Font (Clean shapes, sleek proportions)"),
-    ("Hack 11", "Crisp Open-Source Terminal Monospace"),
+    ("Hack 11", "Linux default when the Hack family is installed"),
     ("Adwaita Mono 11", "Modern GNOME Desktop Monospace"),
     ("Liberation Mono 11", "Classic Clean Monospace"),
 ]
@@ -49,10 +51,12 @@ def get_liquid_glass_font(cli_font=None):
         return env_f
     try:
         if FONT_CONFIG_FILE.is_file():
-            return FONT_CONFIG_FILE.read_text(encoding="utf-8").strip() or DEFAULT_FONT
+            saved = FONT_CONFIG_FILE.read_text(encoding="utf-8").strip()
+            if saved:
+                return saved
     except Exception:
         pass
-    return DEFAULT_FONT
+    return default_liquid_glass_font()
 
 
 def set_liquid_glass_font(font_str: str) -> None:

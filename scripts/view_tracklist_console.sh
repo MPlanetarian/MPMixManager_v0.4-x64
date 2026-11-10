@@ -71,12 +71,12 @@ set_theme_colors() {
             THEME_DISPLAY_NAME="Stream of Frequency"
             ;;
         dreamworlds|mplanetarian_dreamworlds|mplanetarian|default|"mplanetarian dreamworlds [default]"|"mplanetarian dreamworlds")
-            RED='\033[38;2;237;37;78m'
-            GREEN='\033[38;2;0;229;255m'
-            YELLOW='\033[38;2;255;170;0m'
-            BLUE='\033[38;2;155;89;182m'
-            MAGENTA='\033[38;2;247;37;133m'
-            CYAN='\033[38;2;0;193;228m'
+            RED='\033[38;2;46;107;255m'
+            GREEN='\033[38;2;125;186;255m'
+            YELLOW='\033[38;2;198;220;255m'
+            BLUE='\033[38;2;20;58;160m'
+            MAGENTA='\033[38;2;46;107;255m'
+            CYAN='\033[38;2;90;164;255m'
             CURRENT_THEME="dreamworlds"
             THEME_DISPLAY_NAME="MPlanetarian Dreamworlds"
             ;;
