@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -200,6 +201,66 @@ def macos_liquid_player_window_size(
         int(cols) * int(char_w) + 2 * int(margin),
         int(rows) * int(char_h) + 2 * int(margin),
     )
+
+
+_PLAYER_WINDOW_TITLE = "MP Audio Player (Liquid Glass"
+_WINDOW_GEOM_RE = re.compile(r"(\d+)x(\d+)[+-]\d+[+-]\d+")
+
+
+def linux_liquid_player_window_size(
+    cols: int = 120, rows: int = 40, char_w: int = 9, char_h: int = 18, margin: int = 7, slider: int = 44
+) -> tuple:
+    """Pixel size of the Linux OpenGL Liquid Player before the font is measured.
+
+    120×40 cells at 9×18 px, a 7 px bezel on each side, and the 44 px
+    transparency slider: 1094×778. The host then refits to the real VTE cell.
+    """
+    return (
+        int(cols) * int(char_w) + 2 * int(margin),
+        int(rows) * int(char_h) + 2 * int(margin) + int(slider),
+    )
+
+
+def parse_liquid_player_window_size(tree_text: str) -> Optional[tuple]:
+    """Largest mapped MP Liquid Player window in an xwininfo -root -tree listing."""
+    best = None
+    for line in (tree_text or "").splitlines():
+        if _PLAYER_WINDOW_TITLE not in line:
+            continue
+        match = _WINDOW_GEOM_RE.search(line)
+        if not match:
+            continue
+        size = (int(match.group(1)), int(match.group(2)))
+        if size[0] < 64 or size[1] < 64:
+            continue
+        if best is None or size[0] * size[1] > best[0] * best[1]:
+            best = size
+    return best
+
+
+def _read_xwininfo_tree() -> str:
+    try:
+        result = subprocess.run(
+            ["xwininfo", "-root", "-tree"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout or ""
+
+
+def linux_visualizer_window_size(tree_text: Optional[str] = None) -> tuple:
+    """Linux MP Visualizer size: the open Liquid Player, or that player's formula."""
+    if tree_text is None:
+        tree_text = _read_xwininfo_tree()
+    found = parse_liquid_player_window_size(tree_text or "")
+    if found:
+        return found
+    return linux_liquid_player_window_size()
 
 
 def macos_player_grid(width: int, height: int, char_w: int = 9, char_h: int = 18, margin: int = 7) -> tuple:

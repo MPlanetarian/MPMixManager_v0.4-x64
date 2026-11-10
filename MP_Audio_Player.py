@@ -3963,7 +3963,12 @@ def _liquid_visualizer_size_label() -> str:
     if sys.platform == "darwin":
         return "1094x734"
     if sys.platform.startswith("linux"):
-        return "1400x1400"
+        try:
+            from liquid_player_visualizer import linux_visualizer_window_size
+        except ImportError:
+            from scripts.liquid_player_visualizer import linux_visualizer_window_size
+        width, height = linux_visualizer_window_size()
+        return f"{int(width)}x{int(height)}"
     return "700x700"
 
 
@@ -3971,7 +3976,7 @@ def launch_liquid_visualizer(
     base_dir: Optional[Path] = None,
     preset: Optional[str] = None,
 ) -> bool:
-    """Launch MP_Liquid_Visualizer. macOS uses 1094x734. Linux uses 1400x1400. Other platforms use 700x700."""
+    """Launch MP_Liquid_Visualizer. macOS uses 1094x734. Linux matches the Liquid Player. Other platforms use 700x700."""
     if sys.platform not in ("linux", "darwin", "win32") and not sys.platform.startswith("freebsd"):
         return False
     base = base_dir or get_base_dir()
@@ -5696,7 +5701,7 @@ def main():
         (("--new-window", "--window", "-w"), dict(action="store_true")), (("--only-if-running",), dict(action="store_true")),
         (("--shuffle",), dict(action="store_true")), (("--repeat",), dict(action="store_true")),
         (("--liquid", "--liquid-glass", "--glass"), dict(action="store_true", help="Launch MP Audio Player in Liquid Glass mode")),
-        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, 1400x1400 on Linux, 700x700 elsewhere)")),
+        (("--visualizer", "--liquid-visualizer"), dict(action="store_true", help="Launch MP Liquid Visualizer (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere)")),
         (("--visualizer-preset",), dict(type=str, default=None, help="Select MP Liquid Visualizer preset (e.g. 'Cosmic Dreamworlds (Liquid)')")),
         (("--list-visualizer-presets",), dict(action="store_true", help="List available MP Liquid Visualizer presets")),
         (("--queue", "-q"), dict(type=str, nargs="?", const="")), (("--clear-queue",), dict(action="store_true")),

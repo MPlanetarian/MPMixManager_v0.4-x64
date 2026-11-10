@@ -314,6 +314,19 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         cols, rows = vis.macos_player_grid(1094, 734)
         self.assertEqual((cols, rows), (120, 40))
 
+    def test_linux_visualizer_matches_the_liquid_player_window(self):
+        self.assertEqual(vis.linux_liquid_player_window_size(), (1094, 778))
+        self.assertEqual(vis.linux_liquid_player_window_size(char_w=13, char_h=30), (1574, 1258))
+        tree = '\n'.join([
+            '     0x1000007 "MP Audio Player (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  1574x1258+510+385  +510+385',
+            '     0x2000001 "MP Mix Manager (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  800x600+10+10  +10+10',
+            '     0x1000008 "MP Audio Player (Liquid Glass - OpenGL)": ("mp_liquid" "MP_Liquid")  680x266+20+20  +20+20',
+        ])
+        self.assertEqual(vis.parse_liquid_player_window_size(tree), (1574, 1258))
+        self.assertIsNone(vis.parse_liquid_player_window_size(""))
+        self.assertEqual(vis.linux_visualizer_window_size(tree), (1574, 1258))
+        self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
+
     def test_vulkan_preset_is_folded_and_shipped(self):
         raw = (vis.ROOT / "shaders" / "mp_liquid_visualizer.frag").read_text(encoding="utf-8")
         folded = vis.specialize_vulkan_source(raw, 4, march_steps=64)
