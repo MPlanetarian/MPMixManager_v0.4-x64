@@ -90,6 +90,11 @@ if [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
     python3 "$BASE_DIR/MP_Audio_Player.py" --vol 100 2>/dev/null || true
 fi
 
+# Reset the shared equalizer whenever MP Liquid is launched on Linux.
+if [ "$(uname -s 2>/dev/null)" = "Linux" ] && [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
+    python3 "$BASE_DIR/MP_Audio_Player.py" --reset-eq >/dev/null 2>&1 || true
+fi
+
 # If a previous window opened on the Hisense, bring it back to the main screen.
 python3 - "$BASE_DIR" << 'PY' || true
 import sys

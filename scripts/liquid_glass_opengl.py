@@ -390,10 +390,8 @@ def glass_text_rgb(r: int, g: int, b: int, floor: int = 36) -> tuple[int, int, i
 
 
 def glass_foreground_rgb(theme_name) -> tuple[int, int, int]:
-    """Default terminal foreground. Dark ink on the pale pane, light on charcoal."""
-    if theme_uses_dark_glass(theme_name):
-        return (236, 240, 244)
-    return (32, 36, 44)
+    """Keep MP Liquid terminal text white for every glass theme."""
+    return (255, 255, 255)
 
 
 # Same hues as the manager menu text. Retro Terminal stays white.
@@ -422,16 +420,8 @@ THEME_TEXT = {
 
 
 def theme_text_rgb(name) -> tuple[int, int, int]:
-    """Body-text colour for this theme.
-
-    Pale glass darkens a light hue so it stays readable. Charcoal keeps the
-    bright colour. Retro Terminal's hue is white, and the pale pane darkens it.
-    """
-    key = THEME_ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
-    bright = THEME_TEXT.get(key, THEME_TEXT["dreamworlds_ultra"])
-    if theme_uses_dark_glass(name):
-        return bright
-    return glass_text_rgb(*bright)
+    """Keep MP Liquid body text white regardless of the selected theme."""
+    return (255, 255, 255)
 
 
 def get_dynamic_theme_state(theme_name, base_opacity=1.0, current_time=None):

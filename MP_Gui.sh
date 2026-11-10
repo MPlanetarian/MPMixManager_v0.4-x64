@@ -129,6 +129,11 @@ _mp_python() {
 }
 MP_PY="$(_mp_python)"
 
+# Reset the shared equalizer on Linux whenever MP Gui is opened directly.
+if [ "$(uname -s 2>/dev/null)" = "Linux" ] && [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
+    "$MP_PY" "$BASE_DIR/MP_Audio_Player.py" --reset-eq >/dev/null 2>&1 || true
+fi
+
 KEEP_THEME=0
 THEME_NAME="retro_linux_memories"
 NO_VISUALIZER=0

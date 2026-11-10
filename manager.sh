@@ -44,6 +44,16 @@ fi
 
 cd "$DIR" || exit 1
 
+# Start the Linux manager with the equalizer at Flat. The GUI launcher also
+# does this when opened directly; repeating the reset is safe.
+if [[ "$(uname -s 2>/dev/null)" == Linux && -f "$DIR/MP_Audio_Player.py" ]]; then
+    _mp_python="${MP_PYTHON:-}"
+    if [[ -z "$_mp_python" ]]; then
+        command -v python3 >/dev/null 2>&1 && _mp_python="$(command -v python3)"
+    fi
+    [[ -n "$_mp_python" ]] && "$_mp_python" "$DIR/MP_Audio_Player.py" --reset-eq >/dev/null 2>&1 || true
+fi
+
 if [[ ! -f "Mix_Archive_Manager.sh" ]]; then
     echo "Error: Mix_Archive_Manager.sh not found in: $DIR"
     read -rp "Press Enter to exit..."

@@ -184,4 +184,8 @@ for _py in \
         break
     fi
 done
+# Reset the shared equalizer whenever MP Liquid is launched on Linux.
+if [ "$(uname -s 2>/dev/null)" = "Linux" ] && [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then
+    "$PYTHON_BIN" "$BASE_DIR/MP_Audio_Player.py" --reset-eq >/dev/null 2>&1 || true
+fi
 exec "$PYTHON_BIN" "$TARGET_PY" "$@"
