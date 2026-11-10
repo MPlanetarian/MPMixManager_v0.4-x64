@@ -408,7 +408,7 @@ cosmic_dreamworlds) THEME_BG_R=40; THEME_BG_G=6; THEME_BG_B=32 ;;
 orbital_void_reflux) THEME_BG_R=10; THEME_BG_G=6; THEME_BG_B=40 ;;
 sensorium_interface) THEME_BG_R=28; THEME_BG_G=8; THEME_BG_B=36 ;;
 retro_linux_memories) THEME_BG_R=26; THEME_BG_G=30; THEME_BG_B=33 ;;
-dreamworlds) THEME_BG_R=42; THEME_BG_G=8; THEME_BG_B=28 ;;
+dreamworlds) THEME_BG_R=0; THEME_BG_G=0; THEME_BG_B=0 ;;
 cyberpunk) THEME_BG_R=18; THEME_BG_G=4; THEME_BG_B=28 ;;
 dracula) THEME_BG_R=40; THEME_BG_G=42; THEME_BG_B=54 ;;
 nord) THEME_BG_R=46; THEME_BG_G=52; THEME_BG_B=64 ;;
