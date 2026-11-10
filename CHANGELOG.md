@@ -104,6 +104,9 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - **Esc**, **Space**, **Enter**, and **`q`** still skip the intro. The manager menu draws after the video.
 
 ### Changed
+- **Default glass opacity** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_glass_player_features.py`):
+  - MP Liquid Player and MP Gui open at 80% opacity. The transparency slider starts there.
+  - Linux and Windows still slide from 20% to 80%. macOS still slides from 40% to 80%.
 - **CLI startup** (`Mix_Archive_Manager.sh`) no longer opens the MP Liquid player on macOS, Linux, or Windows. Option 3 and `L` still open it. Startup autoplay still resumes every other default player.
 - **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
 - **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–38, including option 36 and the first-row MP Harmony assistant. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.

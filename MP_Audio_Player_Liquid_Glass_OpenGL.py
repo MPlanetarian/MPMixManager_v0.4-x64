@@ -24,6 +24,9 @@ from liquid_glass_opengl import (
 
 COLS, ROWS = 120, 40
 DEFAULT_FONT = "Monospace 11"
+# Opacity when the window opens. 0.80 is 80% opaque. The slider runs from 0.20 to 0.80.
+# MP Liquid Player and MP Gui both use this host.
+DEFAULT_WINDOW_OPACITY = 0.80
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
 
@@ -219,7 +222,7 @@ def _measure_terminal_cell(font_name: str) -> tuple:
 class CustomGlassRenderer(LiquidGlassRendererOpenGL):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.slider_val = 0.60  # Default 60% opacity setting on load[cite: 1]
+        self.slider_val = DEFAULT_WINDOW_OPACITY
         self._slider_dragging = False
 
     def draw(self, theme_name, opacity=1.0, capture=False):
@@ -905,6 +908,7 @@ class GlassHost:
         term.realize()
         self._pump_gtk(glib)
         self.gtk_window, self.terminal = window, term
+        self._apply_slider_opacity()
         self._fit_to_terminal(term)
         self.renderer.poll()
         gdk_win = window.get_window()
@@ -1043,6 +1047,19 @@ class GlassHost:
         window.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._glass_css_provider = provider
 
+    def _apply_slider_opacity(self):
+        """Open the Liquid Player and MP Gui at the transparency slider's default."""
+        if self.gtk_window is None:
+            return
+        opacity = DEFAULT_WINDOW_OPACITY
+        renderer = getattr(self, "renderer", None)
+        if renderer is not None:
+            opacity = float(getattr(renderer, "slider_val", opacity))
+        try:
+            self.gtk_window.set_opacity(opacity)
+        except Exception:
+            pass
+
     def _sync_visualizer_readability(self):
         """Keep player text solid and outlined while the visualizer is the background."""
         if self.gtk_window is None or not getattr(self.renderer, "allow_player_visualizer", False):
@@ -1055,7 +1072,7 @@ class GlassHost:
         if active:
             self.gtk_window.set_opacity(1.0)
         elif getattr(self, "_vis_text_css", None) is not None:
-            self.gtk_window.set_opacity(float(getattr(self.renderer, "slider_val", 0.60)))
+            self.gtk_window.set_opacity(float(getattr(self.renderer, "slider_val", DEFAULT_WINDOW_OPACITY)))
         if active == getattr(self, "_vis_text_on", False):
             return
         if self.terminal is None or Gtk is None:
