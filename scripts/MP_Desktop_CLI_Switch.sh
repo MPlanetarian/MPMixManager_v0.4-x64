@@ -50,6 +50,24 @@ install_tty_font() {
   else
     printf 'FONT=%s\n' "$TTY_FONT_ETC" >> /etc/vconsole.conf
   fi
+  # Debian and Ubuntu read this file. Bazzite uses vconsole.conf above.
+  # Leave the file alone when the distro does not have it.
+  local setup="/etc/default/console-setup"
+  if [[ -f "$setup" ]]; then
+    local tmp found_face=0 found_size=0 line
+    tmp="$(mktemp)"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      case "$line" in
+        FONTFACE=*) printf '%s\n' 'FONTFACE="Terminus"' >>"$tmp"; found_face=1 ;;
+        FONTSIZE=*) printf '%s\n' 'FONTSIZE="12x24"' >>"$tmp"; found_size=1 ;;
+        *) printf '%s\n' "$line" >>"$tmp" ;;
+      esac
+    done <"$setup"
+    [[ "$found_face" -eq 0 ]] && printf '%s\n' 'FONTFACE="Terminus"' >>"$tmp"
+    [[ "$found_size" -eq 0 ]] && printf '%s\n' 'FONTSIZE="12x24"' >>"$tmp"
+    cat "$tmp" >"$setup"
+    rm -f "$tmp"
+  fi
 }
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -67,8 +85,8 @@ fi
 case "${1:-}" in
   --to-tty)
     echo "Stopping Plasma and the Wayland login screen."
-    echo "Boot will stop at a TTY login. Use Ctrl+Alt+F1 if no prompt is visible."
-    echo "TTY font is Terminus 24."
+    echo "MP Mix Manager opens on tty1 and restarts if it exits."
+    echo "Ctrl+Alt+F2 stays a login shell. TTY font is Terminus 24."
     user="${SUDO_USER:-}"
     if [[ -z "$user" || "$user" == root ]]; then
       echo "Run this from your user account, not as root." >&2
@@ -76,6 +94,11 @@ case "${1:-}" in
     fi
 
     install_tty_font
+
+    kiosk="$(dirname "$(readlink -f "$0")")/mp_tty_kiosk.sh"
+    if [[ -f "$kiosk" ]]; then
+      bash "$kiosk" --install || echo "MP Mix Manager TTY service was not installed. tty1 stays a login." >&2
+    fi
 
     systemctl set-default multi-user.target
     systemctl stop mp-drop-to-tty.service 2>/dev/null || true
@@ -120,7 +143,14 @@ while read -r id _ _ seat _; do
 done < <(loginctl list-sessions --no-legend || true)
 
 systemctl stop plasmalogin.service || true
-systemctl start getty@tty1.service
+systemctl start getty@tty2.service || true
+if systemctl cat mp-mix-manager-tty.service >/dev/null 2>&1; then
+  systemctl mask getty@tty1.service || true
+  systemctl stop getty@tty1.service || true
+  systemctl restart mp-mix-manager-tty.service || true
+else
+  systemctl start getty@tty1.service
+fi
 
 switched=0
 for _ in 1 2 3 4 5 6 7 8; do
@@ -156,10 +186,23 @@ EOF
       --setenv=MP_SWITCH_USER="$user" \
       --setenv=MP_TTY_FONT="$TTY_FONT_ETC" \
       --working-directory=/ \
-      /usr/bin/bash -c "$helper"
+      /usr/bin/bash -c "$helper" || switch_rc=$?
+    if [[ "${switch_rc:-0}" -ne 0 ]]; then
+      systemctl disable --now mp-mix-manager-tty.service 2>/dev/null || true
+      systemctl unmask getty@tty1.service 2>/dev/null || true
+      systemctl start getty@tty1.service 2>/dev/null || true
+      exit "$switch_rc"
+    fi
     ;;
   --to-desktop)
     echo "Enabling the Plasma Wayland login screen."
+    kiosk="$(dirname "$(readlink -f "$0")")/mp_tty_kiosk.sh"
+    if [[ -f "$kiosk" ]]; then
+      bash "$kiosk" --remove || true
+    else
+      systemctl disable --now mp-mix-manager-tty.service 2>/dev/null || true
+      systemctl unmask getty@tty1.service 2>/dev/null || true
+    fi
     systemctl set-default graphical.target
     systemctl reset-failed plasmalogin.service 2>/dev/null || true
     systemctl start graphical.target

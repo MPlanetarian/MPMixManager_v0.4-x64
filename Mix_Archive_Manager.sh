@@ -1425,8 +1425,17 @@ exit_mix_manager() {
     fi
     # Hand the console back to the user's own profile colours.
     _restore_cli_theme_background
+    # TTY Audio Mode also puts the line discipline back. A crash path uses
+    # the same restore so the console is not left raw or without a cursor.
+    if type mp_tty_restore_terminal >/dev/null 2>&1 && { [ "${MP_TTY_ABNORMAL_EXIT:-0}" = "1" ] || { type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; }; }; then
+        mp_tty_restore_terminal
+    fi
     # Switch back from alternate screen buffer and restore cursor/wrap
     printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
+    if [ "${MP_TTY_ABNORMAL_EXIT:-0}" = "1" ]; then
+        printf '\n[!] Application terminated.\n'
+        exit 139
+    fi
     echo ""
     echo -e "${BOLD}${GREEN}You are exiting the MP Mix Archive Manager.${NC}"
     if [ "$_lg_open" -eq 1 ]; then
@@ -1704,10 +1713,11 @@ mp_tty_audio_mode_active() {
 
 mp_tty_audio_mode_load() {
     MP_TTY_AUDIO_MODE_FILE="${HOME:-}/.config/mix-manager/tty_audio_mode"
-    if [ -f "$MP_TTY_AUDIO_MODE_FILE" ]; then
+    if [ -f "$MP_TTY_AUDIO_MODE_FILE" ] || [ "${MP_MIX_MANAGER_TTY_MODE:-0}" = "1" ]; then
         export MP_MIX_MANAGER_TTY_MODE=1
         AUTO_SHOW_COVER_ON_STARTUP=false
         AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+        mp_tty_session_begin
     fi
 }
 
@@ -1718,6 +1728,58 @@ mp_tty_audio_mode_enable() {
     export MP_MIX_MANAGER_TTY_MODE=1
     AUTO_SHOW_COVER_ON_STARTUP=false
     AUTO_PLAY_YOUTUBE_ON_STARTUP=false
+    mp_tty_session_begin
+}
+
+# The kernel keeps the last termios state. Restore echo, canonical input,
+# and the cursor on the way out, including SEGV. INT and TERM still go
+# through exit_mix_manager, which calls this same restore.
+mp_tty_restore_terminal() {
+    stty sane </dev/tty >/dev/tty 2>/dev/null || stty sane 2>/dev/null || true
+    printf '\033[?25h\033[?7h\033[?1049l' >/dev/tty 2>/dev/null || printf '\033[?25h\033[?7h\033[?1049l' 2>/dev/null || true
+}
+
+mp_tty_crash_restore() {
+    trap - SEGV EXIT INT TERM HUP
+    MP_TTY_ABNORMAL_EXIT=1
+    mp_tty_restore_terminal
+    printf '\n[!] Application terminated.\n' >/dev/tty 2>/dev/null || printf '\n[!] Application terminated.\n'
+    exit 139
+}
+
+mp_tty_on_linux_console() {
+    local name=""
+    name="$(tty 2>/dev/null || true)"
+    case "$name" in
+        /dev/tty[0-9]|/dev/tty[0-9][0-9]|/dev/console) return 0 ;;
+    esac
+    return 1
+}
+
+# Nice and realtime I/O only on the console service or a real virtual console.
+# A desktop confirmation must not renice the Plasma session.
+mp_tty_tune_priority() {
+    [ "${MP_TTY_PRIORITY_TUNED:-0}" = "1" ] && return 0
+    if [ "${MP_TTY_KIOSK:-0}" != "1" ] && ! mp_tty_on_linux_console; then
+        return 0
+    fi
+    MP_TTY_PRIORITY_TUNED=1
+    renice -n -10 -p $$ >/dev/null 2>&1 || true
+    if command -v ionice >/dev/null 2>&1; then
+        ionice -c 1 -n 0 -p $$ >/dev/null 2>&1 || ionice -c 2 -n 0 -p $$ >/dev/null 2>&1 || true
+    fi
+}
+
+mp_tty_session_begin() {
+    [ "${MP_TTY_SESSION_READY:-0}" = "1" ] && return 0
+    MP_TTY_SESSION_READY=1
+    export PYTHONUNBUFFERED=1
+    export MP_MIX_MANAGER_TTY_MODE=1
+    if [ "${MP_TTY_TRAPS_READY:-0}" != "1" ]; then
+        MP_TTY_TRAPS_READY=1
+        trap 'mp_tty_crash_restore' SEGV
+    fi
+    mp_tty_tune_priority
 }
 
 mp_tty_audio_mode_disable() {
@@ -1794,8 +1856,9 @@ manage_linux_tty_desktop_switch() {
         tty)
             echo -e "${BOLD}${CYAN}Linux TTY Desktop Switcher${NC}"
             echo -e "This enables ${BOLD}MP Mix Manager TTY Audio Mode${NC} and leaves the desktop for a text console."
-            echo -e "Log in on the TTY and start MP Mix Manager. Playback uses the terminal player."
-            echo -e "Liquid Glass, MP Gui, and the visualizer stay closed. Option 37 on the TTY returns to the desktop."
+            echo -e "MP Mix Manager opens on tty1 and restarts if it exits. Playback uses the terminal player."
+            echo -e "Ctrl+Alt+F2 stays a login shell. Liquid Glass, MP Gui, and the visualizer stay closed."
+            echo -e "Option 37 on the TTY turns the mode off and brings the desktop login back."
             printf '%s' "Switch to the TTY now? [y/N]: "
             read -r ans || ans=""
             case "$ans" in
@@ -1835,7 +1898,7 @@ manage_linux_tty_desktop_switch() {
 }
 # MP_TTY_AUDIO_MODE_END
 launch_in_terminal() {
-local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if mp_tty_audio_mode_active; then echo -e "\n${BOLD}${CYAN}${title}${NC} ${DIM}(MP Mix Manager TTY Audio Mode, this console)${NC}\n"; bash -c "$cmd"; return $?; fi; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
+local title="$1"; local cmd="$2"; local mode="${3:-tab}"; if mp_tty_audio_mode_active; then echo -e "\n${BOLD}${CYAN}${title}${NC} ${DIM}(MP Mix Manager TTY Audio Mode, this console)${NC}\n"; local _tty_rc=0; PYTHONUNBUFFERED=1 bash -c "$cmd" || _tty_rc=$?; mp_tty_restore_terminal; return $_tty_rc; fi; if [ "$OS_TYPE" = "macos" ]; then if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then
 osascript - "$cmd" <<'APPLESCRIPT' &>/dev/null
 on run argv
     set cmdText to item 1 of argv
@@ -1978,6 +2041,12 @@ _run_mp_audio_player() {
         elif [ -n "${MP_PYTHON:-}" ]; then
             bin="$MP_PYTHON"
         fi
+    fi
+    local rc=0
+    if type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; then
+        env -u LINES -u COLUMNS PYTHONUNBUFFERED=1 MP_MIX_MANAGER_TTY_MODE=1 "$bin" "$@" || rc=$?
+        type mp_tty_restore_terminal >/dev/null 2>&1 && mp_tty_restore_terminal
+        return "$rc"
     fi
     env -u LINES -u COLUMNS "$bin" "$@"
 }
@@ -5450,7 +5519,7 @@ local hdr="  ${b_mag}╭${h_border}╮${NC}
   ${b_mag}│${NC} ${sp_left}${b_mag}${title}${NC}${sp_right} ${b_mag}│${NC}
   ${b_mag}╰${h_border}╯${NC}
   ${_CACHED_OS_BADGE:-}  ${b_blue}│${NC}  ${b_cyan}🔄 OS Updates:${NC} ${_CACHED_OS_UPDATE_STATUS:-${DIM}checking...${NC}}  ${b_blue}│${NC}  ${b_cyan}🌐 Network:${NC} ${net}  ${b_blue}│${NC}  ${b_cyan}🐚 Shell:${NC} Bash ${BASH_VERSION%%(*}"
-if mp_tty_audio_mode_active; then hdr+=$'\n  '"${BOLD}${GREEN}MP Mix Manager TTY Audio Mode${NC}  ${DIM}console player • desktop windows stay closed${NC}"; fi
+if type mp_tty_audio_mode_active >/dev/null 2>&1 && mp_tty_audio_mode_active; then hdr+=$'\n  '"${BOLD}${GREEN}MP Mix Manager TTY Audio Mode${NC}  ${DIM}console player • desktop windows stay closed${NC}"; if [ "${MP_TTY_KIOSK:-0}" = "1" ]; then hdr+=$'\n  '"${DIM}This console is the TTY service. Ctrl+Alt+F2 is a login shell.${NC}"; fi; fi
 [[ -n "${_CACHED_CLOUD_STATUS:-}" ]]       && hdr+=$'\n  '"${_CACHED_CLOUD_STATUS}"; [[ -n "${_CACHED_PERF_DISPLAY:-}" ]]        && hdr+=$'\n'"${_CACHED_PERF_DISPLAY}"; _reflow_audio_iface_display; [[ -n "${_CACHED_AUDIO_IFACE_DISPLAY:-}" ]] && hdr+=$'\n'"${_CACHED_AUDIO_IFACE_DISPLAY}"; if (( _TERM_LINES >= 38 )); then [[ -n "${STARTUP_AUTOPLAY_NOTICE:-}" ]] && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_AUTOPLAY_NOTICE}${NC}"; [[ -n "${STARTUP_SPEK_NOTICE:-}" ]]     && hdr+=$'\n  '"${BOLD}${GREEN}${STARTUP_SPEK_NOTICE}${NC}"; if [[ "${WEATHER_ENABLED:-true}" == "true" && -n "${WEATHER_LOCATION:-}" && -n "${_CACHED_WEATHER_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_WEATHER_DISPLAY}"; fi; if [[ "${PLANETS_ENABLED:-true}" == "true" && -n "${_CACHED_PLANETS_DISPLAY:-}" ]]; then hdr+=$'\n'"${_CACHED_PLANETS_DISPLAY}"; fi; [[ -n "${_CACHED_ALARM_CLOCK_STATUS:-}" ]] && hdr+=$'\n'"${_CACHED_ALARM_CLOCK_STATUS}"; if ! is_mix_archive_configured; then
 hdr+=$'\n\n  '"${BOLD}${RED}⚠️  Please be advised you have not configured your Mix Archive Folder,${NC}"$'\n  '"${BOLD}${RED}Please use Option 16 or 13 to Configure this now.${NC}"$'\n  '"${DIM}${YELLOW}(Currently using application root folder: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"
 fi; local _mf_cnt=0 _mf_f="$HOME/.config/mix-manager/music_folders.json" _mf_line; if [ -f "$_mf_f" ]; then while IFS= read -r _mf_line; do [[ "$_mf_line" == *'"id":'* ]] && _mf_cnt=$((_mf_cnt + 1)); done < "$_mf_f"; fi; if [ "${_mf_cnt:-0}" -eq 0 ]; then
@@ -5568,7 +5637,7 @@ _cleanup_mix_manager_exit() {
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP
 _ensure_mp_system_tray
-display_startup_loader_video 0
+if mp_tty_audio_mode_active && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then :; else display_startup_loader_video 0; fi
 ensure_first_run_equalizer
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward

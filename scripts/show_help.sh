@@ -182,9 +182,13 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        Same Liquid Glass manager as the MP row. Press G on the main menu. Also: gui, mp-gui, MP_Gui, ./MP_Gui.sh.
   ${BOLD}${CYAN}37${NC}   ${BOLD}Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)${NC}
        Linux only. This row is hidden on macOS, Windows, and FreeBSD.
-       Runs scripts/MP_Desktop_CLI_Switch.sh. From Plasma it leaves the desktop for a TTY login
-       and enables MP Mix Manager TTY Audio Mode. From that console it returns to the Plasma login
-       and turns the mode off. In TTY Audio Mode, playback stays in the terminal player. Liquid Glass,
+       Runs scripts/MP_Desktop_CLI_Switch.sh. From Plasma it leaves the desktop for tty1
+       and enables MP Mix Manager TTY Audio Mode. The console service
+       mp-mix-manager-tty.service starts the manager there and restarts it if it exits.
+       Ctrl+Alt+F2 stays a login shell. From that console, option 37 turns the mode off
+       and returns to the Plasma login. Playback stays in the terminal player. The console
+       is restored on exit, including a crash: echo, the cursor, and stty sane. The player
+       repaints changed cells and does not clear the screen on every tick. Liquid Glass,
        MP Gui, the visualizer, and other desktop windows stay closed. Also: tty, tty-mode, desktop-cli.
   ${BOLD}${CYAN}38${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.

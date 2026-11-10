@@ -55,6 +55,34 @@ def _ensure_audio_backends():
 try: import termios, tty
 except ImportError: termios = tty = None
 
+_TTY_RUNTIME_MOD = None
+_TTY_RUNTIME_TRIED = False
+
+def _load_tty_runtime():
+    """TTY Audio Mode helpers. Absent when the mode is off."""
+    global _TTY_RUNTIME_MOD, _TTY_RUNTIME_TRIED
+    if os.environ.get("MP_MIX_MANAGER_TTY_MODE") != "1":
+        return None
+    if _TTY_RUNTIME_TRIED:
+        return _TTY_RUNTIME_MOD
+    _TTY_RUNTIME_TRIED = True
+    for name in ("scripts.mp_tty_runtime", "mp_tty_runtime"):
+        try:
+            _TTY_RUNTIME_MOD = __import__(name, fromlist=["configure_stdio"])
+            return _TTY_RUNTIME_MOD
+        except ImportError:
+            continue
+    return None
+
+def _tty_resized() -> bool:
+    runtime = _load_tty_runtime()
+    if runtime is None:
+        return False
+    try:
+        return bool(runtime.consume_resize())
+    except Exception:
+        return False
+
 BOLD, DIM, ITALIC, NC = "\033[1m", "\033[2m", "\033[3m", "\033[0m"
 COLOR_HOT_PURPLE, COLOR_INDIGO_BLUE, COLOR_LILAC = "\033[38;2;166;77;255m", "\033[38;2;102;102;255m", "\033[38;2;153;153;255m"
 COLOR_TRAFFIC_GREEN, COLOR_TRAFFIC_AMBER, COLOR_TRAFFIC_RED = "\033[38;2;0;255;0m", "\033[38;2;255;153;51m", "\033[38;2;255;0;0m"
@@ -2589,7 +2617,10 @@ def _present_frame(lines: List[str], width: int, height: int):
     clipped = [_clip_display(l, usable) + "\033[K" for l in lines[:height]]
     clipped.extend(["\033[K"] * (height - len(clipped)))
     body = "\n".join(clipped)
-    sys.stdout.write(f"\033[?2026h\033[?7l\033[H{body}\033[?2026l")
+    # Steady frames park the cursor and overwrite cells. A full clear is only
+    # for SIGWINCH, where the old cells would otherwise sit past the new size.
+    clear = "\033[2J" if _tty_resized() else ""
+    sys.stdout.write(f"\033[?2026h\033[?7l{clear}\033[H{body}\033[?2026l")
     sys.stdout.flush()
 
 _THEME_PALETTES = {
@@ -4968,6 +4999,9 @@ class TerminalPlayerUI:
 
     def _cleanup_terminal(self):
         self._clear_liquid_ui_size()
+        runtime = _load_tty_runtime()
+        if runtime is not None:
+            runtime.restore_terminal()
         fd = getattr(self, "_orig_fd", None)
         old_settings = getattr(self, "_orig_termios", None)
         if fd is not None and old_settings and termios:
@@ -4983,7 +5017,12 @@ class TerminalPlayerUI:
     def run(self):
         fd = sys.stdin.fileno() if sys.stdin.isatty() else None
         old_settings = None
-        if fd is not None and termios and tty:
+        tty_rt = _load_tty_runtime()
+        if tty_rt is not None:
+            tty_rt.configure_stdio()
+        if tty_rt is not None and fd is not None and tty_rt.arm_terminal(fd=fd, raw=False):
+            old_settings = tty_rt.saved_attributes()
+        elif fd is not None and termios and tty:
             try:
                 old_settings = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
@@ -5041,6 +5080,21 @@ class TerminalPlayerUI:
                 except Exception: time.sleep(0.02)
             return
         fd = sys.stdin.fileno()
+        tty_rt = _load_tty_runtime()
+        if tty_rt is not None:
+            while self.running:
+                try:
+                    d = tty_rt.wait_for_input(fd, 0.05)
+                    if not d or not self.running:
+                        continue
+                    if d == b"\x1b":
+                        extra = tty_rt.wait_for_input(fd, 0.03)
+                        if extra:
+                            d += extra
+                    self._consume_input(d)
+                except Exception:
+                    pass
+            return
         while self.running:
             try:
                 if select.select([fd], [], [], 0.05)[0] and self.running:
@@ -6057,6 +6111,9 @@ def main():
             sys.exit(1)
 
     if args.interactive or args.mini or args.micro or (not args.daemon and sys.stdin.isatty()):
+        _tty_rt = _load_tty_runtime()
+        if _tty_rt is not None:
+            _tty_rt.configure_stdio()
         # Paint before the library scan. A Mix Archive walk or a slow status
         # reply used to leave the new Konsole on an empty gray profile.
         if sys.stdout.isatty():
@@ -6160,6 +6217,11 @@ def main():
 
         ui_mode = "MICRO" if args.micro else ("MINI" if args.mini else "NORMAL")
         def _term_sig(s, f):
+            try:
+                runtime = _load_tty_runtime()
+                if runtime is not None:
+                    runtime.restore_terminal()
+            except Exception: pass
             try:
                 sys.stdout.write("\033[?25h\033[?1049l\033[0m")
                 sys.stdout.flush()

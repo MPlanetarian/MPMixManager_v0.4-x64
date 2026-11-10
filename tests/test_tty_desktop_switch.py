@@ -245,3 +245,96 @@ class TestTtyAudioMode(unittest.TestCase):
             self.assertNotIn("SWITCHED", result.stdout)
             self.assertIn("FLAG", result.stdout)
             self.assertIn("MP Mix Manager TTY Audio Mode is on.", result.stdout)
+
+    def test_session_unbuffers_python_and_restores_the_console(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as home:
+            body = """
+            press_enter() { :; }
+            BOLD= CYAN= NC= YELLOW= GREEN= RED= DIM=
+            mp_tty_audio_mode_enable
+            printf 'py:%s\\n' "$PYTHONUNBUFFERED"
+            printf 'mode:%s\\n' "$MP_MIX_MANAGER_TTY_MODE"
+            """
+            result = self._run(body, home)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("py:1", result.stdout)
+            self.assertIn("mode:1", result.stdout)
+        block = _tty_block()
+        self.assertIn("stty sane", block)
+        self.assertIn("mp_tty_crash_restore", block)
+        self.assertIn("trap 'mp_tty_crash_restore' SEGV", block)
+        self.assertIn("\\033[?25h", block)
+        manager = _manager_text()
+        self.assertIn("mp_tty_restore_terminal", manager)
+        self.assertIn("PYTHONUNBUFFERED=1", manager)
+
+
+class TestTtyKioskUnit(unittest.TestCase):
+    def test_scripts_parse(self):
+        for name in ("mp_tty_kiosk.sh", "MP_Desktop_CLI_Switch.sh"):
+            script = ROOT / "scripts" / name
+            result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        manager = subprocess.run(
+            ["bash", "-n", str(ROOT / "Mix_Archive_Manager.sh")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(manager.returncode, 0, manager.stderr)
+
+    def test_switch_installs_and_removes_the_service(self):
+        text = (ROOT / "scripts" / "MP_Desktop_CLI_Switch.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$kiosk" --install', text)
+        self.assertIn('bash "$kiosk" --remove', text)
+        self.assertIn("systemctl mask getty@tty1.service", text)
+        self.assertIn("systemctl unmask getty@tty1.service", text)
+        self.assertIn("getty@tty2.service", text)
+        self.assertIn("FONTFACE=\"Terminus\"", text)
+        self.assertIn("/etc/default/console-setup", text)
+
+    def test_unit_binds_tty1_and_restarts(self):
+        template = (ROOT / "scripts" / "systemd" / "mp-mix-manager-tty.service.in").read_text(encoding="utf-8")
+        for key in (
+            "TTYPath=/dev/tty1",
+            "TTYReset=yes",
+            "TTYVHangup=yes",
+            "StandardInput=tty",
+            "StandardOutput=tty",
+            "StandardError=journal",
+            "Restart=always",
+            "RestartSec=2",
+            "Nice=-10",
+            "IOSchedulingClass=realtime",
+            "IOSchedulingPriority=0",
+            "PYTHONUNBUFFERED=1",
+            "After=systemd-user-sessions.service",
+        ):
+            self.assertIn(key, template)
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "scripts" / "mp_tty_kiosk.sh"),
+                "--print-unit",
+                "--user",
+                "mixuser",
+                "--uid",
+                "1000",
+                "--group",
+                "mixuser",
+                "--home",
+                "/var/home/mixuser",
+                "--manager",
+                str(ROOT / "Mix_Archive_Manager.sh"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("User=mixuser", result.stdout)
+        self.assertIn("XDG_RUNTIME_DIR=/run/user/1000", result.stdout)
+        self.assertIn(f"ExecStart=/usr/bin/bash {ROOT / 'Mix_Archive_Manager.sh'}", result.stdout)
+        self.assertNotIn("@USER@", result.stdout)
+        self.assertIn("set -euo pipefail", (ROOT / "scripts" / "mp_tty_kiosk.sh").read_text(encoding="utf-8"))
+        self.assertIn("IFS=$'\\n\\t'", (ROOT / "scripts" / "mp_tty_kiosk.sh").read_text(encoding="utf-8"))

@@ -46,6 +46,9 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Main menu option **37** is **Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)**. It is shown on Linux only. Exit moves to option **38**. `q` and `exit` still leave the manager.
   - The option runs `scripts/MP_Desktop_CLI_Switch.sh`. From Plasma it enables **MP Mix Manager TTY Audio Mode** and drops to a TTY login. From that console it turns the mode off and returns to the Plasma login.
   - The mode is stored in `~/.config/mix-manager/tty_audio_mode`. Playback stays in the terminal player. Liquid Glass, MP Gui, the visualizer, and other desktop windows stay closed.
+  - The console session restores the terminal on the way out. Bash traps EXIT, INT, TERM, and SEGV, runs `stty sane`, and shows the cursor. The player saves the original termios, reads single keys without waiting for Enter, and puts the console back if the process is signalled.
+  - `scripts/mp_tty_runtime.py` leaves standard output unbuffered, waits for keys with `select`, and overwrites changed cells. A full screen clear happens when the console size changes (SIGWINCH), not on every frame.
+  - `scripts/mp_tty_kiosk.sh` installs `mp-mix-manager-tty.service` on `/dev/tty1` with restart, `Nice=-10`, and realtime I/O. Ctrl+Alt+F2 stays a login shell. Returning to the desktop stops that service. The console font stays Terminus 24 in `/etc/vconsole.conf`, and in `/etc/default/console-setup` when that file exists.
 - **Bash prompt on B** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_manager_bash_toggle.py`):
   - Press **B** on a manager menu to turn that same window into an interactive Bash prompt. The shell loads `~/.bashrc`.
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
