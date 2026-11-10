@@ -630,18 +630,18 @@ local bf="${breath_factor:-100}"
 [ "$bf" -lt 15 ] && bf=15
 [ "$bf" -gt 100 ] && bf=100
 local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 ))
-# Accent text only. A filled 48;2 bar paints a row of yellow blocks on the
-# selected item, and the first item is the MP GUI row.
-local fg="\033[1;38;2;${r};${g};${b}m" rst="\033[0m" ptr="    "
+# Paint the complete selected row. Keep the theme's cycling accent as the
+# bar colour so the selection remains easy to spot across every CLI theme.
+local fg="\033[1;37;40m" bg="\033[48;2;${r};${g};${b}m" rst="\033[0m" ptr="    "
 printf -v formatted_key "[%2s]" "$key"
-local line_content="${fg} ${formatted_key} ${label}${rst}"
+local line_content="${fg} ${formatted_key} ${label}"
 local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} ))
-local target_w=$(( box_width - 6 ))
+local target_w=$(( box_width - 5 ))
 local pad_len=$(( target_w - raw_len ))
-[ "$pad_len" -lt 1 ] && pad_len=1
+[ "$pad_len" -lt 0 ] && pad_len=0
 local pad_spaces
 printf -v pad_spaces '%*s' "$pad_len" ''
-local line_out="${ptr}${line_content}${pad_spaces} ${rst}\033[K"
+local line_out="${ptr}${bg}${line_content}${pad_spaces} ${rst}\033[K"
 if [ -n "$_out_var" ]; then
     printf -v "$_out_var" "%s" "$line_out"
 else
