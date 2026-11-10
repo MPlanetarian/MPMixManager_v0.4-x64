@@ -98,7 +98,11 @@ ${BOLD}LAUNCH FLAGS & OPTIONS:${NC}
 ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
   Press B on any menu to turn this window into a Bash prompt. Press B again on an empty line to return to the manager.
 
+  Press Shift+A on any menu to open MP Harmony. Press Shift+A again on an empty assistant line to return.
+
   ${BOLD}${BLUE}─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────${NC}
+  ${BOLD}${CYAN}AI${NC}  ${BOLD}Load MP Mix Manager AI Assistant (MP Harmony) (New)${NC}
+       First row. Ollama must already be running. Loads gpt-oss-pinned:latest, or asks before installing that model. Shift+A opens it. Shift+A on an empty assistant line returns here.
   ${BOLD}${CYAN}MP${NC}  ${BOLD}MP GUI Mix Manager (New)${NC}
        Open the manager in the Liquid Glass window (MP_Gui.sh). Press G on the main menu. Also: gui, mp-gui, 36.
    ${BOLD}${CYAN}0${NC}   ${BOLD}Run Any Desktop Shortcuts — Linux${NC}
@@ -192,6 +196,10 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        MP Gui, the visualizer, and other desktop windows stay closed. Also: tty, tty-mode, desktop-cli.
   ${BOLD}${CYAN}38${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.
+
+${BOLD}HEADER SESSION:${NC}
+  A desktop Bash terminal shows ${CYAN}CLI Mode${NC} on the right of the main header title.
+  The Linux text console shows ${GREEN}TTY CLI Mode${NC}. MP Gui does not show either label.
 
 ${BOLD}SYSTEM TRAY:${NC}
   MP Mix Manager, MP Gui, and MP Liquid Player share one tray icon while any of them is open.

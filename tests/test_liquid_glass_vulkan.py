@@ -51,8 +51,9 @@ class TestMenuOption(unittest.TestCase):
                 continue
             keys.append((key, title.split("|", 1)[0]))
         by_key = {key: title for key, title in keys}
-        self.assertEqual(keys[0], ("MP", "MP GUI Mix Manager (New)"))
-        self.assertEqual(keys[1][0], "0")
+        self.assertEqual(keys[0], ("AI", "Load MP Mix Manager AI Assistant (MP Harmony) (New)"))
+        self.assertEqual(keys[1], ("MP", "MP GUI Mix Manager (New)"))
+        self.assertEqual(keys[2][0], "0")
         self.assertEqual(by_key["3"], "MP Audio Player (Liquid Glass Mode)")
         self.assertIn("Run Mix Conversion", by_key["4"])
         self.assertEqual(keys[-1][0], "38")

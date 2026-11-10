@@ -89,6 +89,7 @@ An enterprise-grade workstation orchestration console and media management suite
 
 | Feature | Where | What you can do |
 | :--- | :--- | :--- |
+| **MP Harmony AI Assistant** | First main-menu row **AI**, **Shift+A** | **Load MP Mix Manager AI Assistant (MP Harmony) (New)**. Ollama must already be running. The assistant loads **gpt-oss-pinned:latest** (OpenAI gpt-oss-20b). If that model is missing, the manager describes it and asks before installing it. **Shift+A** on any menu opens the assistant. **Shift+A** on an empty assistant line returns to the manager. |
 | **Linux TTY Desktop Switcher** | Main menu **37**. Exit is **38**. | Linux only. The row is hidden on macOS, Windows, and FreeBSD. Choosing it from Plasma writes `~/.config/mix-manager/tty_audio_mode`, enables **MP Mix Manager TTY Audio Mode**, and drops to tty1. `scripts/mp_tty_kiosk.sh` installs `mp-mix-manager-tty.service`, which runs the manager on `/dev/tty1` and restarts it. Ctrl+Alt+F2 stays a login shell. Playback stays in the terminal player. Liquid Glass, MP Gui, the visualizer, and other desktop windows stay closed. The console is restored on the way out, including after a crash. Choosing it again from the TTY turns the mode off and returns to the Plasma login. Also: `tty`, `tty-mode`, `desktop-cli`. |
 | **Logic Pro library stays out of Music Folders** | Music Folders playlist refresh | The scan skips `Logic Pro Library.bundle`, so those WAV files are not added as tracks. |
 | **A zero-byte WAV does not stop the batch** | Main menu **4**, `Make_SOF_FLAC_CONVERSION.sh` | One empty WAV no longer stops the mixes that are still waiting. |
@@ -104,6 +105,7 @@ An enterprise-grade workstation orchestration console and media management suite
 | **`G` opens MP Gui from the Liquid Player** | Inside the Liquid Player, **`G`** opens MP Gui. In the terminal player, **`G`** still builds a Spek spectrogram. On macOS, and when a fullscreen Terminal is in front, MP Gui is raised. A player opened from MP Gui is raised the same way. |
 | **Menu selection** | The selected menu row uses the theme colour as text. The row background stays clear. The old yellow block and the ▶ ❯ marks are gone. The Favorites button is no longer painted as a yellow block above the playlist. |
 | **Dreamworlds console** | The MPlanetarian Dreamworlds CLI background is black. Each other theme still paints its own dark console pane. |
+| **Header session label** | A desktop Bash terminal shows **CLI Mode** on the right of the main header title. The Linux text console shows **TTY CLI Mode**. MP Gui shows neither. |
 | **Panel edges** | The player header, the playlist corner, and the player panel edge use the theme border colour. Status lines and menu rows stop on the header border. The selection rule is the same length as the section line above it. A blank row sits between the playlist and the volume line. |
 
 ### Windows 10 and 11

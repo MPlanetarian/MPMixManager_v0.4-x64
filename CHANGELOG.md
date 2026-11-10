@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before this release and was not published with its own notes. The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
 
 ### Added
+- **MP Harmony AI Assistant** (`scripts/launch_mp_harmony.sh`, `Mix_Archive_Manager.sh`):
+  - The first main-menu row is **AI**, **Load MP Mix Manager AI Assistant (MP Harmony) (New)**.
+  - **Shift+A** on any menu opens it. **Shift+A** on an empty assistant line returns to the manager.
+  - The option runs only when Ollama is already answering on port 11434. It does not start Ollama.
+  - It loads the local model **gpt-oss-pinned:latest** (OpenAI gpt-oss-20b, Harmony format). If that tag is missing, it describes the model and the assistant, then asks before installing it.
 - **Shared system tray** (`scripts/mp_system_tray.py`, `scripts/mp_system_tray.sh`, `Mix_Archive_Manager.sh`, `MP_Gui.sh`, `scripts/launch-liquid-glass`, `scripts/launch_liquid_glass.sh`, `tests/test_mp_system_tray.py`):
   - MP Mix Manager, MP Gui, and MP Liquid Player use one tray icon.
   - Right-click it to launch MP Gui, MP Liquid Player, or MP Mix Manager. A program that is already open is focused.
@@ -49,6 +54,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - The console session restores the terminal on the way out. Bash traps EXIT, INT, TERM, and SEGV, runs `stty sane`, and shows the cursor. The player saves the original termios, reads single keys without waiting for Enter, and puts the console back if the process is signalled.
   - `scripts/mp_tty_runtime.py` leaves standard output unbuffered, waits for keys with `select`, and overwrites changed cells. A full screen clear happens when the console size changes (SIGWINCH), not on every frame.
   - `scripts/mp_tty_kiosk.sh` installs `mp-mix-manager-tty.service` on `/dev/tty1` with restart, `Nice=-10`, and realtime I/O. Ctrl+Alt+F2 stays a login shell. Returning to the desktop stops that service. The console font stays Terminus 24 in `/etc/vconsole.conf`, and in `/etc/default/console-setup` when that file exists.
+- **Header session label** (`Mix_Archive_Manager.sh`, `tests/test_header_cli_mode.py`):
+  - A desktop Bash terminal shows **CLI Mode** on the right of the main header title.
+  - The Linux text console (`/dev/ttyN`, `/dev/console`, or the TTY kiosk on tty1) shows **TTY CLI Mode**.
+  - MP Gui does not show either label.
 - **Bash prompt on B** (`Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_manager_bash_toggle.py`):
   - Press **B** on a manager menu to turn that same window into an interactive Bash prompt. The shell loads `~/.bashrc`.
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
@@ -97,7 +106,7 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
 ### Changed
 - **CLI startup** (`Mix_Archive_Manager.sh`) no longer opens the MP Liquid player on macOS, Linux, or Windows. Option 3 and `L` still open it. Startup autoplay still resumes every other default player.
 - **Version** is `0.4.2 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing.
-- **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–37, including option 36. The retired AI Assistant menu row is not listed. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
+- **Help** (`scripts/show_help.sh`) lists the live main menu, options 0–38, including option 36 and the first-row MP Harmony assistant. WAN2GP, Ollama, Open WebUI, DeepSeek, and Beszel remain direct commands.
 - **First-run welcome** (`scripts/liquid_glass_reward.py`) greets 0.4.2 (Liquid) - [Stable Release], lists the features added since 0.4.1, gives five tips and a Mix Archive, Music Folder, and desktop-shortcut quick start, and is dated November 10, 2026 by MPlanetarian.
 
 ### macOS
