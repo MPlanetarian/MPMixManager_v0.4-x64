@@ -585,6 +585,17 @@ class GlassHost:
         from liquid_player_visualizer import publish_liquid_player_window_size
         publish_liquid_player_window_size(width_i, height_i)
 
+    def _publish_player_window_geometry(self):
+        if self.mode != "NORMAL" or not sys.platform.startswith("linux") or self.renderer is None:
+            return
+        try:
+            x, y = self.renderer.window_pos()
+            width, height = self.renderer.window_size()
+            from liquid_player_visualizer import publish_liquid_player_window_geometry
+            publish_liquid_player_window_geometry(x, y, width, height)
+        except Exception:
+            pass
+
     def _sync_player_window(self):
         """Keep the fitted size if the window manager has not applied it yet."""
         if self.mode == "TRACKLIST" or self.renderer is None:
@@ -958,6 +969,7 @@ class GlassHost:
                         self._apply_glass_foreground(self.terminal, theme)
             self._follow_child_ui_size()
             self._sync_player_window()
+            self._publish_player_window_geometry()
             self._sync_panels()
             self.renderer.draw(theme)
             was_down, dragging, origin, press_screen = self._track_drag(was_down, dragging, origin, press_screen)
@@ -1120,6 +1132,15 @@ class GlassHost:
         release_on_host(self)
 
     def close(self):
+        if self.mode == "NORMAL":
+            try:
+                from liquid_player_visualizer import preset_by_id, read_player_visualizer_state, write_player_visualizer_state
+                state = read_player_visualizer_state()
+                if state.get("active"):
+                    preset = preset_by_id(int(state.get("preset_id", 0))) or {"id": 0, "key": "cosmic_dreamworlds_liquid", "name": "Cosmic Dreamworlds (Liquid)"}
+                    write_player_visualizer_state(False, preset)
+            except Exception:
+                pass
         self._release_windows_drag()
         pid, self.child_pid = self.child_pid, 0
         if pid:

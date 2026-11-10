@@ -283,7 +283,14 @@ def gui_window_size_path() -> Path:
 _PUBLISHED_CACHE: Optional[tuple] = None
 
 
-def _publish_window_size(path: Path, width: int, height: int, pid: Optional[int] = None) -> None:
+def _publish_window_size(
+    path: Path,
+    width: int,
+    height: int,
+    pid: Optional[int] = None,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+) -> None:
     """Record an outer window size so the visualizer can match it."""
     global _PUBLISHED_CACHE
     try:
@@ -294,10 +301,25 @@ def _publish_window_size(path: Path, width: int, height: int, pid: Optional[int]
         return
     if width_i < 64 or height_i < 64 or pid_i <= 0:
         return
-    token = (str(path), width_i, height_i, pid_i)
+    if x is None or y is None:
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            x = int(previous["x"]) if x is None and "x" in previous else x
+            y = int(previous["y"]) if y is None and "y" in previous else y
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+    try:
+        x_i = int(x) if x is not None else None
+        y_i = int(y) if y is not None else None
+    except (TypeError, ValueError):
+        x_i = y_i = None
+    token = (str(path), width_i, height_i, pid_i, x_i, y_i)
     if token == _PUBLISHED_CACHE:
         return
-    body = json.dumps({"width": width_i, "height": height_i, "pid": pid_i}) + "\n"
+    payload = {"width": width_i, "height": height_i, "pid": pid_i}
+    if x_i is not None and y_i is not None:
+        payload.update(x=x_i, y=y_i)
+    body = json.dumps(payload) + "\n"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
@@ -311,6 +333,23 @@ def _publish_window_size(path: Path, width: int, height: int, pid: Optional[int]
 def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int] = None) -> None:
     """Record the Liquid Player's outer window so the visualizer can match it."""
     _publish_window_size(player_window_size_path(), width, height, pid)
+
+
+def publish_liquid_player_window_geometry(x: int, y: int, width: int, height: int, pid: Optional[int] = None) -> None:
+    """Record the player's outer position and size for the bonded visualizer."""
+    _publish_window_size(player_window_size_path(), width, height, pid, x, y)
+
+
+def read_published_player_window_geometry() -> Optional[tuple]:
+    """Return (x, y, width, height) while the publishing player is alive."""
+    record = _read_published_window_record(player_window_size_path())
+    if record is None:
+        return None
+    try:
+        payload = json.loads(player_window_size_path().read_text(encoding="utf-8"))
+        return int(payload["x"]), int(payload["y"]), record[0], record[1]
+    except (OSError, KeyError, ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 
 def publish_liquid_gui_window_size(width: int, height: int, pid: Optional[int] = None) -> None:

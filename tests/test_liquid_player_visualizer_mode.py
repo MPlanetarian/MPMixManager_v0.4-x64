@@ -17,6 +17,8 @@ if str(SCRIPTS) not in sys.path:
 
 import MP_Audio_Player as player
 import liquid_player_visualizer as vis
+import liquid_glass_opengl as glass_opengl
+import mp_liquid_visualizer_vulkan as vulkan_vis
 
 
 def _track(name, path):
@@ -376,6 +378,9 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
                 vis.publish_liquid_player_window_size(1574, 1258, pid=os.getpid())
                 self.assertEqual(vis.read_published_player_window_size(), (1574, 1258))
                 self.assertEqual(vis.linux_visualizer_window_size(), (1574, 1258))
+                vis.publish_liquid_player_window_geometry(510, 385, 1574, 1258, pid=os.getpid())
+                self.assertEqual(vis.read_published_player_window_geometry(), (510, 385, 1574, 1258))
+                self.assertEqual(vis.read_published_player_window_size(), (1574, 1258))
                 # A caller that already captured a window tree keeps that listing.
                 self.assertEqual(vis.linux_visualizer_window_size(""), (1094, 778))
                 gui_path = Path(directory) / "liquid_gui_window.json"
@@ -396,6 +401,68 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
                     os.environ.pop("MP_LIQUID_PLAYER_WINDOW_FILE", None)
                 else:
                     os.environ["MP_LIQUID_PLAYER_WINDOW_FILE"] = previous
+
+    def test_active_visualizer_bonds_to_player_geometry_and_preset(self):
+        renderer = object.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.is_fullscreen = False
+        renderer._player_bonded = False
+        renderer._player_bonded_at = 0.0
+        renderer._unbonded_window_pos = None
+        renderer._last_player_geometry = None
+        renderer.preset = {"id": 0, "key": "first"}
+        renderer.window_pos = MagicMock(return_value=(72, 64))
+        renderer._set_windowed_size = MagicMock()
+        renderer.set_window_pos = MagicMock()
+        renderer.switch_preset = MagicMock()
+        renderer._set_bonded_stack = MagicMock()
+        state = {"active": True, "preset_id": 4}
+        presets = [{"id": 4, "key": "preset-four"}]
+        with patch.object(vulkan_vis, "_IS_LINUX", True), \
+             patch("liquid_player_visualizer.read_player_visualizer_state", return_value=state), \
+             patch("liquid_player_visualizer.read_published_player_window_geometry", return_value=(510, 385, 1574, 1258)), \
+             patch("liquid_player_visualizer.visualizer_presets", return_value=presets):
+            renderer._sync_player_bond()
+        self.assertTrue(renderer._player_bonded)
+        renderer._set_bonded_stack.assert_called_once_with(True)
+        renderer._set_windowed_size.assert_called_once_with(1574, 1258, apply=True)
+        renderer.set_window_pos.assert_called_once_with(510, 385)
+        renderer.switch_preset.assert_called_once_with(presets[0])
+
+    def test_inactive_visualizer_restores_its_unbonded_position(self):
+        renderer = object.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.is_fullscreen = False
+        renderer._player_bonded = True
+        renderer._player_bonded_at = 0.0
+        renderer._unbonded_window_pos = (72, 64)
+        renderer._last_player_geometry = (510, 385, 1574, 1258)
+        renderer._set_bonded_stack = MagicMock()
+        renderer.set_window_pos = MagicMock()
+        with patch.object(vulkan_vis, "_IS_LINUX", True), \
+             patch("liquid_player_visualizer.read_player_visualizer_state", return_value={"active": False}):
+            renderer._sync_player_bond()
+        self.assertFalse(renderer._player_bonded)
+        renderer._set_bonded_stack.assert_called_once_with(False)
+        renderer.set_window_pos.assert_called_once_with(72, 64)
+        self.assertIsNone(renderer._unbonded_window_pos)
+
+    def test_missing_linux_companion_is_started_with_the_selected_preset(self):
+        env = dict(os.environ)
+        env.pop("MP_LIQUID_VISUALIZER_STATE", None)
+        env["HOME"] = self.tmp.name
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(player.sys, "platform", "linux"), \
+             patch("liquid_visualizer_session.visualizer_pids", return_value=[]), \
+             patch("MP_Audio_Player.subprocess.Popen") as popen:
+            ui = self._ui(liquid=True)
+            ui._ensure_standalone_mp_visualizer({"key": "preset-four"})
+        args, kwargs = popen.call_args
+        self.assertIn("--preset", args[0])
+        self.assertIn("preset-four", args[0])
+        self.assertTrue(kwargs["start_new_session"])
+
+    def test_linux_liquid_uses_the_separate_visualizer_window(self):
+        with patch("liquid_glass_opengl.sys.platform", "linux"):
+            self.assertFalse(glass_opengl.LiquidGlassRendererOpenGL.draw_player_visualizer_background(object(), 100, 100))
 
     def test_visualizer_waits_until_the_mapped_player_matches(self):
         previous = os.environ.get("MP_LIQUID_PLAYER_WINDOW_FILE")

@@ -920,7 +920,9 @@ class LiquidGlassRendererOpenGL:
         return not self.should_close
 
     def draw_player_visualizer_background(self, fw, fh) -> bool:
-        """Replace still glass with the MP Visualizer when the player asks for it."""
+        """Draw the in-window visualizer on platforms without a bonded Linux window."""
+        if sys.platform.startswith("linux"):
+            return False
         if not getattr(self, "allow_player_visualizer", False):
             return False
         layer = getattr(self, "_player_vis_layer", None)

@@ -4730,13 +4730,39 @@ class TerminalPlayerUI:
             self._notify(f"Visualizer state was not saved: {exc}", 3.0)
         return preset
 
+    def _ensure_standalone_mp_visualizer(self, preset):
+        """Start the Linux companion if the Liquid Player has no visualizer process."""
+        if not sys.platform.startswith("linux") or os.environ.get("MP_LIQUID_VISUALIZER_STATE"):
+            return
+        try:
+            from liquid_visualizer_session import visualizer_pids
+            if visualizer_pids():
+                return
+            root = Path(__file__).resolve().parent
+            script = root / "MP_Liquid_Visualizer.py"
+            if not script.is_file():
+                script = root / "scripts" / "mp_liquid_visualizer_vulkan.py"
+            if not script.is_file():
+                return
+            config_dir = Path.home() / ".config" / "mix-manager"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            with (config_dir / "liquid_visualizer.log").open("a", encoding="utf-8") as log:
+                subprocess.Popen(
+                    [sys.executable, str(script), "--preset", str(preset.get("key") or "random")],
+                    cwd=str(root), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                    start_new_session=True,
+                )
+        except Exception:
+            pass
+
     def _toggle_mp_visualizer(self):
-        """Turn the Liquid Player window into the MP Visualizer, or back into liquid glass."""
+        """Bond the standalone MP Visualizer behind Liquid Player, or restore glass."""
         self.mp_visualizer_on = not bool(getattr(self, "mp_visualizer_on", False))
         preset = self._publish_mp_visualizer()
         if self.mp_visualizer_on:
+            self._ensure_standalone_mp_visualizer(preset)
             self._notify(
-                f"MP Visualizer: {preset.get('id', 0)} {preset.get('name', '')}. Press 0-9 to change theme. Shift+V returns to liquid glass.",
+                f"MP Visualizer behind Liquid Player: {preset.get('id', 0)} {preset.get('name', '')}. Press 0-9 to change theme. Shift+V restores glass.",
                 4.0,
             )
         else:

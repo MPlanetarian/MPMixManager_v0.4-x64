@@ -523,6 +523,10 @@ class LiquidVisualizerVulkanRenderer:
             self._windowed_size = (int(fitted_w), int(fitted_h))
             self._windowed_offset = (int(fitted_x), int(fitted_y))
         self._player_match_at = 0.0
+        self._player_bonded = False
+        self._player_bonded_at = 0.0
+        self._unbonded_window_pos = None
+        self._last_player_geometry = None
         self.width, self.height = self._windowed_size
         self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
@@ -598,6 +602,79 @@ class LiquidVisualizerVulkanRenderer:
         if not size:
             return
         self._set_windowed_size(size[0], size[1], apply=bool(getattr(self, "_window", None)))
+
+    def _set_bonded_stack(self, bonded: bool) -> None:
+        if not _IS_LINUX or not shutil.which("wmctrl"):
+            return
+        action = "add,below" if bonded else "remove,below"
+        try:
+            subprocess.run(
+                ["wmctrl", "-r", self.title, "-b", action],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    def _sync_player_bond(self) -> None:
+        """Keep the standalone visualizer directly behind the Liquid Player."""
+        if not _IS_LINUX:
+            return
+        now = time.monotonic()
+        if now < self._player_bonded_at:
+            return
+        self._player_bonded_at = now + 0.10
+        try:
+            from liquid_player_visualizer import (
+                read_player_visualizer_state,
+                read_published_player_window_geometry,
+                visualizer_presets,
+            )
+        except ImportError:
+            from scripts.liquid_player_visualizer import (
+                read_player_visualizer_state,
+                read_published_player_window_geometry,
+                visualizer_presets,
+            )
+        state = read_player_visualizer_state()
+        bonded = bool(state.get("active"))
+        if bonded and self.is_fullscreen:
+            self.toggle_fullscreen()
+        if self.is_fullscreen:
+            return
+        if bonded and not self._player_bonded:
+            self._unbonded_window_pos = self.window_pos()
+            self._player_bonded = True
+            self._set_bonded_stack(True)
+        elif not bonded and self._player_bonded:
+            self._player_bonded = False
+            self._set_bonded_stack(False)
+            if self._unbonded_window_pos is not None:
+                self.set_window_pos(*self._unbonded_window_pos)
+            self._unbonded_window_pos = None
+            self._last_player_geometry = None
+            return
+        if not bonded:
+            return
+
+        geometry = read_published_player_window_geometry()
+        if geometry:
+            x, y, width, height = geometry
+            if geometry != self._last_player_geometry:
+                self._set_windowed_size(width, height, apply=True)
+                self.set_window_pos(x, y)
+                self._last_player_geometry = geometry
+
+        try:
+            presets = visualizer_presets()
+            preset_id = int(state.get("preset_id", 0))
+            preset = next((row for row in presets if int(row.get("id", -1)) == preset_id), None)
+            if preset is not None and int(self.preset.get("id", -1)) != preset_id:
+                self.switch_preset(preset)
+        except Exception:
+            pass
 
     def open(self):
         # The player refits after its font is measured. Wait for that size
@@ -728,8 +805,16 @@ class LiquidVisualizerVulkanRenderer:
 
     def _create_window(self):
         g = self._glfw
+        bonded_start = False
+        if _IS_LINUX:
+            try:
+                from liquid_player_visualizer import read_player_visualizer_state
+                bonded_start = bool(read_player_visualizer_state().get("active"))
+            except Exception:
+                pass
+        focus = GLFW_FALSE if bonded_start else GLFW_TRUE
         for k, v in ((GLFW_CLIENT_API, GLFW_NO_API), (GLFW_RESIZABLE, GLFW_FALSE), (GLFW_DECORATED, GLFW_FALSE),
-                     (GLFW_FOCUS_ON_SHOW, GLFW_TRUE), (GLFW_VISIBLE, GLFW_TRUE), (GLFW_FOCUSED, GLFW_TRUE), (GLFW_AUTO_ICONIFY, GLFW_FALSE)):
+                     (GLFW_FOCUS_ON_SHOW, focus), (GLFW_VISIBLE, GLFW_TRUE), (GLFW_FOCUSED, focus), (GLFW_AUTO_ICONIFY, GLFW_FALSE)):
             g.glfwWindowHint(k, v)
         if hasattr(g, "glfwWindowHintString"):
             try:
@@ -783,8 +868,10 @@ class LiquidVisualizerVulkanRenderer:
 
     def _on_key(self, _w, key, _sc, action, _mods):
         if action != GLFW_PRESS: return
-        if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q): self.request_close()
-        elif key == GLFW_KEY_Z: self.toggle_fullscreen()
+        if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q):
+            if not self._player_bonded: self.request_close()
+        elif key == GLFW_KEY_Z:
+            if not self._player_bonded: self.toggle_fullscreen()
         elif key == 75 and (_mods & 1):
             if _IS_WIN:
                 subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
@@ -983,6 +1070,7 @@ class LiquidVisualizerVulkanRenderer:
         g, w = self._glfw, self._window
         g.glfwPollEvents()
         if g.glfwWindowShouldClose(w): self.should_close = True
+        self._sync_player_bond()
         if not self.is_fullscreen:
             self._match_player_window(wait=False)
             if self._is_4k_cached and not getattr(self, "_user_toggled_windowed", False):

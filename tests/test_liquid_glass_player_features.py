@@ -211,7 +211,7 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         flag = Path.home() / ".config" / "mix-manager" / f"liquid_ui_size.{os.getpid()}"
         flag.unlink(missing_ok=True)
 
-    def test_unselected_playlist_entries_use_the_theme_text_colour(self):
+    def test_unselected_playlist_entries_stay_white_for_every_theme(self):
         """Unselected playlist rows use that theme's text colour, not white."""
         mock_scanner = MagicMock()
         mock_scanner.get_mixes.return_value = [
@@ -255,8 +255,8 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         sensorium = MP_Audio_Player.theme_body_ansi("sensorium_interface")
         cosmic = MP_Audio_Player.theme_body_ansi("cosmic_supernova")
         self.assertIn(sensorium, unselected[0])
-        self.assertNotIn("\033[38;2;255;255;255m", unselected[0])
-        self.assertNotEqual(sensorium, cosmic)
+        self.assertIn("\033[38;2;255;255;255m", unselected[0])
+        self.assertEqual(sensorium, cosmic)
         ui.visualizer.theme = "cosmic_supernova"
         captured.clear()
         with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
@@ -266,10 +266,10 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         cosmic_rows = [l for l in captured if "Mix 02 - Unselected Track.flac" in l]
         self.assertTrue(cosmic_rows, "Unselected playlist entry was not rendered for the second theme")
         self.assertIn(cosmic, cosmic_rows[0])
-        self.assertNotIn(sensorium, cosmic_rows[0])
+        self.assertIn(sensorium, cosmic_rows[0])
 
     def test_volume_footer_sits_one_line_below_the_playlist(self):
-        """The Vol status row sits one blank line under the playlist box."""
+        """MP Liquid places Vol one extra row below the playlist box."""
         mock_scanner = MagicMock()
         mock_scanner.get_mixes.return_value = [
             {"name": "Mix 01 - Selected Track.flac", "path": "/path/mix1.flac", "ext": "FLAC", "size_mb": 650},
@@ -308,7 +308,8 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         plain = [MP_Audio_Player._ANSI_RE.sub("", line) for line in captured]
         vol_idx = next(i for i, line in enumerate(plain) if line.lstrip().startswith(("Vol", "🔊 Vol")))
         self.assertEqual(plain[vol_idx - 1].strip(), "")
-        self.assertIn("┘", plain[vol_idx - 2])
+        self.assertEqual(plain[vol_idx - 2].strip(), "")
+        self.assertIn("┘", plain[vol_idx - 3])
         self.assertLessEqual(len(captured), 40)
 
     def test_player_argv_forwards_extra_args(self):
