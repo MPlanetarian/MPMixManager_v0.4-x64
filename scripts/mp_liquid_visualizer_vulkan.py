@@ -511,10 +511,10 @@ class LiquidVisualizerVulkanRenderer:
             self._windowed_offset = (160, 80)
         elif _IS_LINUX:
             try:
-                from liquid_player_visualizer import linux_visualizer_window_size
+                from liquid_player_visualizer import linux_visualizer_match_window_size
             except ImportError:
-                from scripts.liquid_player_visualizer import linux_visualizer_window_size
-            player_w, player_h = linux_visualizer_window_size()
+                from scripts.liquid_player_visualizer import linux_visualizer_match_window_size
+            player_w, player_h = linux_visualizer_match_window_size()
             self._windowed_size = (int(player_w), int(player_h))
             # Same corner offset the Linux Liquid Player uses on the main monitor.
             self._windowed_offset = (72, 64)
@@ -568,7 +568,7 @@ class LiquidVisualizerVulkanRenderer:
         self._resize = True
 
     def _match_player_window(self, wait: bool = False) -> None:
-        """Use the Liquid Player's fitted window. Fullscreen keeps its own size."""
+        """Use the fitted player window, or the MP Gui window when MP Gui started this visualizer."""
         if not wait:
             now = time.monotonic()
             if now < getattr(self, "_player_match_at", 0.0):
@@ -576,18 +576,25 @@ class LiquidVisualizerVulkanRenderer:
             self._player_match_at = now + 0.2
         try:
             from liquid_player_visualizer import (
+                read_published_gui_window_size,
                 read_published_player_window_size,
+                visualizer_matches_gui,
+                wait_for_published_gui_window_size,
                 wait_for_published_player_window_size,
             )
         except ImportError:
             from scripts.liquid_player_visualizer import (
+                read_published_gui_window_size,
                 read_published_player_window_size,
+                visualizer_matches_gui,
+                wait_for_published_gui_window_size,
                 wait_for_published_player_window_size,
             )
+        match_gui = visualizer_matches_gui()
         if wait and _IS_LINUX and not self.target_4k and not self.fullscreen_on_start:
-            size = wait_for_published_player_window_size()
+            size = wait_for_published_gui_window_size() if match_gui else wait_for_published_player_window_size()
         else:
-            size = read_published_player_window_size()
+            size = read_published_gui_window_size() if match_gui else read_published_player_window_size()
         if not size:
             return
         self._set_windowed_size(size[0], size[1], apply=bool(getattr(self, "_window", None)))

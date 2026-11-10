@@ -204,6 +204,7 @@ def macos_liquid_player_window_size(
 
 
 _PLAYER_WINDOW_TITLE = "MP Audio Player (Liquid Glass"
+_GUI_WINDOW_TITLE = "MP Mix Manager (Liquid Glass"
 _WINDOW_GEOM_RE = re.compile(r"(\d+)x(\d+)[+-]\d+[+-]\d+")
 
 
@@ -221,11 +222,11 @@ def linux_liquid_player_window_size(
     )
 
 
-def parse_liquid_player_window_size(tree_text: str) -> Optional[tuple]:
-    """Largest mapped MP Liquid Player window in an xwininfo -root -tree listing."""
+def _parse_titled_window_size(tree_text: str, title: str) -> Optional[tuple]:
+    """Largest mapped window whose title contains `title`."""
     best = None
     for line in (tree_text or "").splitlines():
-        if _PLAYER_WINDOW_TITLE not in line:
+        if title not in line:
             continue
         match = _WINDOW_GEOM_RE.search(line)
         if not match:
@@ -236,6 +237,16 @@ def parse_liquid_player_window_size(tree_text: str) -> Optional[tuple]:
         if best is None or size[0] * size[1] > best[0] * best[1]:
             best = size
     return best
+
+
+def parse_liquid_player_window_size(tree_text: str) -> Optional[tuple]:
+    """Largest mapped MP Liquid Player window in an xwininfo -root -tree listing."""
+    return _parse_titled_window_size(tree_text, _PLAYER_WINDOW_TITLE)
+
+
+def parse_liquid_gui_window_size(tree_text: str) -> Optional[tuple]:
+    """Largest mapped MP Gui window in an xwininfo -root -tree listing."""
+    return _parse_titled_window_size(tree_text, _GUI_WINDOW_TITLE)
 
 
 def _read_xwininfo_tree() -> str:
@@ -260,12 +271,19 @@ def player_window_size_path() -> Path:
     return CONFIG_DIR / "liquid_player_window.json"
 
 
+def gui_window_size_path() -> Path:
+    override = (os.environ.get("MP_LIQUID_GUI_WINDOW_FILE") or "").strip()
+    if override:
+        return Path(override)
+    return CONFIG_DIR / "liquid_gui_window.json"
+
+
 # (path, width, height, pid). Skips rewriting the same size every frame.
 _PUBLISHED_CACHE: Optional[tuple] = None
 
 
-def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int] = None) -> None:
-    """Record the Liquid Player's outer window so the visualizer can match it."""
+def _publish_window_size(path: Path, width: int, height: int, pid: Optional[int] = None) -> None:
+    """Record an outer window size so the visualizer can match it."""
     global _PUBLISHED_CACHE
     try:
         width_i = int(width)
@@ -275,7 +293,6 @@ def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int
         return
     if width_i < 64 or height_i < 64 or pid_i <= 0:
         return
-    path = player_window_size_path()
     token = (str(path), width_i, height_i, pid_i)
     if token == _PUBLISHED_CACHE:
         return
@@ -290,6 +307,16 @@ def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int
     _PUBLISHED_CACHE = token
 
 
+def publish_liquid_player_window_size(width: int, height: int, pid: Optional[int] = None) -> None:
+    """Record the Liquid Player's outer window so the visualizer can match it."""
+    _publish_window_size(player_window_size_path(), width, height, pid)
+
+
+def publish_liquid_gui_window_size(width: int, height: int, pid: Optional[int] = None) -> None:
+    """Record the MP Gui window so a visualizer started with it can match it."""
+    _publish_window_size(gui_window_size_path(), width, height, pid)
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -300,9 +327,8 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def read_published_player_window_record() -> Optional[tuple]:
-    """(width, height, mtime) for a player process that is still running."""
-    path = player_window_size_path()
+def _read_published_window_record(path: Path) -> Optional[tuple]:
+    """(width, height, mtime) for a publisher process that is still running."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         mtime = path.stat().st_mtime
@@ -319,6 +345,16 @@ def read_published_player_window_record() -> Optional[tuple]:
     return width, height, float(mtime)
 
 
+def read_published_player_window_record() -> Optional[tuple]:
+    """(width, height, mtime) for a player process that is still running."""
+    return _read_published_window_record(player_window_size_path())
+
+
+def read_published_gui_window_record() -> Optional[tuple]:
+    """(width, height, mtime) for an MP Gui process that is still running."""
+    return _read_published_window_record(gui_window_size_path())
+
+
 def read_published_player_window_size() -> Optional[tuple]:
     record = read_published_player_window_record()
     if not record:
@@ -326,8 +362,15 @@ def read_published_player_window_size() -> Optional[tuple]:
     return int(record[0]), int(record[1])
 
 
-def liquid_player_host_running() -> bool:
-    """True when a Liquid Player host is up. The Manager GUI does not count."""
+def read_published_gui_window_size() -> Optional[tuple]:
+    record = read_published_gui_window_record()
+    if not record:
+        return None
+    return int(record[0]), int(record[1])
+
+
+def _glass_host_running(manager: bool) -> bool:
+    """True when a Liquid Glass host is up. Manager and player are separate."""
     root = Path("/proc")
     if not root.is_dir():
         return False
@@ -343,9 +386,71 @@ def liquid_player_host_running() -> bool:
             command = (root / entry / "cmdline").read_bytes()
         except OSError:
             continue
-        if marker in command and b"--manager" not in command:
+        if marker in command and (b"--manager" in command) == manager:
             return True
     return False
+
+
+def liquid_player_host_running() -> bool:
+    """True when a Liquid Player host is up. The Manager GUI does not count."""
+    return _glass_host_running(False)
+
+
+def liquid_gui_host_running() -> bool:
+    """True when MP Gui's Liquid Glass host is up."""
+    return _glass_host_running(True)
+
+
+def _wait_for_published_window(
+    read_record,
+    parse_mapped,
+    default_host,
+    timeout: float,
+    idle_timeout: float,
+    stable_for: float,
+    *,
+    require_mapped: bool = True,
+    now=None,
+    wall_now=None,
+    sleep=None,
+    host_running=None,
+    read_tree=None,
+) -> Optional[tuple]:
+    """Fitted window size, once the published record and the mapped window agree."""
+    import time
+    clock = time.monotonic if now is None else now
+    wall = time.time if wall_now is None else wall_now
+    pause = time.sleep if sleep is None else sleep
+    running = default_host if host_running is None else host_running
+    tree_of = _read_xwininfo_tree if read_tree is None else read_tree
+    start = clock()
+    seen = None
+    seen_at = start
+    while True:
+        record = read_record()
+        current = clock()
+        size = None
+        settled = False
+        if record:
+            size = (int(record[0]), int(record[1]))
+            if size != seen:
+                seen = size
+                seen_at = current
+            age = wall() - float(record[2])
+            settled = age >= float(stable_for) or (current - seen_at) >= float(stable_for)
+        mapped_ok = True
+        if settled and size and require_mapped:
+            mapped = parse_mapped(tree_of() or "")
+            mapped_ok = mapped == size
+        if settled and size and mapped_ok:
+            return size
+        elapsed = current - start
+        host_up = bool(running())
+        if host_up and elapsed >= float(timeout):
+            return seen
+        if not host_up and elapsed >= float(idle_timeout):
+            return seen
+        pause(0.05)
 
 
 def wait_for_published_player_window_size(
@@ -367,40 +472,58 @@ def wait_for_published_player_window_size(
     the published size has settled and, on the desktop, until the mapped
     window agrees. No player returns None after idle_timeout.
     """
-    import time
-    clock = time.monotonic if now is None else now
-    wall = time.time if wall_now is None else wall_now
-    pause = time.sleep if sleep is None else sleep
-    running = liquid_player_host_running if host_running is None else host_running
-    tree_of = _read_xwininfo_tree if read_tree is None else read_tree
-    start = clock()
-    seen = None
-    seen_at = start
-    while True:
-        record = read_published_player_window_record()
-        current = clock()
-        size = None
-        settled = False
-        if record:
-            size = (int(record[0]), int(record[1]))
-            if size != seen:
-                seen = size
-                seen_at = current
-            age = wall() - float(record[2])
-            settled = age >= float(stable_for) or (current - seen_at) >= float(stable_for)
-        mapped_ok = True
-        if settled and size and require_mapped:
-            mapped = parse_liquid_player_window_size(tree_of() or "")
-            mapped_ok = mapped == size
-        if settled and size and mapped_ok:
-            return size
-        elapsed = current - start
-        host_up = bool(running())
-        if host_up and elapsed >= float(timeout):
-            return seen
-        if not host_up and elapsed >= float(idle_timeout):
-            return seen
-        pause(0.05)
+    return _wait_for_published_window(
+        read_published_player_window_record,
+        parse_liquid_player_window_size,
+        liquid_player_host_running,
+        timeout,
+        idle_timeout,
+        stable_for,
+        require_mapped=require_mapped,
+        now=now,
+        wall_now=wall_now,
+        sleep=sleep,
+        host_running=host_running,
+        read_tree=read_tree,
+    )
+
+
+def wait_for_published_gui_window_size(
+    timeout: float = 8.0,
+    idle_timeout: float = 8.0,
+    stable_for: float = 0.3,
+    *,
+    require_mapped: bool = True,
+    now=None,
+    wall_now=None,
+    sleep=None,
+    host_running=None,
+    read_tree=None,
+) -> Optional[tuple]:
+    """Fitted MP Gui size, once the on-screen window matches it.
+
+    MP Gui starts the visualizer before its own window exists, then refits
+    that window to the real VTE cell. The idle wait covers that startup.
+    """
+    return _wait_for_published_window(
+        read_published_gui_window_record,
+        parse_liquid_gui_window_size,
+        liquid_gui_host_running,
+        timeout,
+        idle_timeout,
+        stable_for,
+        require_mapped=require_mapped,
+        now=now,
+        wall_now=wall_now,
+        sleep=sleep,
+        host_running=host_running,
+        read_tree=read_tree,
+    )
+
+
+def visualizer_matches_gui() -> bool:
+    """True when this visualizer was started by MP Gui and should copy that window."""
+    return os.environ.get("MP_VISUALIZER_MATCH_GUI") == "1"
 
 
 def linux_visualizer_window_size(tree_text: Optional[str] = None) -> tuple:
@@ -418,6 +541,31 @@ def linux_visualizer_window_size(tree_text: Optional[str] = None) -> tuple:
     if found:
         return found
     return linux_liquid_player_window_size()
+
+
+def linux_gui_visualizer_window_size(tree_text: Optional[str] = None) -> tuple:
+    """Linux visualizer size when MP Gui started it: that GUI window.
+
+    The grid matches the Liquid Player, so the formula fallback is the same
+    120×40 size. A live lookup prefers the size MP Gui published after
+    measuring its font, not a Liquid Player that happens to be open.
+    """
+    if tree_text is None:
+        published = read_published_gui_window_size()
+        if published:
+            return published
+        tree_text = _read_xwininfo_tree()
+    found = parse_liquid_gui_window_size(tree_text or "")
+    if found:
+        return found
+    return linux_liquid_player_window_size()
+
+
+def linux_visualizer_match_window_size(tree_text: Optional[str] = None) -> tuple:
+    """Player size, or the MP Gui size when this process was started with MP Gui."""
+    if visualizer_matches_gui():
+        return linux_gui_visualizer_window_size(tree_text)
+    return linux_visualizer_window_size(tree_text)
 
 
 def macos_player_grid(width: int, height: int, char_w: int = 9, char_h: int = 18, margin: int = 7) -> tuple:

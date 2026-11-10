@@ -366,8 +366,8 @@ class GlassHost:
         return down, dragging, origin, press_screen
 
     def _note_player_window(self, width, height):
-        """Publish the outer window. The Manager and tracklist windows are not the player."""
-        if self.mode in ("MANAGER", "TRACKLIST"):
+        """Publish the outer window. Tracklist is not the player or MP Gui."""
+        if self.mode == "TRACKLIST":
             return
         try:
             width_i, height_i = int(width), int(height)
@@ -377,12 +377,16 @@ class GlassHost:
             return
         self._window_target = (width_i, height_i)
         self._window_target_until = time.monotonic() + 3.0
+        if self.mode == "MANAGER":
+            from liquid_player_visualizer import publish_liquid_gui_window_size
+            publish_liquid_gui_window_size(width_i, height_i)
+            return
         from liquid_player_visualizer import publish_liquid_player_window_size
         publish_liquid_player_window_size(width_i, height_i)
 
     def _sync_player_window(self):
         """Keep the fitted size if the window manager has not applied it yet."""
-        if self.mode in ("MANAGER", "TRACKLIST") or self.renderer is None:
+        if self.mode == "TRACKLIST" or self.renderer is None:
             return
         target = getattr(self, "_window_target", None)
         if not target:

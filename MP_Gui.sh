@@ -215,7 +215,7 @@ if [ "$NO_VISUALIZER" -eq 0 ] && ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visu
     VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
     if [ -f "$VIS_PY" ]; then
-        nohup "$MP_PY" "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
+        MP_VISUALIZER_MATCH_GUI=1 nohup "$MP_PY" "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
     fi
 fi
 
