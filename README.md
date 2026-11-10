@@ -875,6 +875,13 @@ Install command-line tools:
 brew install bash ffmpeg sox flac rclone jq btop python molten-vk vulkan-loader
 ```
 
+On first startup, MP Mix Manager creates its persistent Python environment under `~/.local/share/mp-mix-manager/python-env` and installs CoreAudio audio output support (including Bluetooth outputs). To prepare it manually:
+```bash
+mkdir -p "$HOME/.local/share/mp-mix-manager"
+python3 -m venv --system-site-packages "$HOME/.local/share/mp-mix-manager/python-env"
+"$HOME/.local/share/mp-mix-manager/python-env/bin/python" -m pip install sounddevice
+```
+
 *(Optional) Install audio/video GUI tools:*
 ```bash
 brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper foobar2000
@@ -891,7 +898,7 @@ brew install --cask vlc audacity strawberry musicbrainz-picard gimp reaper fooba
    ```bash
    ./manager_macos.command
    ```
-3. **Launch MP Gui or MP Liquid Player.** On macOS both open the OpenGL host:
+3. **Launch MP Gui or MP Liquid Player.** On macOS both open the OpenGL host. MP Liquid Player sends audio to the selected CoreAudio output; pair and select Bluetooth headphones in macOS Sound settings, or press **`A`** in the player to switch its stream to an available Bluetooth output:
    ```bash
    ./MP_Gui.sh
    python3 MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py

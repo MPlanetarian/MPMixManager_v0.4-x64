@@ -1471,6 +1471,7 @@ class AudioEngine:
         self.pitch_percent, self.pitch_factor, self.resampler = 0, 1.0, AudioResampler()
         self.sf_file = self.stream = self.audio_source = self.audio_buffer = self.feeder = self.stream_error = self.pending_seek_sec = None
         self.output_rate, self.output_device_name, self._next_stream_retry, self.track_ended = 44100, "", 0.0, False
+        self._mac_output_device = None
         self._sf_lock, self._sf_refs, self._sf_retired = threading.Lock(), 0, []
 
         self.num_bands = 24
@@ -1546,6 +1547,16 @@ class AudioEngine:
             if r > 0 and k not in seen: seen.add(k); attempts.append((d, int(r), e))
         if sd is None: return attempts
 
+        if sys.platform == "darwin" and self._mac_output_device is not None:
+            try:
+                info = sd.query_devices(self._mac_output_device, "output")
+                native_rate = int(info.get("default_samplerate") or 48000)
+                for rate in (native_rate, 48000, 44100, 96000):
+                    add(int(self._mac_output_device), rate, None)
+                return attempts
+            except Exception:
+                self._mac_output_device = None
+
         # Windows WASAPI specific handling
         if sys.platform == "win32":
             try:
@@ -1580,6 +1591,70 @@ class AudioEngine:
             add(None, r, None)
 
         return attempts
+
+    def route_to_bluetooth(self) -> Dict[str, Any]:
+        """Select a Bluetooth/CoreAudio output directly for this player on macOS."""
+        if sys.platform == "darwin":
+            _ensure_audio_backends()
+            if sd is None:
+                return {"routed": False, "message": "Audio output support is missing. Install requirements.txt with this Python."}
+            try:
+                devices = sd.query_devices()
+                hostapis = sd.query_hostapis()
+                outputs = []
+                for index, device in enumerate(devices):
+                    if int(device.get("max_output_channels", 0)) < 1:
+                        continue
+                    host_index = int(device.get("hostapi", -1))
+                    host_name = str(hostapis[host_index].get("name", "")) if 0 <= host_index < len(hostapis) else ""
+                    if "core audio" not in host_name.lower():
+                        continue
+                    name = str(device.get("name", ""))
+                    low = name.lower()
+                    if any(term in low for term in ("bluetooth", "airpods", "beats", "headphone", "headset", "earbud", "buds")):
+                        outputs.insert(0, (index, name, int(device.get("default_samplerate") or 48000)))
+                    elif not any(term in low for term in ("built-in", "display audio", "hdmi")):
+                        outputs.append((index, name, int(device.get("default_samplerate") or 48000)))
+                if not outputs:
+                    return {"routed": False, "message": "No Bluetooth audio output is available in macOS CoreAudio. Connect the headphones in System Settings > Bluetooth and Sound."}
+
+                current = self._mac_output_device
+                if current is None:
+                    try:
+                        default = sd.default.device
+                        current = int(default[1] if isinstance(default, (tuple, list)) else default)
+                    except Exception:
+                        current = -1
+                # CoreAudio normally switches the system output as soon as
+                # Bluetooth headphones connect. Keep that selected output;
+                # don't move the player to an unrelated speaker on A.
+                if current >= 0:
+                    current_name = str(sd.query_devices(current, "output").get("name", ""))
+                    low = current_name.lower()
+                    if any(term in low for term in ("bluetooth", "airpods", "beats", "headphone", "headset", "earbud", "buds", "crusher", "anc")):
+                        self._mac_output_device = current
+                        self.output_device_name = current_name
+                        self._sync_state_file()
+                        return {"routed": True, "device": current_name, "message": f"Already using {current_name}"}
+                choices = [item for item in outputs if item[0] != current]
+                if not choices:
+                    return {"routed": True, "device": outputs[0][1], "message": f"Already using {outputs[0][1]}"}
+                index, name, rate = choices[0]
+                self._mac_output_device = index
+                self._next_stream_retry = 0.0
+                self._close_stream()
+                self.output_rate = rate
+                if self._ensure_stream():
+                    self.output_device_name = name
+                    self._sync_state_file()
+                    return {"routed": True, "device": name, "message": f"Audio routed to {name}"}
+                return {"routed": False, "device": name, "message": f"Could not open {name}: {self.stream_error or 'CoreAudio stream failed'}"}
+            except Exception as exc:
+                return {"routed": False, "message": f"Could not query macOS audio outputs: {exc}"}
+        if self.bt_router:
+            ok = self.bt_router.route_to_bluetooth()
+            return {"routed": bool(ok), "bluetooth": self.bt_router.get_status()}
+        return {"routed": False, "message": "Bluetooth audio routing is unavailable"}
 
     def _open_output_stream(self) -> bool:
         if sd is None: self.stream_error = "sounddevice is not installed"; return False
@@ -2140,8 +2215,9 @@ class PlayerIPCServer:
                 t = choose_file_manager_target(req.get("file") or (e.current_track.get("path") if e.current_track else ""))
                 res["success"] = bool(t) and open_in_file_manager(t)
             elif cmd in ("route_bluetooth", "switch_bluetooth"):
-                if e.bt_router: res.update(routed=e.bt_router.route_to_bluetooth(), bluetooth=e.bt_router.get_status())
-                else: res.update(status="error", message="Bluetooth router not available")
+                res.update(e.route_to_bluetooth())
+                if e.bt_router: res["bluetooth"] = e.bt_router.get_status()
+                if not res.get("routed"): res["status"] = "error"
             elif cmd in ("revert_audio", "fallback_audio"):
                 if e.bt_router: res.update(reverted=e.bt_router.route_to_fallback(), bluetooth=e.bt_router.get_status())
                 else: res.update(status="error", message="Bluetooth router not available")
@@ -5349,14 +5425,20 @@ class TerminalPlayerUI:
         elif data in (b"b", b"B", b"\x1b", b"\x03"): self.running = False
         elif data in (b"a", b"A"):
             if self.is_remote:
-                bi = (send_ipc_command("route_bluetooth") or {}).get("bluetooth", {})
+                result = send_ipc_command("route_bluetooth") or {}
+                bi = result.get("bluetooth", {})
                 c_str = f" ({bi.get('bluetooth_codec')})" if bi.get("bluetooth_codec") else ""
-                self._notify(f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if bi.get("bluetooth_connected") else "No Bluetooth audio device connected. (Checked)", 3.5)
+                message = result.get("message") or (f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if result.get("routed") else "No Bluetooth audio device connected.")
+                self._notify(message, 4.5)
             elif self.engine and self.engine.bt_router:
-                self.engine.bt_router.route_to_bluetooth()
-                bi = self.engine.bt_router.get_status()
+                result = self.engine.route_to_bluetooth()
+                bi = result.get("bluetooth") or self.engine.bt_router.get_status()
                 c_str = f" ({bi.get('bluetooth_codec')})" if bi.get("bluetooth_codec") else ""
-                self._notify(f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if bi.get("bluetooth_connected") else "No Bluetooth audio device connected.", 3.5)
+                message = result.get("message") or (f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if result.get("routed") else "No Bluetooth audio device connected.")
+                self._notify(message, 4.5)
+            elif self.engine:
+                result = self.engine.route_to_bluetooth()
+                self._notify(result.get("message", "Bluetooth audio routing is unavailable."), 4.5)
         elif data == b"1": self._switch_library_mode("MIX_ARCHIVE")
         elif data == b"2": self._switch_library_mode("MUSIC")
         elif data == b"3": self._load_favorites()
@@ -5527,13 +5609,9 @@ class TerminalPlayerUI:
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
             lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col))
 
-<<<<<<< HEAD
-        hint_col = text_col
-=======
         # One blank row keeps the Vol footer off the playlist edge.
         lines.append("")
         hint_col = WHITE if is_lg else DIM
->>>>>>> 79fc597e212d13d1d570f0a97091edf0cdac8a38
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
         vol = (f"{bold_s}{COLOR_ELECTRIC_CYAN}{st.get('volume', 85)}%{NC}" if not st.get("muted") else f"{bold_s}{COLOR_TRAFFIC_RED}MUTED{NC}")

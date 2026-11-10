@@ -1,3 +1,4 @@
 # Core Python dependencies for MP_Mix_Manager_v0.4.2
 pillow>=10.0.0
 ultralytics>=8.0.0
+sounddevice>=0.4.6

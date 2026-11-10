@@ -1461,6 +1461,14 @@ if [ -f "$SCRIPT_DIR/scripts/resolve_mp_python.sh" ]; then
     resolve_mp_python >/dev/null || true
 fi
 OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) case "${OSTYPE:-}" in msys*|cygwin*|win32*) OS_TYPE="windows" ;; darwin*) OS_TYPE="macos" ;; freebsd*) OS_TYPE="freebsd" ;; *) OS_TYPE="linux" ;; esac ;; esac; export OS_TYPE
+if [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/scripts/ensure_mp_python_env.sh" ]; then
+    if _mp_env_python="$(bash "$SCRIPT_DIR/scripts/ensure_mp_python_env.sh")"; then
+        export MP_PYTHON="$_mp_env_python"
+        export PATH="$(dirname "$_mp_env_python"):$PATH"
+    else
+        echo "Warning: MP Python audio environment setup failed; continuing with system Python." >&2
+    fi
+fi
 if [ -d "$SCRIPT_DIR/venv/bin" ]; then
     export PATH="$SCRIPT_DIR/venv/bin:$PATH"
     export VIRTUAL_ENV="$SCRIPT_DIR/venv"

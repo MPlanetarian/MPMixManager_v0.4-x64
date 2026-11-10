@@ -76,6 +76,9 @@ fi
 # prints "No installed Python found!" and never starts the window. The project
 # venv and windows_find_python.cmd are the same search the .bat launchers use.
 _mp_python() {
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && [ -f "$BASE_DIR/scripts/ensure_mp_python_env.sh" ]; then
+        bash "$BASE_DIR/scripts/ensure_mp_python_env.sh" && return 0
+    fi
     if [ -n "${MP_PYTHON:-}" ] && [ -x "${MP_PYTHON}" ]; then
         printf '%s\n' "$MP_PYTHON"
         return 0

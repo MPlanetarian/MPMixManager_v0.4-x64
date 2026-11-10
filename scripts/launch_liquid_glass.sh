@@ -164,4 +164,24 @@ if [ -f "$_VTE_BASE/girepository-1.0/Vte-2.91.typelib" ]; then
     export GI_TYPELIB_PATH="${_VTE_BASE}/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 fi
 cd "$BASE_DIR" || exit 1
-exec python3 "$TARGET_PY" "$@"
+PYTHON_BIN="python3"
+if [ "$(uname -s)" = "Darwin" ] && [ -f "$BASE_DIR/scripts/ensure_mp_python_env.sh" ]; then
+    if _mp_env_python="$(bash "$BASE_DIR/scripts/ensure_mp_python_env.sh")"; then
+        PYTHON_BIN="$_mp_env_python"
+    else
+        echo "Error: MP Liquid Player could not prepare its macOS audio environment." >&2
+        exit 1
+    fi
+fi
+for _py in \
+    "$PYTHON_BIN" \
+    "$HOME/.local/share/mp-mix-manager/python-env/bin/python3" \
+    "$HOME/.local/share/mp-mix-manager/python-env/bin/python" \
+    "$BASE_DIR/.venv/bin/python3" \
+    "$BASE_DIR/.venv/bin/python"; do
+    if [ -x "$_py" ]; then
+        PYTHON_BIN="$_py"
+        break
+    fi
+done
+exec "$PYTHON_BIN" "$TARGET_PY" "$@"
