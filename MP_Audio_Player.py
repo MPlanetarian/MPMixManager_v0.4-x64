@@ -5502,7 +5502,17 @@ class TerminalPlayerUI:
         elif data in (b"b", b"B", b"\x1b", b"\x03"): self.running = False
         elif data in (b"a", b"A"):
             if self.is_remote:
-                result = send_ipc_command("route_bluetooth") or {}
+                result = send_ipc_command("route_bluetooth")
+                if result is None and BluetoothAudioRouter is not None:
+                    # The daemon can remain alive after its IPC socket has
+                    # disappeared. Route the live player stream directly
+                    # rather than reporting that connected headphones are
+                    # absent just because the control socket is stale.
+                    try:
+                        result = {"routed": BluetoothAudioRouter().route_to_bluetooth()}
+                    except Exception as exc:
+                        result = {"routed": False, "message": f"Bluetooth routing failed: {exc}"}
+                result = result or {}
                 bi = result.get("bluetooth", {})
                 c_str = f" ({bi.get('bluetooth_codec')})" if bi.get("bluetooth_codec") else ""
                 message = result.get("message") or (f"🎧 Bluetooth Audio Routed: {bi.get('bluetooth_device')}{c_str}" if result.get("routed") else "No Bluetooth audio device connected.")
@@ -5878,7 +5888,40 @@ class TerminalPlayerUI:
 
 def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None) -> Optional[int]:
     if is_player_daemon_running():
-        return None
+        # A live PID is not enough: older/crashed startup paths can leave a
+        # daemon holding the playback lock after its IPC listener disappeared.
+        # Reuse a responsive daemon, but retire that orphan so playback can be
+        # started by a fresh process.
+        if send_ipc_command("status"):
+            return None
+        try:
+            if time.time() - PID_FILE.stat().st_mtime < 120.0:
+                # Give a newly launched daemon time to scan a large library
+                # and bind its IPC socket before treating it as orphaned.
+                return None
+            daemon_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+            if sys.platform == "win32":
+                return None
+            cmdline = subprocess.run(
+                ["ps", "-p", str(daemon_pid), "-o", "args="],
+                capture_output=True, text=True, timeout=1.0, check=False
+            ).stdout
+            if "MP_Audio_Player.py" not in cmdline or "--daemon" not in cmdline:
+                return None
+            os.kill(daemon_pid, signal.SIGTERM)
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(daemon_pid, 0)
+                except OSError:
+                    break
+                time.sleep(0.05)
+            else:
+                # Don't start another player while the unresponsive process
+                # still owns the audio engine and daemon lock.
+                return None
+        except (OSError, ValueError, ProcessLookupError):
+            pass
     _cleanup_stale_daemon_files()
     cmd = [sys.executable, str(Path(__file__).resolve()), "--daemon"] + ([] if auto_bluetooth else ["--no-bluetooth-auto"])
     if mode == "MUSIC":
