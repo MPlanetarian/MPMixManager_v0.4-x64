@@ -135,7 +135,7 @@ if [ "$(uname -s 2>/dev/null)" = "Linux" ] && [ -f "$BASE_DIR/MP_Audio_Player.py
 fi
 
 KEEP_THEME=0
-THEME_NAME="retro_linux_memories"
+THEME_NAME=""
 NO_VISUALIZER=0
 NEW_ARGS=()
 while [ $# -gt 0 ]; do
@@ -198,6 +198,12 @@ fi
 
 mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
 if [ "$KEEP_THEME" -eq 0 ]; then
+    # Preserve the shared theme selected by the CLI manager. Retro Linux
+    # Memories remains the first-run default, while --theme stays explicit.
+    if [ -z "$THEME_NAME" ]; then
+        THEME_NAME="$(tr -d ' \t\n\r' < "$HOME/.config/mix-manager/theme" 2>/dev/null)"
+        [ -n "$THEME_NAME" ] || THEME_NAME="retro_linux_memories"
+    fi
     printf '%s\n' "$THEME_NAME" > "$HOME/.config/mix-manager/theme"
 fi
 
