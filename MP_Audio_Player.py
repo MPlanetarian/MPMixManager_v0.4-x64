@@ -5616,6 +5616,9 @@ class TerminalPlayerUI:
 
         # One blank row keeps the Vol footer off the playlist edge.
         lines.append("")
+        if is_lg:
+            # Give MP Liquid one more row of breathing room above the status footer.
+            lines.append("")
         hint_col = WHITE if is_lg else DIM
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
