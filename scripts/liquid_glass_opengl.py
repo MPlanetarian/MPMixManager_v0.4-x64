@@ -33,9 +33,9 @@ from ctypes import (
 from pathlib import Path
 
 try:
-    from desktop_launch_screen import main_desktop_origin, place_on_main_screen
+    from desktop_launch_screen import place_on_main_screen, window_launch_origin
 except ImportError:
-    from scripts.desktop_launch_screen import main_desktop_origin, place_on_main_screen
+    from scripts.desktop_launch_screen import place_on_main_screen, window_launch_origin
 
 # Ensure PyOpenGL uses the correct platform backend
 if sys.platform == "win32":
@@ -1583,7 +1583,7 @@ class LiquidGlassRendererOpenGL:
         if not window:
             raise RuntimeError("GLFW could not open a window with OpenGL support")
 
-        origin_x, origin_y = main_desktop_origin(72, 64)
+        origin_x, origin_y = window_launch_origin(72, 64)
         g.glfwSetWindowPos(window, origin_x, origin_y)
         self._cur_pos = (origin_x, origin_y)
         self._resize = False

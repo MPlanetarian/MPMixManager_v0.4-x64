@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
+    from desktop_launch_screen import fit_square_on_main, place_on_main_screen, window_launch_origin
 except ImportError:
-    from scripts.desktop_launch_screen import fit_square_on_main, main_desktop_origin, place_on_main_screen
+    from scripts.desktop_launch_screen import fit_square_on_main, place_on_main_screen, window_launch_origin
 
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
@@ -684,7 +684,7 @@ class LiquidVisualizerVulkanRenderer:
         except Exception: pass
 
         ox, oy = self._windowed_offset
-        ix, iy = main_desktop_origin(ox, oy)
+        ix, iy = window_launch_origin(ox, oy)
         if getattr(self, "target_4k", False):
             m4k = self._find_4k_monitor()
             if m4k:

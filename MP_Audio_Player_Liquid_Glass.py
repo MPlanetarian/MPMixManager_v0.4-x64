@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from desktop_launch_screen import main_desktop_origin  # noqa: E402
+from desktop_launch_screen import window_launch_origin  # noqa: E402
 from liquid_glass_opengl import glass_foreground_rgb  # noqa: E402
 from liquid_glass_vulkan import LiquidGlassRenderer, NVIDIA_VENDOR_ID, read_player_theme  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
@@ -221,7 +221,7 @@ class GlassHost:
             self._place_terminal()
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or (main_desktop_origin(72, 64), (1280, 820))
+            pos, _ = self._saved_rect or (window_launch_origin(72, 64), (1280, 820))
             cols, rows = (74, 14) if self.mode == "MINI" else ((74, 7) if self.mode == "MICRO" else (COLS, ROWS))
             self._target_cols, self._target_rows = cols, rows
             self.renderer.set_window_pos(pos[0], pos[1])

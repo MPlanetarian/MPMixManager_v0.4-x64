@@ -1,8 +1,13 @@
-"""Pick the desktop monitor for MP Liquid windows.
+"""Pick the desktop monitor for MP Mix Manager and MP Liquid windows.
 
 The Hisense 4K TV is HDMI-A-1. Several saved layouts put that TV at (0, 0).
-A fixed window position of (72, 64) then opens on the TV. The main screen is
-the highest-priority output that is not the Hisense.
+A fixed window position of (72, 64) then opens on the TV. The primary screen
+is the lowest positive KDE priority that is not the Hisense.
+
+KWin positions and X11 positions are not the same space on Wayland. Xwayland
+uses the largest output scale, so an X11 position is that multiple of the
+KWin position. GLFW and wmctrl speak X11. Passing the KWin position unchanged
+opens the window on the monitor to the left of the primary display.
 """
 
 from __future__ import annotations
@@ -125,7 +130,7 @@ def _xrandr_origin() -> tuple[int, int] | None:
 
 
 def main_desktop_origin(offset_x: int = 72, offset_y: int = 64, outputs: list[dict] | None = None) -> tuple[int, int]:
-    """Window top-left on the main desktop, offset from that monitor's origin."""
+    """KWin top-left on the primary desktop, offset from that monitor's origin."""
     chosen = select_main(kscreen_outputs() if outputs is None else outputs)
     if chosen is not None:
         origin_x, origin_y = chosen["geo"][0], chosen["geo"][1]
@@ -133,6 +138,53 @@ def main_desktop_origin(offset_x: int = 72, offset_y: int = 64, outputs: list[di
         fallback = _xrandr_origin()
         origin_x, origin_y = fallback if fallback is not None else (0, 0)
     return origin_x + int(offset_x), origin_y + int(offset_y)
+
+
+def x11_coordinate_scale(outputs: list[dict] | None = None, monitors: list[dict] | None = None) -> float:
+    """How many X11 units equal one KWin unit.
+
+    Matched output origins give the scale. A value near 1 means GLFW and
+    wmctrl can use the KWin position directly.
+    """
+    if outputs is None:
+        outputs = kscreen_outputs()
+    if monitors is None:
+        monitors = parse_xrandr_monitors(_read_command(["xrandr", "--listmonitors"]))
+    by_name = {monitor["name"]: monitor for monitor in monitors}
+    ordered = [output for output in outputs if not is_hisense_name(output.get("name", ""))]
+    ordered.extend(output for output in outputs if is_hisense_name(output.get("name", "")))
+    for output in ordered:
+        monitor = by_name.get(output.get("name", ""))
+        geo = output.get("geo")
+        if not monitor or not geo:
+            continue
+        for logical, reported in ((geo[0], monitor["geo"][0]), (geo[1], monitor["geo"][1])):
+            if abs(logical) < 8 or abs(reported) < 8:
+                continue
+            scale = reported / float(logical)
+            if 0.5 < scale < 8:
+                return scale
+    return 1.0
+
+
+def to_x11_position(logical_x: int, logical_y: int, scale: float | None = None) -> tuple[int, int]:
+    """Position to pass to GLFW or wmctrl so KWin shows the logical point."""
+    if scale is None:
+        scale = x11_coordinate_scale()
+    if abs(scale - 1.0) < 0.05:
+        return int(logical_x), int(logical_y)
+    return int(round(logical_x * scale)), int(round(logical_y * scale))
+
+
+def window_launch_origin(
+    offset_x: int = 72,
+    offset_y: int = 64,
+    outputs: list[dict] | None = None,
+    monitors: list[dict] | None = None,
+) -> tuple[int, int]:
+    """GLFW and wmctrl top-left on the primary display."""
+    logical_x, logical_y = main_desktop_origin(offset_x, offset_y, outputs)
+    return to_x11_position(logical_x, logical_y, x11_coordinate_scale(outputs, monitors))
 
 
 def net_workarea(text: str | None = None) -> tuple[int, int, int, int] | None:
@@ -316,22 +368,23 @@ def _wmctrl_id_for_title(title_contains: str) -> int:
 
 
 def visible_origin(x11_window_id: int = 0, title_contains: str = "") -> tuple[int, int] | None:
-    """Real top-left from xwininfo, the same position KWin shows on screen.
+    """Top-left from xwininfo, in the same X11 space GLFW and wmctrl -e use.
 
-    wmctrl -lG is not used here. On this session it reports twice the real
-    origin, which made the launch correction place MP Liquid on the left monitor.
+    wmctrl -lG is not used here. On this session it reports twice the xwininfo
+    origin, which made the launch correction place the window on the left monitor.
     """
     wanted = int(x11_window_id or 0) or _wmctrl_id_for_title(title_contains)
     return _xwininfo_origin(wanted)
 
 
 def place_on_main_screen(set_pos, x11_window_id: int, offset_x: int = 72, offset_y: int = 64, flush=None, title_contains: str = "") -> tuple[int, int]:
-    """Move a GLFW window onto the main desktop.
+    """Move a GLFW window onto the primary display.
 
-    The request uses the real layout position. If that request is applied at
-    a larger scale, measure the real landing position and correct once.
+    The request is an X11 position. KWin shows that point divided by the
+    Xwayland scale. If the request is applied at a larger scale, measure the
+    landing position and correct once.
     """
-    global_x, global_y = main_desktop_origin(offset_x, offset_y)
+    global_x, global_y = window_launch_origin(offset_x, offset_y)
     set_pos(global_x, global_y)
     if flush:
         flush()
@@ -357,22 +410,33 @@ def reposition_off_hisense() -> None:
         if is_hisense_name(output.get("name", "")) and output.get("enabled") and output.get("geo")
     ]
     targets = (
+        ("MP Mix Manager (Liquid Glass", 72, 64),
         ("MP Audio Player (Liquid Glass", 72, 64),
         ("MP Liquid Visualizer", 160, 80),
     )
+    scale = x11_coordinate_scale(outputs)
+
+    def _logical_point(x: int, y: int) -> tuple[int, int]:
+        if abs(scale - 1.0) < 0.05:
+            return int(x), int(y)
+        return int(round(x / scale)), int(round(y / scale))
+
     for title, offset_x, offset_y in targets:
         for window in _wmctrl_windows():
             if title not in window["title"]:
                 continue
-            center_x = window["x"] + window["w"] // 2
-            center_y = window["y"] + window["h"] // 2
+            origin_x, origin_y = _logical_point(window["x"], window["y"])
+            center_x, center_y = _logical_point(
+                window["x"] + window["w"] // 2,
+                window["y"] + window["h"] // 2,
+            )
             on_tv = any(
-                _contains(tv, window["x"], window["y"]) or _contains(tv, center_x, center_y)
+                _contains(tv, origin_x, origin_y) or _contains(tv, center_x, center_y)
                 for tv in televisions
             )
             if not on_tv:
                 continue
-            x, y = main_desktop_origin(offset_x, offset_y, outputs)
+            x, y = window_launch_origin(offset_x, offset_y, outputs)
             subprocess.run(
                 ["wmctrl", "-i", "-r", window["id"], "-e", f"0,{x},{y},-1,-1"],
                 capture_output=True,
@@ -386,3 +450,33 @@ def reposition_off_hisense() -> None:
         )
     except (OSError, subprocess.TimeoutExpired):
         pass
+
+
+def ensure_on_main_screen(title_contains: str, offset_x: int = 72, offset_y: int = 64) -> None:
+    """Move a window onto the primary display when its center is somewhere else."""
+    if not title_contains:
+        return
+    try:
+        outputs = kscreen_outputs()
+        main = select_main(outputs)
+        if main is None:
+            return
+        scale = x11_coordinate_scale(outputs)
+        target_x, target_y = window_launch_origin(offset_x, offset_y, outputs)
+        for window in _wmctrl_windows():
+            if title_contains not in window.get("title", ""):
+                continue
+            center_x = window["x"] + max(int(window["w"]), 1) // 2
+            center_y = window["y"] + max(int(window["h"]), 1) // 2
+            if abs(scale - 1.0) >= 0.05:
+                center_x = int(round(center_x / scale))
+                center_y = int(round(center_y / scale))
+            if _contains(main, center_x, center_y):
+                continue
+            subprocess.run(
+                ["wmctrl", "-i", "-r", window["id"], "-e", f"0,{target_x},{target_y},-1,-1"],
+                capture_output=True,
+                timeout=3,
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        return

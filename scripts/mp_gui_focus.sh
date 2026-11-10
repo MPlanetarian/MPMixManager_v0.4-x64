@@ -108,10 +108,24 @@ mp_gui_raise_host() {
     return 1
 }
 
+# Move an already-open manager onto the primary display, then focus it.
+_mp_gui_place_on_primary() {
+    local here
+    here="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+    [ -f "$here/desktop_launch_screen.py" ] || return 0
+    python3 - "$here" << 'PY' || true
+import sys
+sys.path.insert(0, sys.argv[1])
+from desktop_launch_screen import ensure_on_main_screen
+ensure_on_main_screen("MP Mix Manager (Liquid Glass")
+PY
+}
+
 # Returns 0 when a glass window is up (and focused, when the OS allows it).
 mp_gui_focus_if_open() {
     if command -v wmctrl >/dev/null 2>&1; then
         if wmctrl -l 2>/dev/null | grep -q "MP Mix Manager (Liquid Glass"; then
+            _mp_gui_place_on_primary
             wmctrl -a "MP Mix Manager (Liquid Glass" 2>/dev/null || true
             return 0
         fi

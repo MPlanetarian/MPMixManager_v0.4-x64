@@ -51,6 +51,10 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
+- **MP Mix Manager opened on another monitor** (`scripts/desktop_launch_screen.py`, `scripts/mp_gui_focus.sh`, `tests/test_desktop_launch_screen.py`):
+  - The manager opens on the primary desktop, the connected output with the lowest positive KDE priority. HDMI-A-1, the Hisense, is not that screen.
+  - On Wayland, X11 positions are a multiple of the KWin position. The launch request uses that multiple, so the window does not open on the monitor beside the primary display.
+  - Starting the manager again moves an existing manager window onto the primary display when it is on another screen.
 - **MP Liquid Player could not be moved after it loaded on Windows** (`scripts/windows_glass_drag.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `scripts/liquid_glass_opengl.py`, `scripts/liquid_glass_vulkan.py`, `tests/test_windows_glass_drag.py`):
   - The player console is an owned window over the borderless glass. After it appears, drags on the top of the player never reach the glass, so the window stays where it opened.
   - The top strip, the outer bezel, and Alt or the Windows key move the glass. The console follows. A second click on that strip still maximizes. The close button and the opacity slider still receive their clicks.

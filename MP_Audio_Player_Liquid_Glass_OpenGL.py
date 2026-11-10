@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from desktop_launch_screen import main_desktop_origin  # noqa: E402
+from desktop_launch_screen import window_launch_origin  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
 from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
@@ -539,7 +539,7 @@ class GlassHost:
             self._apply_grid(max(40, int((ww - 2 * m) // cw)), max(10, int((wh - 2 * m - 44) // ch)), (wx, wy), (ww, wh))
             self.is_maximized = True
         else:
-            pos, _ = self._saved_rect or (main_desktop_origin(72, 64), (1280, 856))
+            pos, _ = self._saved_rect or (window_launch_origin(72, 64), (1280, 856))
             cols, rows = _mode_grid(self.mode if self.mode != "TRACKLIST" else "NORMAL")
             self._apply_grid(cols, rows, pos)
             self.is_maximized = False
