@@ -5576,7 +5576,7 @@ class TerminalPlayerUI:
         pal = self.visualizer.get_theme_palette()
         text_col = theme_body_ansi(self.visualizer.theme)
         is_lg = bool(os.environ.get("MP_LIQUID_GLASS"))
-        playlist_text_col = text_col if is_lg else WHITE
+        playlist_text_col = WHITE
         g_key = "MP Gui" if is_lg else "Spek"
         bold_s = "" if is_lg else BOLD
         hl_col, act_col = pal.get("highlight", COLOR_HOT_PURPLE), pal.get("active", COLOR_NEON_PINK)
@@ -5701,11 +5701,11 @@ class TerminalPlayerUI:
                     ip = ip + " " * (iw - cw) if cw < iw else (_clip_display(ip, iw) if cw > iw else ip)
                     if sel:
                         if is_lg:
-                            lines.append(f"  {b_col}│{NC}{_glass_rev()}{bold_s}{hl_col}{ip}\033[0m{b_col}│{NC}")
+                            lines.append(f"  {b_col}│{NC}{_glass_rev()}{bold_s}{WHITE}{ip}\033[0m{b_col}│{NC}")
                         else:
                             lines.append(f"  {b_col}│{NC}\033[48;2;70;70;70m{WHITE}{ip}{NC}{b_col}│{NC}")
-                    elif act: lines.append(f"  {b_col}│{NC}{bold_s}{(act_col if is_lg else playlist_text_col)}{ip}{NC}{b_col}│{NC}")
-                    elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{(COLOR_ELECTRIC_CYAN if is_lg else playlist_text_col)}{ip}{NC}{b_col}│{NC}")
+                    elif act: lines.append(f"  {b_col}│{NC}{bold_s}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
+                    elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
             lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col, text_col))
