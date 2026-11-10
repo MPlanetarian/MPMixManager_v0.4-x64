@@ -20,9 +20,24 @@ class TestLiquidGlassReward(unittest.TestCase):
         with patch("sys.stdout", buf):
             show_welcome_message(wait_for_input=False)
         out = buf.getvalue()
+        self.assertIn("0.4.2 (Liquid) - [Stable Release]", out)
         self.assertIn("MPlanetarian", out)
+        self.assertIn("What's new since 0.4.1", out)
+        self.assertIn("Favorites", out)
+        self.assertIn("Shared system tray", out)
+        self.assertIn("Linux TTY Desktop Switcher", out)
+        self.assertIn("Five tips", out)
+        self.assertIn("Tip 1.", out)
+        self.assertIn("Tip 5.", out)
+        self.assertIn("Quick start", out)
+        self.assertIn("Mix Archive", out)
+        self.assertIn("Music Folders", out)
+        self.assertIn("MP Liquid Player", out)
+        self.assertIn("Add the MP desktop shortcuts yourself", out)
+        self.assertIn("Magical Journey", out)
+        self.assertIn("Thank you for supporting MP Mix Manager.", out)
+        self.assertIn("Last updated by MPlanetarian on November 10, 2026.", out)
         self.assertIn("Liquid Transparent Audio Player", out)
-        self.assertIn("Special Desktop Reward Unlocked", out)
 
     def test_icon_assets_exist(self):
         png_icon = ROOT / "assets" / "mp_liquid_glass_icon.png"
