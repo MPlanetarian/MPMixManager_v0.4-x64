@@ -254,6 +254,49 @@ class TestLiquidGlassPlayerFeatures(unittest.TestCase):
         self.assertIn("\033[38;2;255;255;255m", unselected[0])
         self.assertNotIn("\033[1;38;2;255;255;255m", unselected[0])
 
+    def test_volume_footer_sits_one_line_below_the_playlist(self):
+        """The Vol status row sits one blank line under the playlist box."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_mixes.return_value = [
+            {"name": "Mix 01 - Selected Track.flac", "path": "/path/mix1.flac", "ext": "FLAC", "size_mb": 650},
+        ]
+        ui = MP_Audio_Player.TerminalPlayerUI(
+            engine=None,
+            scanner=mock_scanner,
+            ui_size_mode="NORMAL",
+            is_remote=True,
+        )
+        ui.selected_row = 0
+        st = {
+            "title": "Mix 01 - Selected Track.flac",
+            "path": "/path/mix1.flac",
+            "state": "playing",
+            "index": 0,
+            "position_fmt": "02:00",
+            "duration_fmt": "60:00",
+            "progress_pct": 3.3,
+            "volume": 85,
+            "pitch_percent": 0,
+            "levels": [0.4] * 24,
+            "peaks": [0.6] * 24,
+            "levels_left": [0.4] * 24,
+            "levels_right": [0.4] * 24,
+            "peaks_left": [0.6] * 24,
+            "peaks_right": [0.6] * 24,
+        }
+        captured = []
+        with patch.dict(os.environ, {"MP_LIQUID_GLASS": "1"}), \
+             patch("MP_Audio_Player._present_frame", side_effect=lambda lines, w, h: captured.extend(lines)), \
+             patch("MP_Audio_Player._win_visible_size", return_value=(120, 40)):
+            ui._get_status = MagicMock(return_value=st)
+            ui._draw_frame()
+
+        plain = [MP_Audio_Player._ANSI_RE.sub("", line) for line in captured]
+        vol_idx = next(i for i, line in enumerate(plain) if line.lstrip().startswith(("Vol", "🔊 Vol")))
+        self.assertEqual(plain[vol_idx - 1].strip(), "")
+        self.assertIn("┘", plain[vol_idx - 2])
+        self.assertLessEqual(len(captured), 40)
+
     def test_player_argv_forwards_extra_args(self):
         """Verifies player_argv forwards mode/playlist/theme flags to MP_Audio_Player.py."""
         for mod in (lg_vulkan, lg_opengl):

@@ -5405,7 +5405,8 @@ class TerminalPlayerUI:
             else:
                 list_title = f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{qb}) "
             lines.append(_boxed_rule("┌", list_title, "┐", iw, b_col))
-            vrows = max(0, h - len(lines) - 4)
+            # Bottom rule, one blank row, the Vol status line, and two control rows.
+            vrows = max(0, h - len(lines) - 5)
             if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
             elif self.selected_row < self.scroll_offset: self.scroll_offset = self.selected_row
             elif self.selected_row >= self.scroll_offset + vrows: self.scroll_offset = self.selected_row - vrows + 1
@@ -5452,6 +5453,8 @@ class TerminalPlayerUI:
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
             lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col))
 
+        # One blank row keeps the Vol footer off the playlist edge.
+        lines.append("")
         hint_col = WHITE if is_lg else DIM
         shuf = f"{bold_s}{COLOR_TRAFFIC_GREEN}ON{NC}" if st.get("shuffle") else f"{hint_col}OFF{NC}"
         rep = f"{bold_s}{COLOR_TRAFFIC_GREEN}{st.get('repeat', 'all').upper()}{NC}"
