@@ -2658,6 +2658,8 @@ def _strip_bold_ansi(s: str) -> str:
     return re.sub(r"\033\[([0-9;]*)m", repl, s)
 
 _MP_VISUALIZER_TEXT = False
+_LIQUID_FRAME_CACHE = None
+_LIQUID_FRAME_SIZE = None
 _FG_TRUECOLOR_RE = re.compile(r"\033\[((?:\d+;)*)38;2;(\d+);(\d+);(\d+)((?:;\d+)*)m")
 
 def _lift_visualizer_rgb(r: int, g: int, b: int) -> Tuple[int, int, int]:
@@ -2691,20 +2693,43 @@ def _mp_visualizer_api():
     return api
 
 def _present_frame(lines: List[str], width: int, height: int):
-    global _MP_VISUALIZER_TEXT
+    global _MP_VISUALIZER_TEXT, _LIQUID_FRAME_CACHE, _LIQUID_FRAME_SIZE
     usable = max(1, width - 1)
     guard = bool(_MP_VISUALIZER_TEXT) and os.environ.get("MP_LIQUID_GLASS") == "1"
     _MP_VISUALIZER_TEXT = False
-    if os.environ.get("MP_LIQUID_GLASS"):
+    liquid = os.environ.get("MP_LIQUID_GLASS") == "1"
+    if liquid:
         lines = [_strip_bold_ansi(l) for l in lines]
     if guard:
         lines = [_guard_visualizer_text(l) for l in lines]
     clipped = [_clip_display(l, usable) + "\033[K" for l in lines[:height]]
     clipped.extend(["\033[K"] * (height - len(clipped)))
-    body = "\n".join(clipped)
-    # Steady frames park the cursor and overwrite cells. A full clear is only
-    # for SIGWINCH, where the old cells would otherwise sit past the new size.
     clear = "\033[2J" if _tty_resized() else ""
+    if liquid:
+        frame = tuple(clipped)
+        size = (usable, height)
+        full = clear or _LIQUID_FRAME_CACHE is None or _LIQUID_FRAME_SIZE != size
+        if full:
+            body = "\033[2J\033[H" + "\n".join(frame)
+        else:
+            changed = [
+                f"\033[{i + 1};1H{line}"
+                for i, line in enumerate(frame)
+                if line != _LIQUID_FRAME_CACHE[i]
+            ]
+            body = "".join(changed)
+            if body:
+                body += "\033[H"
+        _LIQUID_FRAME_CACHE, _LIQUID_FRAME_SIZE = frame, size
+        if body:
+            sys.stdout.write(f"\033[?2026h\033[?7l{body}\033[?2026l")
+            sys.stdout.flush()
+        return
+
+    _LIQUID_FRAME_CACHE = _LIQUID_FRAME_SIZE = None
+    body = "\n".join(clipped)
+    # CLI mode keeps its full-frame update path; only redraw when rows differ
+    # in the embedded Liquid VTE, where sending the whole screen is expensive.
     sys.stdout.write(f"\033[?2026h\033[?7l{clear}\033[H{body}\033[?2026l")
     sys.stdout.flush()
 
