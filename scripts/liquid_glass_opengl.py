@@ -426,8 +426,9 @@ THEME_TEXT = {
 
 
 def theme_text_rgb(name) -> tuple[int, int, int]:
-    """Keep MP Liquid body text white regardless of the selected theme."""
-    return (255, 255, 255)
+    """Return the selected theme's vivid text hue (never gray or black)."""
+    key = THEME_ALIASES.get(str(name or "").strip().lower(), str(name or "").strip().lower())
+    return THEME_TEXT.get(key, (255, 20, 183))
 
 
 def get_dynamic_theme_state(theme_name, base_opacity=1.0, current_time=None):

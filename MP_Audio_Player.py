@@ -2510,14 +2510,15 @@ def _clip_display(text: str, max_cols: int) -> str:
     if i < n: out.append(NC)
     return "".join(out)
 
-def _boxed_rule(left: str, text: str, right: str, inner: int, color: str) -> str:
+def _boxed_rule(left: str, text: str, right: str, inner: int, color: str, text_color: Optional[str] = None) -> str:
     inner = max(4, int(inner))
+    text_color = text_color or color
     if _display_width(text) <= inner:
-        sh, restore = text, ""
+        sh, restore = f"{text_color}{text}{color}", ""
     else:
         # Clipping ends in a reset. Put the border colour back so the right
         # corner stays on the panel edge instead of the terminal's default ink.
-        sh, restore = _clip_display(text, inner), color
+        sh, restore = f"{text_color}{_clip_display(text, inner)}", color
     return f"  {color}{left}{sh}{restore}{'─' * (inner - _display_width(sh))}{right}{NC}"
 
 def _fit_text_line(cands: List[str], max_cols: int) -> str:
@@ -4513,9 +4514,10 @@ class TerminalPlayerUI:
         hl_col = pal.get("highlight", COLOR_HOT_PURPLE)
         act_col = pal.get("active", COLOR_NEON_PINK)
         b_col = f"{BOLD}{pal.get('border', COLOR_HOT_PURPLE)}"
+        text_col = theme_body_ansi(self.visualizer.theme)
 
         lines = []
-        lines.append(_boxed_rule("╭", "── ✦ 10-BAND STEREO GRAPHIC EQUALIZER & PRESETS ──", "╮", iw, b_col))
+        lines.append(_boxed_rule("╭", "── ✦ 10-BAND STEREO GRAPHIC EQUALIZER & PRESETS ──", "╮", iw, b_col, text_col))
 
         p_badge = f"{BOLD}{COLOR_TRAFFIC_GREEN}[{cur_p}]{NC}" if cur_p != "Flat" else f"{BOLD}{COLOR_ELECTRIC_CYAN}[Flat (Default)]{NC}"
         sel_freq = EQ_BAND_LABELS[sel_idx]
@@ -4633,7 +4635,7 @@ class TerminalPlayerUI:
             sh_save = save_prompt if _display_width(save_prompt) <= iw else _clip_display(save_prompt, iw)
             pad = max(0, iw - _display_width(sh_save))
             lines.append(f"  {b_col}│{NC}{sh_save}{' ' * pad}{b_col}│{NC}")
-        lines.append(_boxed_rule("╰", "── [←/→] Band • [↑/↓] Slider (±0.5dB) • [P/Tab] Preset • [1-7] Preset • [S] Save • [R] Flat • [E/Esc] Close ", "╯", iw, b_col))
+        lines.append(_boxed_rule("╰", "── [←/→] Band • [↑/↓] Slider (±0.5dB) • [P/Tab] Preset • [1-7] Preset • [S] Save • [R] Flat • [E/Esc] Close ", "╯", iw, b_col, text_col))
         return lines
 
     def _get_target_path(self) -> Tuple[Optional[str], Optional[str]]:
@@ -5598,7 +5600,7 @@ class TerminalPlayerUI:
         # so the header edge is one colour all the way around.
         lines.extend([
             f"  {b_col}╭{'─'*iw}╮{NC}",
-            f"  {b_col}│{btitle.center(iw)}│{NC}",
+            f"  {b_col}│{text_col}{btitle.center(iw)}{b_col}│{NC}",
             f"  {b_col}│{NC}{bold_s}{accent_col}{bsub.center(iw)}{NC}{b_col}│{NC}",
             f"  {b_col}╰{'─'*iw}╯{NC}",
         ])
@@ -5655,7 +5657,7 @@ class TerminalPlayerUI:
                 list_title = f"── MUSIC LIBRARY: {music_library_label(self.folder_name)} ({len(active_tracks)} Tracks{qb}) "
             else:
                 list_title = f"── MP MIX ARCHIVE PLAYLIST ({len(active_tracks)} Mixes Available{qb}) "
-            lines.append(_boxed_rule("┌", list_title, "┐", iw, b_col))
+            lines.append(_boxed_rule("┌", list_title, "┐", iw, b_col, text_col))
             # Bottom rule, one blank row, the Vol status line, and two control rows.
             vrows = max(0, h - len(lines) - 5)
             if vrows <= 0: self.scroll_offset = max(0, self.selected_row)
@@ -5706,7 +5708,7 @@ class TerminalPlayerUI:
                     elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{(COLOR_ELECTRIC_CYAN if is_lg else playlist_text_col)}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
             list_footer = f"── ↑/↓: Scroll • Enter: Play • [1] Mix • [2] Music • [3] Favorites • [H] Mark • Q: Queue • D: Clear • G: {g_key} • /: Search " if self.mode == "MUSIC" else f"── ↑/↓: Scroll  •  Enter: Play  •  [1] Mix Archive  •  [2] Music  •  [3] Favorites  •  [H] Mark  •  Q: Queue  •  D: Clear  •  G: {g_key}  •  O: Open  •  T: Tracklist "
-            lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col))
+            lines.append(_boxed_rule("└", list_footer, "┘", iw, b_col, text_col))
 
         # One blank row keeps the Vol footer off the playlist edge.
         lines.append("")
