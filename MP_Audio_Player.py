@@ -2408,8 +2408,13 @@ def _clip_display(text: str, max_cols: int) -> str:
 
 def _boxed_rule(left: str, text: str, right: str, inner: int, color: str) -> str:
     inner = max(4, int(inner))
-    sh = text if _display_width(text) <= inner else _clip_display(text, inner)
-    return f"  {color}{left}{sh}{'─' * (inner - _display_width(sh))}{right}{NC}"
+    if _display_width(text) <= inner:
+        sh, restore = text, ""
+    else:
+        # Clipping ends in a reset. Put the border colour back so the right
+        # corner stays on the panel edge instead of the terminal's default ink.
+        sh, restore = _clip_display(text, inner), color
+    return f"  {color}{left}{sh}{restore}{'─' * (inner - _display_width(sh))}{right}{NC}"
 
 def _fit_text_line(cands: List[str], max_cols: int) -> str:
     for l in cands:
