@@ -393,6 +393,34 @@ def ensure_random_visualizer_started() -> bool:
         return False
 
 
+def spawn_new_visualizer() -> bool:
+    """Open a new MP Liquid Visualizer window, even when one is already running.
+
+    This backs the Z hotkey, so it must not consult the running processes the
+    way ensure_random_visualizer_started does.
+    """
+    try:
+        import subprocess
+        root = Path(__file__).resolve().parent
+        vis_script = next((p for p in (root / "MP_Liquid_Visualizer.py", root / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
+        if not vis_script:
+            return False
+        log_dir = Path.home() / ".config" / "mix-manager"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / "liquid_visualizer.log", "a") as f:
+            subprocess.Popen(
+                [sys.executable, str(vis_script), "--preset", "random"],
+                cwd=str(root),
+                stdin=subprocess.DEVNULL,
+                stdout=f,
+                stderr=f,
+                start_new_session=True,
+            )
+        return True
+    except Exception:
+        return False
+
+
 def main(argv):
     if "--help" not in argv and "-h" not in argv:
         if not is_macos():

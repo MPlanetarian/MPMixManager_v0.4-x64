@@ -337,8 +337,8 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertIn("GLFW_KEY_Q = 81", src)
         self.assertIn("key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q)", src)
 
-    def test_z_key_toggles_fullscreen_and_normal_size(self):
-        """Pressing Z inside MP_Liquid_Visualizer must toggle full screen on and back to the windowed size."""
+    def test_z_key_cycles_fullscreen_half_and_normal_size(self):
+        """Pressing Z cycles: fullscreen -> half size -> default size -> fullscreen."""
         import time
 
         renderer = vis.LiquidVisualizerVulkanRenderer()
@@ -346,12 +346,14 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         try:
             renderer.open()
             self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_DEFAULT)
             normal = renderer.window_size()
             self.assertEqual(normal, renderer._windowed_size)
 
-            # Press Z -> enters fullscreen
+            # Press Z -> enters fullscreen first
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertTrue(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_FULLSCREEN)
             for _ in range(5):
                 bridge.update(0.05, force_playing=True, synthetic_audio=True)
                 renderer.draw(bridge, capture=False)
@@ -360,15 +362,30 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertGreater(fs_w, normal[0])
             self.assertEqual(renderer._extent, renderer.framebuffer_size())
 
-            # Press Z again -> returns to the fitted windowed size
+            # Press Z again -> half the default window size
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_HALF)
+            half = renderer.window_size()
+            self.assertEqual(half, renderer._half_windowed_size)
+            self.assertEqual(half[0], max(vis.MIN_WINDOW_SIDE, normal[0] // 2))
+            self.assertLess(half[0], normal[0])
+
+            # Press Z again -> back to the default window size
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_DEFAULT)
             for _ in range(5):
                 bridge.update(0.05, force_playing=True, synthetic_audio=True)
                 renderer.draw(bridge, capture=False)
                 time.sleep(0.01)
             self.assertEqual(renderer.window_size(), normal)
             self.assertEqual(renderer._extent, normal)
+
+            # One more press restarts the cycle at fullscreen
+            renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
+            self.assertTrue(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_FULLSCREEN)
         finally:
             renderer.close()
 
@@ -514,15 +531,17 @@ class TestMPLiquidVisualizer(unittest.TestCase):
                 iconified = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_ICONIFIED)
                 self.assertEqual(iconified, 0)
 
-            # Press Z again -> returns to the fitted windowed size
+            # Press Z again -> half-size windowed mode
             normal = renderer._windowed_size
             renderer._on_key(renderer._window, vis.GLFW_KEY_Z, 0, vis.GLFW_PRESS, 0)
             self.assertFalse(renderer.is_fullscreen)
+            self.assertEqual(renderer.window_mode, vis.WINDOW_MODE_HALF)
             import time
             for _ in range(5):
                 renderer.poll()
                 time.sleep(0.01)
-            self.assertEqual(renderer.window_size(), normal)
+            self.assertEqual(renderer.window_size(), renderer._half_windowed_size)
+            self.assertLess(renderer.window_size()[0], normal[0])
             if hasattr(g, "glfwGetWindowAttrib"):
                 floating = g.glfwGetWindowAttrib(renderer._window, vis.GLFW_FLOATING)
                 self.assertEqual(floating, 0)

@@ -670,6 +670,10 @@ class GlassHost:
         if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
             return True
+        # Z opens a new MP Liquid Visualizer window, matching the Vulkan host.
+        if kv in (Gdk.KEY_z, Gdk.KEY_Z):
+            spawn_new_visualizer()
+            return True
         return False
 
     def _terminal_in_well(self):
@@ -1147,6 +1151,26 @@ class GlassHost:
         renderer, self.renderer = self.renderer, None
         if renderer is not None:
             renderer.close()
+
+
+def spawn_new_visualizer() -> bool:
+    """Open a new MP Liquid Visualizer window. Pressing Z must always show one.
+
+    Unlike ensure_random_visualizer_started this never consults the running
+    processes: the window may have been closed by hand, in which case Z has
+    to bring it back.
+    """
+    try:
+        vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
+        if not vis_script:
+            return False
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
+        with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+        return True
+    except Exception:
+        return False
 
 
 def ensure_random_visualizer_started() -> bool:

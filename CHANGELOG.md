@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Z did not open the MP Visualizer from MP Gui or MP Liquid Player on Linux** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`):
+  - The Linux default backend is OpenGL (`LIQUID_GLASS_BACKEND=opengl`), and its `_on_key_press` handled only **K**. **Z** fell through to the child terminal, so no visualizer window ever appeared. The OpenGL host now handles **Z** the same way the Vulkan host does.
+  - Added `spawn_new_visualizer()`, which always opens a window. The old auto-start path skipped spawning whenever any visualizer process existed, so **Z** did nothing after the window had been closed by hand.
+  - The macOS host gained the same `spawn_new_visualizer()` so the three hosts match.
+
+### Changed
+- **MP Liquid Visualizer Z key is now a three-step window cycle** (`scripts/mp_liquid_visualizer_vulkan.py`):
+  - The first Z press still enters borderless fullscreen.
+  - The second Z press leaves fullscreen at **half the default window size**, centred on the default window's position.
+  - The third Z press restores the **default window size**. Further presses repeat the cycle.
+  - Once a windowed size has been chosen with Z, moving the window to another monitor no longer forces it back to fullscreen on a 4K display, and the player-bonding code no longer resizes the window back to the player.
+  - Double-click still toggles plain fullscreen.
+  - The cycle lives in `cycle_window_mode()`; `toggle_fullscreen()` remains for `--fullscreen`, `--4k`, the screen saver, and double-click.
+
 - **Traktor history sync skipped from Mix Archive Manager** (`Make_SOF_FLAC_CONVERSION.sh`, `scripts/Make_SOF_FLAC_CONVERSION.sh`, `config.env`, `config.env.example`, `scripts/top_5_tracks_manager.py`):
   - `sync_missing_traktor_history()` required `TRAKTOR_SMB_HOST` and `TRAKTOR_SMB_SHARE`, but neither key existed in `config.env` or `config.env.example`, so the sync always reported "SMB host, share, user, or password is not set" even when the user and password were set.
   - Added `TRAKTOR_SMB_HOST`, `TRAKTOR_SMB_SHARE`, and `TRAKTOR_SMB_HISTORY_DIR` to `config.env.example`.

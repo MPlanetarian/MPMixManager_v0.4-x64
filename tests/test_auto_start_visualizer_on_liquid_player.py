@@ -95,6 +95,43 @@ class TestAutoStartVisualizerOnLiquidPlayer(unittest.TestCase):
         self.assertIn("--preset", cmd)
         self.assertIn("random", cmd)
 
+    def test_z_key_in_opengl_host_opens_a_visualizer_window(self):
+        """Pressing Z in the OpenGL host (the Linux default) must open a new visualizer.
+
+        The OpenGL host used to handle only K, so Z fell through to the child
+        terminal and no window ever appeared.
+        """
+        host = object.__new__(opengl_glass.GlassHost)
+        for keyval in (0x7A, 0x5A):  # Gdk.KEY_z, Gdk.KEY_Z
+            event = MagicMock()
+            event.keyval = keyval
+            event.state = 0
+            with patch.object(opengl_glass, "spawn_new_visualizer") as spawn:
+                handled = host._on_key_press(None, event)
+            self.assertTrue(handled, "Z must be consumed by the host")
+            spawn.assert_called_once()
+
+    def test_spawn_new_visualizer_opens_even_when_one_is_running(self):
+        """Z must open a new window even if a visualizer process already exists."""
+        with patch("subprocess.Popen") as popen, \
+             patch("subprocess.run") as run:
+            popen.return_value = MagicMock(pid=4321)
+            run.return_value = MagicMock(returncode=0)  # pgrep says one is running
+            started = opengl_glass.spawn_new_visualizer()
+        self.assertTrue(started)
+        popen.assert_called_once()
+        cmd = popen.call_args[0][0]
+        self.assertIn("--preset", cmd)
+        self.assertIn("random", cmd)
+        # The running-process probe must not short-circuit an explicit Z press.
+        run.assert_not_called()
+
+    def test_spawn_new_visualizer_is_defined_for_every_liquid_host(self):
+        """Both Linux hosts and the macOS host must expose the Z spawner."""
+        for module in (opengl_glass, vulkan_glass, macos_glass):
+            self.assertTrue(callable(getattr(module, "spawn_new_visualizer", None)),
+                            f"{module.__name__} has no spawn_new_visualizer")
+
     def test_launch_scripts_contain_random_visualizer_spawn(self):
         """Check launch_liquid_glass.sh and Mix_Archive_Manager.sh for visualizer spawn logic."""
         launch_script = ROOT_DIR / "scripts" / "launch_liquid_glass.sh"
