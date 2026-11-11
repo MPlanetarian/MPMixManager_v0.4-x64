@@ -12,11 +12,12 @@ import html
 import http.server
 import json
 import os
+import random
 import re
-import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -593,6 +594,7 @@ THEME_ALIASES: Dict[str, str] = {
 }
 
 CLI_THEME: Optional[str] = None
+WEB_THEME_FILE = Path.home() / ".config" / "mix-manager" / "web_companion_theme"
 _tracklist_cache: Dict[str, str] = {}
 
 
@@ -601,11 +603,62 @@ def get_base_dir() -> Path:
     return p.parent.parent if p.parent.name == "scripts" else p.parent
 
 
+def normalize_theme_id(value: Any) -> Optional[str]:
+    """Map a theme name, alias, or id to a real palette id."""
+    if not value:
+        return None
+    key = str(value).strip().lower()
+    if not key:
+        return None
+    if key in THEME_ALIASES:
+        return THEME_ALIASES[key]
+    if key in THEMES:
+        return key
+    # Accept a human-readable palette name too, e.g. "Retro Linux Memories".
+    for tid, palette in THEMES.items():
+        if str(palette.get("name", "")).strip().lower() == key:
+            return tid
+    return None
+
+
+def get_web_theme_override() -> Optional[str]:
+    """Theme chosen from the web companion UI. It wins over the manager theme."""
+    if WEB_THEME_FILE.is_file():
+        try:
+            return normalize_theme_id(WEB_THEME_FILE.read_text(encoding="utf-8").strip())
+        except Exception:
+            pass
+    return None
+
+
+def set_web_theme(theme_id: str) -> Optional[str]:
+    tid = normalize_theme_id(theme_id)
+    if not tid:
+        return None
+    try:
+        WEB_THEME_FILE.parent.mkdir(parents=True, exist_ok=True)
+        WEB_THEME_FILE.write_text(tid + "\n", encoding="utf-8")
+    except Exception:
+        return None
+    return tid
+
+
+def available_themes() -> List[Dict[str, str]]:
+    return [
+        {"id": tid, "name": str(palette.get("name", tid))}
+        for tid, palette in THEMES.items()
+    ]
+
+
 def get_current_theme_id(cli_theme: Optional[str] = None) -> str:
     if cli_theme:
         k = cli_theme.strip().lower()
         if k in THEME_ALIASES: return THEME_ALIASES[k]
         if k in THEMES: return k
+
+    override = get_web_theme_override()
+    if override:
+        return override
 
     env_theme = os.environ.get("CURRENT_THEME", "").strip().lower()
     if env_theme:
@@ -641,104 +694,468 @@ def get_local_ip() -> str:
     return ip
 
 
-def is_pid_alive(pid: Any) -> bool:
+# ------------------------------------------------------------------------------
+# STREAMING SERVICE STATE
+#
+# This process is an HTTP streamer only. It deliberately contains no IPC to a
+# local audio player, because it must never cause sound on the host machine.
+# ------------------------------------------------------------------------------
+CONFIG_DIR = Path.home() / ".config" / "mix-manager"
+
+AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".aiff", ".wma")
+AUDIO_CONTENT_TYPES = {
+    ".flac": "audio/flac",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".aiff": "audio/aiff",
+    ".wma": "audio/x-ms-wma",
+}
+RESUME_FILE = CONFIG_DIR / "playback_resume.json"
+PLAYLIST_DIR = CONFIG_DIR / "playlists"
+MUSIC_FOLDERS_FILE = CONFIG_DIR / "music_folders.json"
+WEB_MODE_FILE = CONFIG_DIR / "web_companion_mode"
+
+# Same two libraries the MP Audio Player switches between with [1] and [2].
+LIBRARY_MODE_MIX = "MIX_ARCHIVE"
+LIBRARY_MODE_MUSIC = "MUSIC"
+MODE_LABELS = {LIBRARY_MODE_MIX: "Mix Archive", LIBRARY_MODE_MUSIC: "Music"}
+
+_autoplay_done = threading.Event()
+_autoplay_result: Dict[str, Any] = {"status": "pending", "detail": ""}
+
+# The resolved stream queue is expensive to build for a large music library, so
+# it is cached per mode for a few seconds while the dashboard polls.
+QUEUE_CACHE_TTL = 10.0
+_queue_cache: Optional[Tuple[str, float, Tuple[str, ...]]] = None
+_queue_source_state: Dict[str, Any] = {"fallback": False, "detail": ""}
+
+
+# ------------------------------------------------------------------------------
+# STREAM CATALOG & QUEUE
+#
+# This service is a pure HTTP audio streamer. It never opens a sound device and
+# never spawns a local player: phones and tablets pull the mix themselves from
+# /api/stream. Everything below is bookkeeping for which file to serve next.
+# ------------------------------------------------------------------------------
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in ("0", "false", "no", "off", "")
+
+
+def read_config_env() -> Dict[str, str]:
+    """Read config.env so the service sees manager settings without systemd env."""
+    cfg: Dict[str, str] = {}
+    for cand in (get_base_dir() / "config.env", CONFIG_DIR / "config.env"):
+        if not cand.is_file():
+            continue
+        try:
+            for line in cand.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    cfg.setdefault(key.strip(), val.strip().strip("\"'"))
+        except Exception:
+            pass
+    return cfg
+
+
+def _config_value(key: str, default: str = "") -> str:
+    if key in os.environ:
+        return os.environ[key]
+    return read_config_env().get(key, default)
+
+
+def is_audio_file(path: Any) -> bool:
     try:
-        pid_int = int(pid)
-        if sys.platform == "win32":
-            import ctypes
-            k = ctypes.WinDLL("kernel32", use_last_error=True)
-            h = k.OpenProcess(0x1000, False, pid_int)
-            if h:
-                ec = ctypes.c_ulong()
-                ok = k.GetExitCodeProcess(h, ctypes.byref(ec))
-                k.CloseHandle(h)
-                return bool(ok and ec.value == 259)
-            return False
-        else:
-            os.kill(pid_int, 0)
-            return True
-    except (OSError, ValueError, TypeError):
+        return bool(path) and Path(str(path)).suffix.lower() in AUDIO_EXTENSIONS
+    except Exception:
         return False
 
 
-# ------------------------------------------------------------------------------
-# MP AUDIO PLAYER IPC & STATUS RETRIEVAL
-# ------------------------------------------------------------------------------
-CONFIG_DIR = Path.home() / ".config" / "mix-manager"
-SOCKET_PATH = CONFIG_DIR / "mp_audio_player.sock"
-PORT_FILE = CONFIG_DIR / "mp_audio_player.port"
-STATE_FILE = CONFIG_DIR / "mp_player_state.json"
-PID_FILE = CONFIG_DIR / "mp_player.pid"
+def get_library_mode() -> str:
+    """Which library the companion streams from: MIX_ARCHIVE or MUSIC.
+
+    The web toggle persists here so a phone can switch libraries and the choice
+    survives a service restart. Falls back to WEB_COMPANION_MODE in config.env,
+    then to the mix archive.
+    """
+    if WEB_MODE_FILE.is_file():
+        try:
+            saved = WEB_MODE_FILE.read_text(encoding="utf-8").strip().upper()
+            if saved in MODE_LABELS:
+                return saved
+        except Exception:
+            pass
+    configured = (_config_value("WEB_COMPANION_MODE", "") or "").strip().upper()
+    if configured in MODE_LABELS:
+        return configured
+    return LIBRARY_MODE_MIX
 
 
-def query_mp_player_socket() -> Optional[Dict[str, Any]]:
-    has_unix = hasattr(socket, "AF_UNIX")
-    if (has_unix and not SOCKET_PATH.exists()) or (not has_unix and not PORT_FILE.exists()):
+def set_library_mode(mode: str) -> Optional[str]:
+    """Persist the library choice and restart the queue at its first entry."""
+    target = str(mode or "").strip().upper()
+    if target in ("MIX", "MIXES", "ARCHIVE", "MIXARCHIVE"):
+        target = LIBRARY_MODE_MIX
+    elif target in ("MUSIC", "TRACKS", "SONGS", "LIBRARY"):
+        target = LIBRARY_MODE_MUSIC
+    if target not in MODE_LABELS:
         return None
     try:
-        s = socket.socket(socket.AF_UNIX if has_unix else socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.35)
-        s.connect(str(SOCKET_PATH) if has_unix else ("127.0.0.1", int(PORT_FILE.read_text().strip())))
-        s.sendall(json.dumps({"cmd": "status"}).encode("utf-8"))
-        raw = s.recv(65536).decode("utf-8")
-        s.close()
-        if raw:
-            res = json.loads(raw)
-            if isinstance(res, dict) and res.get("status") == "ok":
-                return res.get("data")
+        WEB_MODE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        WEB_MODE_FILE.write_text(target + "\n", encoding="utf-8")
     except Exception:
-        pass
-    return None
+        return None
+    invalidate_queue_cache()
+    reset_stream_for_new_library()
+    return target
 
 
-def read_mp_player_state_file() -> Optional[Dict[str, Any]]:
-    if not STATE_FILE.is_file():
+def reset_stream_for_new_library() -> None:
+    """Point the stream at the first entry of the newly selected library.
+
+    Playback state carries over, so switching libraries while listening keeps
+    the phone playing - it just starts the new library from track one. The
+    dashboard sees the file change and re-points its <audio> element.
+    """
+    was_playing = bool(load_stream_session().get("playing"))
+    queue = build_stream_queue()
+    with _stream_lock:
+        state = load_stream_session()
+        state.update({
+            "index": 0,
+            "path": queue[0] if queue else "",
+            "position_sec": 0.0,
+            "started_at": 0.0,
+            "duration_sec": probe_duration(queue[0]) if queue else 0.0,
+            "playing": was_playing and bool(queue),
+        })
+        if state["playing"]:
+            state["started_at"] = time.time()
+        save_stream_session(state)
+
+
+def scan_playlist_files() -> List[str]:
+    """Return the playlist the companion should play from.
+
+    Order of preference:
+      1. WEB_COMPANION_PLAYLIST (explicit .m3u/.m3u8/.json file)
+      2. Saved player playlist for the selected library mode
+      3. Every audio file in the configured folders for that mode, newest first
+
+    An empty list means "there is nothing to play" and autoplay is skipped.
+    """
+    explicit = _config_value("WEB_COMPANION_PLAYLIST", "").strip()
+    if explicit:
+        return _read_playlist_file(Path(os.path.expanduser(explicit)))
+
+    if get_library_mode() == LIBRARY_MODE_MUSIC:
+        files = scan_music_files()
+        if files:
+            return files
+        # An unconfigured or unreachable music library must not leave the
+        # companion with nothing to stream, so fall through to the archive.
+        return scan_archive_files()
+
+    return scan_archive_files()
+
+
+def music_playlist_candidates() -> List[Path]:
+    """The combined per-machine music playlist, mirroring the MP Audio Player.
+
+    music_folders_manager.py writes the "ALL_MUSIC_FOLDERS" playlist beside the
+    per-machine list, under either the config playlists dir or the legacy
+    PLAYLISTS_GENERATED folder inside the app.
+    """
+    base = get_base_dir()
+    names = (
+        "DJ_Tracks_ALL_MUSIC_FOLDERS.json",
+        "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u8",
+        "DJ_Tracks_ALL_MUSIC_FOLDERS.m3u",
+    )
+    dirs = [PLAYLIST_DIR,
+            CONFIG_DIR / "PLAYLISTS_GENERATED",
+            base / "PLAYLISTS_GENERATED",
+            base / "playlists"]
+    return [d / name for d in dirs for name in names]
+
+
+def music_folder_roots() -> List[Path]:
+    """Local paths of the configured music folders, skipping SMB/UNC entries.
+
+    A share such as \\\\192.168.1.138\\MUSIC001 only becomes a filesystem path
+    once the desktop has mounted it, so those entries are ignored here rather
+    than reported as unreadable folders.
+    """
+    roots: List[Path] = []
+    seen = set()
+    try:
+        if not MUSIC_FOLDERS_FILE.is_file():
+            return roots
+        data = json.loads(MUSIC_FOLDERS_FILE.read_text(encoding="utf-8", errors="ignore"))
+    except Exception:
+        return roots
+
+    for folder in (data.get("folders") if isinstance(data, dict) else data) or []:
+        if not isinstance(folder, dict):
+            continue
+        if str(folder.get("type", "")).lower() in ("smb", "nfs", "remote", "unc"):
+            continue
+        raw = str(folder.get("local_path") or folder.get("path") or "").strip()
+        if not raw or raw.startswith("\\\\") or raw.startswith("//"):
+            continue
+        try:
+            p = Path(os.path.expanduser(raw)).resolve()
+        except Exception:
+            continue
+        if p.is_dir() and str(p) not in seen:
+            seen.add(str(p))
+            roots.append(p)
+    return roots
+
+
+def scan_music_files() -> List[str]:
+    """The MUSIC library: generated playlist first, then the folder roots."""
+    for cand in music_playlist_candidates():
+        if not cand.is_file():
+            continue
+        files = _read_playlist_file(cand)
+        if files:
+            return files
+    return _scan_dirs(music_folder_roots())
+
+
+def _scan_dirs(roots: List[Path]) -> List[str]:
+    """Newest-first audio files underneath the given directories."""
+    skip = {"__pycache__", "node_modules", ".git", "venv", ".venv"}
+    found: List[Tuple[float, str]] = []
+    seen = set()
+    for root_dir in roots:
+        for root, subdirs, files in os.walk(root_dir):
+            subdirs[:] = [d for d in subdirs if not d.startswith(".") and d not in skip]
+            for name in files:
+                if not is_audio_file(name):
+                    continue
+                full = os.path.join(root, name)
+                if full in seen:
+                    continue
+                seen.add(full)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                # A zero-byte file (usually an interrupted conversion) would
+                # stall the phone on an empty body, so it is not streamable.
+                if st.st_size <= 0:
+                    continue
+                found.append((st.st_mtime, full))
+    found.sort(key=lambda item: item[0], reverse=True)
+    return [path for _, path in found]
+
+
+def _read_playlist_file(path: Path) -> List[str]:
+    if not path.is_file():
+        return []
+    try:
+        if path.suffix.lower() == ".json":
+            data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            raw = data.get("tracks") if isinstance(data, dict) else data
+            paths: List[str] = []
+            for item in raw or []:
+                if isinstance(item, dict):
+                    item = item.get("path") or item.get("file") or ""
+                if isinstance(item, str) and is_audio_file(item):
+                    paths.append(item)
+            return [p for p in paths if os.path.isfile(p)]
+        paths = []
+        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if is_audio_file(line):
+                paths.append(line)
+        return [p for p in paths if os.path.isfile(p)]
+    except Exception:
+        return []
+
+
+def _archive_dirs() -> List[Path]:
+    dirs: List[Path] = []
+    seen = set()
+
+    def add(value: Any) -> None:
+        if not value:
+            return
+        try:
+            p = Path(os.path.expanduser(str(value).strip().strip("\"'"))).resolve()
+            if p.is_dir() and str(p) not in seen:
+                seen.add(str(p))
+                dirs.append(p)
+        except Exception:
+            pass
+
+    add(_config_value("MIX_ARCHIVE_DIR", ""))
+    for part in re.split(r"[;\n,]", _config_value("EXTRA_MIX_ARCHIVE_DIRS", "") or ""):
+        add(part)
+    base = get_base_dir()
+    for name in ("MIX_ARCHIVE", "FLAC_CONVERTED_OUTPUTS"):
+        add(base / name)
+    return dirs
+
+
+def scan_archive_files() -> List[str]:
+    """Newest-first audio files across the configured archive folders."""
+    return _scan_dirs(_archive_dirs())
+
+
+# ------------------------------------------------------------------------------
+# STREAM CATALOG
+#
+# Pure HTTP streaming state. No sound device is ever opened and no local player
+# process is ever spawned - the phone or tablet is the only audio output.
+# ------------------------------------------------------------------------------
+def player_position(status: Optional[Dict[str, Any]]) -> float:
+    try:
+        return float((status or {}).get("position_sec", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def load_resume_state() -> Optional[Dict[str, Any]]:
+    if not RESUME_FILE.is_file():
         return None
     try:
-        with open(STATE_FILE, "r", encoding="utf-8", errors="ignore") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
+        data = json.loads(RESUME_FILE.read_text(encoding="utf-8", errors="ignore"))
+        if isinstance(data, dict) and data.get("path") and os.path.isfile(str(data["path"])):
             return data
     except Exception:
         pass
     return None
 
 
-def send_mp_player_command(cmd: str, **kwargs) -> bool:
-    has_unix = hasattr(socket, "AF_UNIX")
-    if (has_unix and not SOCKET_PATH.exists()) or (not has_unix and not PORT_FILE.exists()):
-        return False
-    try:
-        s = socket.socket(socket.AF_UNIX if has_unix else socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.5)
-        s.connect(str(SOCKET_PATH) if has_unix else ("127.0.0.1", int(PORT_FILE.read_text().strip())))
-        payload = {"cmd": cmd, **kwargs}
-        s.sendall(json.dumps(payload).encode("utf-8"))
-        raw = s.recv(4096).decode("utf-8")
-        s.close()
-        if raw:
-            res = json.loads(raw)
-            return res.get("status") == "ok"
-    except Exception:
-        pass
-    return False
+def _pick_start_track(playlist: List[str]) -> Tuple[Optional[str], float]:
+    """Choose the resume track when it is still in the playlist, else the first."""
+    resume = load_resume_state()
+    if resume:
+        saved_path = str(resume.get("path"))
+        try:
+            saved_pos = max(0.0, float(resume.get("position_sec", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            saved_pos = 0.0
+        if saved_path in playlist:
+            return saved_path, saved_pos
+    return (playlist[0], 0.0) if playlist else (None, 0.0)
 
 
-def is_mp_player_active() -> Tuple[bool, Optional[Dict[str, Any]]]:
-    st = query_mp_player_socket()
-    if st and is_pid_alive(st.get("pid")):
-        return True, st
+def build_stream_queue() -> List[str]:
+    """Resolve the play queue the phones will stream through.
 
-    st = read_mp_player_state_file()
-    if st:
-        pid = st.get("pid")
-        if not pid and PID_FILE.is_file():
-            try: pid = int(PID_FILE.read_text().strip())
-            except Exception: pid = None
-        if is_pid_alive(pid):
-            return True, st
+    Scanning the music playlist stats tens of thousands of paths, so the result
+    is cached briefly. Without this every 2-second status poll would re-walk the
+    library.
+    """
+    global _queue_cache
 
-    return False, None
+    mode = get_library_mode()
+    now = time.time()
+    cached = _queue_cache
+    if cached and cached[0] == mode and (now - cached[1]) < QUEUE_CACHE_TTL:
+        return list(cached[2])
+
+    if mode == LIBRARY_MODE_MUSIC:
+        files = scan_music_files()
+        # An unmounted SMB share leaves the generated playlist full of paths
+        # that no longer resolve. Falling back keeps audio flowing, but the
+        # status call reports it so the phone is not silently mislabelled.
+        _queue_source_state.update({
+            "fallback": not files,
+            "detail": "" if files else "Music library offline - streaming Mix Archive",
+        })
+        if not files:
+            files = scan_archive_files()
+    else:
+        _queue_source_state.update({"fallback": False, "detail": ""})
+        files = scan_archive_files()
+
+    if files and _env_flag("WEB_COMPANION_SHUFFLE", False):
+        files = list(files)
+        random.shuffle(files)
+
+    _queue_cache = (mode, now, tuple(files))
+    return list(files)
+
+
+def invalidate_queue_cache() -> None:
+    global _queue_cache
+    _queue_cache = None
+
+
+def autoplay_once() -> Dict[str, Any]:
+    """Arm the stream at startup so a phone starts playing with no extra taps.
+
+    Nothing is played on the host: the session is only marked as playing, which
+    makes /api/status report a running stream so the browser dashboard points
+    its <audio> element at /api/stream and autoplays. The phone is the only
+    audio output.
+    """
+    if _autoplay_done.is_set():
+        return dict(_autoplay_result)
+
+    if not _env_flag("WEB_COMPANION_AUTOPLAY", True):
+        _autoplay_result.update(status="disabled", detail="Autoplay disabled by WEB_COMPANION_AUTOPLAY")
+        _autoplay_done.set()
+        return dict(_autoplay_result)
+
+    playlist = build_stream_queue()
+    track, position = _pick_start_track(playlist)
+    if not track:
+        _autoplay_result.update(status="empty_playlist", detail="Playlist is empty")
+        _autoplay_done.set()
+        return dict(_autoplay_result)
+
+    # Resume where the last session stopped, otherwise start at the top.
+    with _stream_lock:
+        state = load_stream_session()
+        state["path"] = track
+        try:
+            state["index"] = playlist.index(track)
+        except ValueError:
+            state["index"] = 0
+        state["duration_sec"] = probe_duration(track)
+        state["position_sec"] = clamp_position(state, position)
+        state["playing"] = True
+        state["started_at"] = time.time()
+        save_stream_session(state)
+
+    _autoplay_result.update(
+        status="ready",
+        detail=f"Auto-streaming {MODE_LABELS.get(get_library_mode(), 'library')} ({len(playlist)} items)",
+        match=track,
+        track=os.path.basename(track),
+        position=round(float(state.get("position_sec", 0.0) or 0.0), 2),
+        queue_len=len(playlist),
+        mode=get_library_mode(),
+        verified=True,
+        verified_position=round(float(state.get("position_sec", 0.0) or 0.0), 2),
+    )
+    _autoplay_done.set()
+    return dict(_autoplay_result)
+
+
+def start_autoplay_worker() -> threading.Thread:
+    thread = threading.Thread(target=autoplay_once, name="mp-companion-stream-queue", daemon=True)
+    thread.start()
+    return thread
+
+
+def autoplay_state() -> Dict[str, Any]:
+    return dict(_autoplay_result)
+
 
 
 # ------------------------------------------------------------------------------
@@ -856,130 +1273,386 @@ def clean_track_title(raw_title: str, raw_path: str, tl_meta: Dict[str, str]) ->
     return title, artist, album
 
 
-def get_eq_status() -> Dict[str, Any]:
-    mp_active, mp_data = is_mp_player_active()
-    if mp_active and mp_data:
-        return {
-            "state": str(mp_data.get("state", "stopped")).lower(),
-            "position": str(mp_data.get("position_fmt", "00:00")),
-            "duration": str(mp_data.get("duration_fmt", "--:--")),
-            "position_sec": float(mp_data.get("position_sec", 0.0)),
-            "duration_sec": float(mp_data.get("duration_sec", 0.0)),
-            "progress_pct": float(mp_data.get("progress_pct", 0.0)),
-            "volume": int(mp_data.get("volume", 85)),
-            "pitch_percent": int(mp_data.get("pitch_percent", 0)),
-            "shuffle": bool(mp_data.get("shuffle", False)),
-            "repeat": str(mp_data.get("repeat", "all")),
-            "levels": mp_data.get("levels", [0.0] * 24),
-            "peaks": mp_data.get("peaks", [0.0] * 24),
-        }
-    return {
-        "state": "stopped", "position": "00:00", "duration": "--:--",
-        "position_sec": 0.0, "duration_sec": 0.0, "progress_pct": 0.0,
-        "volume": 85, "pitch_percent": 0, "shuffle": False, "repeat": "all",
-        "levels": [0.0] * 24, "peaks": [0.0] * 24,
+# ------------------------------------------------------------------------------
+# STREAMING SESSION
+#
+# The companion tracks "which file is being served" and a coarse elapsed clock,
+# so the phone dashboard has a position and a progress bar. It is deliberately
+# NOT an authority on playback: the browser owns that. Nothing here opens an
+# audio device.
+# ------------------------------------------------------------------------------
+VOLUME_FILE = CONFIG_DIR / "web_companion_stream.json"
+_stream_lock = threading.Lock()
+
+
+def _stream_state_path() -> Path:
+    return VOLUME_FILE
+
+
+def load_stream_session() -> Dict[str, Any]:
+    state: Dict[str, Any] = {
+        "index": 0,
+        "path": "",
+        "playing": False,
+        "position_sec": 0.0,
+        "started_at": 0.0,
+        "duration_sec": 0.0,
+        "volume": 100,
+        "shuffle": False,
+        "repeat": "all",
     }
+    if _stream_state_path().is_file():
+        try:
+            saved = json.loads(_stream_state_path().read_text(encoding="utf-8", errors="ignore"))
+            if isinstance(saved, dict):
+                state.update({k: saved[k] for k in state if k in saved})
+        except Exception:
+            pass
+    return state
+
+
+def save_stream_session(state: Dict[str, Any]) -> None:
+    try:
+        _stream_state_path().parent.mkdir(parents=True, exist_ok=True)
+        tmp = _stream_state_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(_stream_state_path())
+    except Exception:
+        pass
+
+
+def stream_position(state: Dict[str, Any]) -> float:
+    """Elapsed seconds within the current file, accounting for active playback."""
+    base = float(state.get("position_sec", 0.0) or 0.0)
+    if state.get("playing") and state.get("started_at"):
+        base += max(0.0, time.time() - float(state["started_at"]))
+    return max(0.0, base)
+
+
+def clamp_position(state: Dict[str, Any], pos: float) -> float:
+    duration = float(state.get("duration_sec", 0.0) or 0.0)
+    pos = max(0.0, float(pos))
+    return min(pos, duration) if duration > 0 else pos
+
+
+def current_stream_file() -> Tuple[str, Dict[str, Any]]:
+    """Return the file the phone should currently be streaming."""
+    queue = build_stream_queue()
+    state = load_stream_session()
+    if not queue:
+        return "", state
+    idx = int(state.get("index", 0) or 0)
+    if idx < 0 or idx >= len(queue):
+        idx = 0
+        state["index"] = 0
+    # Keep the saved path authoritative if it is still present in the queue.
+    saved = str(state.get("path", "") or "")
+    if saved and saved in queue:
+        idx = queue.index(saved)
+    else:
+        state["path"] = queue[idx]
+    return queue[idx], state
+
+
+def get_eq_status() -> Dict[str, Any]:
+    active_file, state = current_stream_file()
+    playing = bool(state.get("playing"))
+    pos = stream_position(state)
+    dur = float(state.get("duration_sec", 0.0) or 0.0)
+    pct = round(pos / dur * 100.0, 1) if dur > 0 else 0.0
+    return {
+        "state": "playing" if playing else ("paused" if active_file else "stopped"),
+        "position": format_seconds(pos),
+        "duration": format_seconds(dur) if dur > 0 else "--:--",
+        "position_sec": round(pos, 2),
+        "duration_sec": round(dur, 2),
+        "progress_pct": pct,
+        "volume": int(state.get("volume", 100)),
+        "pitch_percent": 0,
+        "shuffle": bool(state.get("shuffle", False)),
+        "repeat": str(state.get("repeat", "all")),
+        "levels": [0.0] * 24,
+        "peaks": [0.0] * 24,
+    }
+
+
+def format_seconds(value: Any) -> str:
+    try:
+        total = int(max(0.0, float(value)))
+    except (TypeError, ValueError):
+        total = 0
+    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+
+
+_duration_cache: Dict[str, Tuple[float, float, float]] = {}
+
+
+def probe_duration(path: str) -> float:
+    """Read only the container header for length. Never decodes audio."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 0.0
+    cached = _duration_cache.get(path)
+    if cached and cached[0] == st.st_mtime and cached[1] == st.st_size:
+        return cached[2]
+    duration = 0.0
+    try:
+        import soundfile  # header-only probe; no device, no decoding
+        duration = float(soundfile.info(path).duration or 0.0)
+    except Exception:
+        duration = 0.0
+    if duration <= 0.0:
+        duration = _wav_duration(path)
+    if duration <= 0.0:
+        # soundfile lives in the user site-packages, which a systemd start may
+        # not resolve. ffprobe reads the same header and is package-managed.
+        duration = _ffprobe_duration(path)
+    _duration_cache[path] = (st.st_mtime, st.st_size, duration)
+    return duration
+
+
+def _ffprobe_duration(path: str) -> float:
+    """Container length from ffprobe, used when soundfile is unavailable."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=6,
+        )
+        if out.returncode == 0:
+            return max(0.0, float((out.stdout or "").strip() or 0.0))
+    except Exception:
+        pass
+    return 0.0
+
+
+def _wav_duration(path: str) -> float:
+    """Fallback for plain PCM WAV: data chunk size / byte rate."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(64)
+        if header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+            return 0.0
+        byte_rate = int.from_bytes(header[28:32], "little")
+        data_size = int.from_bytes(header[40:44], "little")
+        if byte_rate > 0 and data_size > 0:
+            return data_size / float(byte_rate)
+    except Exception:
+        pass
+    return 0.0
 
 
 def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
     active_theme = get_theme_palette(cli_theme)
-    status: Dict[str, Any] = {
-        "player": "None", "state": "stopped", "title": "No Mix Playing", "raw_title": "",
-        "artist": "MPlanetarian", "album": "", "position": "00:00", "duration": "00:00",
-        "position_sec": 0.0, "duration_sec": 0.0, "progress_pct": 0.0, "active_file": "",
-        "format": "", "sample_rate": "", "channels": "", "volume": 85, "pitch_percent": 0,
-        "pitch_factor": 1.0, "shuffle": False, "repeat": "all", "levels": [0.0] * 24,
-        "peaks": [0.0] * 24, "mini_eq": "", "tracklist": [], "tracklist_total": 0, "theme": active_theme
+    active_file, state = current_stream_file()
+    queue = build_stream_queue()
+
+    duration = probe_duration(active_file) if active_file else 0.0
+    if duration > 0 and abs(float(state.get("duration_sec", 0.0) or 0.0) - duration) > 0.5:
+        state["duration_sec"] = duration
+
+    pos = clamp_position(state, stream_position(state))
+    pct = round(pos / duration * 100.0, 1) if duration > 0 else 0.0
+    playing = bool(state.get("playing")) and bool(active_file)
+
+    title, artist, album = clean_track_title("", active_file, {})
+    tracklist: List[str] = []
+    if active_file:
+        tl_path = find_tracklist_for_mix(active_file)
+        tl_info = parse_tracklist_file(tl_path) if tl_path else {"metadata": {}, "tracks": []}
+        title, artist, album = clean_track_title(
+            os.path.basename(active_file), active_file, tl_info.get("metadata", {})
+        )
+        tracklist = tl_info.get("tracks", [])
+
+    return {
+        "player": "Web Stream",
+        "state": "playing" if playing else ("paused" if active_file else "stopped"),
+        "title": title or "No Mix Playing",
+        "raw_title": os.path.basename(active_file),
+        "artist": artist,
+        "album": album,
+        "position": format_seconds(pos),
+        "duration": format_seconds(duration) if duration else "00:00:00",
+        "position_sec": round(pos, 2),
+        "duration_sec": round(duration, 2),
+        "progress_pct": pct,
+        "active_file": active_file,
+        "format": Path(active_file).suffix.lstrip(".").upper() if active_file else "",
+        "sample_rate": "",
+        "channels": "Stereo",
+        "volume": int(state.get("volume", 100)),
+        "pitch_percent": 0,
+        "pitch_factor": 1.0,
+        "shuffle": bool(state.get("shuffle", False)),
+        "repeat": str(state.get("repeat", "all")),
+        "levels": [0.0] * 24,
+        "peaks": [0.0] * 24,
+        "mini_eq": "",
+        "tracklist": tracklist,
+        "tracklist_total": len(tracklist),
+        "queue_len": len(queue),
+        "queue_position": int(state.get("index", 0) or 0) + 1,
+        "mode": get_library_mode(),
+        "mode_label": MODE_LABELS.get(get_library_mode(), "Library"),
+        "library_fallback": bool(_queue_source_state.get("fallback")),
+        "library_detail": _queue_source_state.get("detail", ""),
+        "theme": active_theme,
     }
 
-    mp_active, mp_data = is_mp_player_active()
-    if mp_active and mp_data:
-        status["player"] = "MP Audio Player"
-        status["state"] = str(mp_data.get("state", "stopped")).lower()
-        raw_title = str(mp_data.get("title", ""))
-        active_path = str(mp_data.get("path", ""))
-        status["raw_title"] = raw_title
-        status["active_file"] = active_path
-        status["position"] = str(mp_data.get("position_fmt", "00:00"))
-        status["duration"] = str(mp_data.get("duration_fmt", "--:--"))
-        status["position_sec"] = float(mp_data.get("position_sec", 0.0))
-        status["duration_sec"] = float(mp_data.get("duration_sec", 0.0))
-        status["progress_pct"] = float(mp_data.get("progress_pct", 0.0))
-        status["volume"] = int(mp_data.get("volume", 85))
-        status["pitch_percent"] = int(mp_data.get("pitch_percent", 0))
-        status["pitch_factor"] = float(mp_data.get("pitch_factor", 1.0))
-        status["shuffle"] = bool(mp_data.get("shuffle", False))
-        status["repeat"] = str(mp_data.get("repeat", "all"))
-        status["levels"] = mp_data.get("levels", [0.0] * 24)
-        status["peaks"] = mp_data.get("peaks", [0.0] * 24)
-        status["mini_eq"] = str(mp_data.get("mini_eq", ""))
 
-        sr = mp_data.get("sample_rate", 0)
-        status["sample_rate"] = f"{round(sr / 1000.0, 1)} kHz" if sr else ""
-        ch = mp_data.get("channels", 2)
-        status["channels"] = "Stereo" if ch == 2 else ("Mono" if ch == 1 else f"{ch} Ch")
-        if active_path:
-            status["format"] = Path(active_path).suffix.lstrip(".").upper()
+MINI_PLAYLIST_SIZE = 3
 
-        tl_path = find_tracklist_for_mix(active_path)
-        tl_info = parse_tracklist_file(tl_path) if tl_path else {"metadata": {}, "tracks": []}
-        title, artist, album = clean_track_title(raw_title, active_path, tl_info.get("metadata", {}))
-        status["title"] = title
-        status["artist"] = artist
-        status["album"] = album
-        status["tracklist"] = tl_info.get("tracks", [])
-        status["tracklist_total"] = len(status["tracklist"])
-        return status
 
-    return status
+def get_mini_playlist(limit: int = MINI_PLAYLIST_SIZE) -> Dict[str, Any]:
+    """A short window of the stream queue: the current track plus the next ones.
+
+    Only `limit` entries are returned, so the phone shows a compact playlist
+    instead of the whole library. `total` is the full queue length and is what
+    the dashboard shows as the track count.
+    """
+    queue = build_stream_queue()
+    mode = get_library_mode()
+    if not queue:
+        return {
+            "items": [],
+            "total": 0,
+            "current_index": -1,
+            "mode": mode,
+            "mode_label": MODE_LABELS.get(mode, "Library"),
+            "modes": [{"id": mid, "label": label} for mid, label in MODE_LABELS.items()],
+        }
+
+    state = load_stream_session()
+    idx = int(state.get("index", 0) or 0)
+    saved = str(state.get("path", "") or "")
+    if saved and saved in queue:
+        idx = queue.index(saved)
+    idx = max(0, min(idx, len(queue) - 1))
+
+    items: List[Dict[str, Any]] = []
+    for offset in range(max(1, int(limit))):
+        i = (idx + offset) % len(queue)
+        path = queue[i]
+        title, artist, album = clean_track_title("", path, {})
+        duration = probe_duration(path)
+        items.append({
+            "index": i,
+            "title": title,
+            "artist": artist,
+            "file": path,
+            "current": i == idx,
+            "duration": format_seconds(duration),
+            "duration_sec": round(duration, 2),
+        })
+    return {
+        "items": items,
+        "total": len(queue),
+        "current_index": idx,
+        "mode": mode,
+        "mode_label": MODE_LABELS.get(mode, "Library"),
+        "library_fallback": bool(_queue_source_state.get("fallback")),
+        "library_detail": _queue_source_state.get("detail", ""),
+        "modes": [{"id": mid, "label": label} for mid, label in MODE_LABELS.items()],
+    }
 
 
 def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -> bool:
+    """Drive the stream session. The browser performs the actual playback."""
     params = params or {}
-    mp_active, _ = is_mp_player_active()
+    queue = build_stream_queue()
+    if not queue:
+        return False
 
-    if mp_active:
-        if action in ("play-pause", "toggle"):
-            return send_mp_player_command("play_pause")
-        elif action == "play":
-            return send_mp_player_command("play")
-        elif action == "pause":
-            return send_mp_player_command("pause")
+    with _stream_lock:
+        state = load_stream_session()
+        path, _ = current_stream_file()
+        if path and state.get("path") != path:
+            state["path"] = path
+        if state.get("path"):
+            try:
+                state["index"] = queue.index(state["path"])
+            except ValueError:
+                state["index"] = 0
+                state["path"] = queue[0]
+
+        pos = clamp_position(state, stream_position(state))
+        duration = float(state.get("duration_sec", 0.0) or 0.0) or probe_duration(state["path"])
+
+        def seek_to(target: float) -> None:
+            state["position_sec"] = clamp_position(state, target)
+            state["started_at"] = time.time() if state.get("playing") else 0.0
+
+        def switch(step: int) -> None:
+            state["index"] = (int(state.get("index", 0)) + step) % len(queue)
+            state["path"] = queue[state["index"]]
+            state["position_sec"] = 0.0
+            state["started_at"] = time.time() if state.get("playing") else 0.0
+            state["duration_sec"] = probe_duration(state["path"])
+
+        if action in ("play", "resume"):
+            state["playing"] = True
+            state["started_at"] = time.time()
+        elif action in ("pause", "play-pause", "toggle"):
+            if state.get("playing"):
+                state["playing"] = False
+                state["position_sec"] = pos
+                state["started_at"] = 0.0
+            else:
+                state["playing"] = True
+                state["position_sec"] = pos
+                state["started_at"] = time.time()
         elif action == "next":
-            return send_mp_player_command("next")
+            switch(1)
         elif action in ("previous", "prev"):
-            return send_mp_player_command("prev")
-        elif action in ("shuffle", "toggle_shuffle"):
-            return send_mp_player_command("shuffle")
-        elif action in ("repeat", "cycle_repeat"):
-            return send_mp_player_command("repeat")
+            switch(-1)
+        elif action == "select_index":
+            try:
+                target = int(params.get("index", [0])[0])
+            except (TypeError, ValueError):
+                target = 0
+            target = max(0, min(target, len(queue) - 1))
+            state["index"] = target
+            state["path"] = queue[target]
+            state["position_sec"] = 0.0
+            state["started_at"] = time.time() if state.get("playing") else 0.0
+            state["duration_sec"] = probe_duration(state["path"])
         elif action == "seek_forward":
-            return send_mp_player_command("seek", seconds=30.0)
+            seek_to(pos + 30.0)
         elif action == "seek_backward":
-            return send_mp_player_command("seek", seconds=-30.0)
+            seek_to(pos - 30.0)
         elif action == "seek":
-            sec = float(params.get("seconds", [10.0])[0])
-            return send_mp_player_command("seek", seconds=sec)
+            seek_to(pos + float(params.get("seconds", [10.0])[0]))
         elif action == "seek_to":
-            pos = float(params.get("position", [0.0])[0])
-            return send_mp_player_command("seek_to", position=pos)
+            seek_to(float(params.get("position", [0.0])[0]))
+        elif action in ("shuffle", "toggle_shuffle"):
+            state["shuffle"] = not bool(state.get("shuffle"))
+        elif action in ("repeat", "cycle_repeat"):
+            order = ["off", "all", "one"]
+            cur = str(state.get("repeat", "all"))
+            state["repeat"] = order[(order.index(cur) + 1) % len(order)] if cur in order else "all"
         elif action == "vol_up":
-            return send_mp_player_command("vol_up", step=5)
+            state["volume"] = min(100, int(state.get("volume", 100)) + 5)
         elif action == "vol_down":
-            return send_mp_player_command("vol_down", step=5)
+            state["volume"] = max(0, int(state.get("volume", 100)) - 5)
         elif action == "set_volume":
-            vol = int(params.get("volume", [85])[0])
-            return send_mp_player_command("set_volume", volume=vol)
+            state["volume"] = max(0, min(100, int(params.get("volume", [100])[0])))
         elif action == "mute":
-            return send_mp_player_command("mute")
-        elif action == "pitch_up":
-            return send_mp_player_command("pitch_up", step=1)
-        elif action == "pitch_down":
-            return send_mp_player_command("pitch_down", step=1)
-        elif action == "reset_pitch":
-            return send_mp_player_command("reset_pitch")
+            state["volume"] = 0
+        elif action == "track_ended":
+            # The phone finished the file: advance and keep the elapsed clock honest.
+            switch(1)
+            state["duration_sec"] = probe_duration(state["path"])
+            state["playing"] = True
+            state["started_at"] = time.time()
+        else:
+            return False
 
-    return False
+        if duration > 0:
+            state["duration_sec"] = duration
+        save_stream_session(state)
+    return True
 
 
 # ------------------------------------------------------------------------------
@@ -988,14 +1661,54 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
 def render_html_page(theme: Dict[str, Any]) -> str:
     t = theme
     is_rainbow = t.get("is_dynamic_rainbow", False) or t['id'] == "dynamic_rainbow_liquid_glass"
-    
+
+    # Dynamic Liquid Glass [Rainbow Colours]: the body carries a slowly rotating
+    # hue while the glass cards breathe, so the whole dashboard cycles through
+    # the spectrum instead of sitting on one static accent colour.
     rainbow_anim_css = """
         @keyframes rainbowShift {
-            0% { filter: hue-rotate(0deg); }
-            100% { filter: hue-rotate(360deg); }
+            0% { background-position: 0% 50%; }
+            100% { background-position: 300% 50%; }
         }
-        .rainbow-animated {
+        @keyframes dynamicRainbowHue {
+            0% { filter: hue-rotate(0deg) saturate(1.15); }
+            100% { filter: hue-rotate(360deg) saturate(1.15); }
+        }
+        @keyframes dynamicRainbowBreath {
+            0%, 100% {
+                box-shadow: 0 14px 40px rgba(176, 88, 255, 0.45),
+                            inset 0 0 24px rgba(0, 242, 254, 0.16);
+                border-color: rgba(176, 88, 255, 0.45);
+            }
+            50% {
+                box-shadow: 0 18px 52px rgba(255, 45, 142, 0.55),
+                            inset 0 0 34px rgba(254, 225, 64, 0.22);
+                border-color: rgba(0, 242, 254, 0.60);
+            }
+        }
+        body.dynamic-rainbow-glass-active {
+            animation: dynamicRainbowHue 18s linear infinite;
+        }
+        body.dynamic-rainbow-glass-active .card {
+            animation: dynamicRainbowBreath 6s ease-in-out infinite;
+            backdrop-filter: blur(18px) saturate(1.35);
+            -webkit-backdrop-filter: blur(18px) saturate(1.35);
+        }
+        body.dynamic-rainbow-glass-active .header h1 {
+            background: linear-gradient(90deg,
+                #b058ff, #ff2d8e, #fee140, #00f2fe, #b058ff);
+            background-size: 300% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
             animation: rainbowShift 12s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            body.dynamic-rainbow-glass-active,
+            body.dynamic-rainbow-glass-active .card,
+            body.dynamic-rainbow-glass-active .header h1 {
+                animation: none;
+            }
         }
     """ if is_rainbow else ""
 
@@ -1084,6 +1797,220 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             border: 1px solid var(--card-border);
             letter-spacing: 0.5px;
             font-weight: 600;
+        }}
+        .theme-bar {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }}
+        .theme-btn {{
+            appearance: none;
+            -webkit-appearance: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 9px 18px;
+            border-radius: 12px;
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            color: var(--text-main);
+            background: var(--btn-gradient);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--btn-shadow);
+            cursor: pointer;
+            transition: transform 0.12s ease, filter 0.15s ease;
+        }}
+        .theme-btn:active {{
+            transform: scale(0.96);
+        }}
+        .theme-btn:hover {{
+            filter: brightness(1.12);
+        }}
+        .theme-btn.open {{
+            border-color: var(--accent-secondary);
+        }}
+        .theme-menu {{
+            display: none;
+            margin-top: 10px;
+            width: 100%;
+            max-width: 420px;
+            max-height: 270px;
+            overflow-y: auto;
+            padding: 6px;
+            border-radius: 14px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+            -webkit-overflow-scrolling: touch;
+        }}
+        .theme-menu.show {{
+            display: block;
+        }}
+        .theme-option {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            width: 100%;
+            text-align: left;
+            padding: 9px 12px;
+            margin: 2px 0;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            background: transparent;
+            color: var(--text-main);
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+        }}
+        .theme-option:hover {{
+            background: rgba(255, 255, 255, 0.07);
+        }}
+        .theme-option.active {{
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            border-color: var(--badge-color);
+            font-weight: 800;
+        }}
+        .theme-option .theme-check {{
+            font-size: 0.72rem;
+            opacity: 0.9;
+        }}
+        .mini-playlist {{
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }}
+        .mini-pl-head {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.7px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }}
+        .mini-pl-count {{
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 3px 9px;
+            border-radius: 10px;
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            border: 1px solid var(--badge-color);
+            white-space: nowrap;
+            text-transform: none;
+        }}
+        .mode-switch {{
+            display: flex;
+            gap: 4px;
+            padding: 3px;
+            border-radius: 11px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+        }}
+        .mode-switch button {{
+            appearance: none;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            font-family: inherit;
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            padding: 5px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }}
+        .mode-switch button.active {{
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            box-shadow: 0 0 0 1px var(--badge-color) inset;
+        }}
+        .mini-pl-empty {{
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px dashed var(--card-border);
+            text-align: center;
+        }}
+        .mini-pl-item {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--card-border);
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }}
+        .mini-pl-item:hover {{
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-secondary);
+        }}
+        .mini-pl-item.current {{
+            background: var(--badge-bg);
+            border-color: var(--badge-color);
+            box-shadow: 0 0 0 1px var(--badge-color) inset;
+        }}
+        .mini-pl-num {{
+            font-size: 0.68rem;
+            font-weight: 800;
+            color: var(--text-dim);
+            min-width: 16px;
+        }}
+        .mini-pl-item.current .mini-pl-num {{
+            color: var(--badge-color);
+        }}
+        .mini-pl-body {{
+            flex: 1;
+            min-width: 0;
+        }}
+        .mini-pl-title {{
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        .mini-pl-dur {{
+            font-size: 0.68rem;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }}
+        .autoplay-notice {{
+            margin-top: 8px;
+            padding: 6px 12px;
+            border-radius: 10px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            color: var(--text-dim);
+        }}
+        .autoplay-notice.ok {{
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            border-color: var(--badge-color);
+        }}
+        .autoplay-notice.warn {{
+            background: rgba(255, 170, 0, 0.12);
+            color: #ffaa00;
+            border-color: #ffaa00;
         }}
         .card {{
             background-color: var(--card-bg);
@@ -1447,6 +2374,15 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         <h1>MP MIX MANAGER <span class="app-version">v{html.escape(VERSION)}</span></h1>
         <p>Studio & DJ Booth Mobile Web Companion</p>
         <div id="themeBadge" class="theme-pill">🎨 <span id="themeNameText">{html.escape(t['name'])}</span></div>
+        <div class="theme-bar">
+            <button class="theme-btn" id="themeBtn" onclick="toggleThemeMenu()"
+                    aria-haspopup="true" aria-expanded="false"
+                    title="Change the companion theme">
+                🎨 Theme
+            </button>
+        </div>
+        <div class="theme-menu" id="themeMenu" role="menu"></div>
+        <div id="autoplayNotice" class="autoplay-notice" style="display: none;"></div>
     </div>
 
     <div class="card now-playing">
@@ -1524,6 +2460,18 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 <button class="btn-mini" onclick="sendAction('reset_pitch')">0</button>
             </div>
         </div>
+        <!-- Mini Playlist: the current track plus the next two -->
+        <div class="mini-playlist" id="miniPlaylist">
+            <div class="mini-pl-head">
+                <span id="miniPlTitle">🎵 Up Next</span>
+                <span class="mini-pl-count" id="miniPlCount">0 tracks</span>
+            </div>
+            <div class="mode-switch" id="modeSwitch" role="group" aria-label="Choose library">
+                <button type="button" data-mode="MIX_ARCHIVE" onclick="switchLibraryMode('MIX_ARCHIVE')">Mix</button>
+                <button type="button" data-mode="MUSIC" onclick="switchLibraryMode('MUSIC')">Music</button>
+            </div>
+            <div id="miniPlItems"></div>
+        </div>
     </div>
 
     <!-- Tracklist Card -->
@@ -1546,33 +2494,299 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         let isPlayerActive = false;
         let audioStreamConfigured = false;
         let activeAudioFile = "";
+        let audioSeekInFlight = false;
+        let lastAudioSyncAt = 0;
+        let lastServerPos = -1.0;
+        let audioStreamEngaged = false;
+
+        function audioElIsPlaying() {{
+            const audioEl = document.getElementById('mobileAudioStream');
+            return Boolean(audioEl && !audioEl.paused && !audioEl.ended);
+        }}
+
+        // Seek the phone's element only once per request and clear the guard
+        // when the element reports it actually moved. Without this the 100 ms
+        // poll can re-issue the same seek while the previous one is settling.
+        function seekAudioTo(pos) {{
+            const audioEl = document.getElementById('mobileAudioStream');
+            if (!audioEl || !isFinite(pos) || pos < 0) return;
+            if (audioSeekInFlight && Math.abs(audioEl.currentTime - pos) < 0.5) return;
+            try {{
+                audioSeekInFlight = true;
+                audioEl.currentTime = pos;
+                lastAudioSyncAt = performance.now();
+                setTimeout(() => {{ audioSeekInFlight = false; }}, 1500);
+            }} catch (e) {{
+                audioSeekInFlight = false;
+            }}
+        }}
 
         window.addEventListener('DOMContentLoaded', () => {{
             if (currentThemeId === 'dynamic_rainbow_liquid_glass') {{
-                document.body.classList.add('rainbow-animated');
+                document.body.classList.add('dynamic-rainbow-glass-active');
             }}
-        }});
-
-        function activateMobileStream() {{
-            const overlay = document.getElementById('streamOverlay');
-            if (overlay) overlay.style.display = 'none';
-
-            const banner = document.getElementById('mobileAudioBanner');
-            if (banner) banner.style.display = 'block';
-
             const audioEl = document.getElementById('mobileAudioStream');
             if (audioEl) {{
-                if (activeAudioFile && !audioStreamConfigured) {{
-                    audioEl.src = '/api/stream?file=' + encodeURIComponent(activeAudioFile);
-                    audioStreamConfigured = true;
-                }}
-                audioEl.play().then(() => {{
-                    console.log("Audio stream engaged successfully");
-                }}).catch(e => {{
-                    console.log("Stream play blocked:", e);
-                    if (overlay) overlay.style.display = 'flex';
+                audioEl.addEventListener('seeked', () => {{ audioSeekInFlight = false; }});
+                // The phone decides when a mix ends, so tell the server which
+                // file to serve next instead of waiting for a local player.
+                audioEl.addEventListener('ended', () => {{
+                    sendAction('track_ended');
                 }});
             }}
+            loadThemeList();
+            fetchMiniPlaylist();
+        }});
+
+        function applyPalette(th) {{
+            if (!th || !th.id) return;
+            currentThemeId = th.id;
+            const nameEl = document.getElementById('themeNameText');
+            if (nameEl) nameEl.innerText = th.name;
+            const r = document.querySelector(':root');
+            r.style.setProperty('--bg', th.bg);
+            r.style.setProperty('--card-bg', th.card_bg);
+            r.style.setProperty('--card-border', th.card_border);
+            r.style.setProperty('--card-shadow', th.card_shadow);
+            r.style.setProperty('--text-main', th.text_main);
+            r.style.setProperty('--text-dim', th.text_dim);
+            r.style.setProperty('--accent-primary', th.accent_primary);
+            r.style.setProperty('--accent-secondary', th.accent_secondary);
+            r.style.setProperty('--accent-tertiary', th.accent_tertiary);
+            r.style.setProperty('--accent-crimson', th.accent_crimson);
+            r.style.setProperty('--header-gradient', th.header_gradient);
+            r.style.setProperty('--btn-gradient', th.btn_gradient);
+            r.style.setProperty('--btn-shadow', th.btn_shadow);
+            r.style.setProperty('--progress-fill', th.progress_fill);
+            r.style.setProperty('--badge-bg', th.badge_bg);
+            r.style.setProperty('--badge-color', th.badge_color);
+            r.style.setProperty('--eq-bar', th.eq_bar);
+            r.style.setProperty('--eq-peak', th.eq_peak);
+            document.body.classList.toggle('dynamic-rainbow-glass-active', th.id === 'dynamic_rainbow_liquid_glass');
+        }}
+
+        async function loadThemeList() {{
+            try {{
+                const res = await fetch('/api/themes');
+                const data = await res.json();
+                const menu = document.getElementById('themeMenu');
+                if (!menu || !data.themes) return;
+                const active = data.current || currentThemeId;
+                menu.innerHTML = '';
+                data.themes.forEach(th => {{
+                    const opt = document.createElement('button');
+                    opt.type = 'button';
+                    opt.className = 'theme-option' + (th.id === active ? ' active' : '');
+                    opt.setAttribute('role', 'menuitem');
+                    opt.dataset.themeId = th.id;
+
+                    const label = document.createElement('span');
+                    label.innerText = th.name;
+                    const check = document.createElement('span');
+                    check.className = 'theme-check';
+                    check.innerText = th.id === active ? '✓ Active' : '';
+
+                    opt.appendChild(label);
+                    opt.appendChild(check);
+                    opt.onclick = () => changeTheme(th.id);
+                    menu.appendChild(opt);
+                }});
+            }} catch (e) {{}}
+        }}
+
+        function toggleThemeMenu() {{
+            const menu = document.getElementById('themeMenu');
+            const btn = document.getElementById('themeBtn');
+            if (!menu) return;
+            const show = !menu.classList.contains('show');
+            menu.classList.toggle('show', show);
+            if (btn) {{
+                btn.classList.toggle('open', show);
+                btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+            }}
+        }}
+
+        function closeThemeMenu() {{
+            const menu = document.getElementById('themeMenu');
+            const btn = document.getElementById('themeBtn');
+            if (menu) menu.classList.remove('show');
+            if (btn) {{
+                btn.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+            }}
+        }}
+
+        document.addEventListener('click', (e) => {{
+            const menu = document.getElementById('themeMenu');
+            const btn = document.getElementById('themeBtn');
+            if (!menu || !menu.classList.contains('show')) return;
+            if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+            closeThemeMenu();
+        }});
+
+        async function changeTheme(themeId) {{
+            if (!themeId) return;
+            closeThemeMenu();
+            try {{
+                const res = await fetch('/api/set_theme?theme=' + encodeURIComponent(themeId));
+                const data = await res.json();
+                if (data && data.success && data.palette) {{
+                    applyPalette(data.palette);
+                    loadThemeList();
+                }} else {{
+                    loadThemeList();
+                }}
+            }} catch (e) {{
+                loadThemeList();
+            }}
+        }}
+
+        function renderMiniPlaylist(data) {{
+            const wrap = document.getElementById('miniPlItems');
+            if (!wrap) return;
+            const items = (data && data.items) || [];
+            const total = Number(data && data.total) || 0;
+
+            const countEl = document.getElementById('miniPlCount');
+            if (countEl) {{
+                // Track count for the whole selected library, not just the
+                // three rows that fit on a phone screen.
+                countEl.innerText = total + (total === 1 ? ' track' : ' tracks');
+                countEl.title = items.length + ' shown of ' + total + ' in this library';
+            }}
+
+            const titleEl = document.getElementById('miniPlTitle');
+            if (titleEl) {{
+                const label = (data && data.mode_label) || 'Library';
+                titleEl.innerText = '🎵 Up Next · ' + label;
+            }}
+
+            wrap.innerHTML = '';
+            if (data && data.library_fallback && data.library_detail) {{
+                // Say so instead of pretending the music library loaded.
+                const note = document.createElement('div');
+                note.className = 'mini-pl-empty';
+                note.style.borderColor = '#ffaa00';
+                note.style.color = '#ffaa00';
+                note.innerText = '⚠ ' + data.library_detail;
+                wrap.appendChild(note);
+            }}
+
+            if (!items.length) {{
+                const empty = document.createElement('div');
+                empty.className = 'mini-pl-empty';
+                empty.innerText = 'No audio found in this library';
+                wrap.appendChild(empty);
+                return;
+            }}
+
+            items.forEach((item, i) => {{
+                const row = document.createElement('div');
+                row.className = 'mini-pl-item' + (item.current ? ' current' : '');
+                row.onclick = () => sendAction('select_index', {{ index: item.index }});
+
+                const num = document.createElement('div');
+                num.className = 'mini-pl-num';
+                num.innerText = item.current ? '▶' : String(i + 1);
+
+                const body = document.createElement('div');
+                body.className = 'mini-pl-body';
+                const title = document.createElement('div');
+                title.className = 'mini-pl-title';
+                title.innerText = item.title || 'Untitled Track';
+                const dur = document.createElement('div');
+                dur.className = 'mini-pl-dur';
+                dur.innerText = (item.artist || '') + (item.duration ? ' • ' + item.duration : '');
+                body.appendChild(title);
+                body.appendChild(dur);
+
+                row.appendChild(num);
+                row.appendChild(body);
+                wrap.appendChild(row);
+            }});
+        }}
+
+        function updateModeSwitch(mode) {{
+            document.querySelectorAll('#modeSwitch button').forEach(btn => {{
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            }});
+        }}
+
+        async function switchLibraryMode(mode) {{
+            if (!mode) return;
+            updateModeSwitch(mode);
+            try {{
+                const res = await fetch('/api/mode?mode=' + encodeURIComponent(mode));
+                const data = await res.json();
+                if (data && data.success) {{
+                    updateModeSwitch(data.mode);
+                    await fetchMiniPlaylist();
+                    await fetchStatus();
+                }}
+            }} catch (e) {{}}
+        }}
+
+        async function fetchMiniPlaylist() {{
+            try {{
+                const res = await fetch('/api/playlist');
+                const data = await res.json();
+                renderMiniPlaylist(data);
+                if (data && data.mode) updateModeSwitch(data.mode);
+            }} catch (e) {{}}
+        }}
+
+        // Start streaming with no extra taps. The server arms the session when
+        // the service boots, so the phone picks up the running stream. Browsers
+        // only allow audible playback after a gesture, so a refused play() keeps
+        // the overlay up and the first touch starts the same stream.
+        function engageStreamFromServer(resumePos) {{
+            const audioEl = document.getElementById('mobileAudioStream');
+            if (!audioEl) return;
+            if (activeAudioFile && !audioStreamConfigured) {{
+                audioEl.src = '/api/stream?file=' + encodeURIComponent(activeAudioFile);
+                audioStreamConfigured = true;
+            }}
+            // One-time alignment with the saved stream position; the browser
+            // then owns playback. Never re-sync from here.
+            const startAt = Number(resumePos);
+            if (isFinite(startAt) && startAt > 0) {{
+                audioEl.addEventListener('loadedmetadata', function once() {{
+                    audioEl.removeEventListener('loadedmetadata', once);
+                    seekAudioTo(startAt);
+                }});
+            }}
+            audioEl.play().then(() => {{
+                audioStreamEngaged = true;
+                hideStreamOverlay();
+            }}).catch(() => {{
+                showStreamOverlay();
+            }});
+        }}
+
+        function showStreamOverlay() {{
+            const overlay = document.getElementById('streamOverlay');
+            if (overlay) overlay.style.display = 'flex';
+        }}
+
+        function hideStreamOverlay() {{
+            const overlay = document.getElementById('streamOverlay');
+            if (overlay) overlay.style.display = 'none';
+            const banner = document.getElementById('mobileAudioBanner');
+            if (banner) banner.style.display = 'block';
+        }}
+
+        let streamAutoStarted = false;
+
+        // Called once the dashboard knows which file the server is streaming.
+        function maybeAutoStartStream() {{
+            if (streamAutoStarted) return;
+            if (!activeAudioFile) return;
+            streamAutoStarted = true;
+            engageStreamFromServer(lastServerPos > 0 ? lastServerPos : 0);
+        }}
+
+        function activateMobileStream() {{
+            engageStreamFromServer(lastServerPos > 0 ? lastServerPos : 0);
         }}
 
         function handlePlayPauseClick() {{
@@ -1645,7 +2859,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             
             const audioEl = document.getElementById('mobileAudioStream');
             if (audioEl && audioEl.duration) {{
-                audioEl.currentTime = seekPos;
+                seekAudioTo(seekPos);
             }}
 
             sendAction('seek_to', {{ position: seekPos.toFixed(1) }});
@@ -1672,39 +2886,21 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             if (btn) btn.classList.toggle('active', Boolean(repMode && repMode !== 'off'));
         }}
 
+        function formatClock(seconds) {{
+            const total = Math.max(0, Math.floor(Number(seconds) || 0));
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }}
+
         async function fetchTheme() {{
             try {{
                 const res = await fetch('/api/theme');
                 const th = await res.json();
                 if (th && th.id && th.id !== currentThemeId) {{
-                    currentThemeId = th.id;
-                    document.getElementById('themeNameText').innerText = th.name;
-
-                    const r = document.querySelector(':root');
-                    r.style.setProperty('--bg', th.bg);
-                    r.style.setProperty('--card-bg', th.card_bg);
-                    r.style.setProperty('--card-border', th.card_border);
-                    r.style.setProperty('--card-shadow', th.card_shadow);
-                    r.style.setProperty('--text-main', th.text_main);
-                    r.style.setProperty('--text-dim', th.text_dim);
-                    r.style.setProperty('--accent-primary', th.accent_primary);
-                    r.style.setProperty('--accent-secondary', th.accent_secondary);
-                    r.style.setProperty('--accent-tertiary', th.accent_tertiary);
-                    r.style.setProperty('--accent-crimson', th.accent_crimson);
-                    r.style.setProperty('--header-gradient', th.header_gradient);
-                    r.style.setProperty('--btn-gradient', th.btn_gradient);
-                    r.style.setProperty('--btn-shadow', th.btn_shadow);
-                    r.style.setProperty('--progress-fill', th.progress_fill);
-                    r.style.setProperty('--badge-bg', th.badge_bg);
-                    r.style.setProperty('--badge-color', th.badge_color);
-                    r.style.setProperty('--eq-bar', th.eq_bar);
-                    r.style.setProperty('--eq-peak', th.eq_peak);
-
-                    if (th.id === 'dynamic_rainbow_liquid_glass') {{
-                        document.body.classList.add('rainbow-animated');
-                    }} else {{
-                        document.body.classList.remove('rainbow-animated');
-                    }}
+                    applyPalette(th);
+                    loadThemeList();
                 }}
             }} catch (e) {{}}
         }}
@@ -1713,25 +2909,50 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             try {{
                 const res = await fetch('/api/eq');
                 const data = await res.json();
-                isPlayerActive = (data.state === 'playing');
+                // The phone is the only audio output, so the visualizer follows
+                // its element. The server cannot observe audio itself.
+                isPlayerActive = audioElIsPlaying();
 
                 if (data.levels && data.levels.length) {{
                     for (let i = 0; i < BANDS && i < data.levels.length; i++) {{
                         targetLevels[i] = isPlayerActive ? Math.max(0.04, Math.min(1.0, data.levels[i])) : 0.04;
                     }}
                 }}
-                if (data.position) document.getElementById('posTime').innerText = data.position;
-                if (data.duration) document.getElementById('durTime').innerText = data.duration;
-                if (data.progress_pct !== undefined) {{
-                    document.getElementById('progressBar').style.width = Math.max(0, Math.min(100, data.progress_pct)) + '%';
+                // No local audio analysis exists (the phone owns playback), so
+                // synthesise a gentle spectrum while the stream is running.
+                if (isPlayerActive) {{
+                    const t = performance.now() / 1000;
+                    for (let i = 0; i < BANDS; i++) {{
+                        const base = 0.30 + 0.22 * Math.sin(t * 1.7 + i * 0.55);
+                        const wobble = 0.14 * Math.sin(t * 3.1 + i * 1.15);
+                        const tilt = 1.0 - (i / BANDS) * 0.55;
+                        targetLevels[i] = Math.max(0.05, Math.min(0.95, (base + wobble) * tilt));
+                    }}
+                }}
+                const audioEl = document.getElementById('mobileAudioStream');
+                const hasLocalClock = audioEl && isFinite(audioEl.duration) && audioEl.duration > 0 && audioStreamConfigured;
+                const shownPos = hasLocalClock ? audioEl.currentTime : Number(data.position_sec || 0);
+                const shownDur = hasLocalClock ? audioEl.duration : Number(data.duration_sec || 0);
+
+                if (hasLocalClock) {{
+                    document.getElementById('posTime').innerText = formatClock(shownPos);
+                    document.getElementById('durTime').innerText = formatClock(shownDur);
+                    const pct = shownDur > 0 ? (shownPos / shownDur) * 100 : 0;
+                    document.getElementById('progressBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+                    currentDurationSec = shownDur;
+                }} else {{
+                    if (data.position) document.getElementById('posTime').innerText = data.position;
+                    if (data.duration) document.getElementById('durTime').innerText = data.duration;
+                    if (data.progress_pct !== undefined) {{
+                        document.getElementById('progressBar').style.width = Math.max(0, Math.min(100, data.progress_pct)) + '%';
+                    }}
                 }}
                 if (data.position_sec !== undefined) {{
-                    const audioEl = document.getElementById('mobileAudioStream');
-                    if (audioEl && !audioEl.paused && audioStreamConfigured) {{
-                        if (Math.abs(audioEl.currentTime - data.position_sec) > 2.0) {{
-                            audioEl.currentTime = data.position_sec;
-                        }}
-                    }}
+                    // The server only records where streaming last left off.
+                    // The browser clock is authoritative while audio plays, so
+                    // never seek from this poll - that is what used to trap
+                    // playback in a repeating fragment.
+                    lastServerPos = Number(data.position_sec);
                 }}
                 if (data.volume !== undefined) {{
                     document.getElementById('volPill').innerText = 'Vol: ' + data.volume + '%';
@@ -1745,6 +2966,31 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 updateShuffleUI(Boolean(data.shuffle));
                 if (data.repeat) updateRepeatUI(data.repeat);
             }} catch (e) {{}}
+        }}
+
+        function updateAutoplayNotice(state) {{
+            const el = document.getElementById('autoplayNotice');
+            if (!el) return;
+            if (!state || !state.status || state.status === 'pending') {{
+                el.style.display = 'none';
+                return;
+            }}
+            const labels = {{
+                ready: '🎧 Stream ready — tap to listen',
+                playing: '🎧 Stream ready — tap to listen',
+                empty_playlist: '⏹ No mixes found in the archive',
+                disabled: '⏹ Streaming disabled',
+                player_unavailable: '⚠ Stream source unavailable',
+                player_unreachable: '⚠ Stream source unreachable',
+                playback_unverified: '⚠ Stream not confirmed',
+            }};
+            el.innerText = labels[state.status] || state.status;
+            el.className = 'autoplay-notice ' + (
+                (state.status === 'ready' || state.status === 'playing') ? 'ok' :
+                (state.status === 'empty_playlist' || state.status === 'disabled') ? '' : 'warn'
+            );
+            el.style.display = 'block';
+            if (state.detail) el.title = state.detail;
         }}
 
         async function fetchStatus() {{
@@ -1773,20 +3019,36 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 
                 document.getElementById('sourceBadge').innerText = (data.player || "None").toUpperCase();
                 currentDurationSec = data.duration_sec || 0;
+                updateAutoplayNotice(data.autoplay);
 
                 if (data.active_file && activeAudioFile !== data.active_file) {{
+                    const wasPlaying = audioStreamEngaged && audioElIsPlaying();
                     activeAudioFile = data.active_file;
                     audioStreamConfigured = false;
+                    lastServerPos = -1.0;
                     const audioEl = document.getElementById('mobileAudioStream');
                     if (audioEl) {{
                         audioEl.src = '/api/stream?file=' + encodeURIComponent(data.active_file);
                         audioStreamConfigured = true;
-                        if (data.position_sec > 0) {{
-                            audioEl.currentTime = data.position_sec;
+                        const resumeAt = Number(data.position_sec) || 0;
+                        if (resumeAt > 0) {{
+                            // Wait for metadata before seeking, otherwise the
+                            // assignment is discarded by the new source load.
+                            audioEl.addEventListener('loadedmetadata', function once() {{
+                                audioEl.removeEventListener('loadedmetadata', once);
+                                seekAudioTo(resumeAt);
+                            }});
                         }}
                         audioEl.load();
+                        // Keep playing across a server-side track change.
+                        if (wasPlaying) {{
+                            audioEl.play().catch(() => {{}});
+                        }}
                     }}
                 }}
+                // First status poll: the service already armed the stream at
+                // startup, so pull it without waiting for a tap.
+                maybeAutoStartStream();
 
                 document.getElementById('specFormat').innerText = data.format || "AUDIO";
                 document.getElementById('specRate').innerText = data.sample_rate || "48.0 kHz";
@@ -1825,15 +3087,18 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 await fetch(url, {{ method: 'POST' }});
                 setTimeout(fetchEq, 50);
                 setTimeout(fetchStatus, 150);
+                setTimeout(fetchMiniPlaylist, 250);
             }} catch (e) {{}}
         }}
 
         setInterval(fetchEq, 100);
         setInterval(fetchStatus, 2000);
         setInterval(fetchTheme, 3000);
+        setInterval(fetchMiniPlaylist, 15000);
         fetchEq();
         fetchStatus();
         fetchTheme();
+        fetchMiniPlaylist();
     </script>
 </body>
 </html>
@@ -1851,7 +3116,8 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
-        elif url.path in ("/api/status", "/api/theme", "/api/eq"):
+        elif url.path in ("/api/status", "/api/theme", "/api/eq", "/api/autoplay",
+                          "/api/themes", "/api/set_theme", "/api/playlist", "/api/mode"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -1881,11 +3147,18 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(eq_data).encode("utf-8"))
         elif url.path == "/api/status":
             status = get_playback_status(CLI_THEME)
+            status["autoplay"] = autoplay_state()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(status).encode("utf-8"))
+        elif url.path == "/api/autoplay":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(autoplay_state()).encode("utf-8"))
         elif url.path == "/api/theme":
             theme = get_theme_palette(CLI_THEME)
             self.send_response(200)
@@ -1893,65 +3166,153 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(theme).encode("utf-8"))
+        elif url.path == "/api/themes":
+            payload = {
+                "current": get_current_theme_id(CLI_THEME),
+                "themes": available_themes(),
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+        elif url.path == "/api/set_theme":
+            requested = parsed_query.get("theme", [""])[0]
+            chosen = set_web_theme(requested) if requested else None
+            success = chosen is not None
+            payload = {
+                "success": success,
+                "theme": chosen or get_current_theme_id(CLI_THEME),
+                "palette": get_theme_palette(CLI_THEME) if success else {},
+            }
+            self.send_response(200 if success else 400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+        elif url.path == "/api/mode":
+            requested = parsed_query.get("mode", [""])[0]
+            chosen = set_library_mode(requested) if requested else None
+            payload = {
+                "success": chosen is not None,
+                "mode": chosen or get_library_mode(),
+                "mode_label": MODE_LABELS.get(chosen or get_library_mode(), "Library"),
+                "total": len(build_stream_queue()),
+            }
+            self.send_response(200 if chosen else 400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+        elif url.path == "/api/playlist":
+            payload = get_mini_playlist()
+            payload["shuffle"] = bool(load_stream_session().get("shuffle", False))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
         elif url.path == "/api/stream":
             file_path = parsed_query.get("file", [""])[0]
             if file_path and os.path.isfile(file_path):
-                try:
-                    file_size = os.path.getsize(file_path)
-                    range_header = self.headers.get("Range")
-                    
-                    ext = Path(file_path).suffix.lower()
-                    content_type = "audio/flac" if ext == ".flac" else ("audio/wav" if ext == ".wav" else "audio/mpeg")
-
-                    if range_header:
-                        m = re.match(r'bytes=(\d+)-(\d*)', range_header)
-                        if m:
-                            start = int(m.group(1))
-                            end = int(m.group(2)) if m.group(2) else file_size - 1
-                            if start >= file_size:
-                                self.send_response(416)
-                                self.send_header("Content-Range", f"bytes */{file_size}")
-                                self.end_headers()
-                                return
-                            length = end - start + 1
-                            self.send_response(206)
-                            self.send_header("Content-Type", content_type)
-                            self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
-                            self.send_header("Content-Length", str(length))
-                            self.send_header("Accept-Ranges", "bytes")
-                            self.send_header("Access-Control-Allow-Origin", "*")
-                            self.end_headers()
-
-                            with open(file_path, "rb") as f:
-                                f.seek(start)
-                                remaining = length
-                                chunk_size = 65536
-                                while remaining > 0:
-                                    to_read = min(chunk_size, remaining)
-                                    data = f.read(to_read)
-                                    if not data:
-                                        break
-                                    self.wfile.write(data)
-                                    remaining -= len(data)
-                            return
-
-                    # Standard full stream / fallback request
-                    self.send_response(200)
-                    self.send_header("Content-Type", content_type)
-                    self.send_header("Content-Length", str(file_size))
-                    self.send_header("Accept-Ranges", "bytes")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.end_headers()
-                    with open(file_path, "rb") as f:
-                        shutil.copyfileobj(f, self.wfile)
-                    return
-                except Exception:
-                    pass
+                self._serve_audio_stream(file_path)
+                return
             self.send_response(404)
             self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
+
+    # --------------------------------------------------------------------------
+    # AUDIO STREAMING
+    #
+    # Phones and tablets pull the whole mix over HTTP and seek within it. Two
+    # things matter for correctness:
+    #   * `bytes=start-` must be honoured for the whole tail, otherwise the
+    #     element receives a truncated body and restarts from the same offset.
+    #   * A client that disconnects mid-transfer raises BrokenPipeError, which
+    #     is normal and must never be reported as a server fault.
+    # --------------------------------------------------------------------------
+    STREAM_CHUNK = 65536
+
+    def _serve_audio_stream(self, file_path: str) -> None:
+        try:
+            file_size = os.path.getsize(file_path)
+            content_type = AUDIO_CONTENT_TYPES.get(Path(file_path).suffix.lower(), "audio/mpeg")
+            start, end = self._parse_range_header(file_size)
+
+            if start is None:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{file_size}")
+                self.send_header("Content-Length", "0")
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                return
+
+            length = end - start + 1
+            if start == 0 and end == file_size - 1:
+                self.send_response(200)
+                self.send_header("Content-Length", str(file_size))
+            else:
+                self.send_response(206)
+                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                self.send_header("Content-Length", str(length))
+            self.send_header("Content-Type", content_type)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    data = f.read(min(self.STREAM_CHUNK, remaining))
+                    if not data:
+                        break
+                    self.wfile.write(data)
+                    remaining -= len(data)
+        except (BrokenPipeError, ConnectionResetError):
+            # The phone scrubbed away or closed the tab: not an error.
+            self.close_connection = True
+        except OSError:
+            try:
+                self.send_error(404)
+            except Exception:
+                pass
+
+    def _parse_range_header(self, file_size: int) -> Tuple[Optional[int], int]:
+        """Return (start, end) for the requested bytes, or (None, 0) if invalid.
+
+        A missing or unparsable header means "send the whole file".
+        """
+        raw = (self.headers.get("Range") or "").strip()
+        if not raw:
+            return 0, file_size - 1
+
+        m = re.match(r'bytes=(\d*)-(\d*)$', raw)
+        if not m or (not m.group(1) and not m.group(2)):
+            return 0, file_size - 1
+
+        try:
+            if not m.group(1):
+                # Suffix form, e.g. "bytes=-65536" = last 64 KiB.
+                suffix = int(m.group(2))
+                if suffix <= 0:
+                    return None, 0
+                return max(0, file_size - suffix), file_size - 1
+
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+        except ValueError:
+            return 0, file_size - 1
+
+        if start >= file_size:
+            return None, 0
+        return start, min(end, file_size - 1)
 
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
@@ -1981,7 +3342,20 @@ def main():
     parser.add_argument("--host", "-H", type=str, default=default_host)
     parser.add_argument("--port", "-p", type=int, default=default_port)
     parser.add_argument("--theme", "-t", type=str, default=None)
+    parser.add_argument("--stream-status", action="store_true",
+                        help="Print the resolved stream queue as JSON and exit")
     args = parser.parse_args()
+
+    if args.stream_status:
+        playlist = scan_playlist_files()
+        track, position = _pick_start_track(playlist)
+        print(json.dumps({
+            "playlist_size": len(playlist),
+            "track": track or "",
+            "position": round(position, 2),
+            "listening": "HTTP stream only (no local audio output)",
+        }, indent=2))
+        return 0
 
     CLI_THEME = args.theme
     active_theme = get_theme_palette(CLI_THEME)
@@ -2002,13 +3376,32 @@ def main():
             return 0
         raise
 
+    # Arm the stream at startup so the phone begins playing on its own. This
+    # only catalogs files and marks the session active; no local device opens.
+    stream_thread = start_autoplay_worker()
+
     print(f"\n======================================================================")
     print(f"  🌌 MP MIX ARCHIVE MANAGER — MOBILE WEB COMPANION")
     print(f"======================================================================")
     print(f"  • Active Theme:   {active_theme['name']} ({active_theme['id']})")
+    print(f"  • Library Mode:   {MODE_LABELS.get(get_library_mode(), 'Library')}")
     print(f"  • Local Machine:  http://localhost:{args.port}")
     print(f"  • Phone / Tablet: http://{host_display}:{args.port}")
+    print(f"  • Audio Output:   STREAM ONLY (no local device)")
+    print(f"  • Autoplay:       {'ON' if _env_flag('WEB_COMPANION_AUTOPLAY', True) else 'OFF'}")
     print(f"======================================================================\n")
+
+    def _report_stream_queue() -> None:
+        stream_thread.join()
+        state = autoplay_state()
+        if state.get("status") == "ready":
+            print(f"  ▶ AUTO-STREAM ARMED: {state.get('detail', '')}", flush=True)
+            print(f"  • First track:    {state.get('track', '')}", flush=True)
+        else:
+            print(f"  ⏹ NO STREAM QUEUE: {state.get('detail', '')}", flush=True)
+        print(f"======================================================================\n", flush=True)
+
+    threading.Thread(target=_report_stream_queue, name="mp-companion-queue-report", daemon=True).start()
 
     print("Press Ctrl+C to stop the companion server.\n")
     try:
