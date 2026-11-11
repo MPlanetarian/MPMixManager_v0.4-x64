@@ -2547,6 +2547,35 @@ def _glass_rev() -> str:
         return "\033[48;2;21;40;64m"
     return "\033[7m"
 
+def _rgb_from_ansi(seq: str) -> Optional[Tuple[int, int, int]]:
+    """Read the first 24-bit foreground or background from an ANSI sequence."""
+    m = re.search(r"\033\[[0-9;]*(?:38|48);2;(\d+);(\d+);(\d+)m", str(seq or ""))
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+def _selection_bar_ansi(theme_name: str) -> Tuple[str, str]:
+    """Background and foreground for a selected row, taken from the active theme.
+
+    The playlist used to paint a fixed grey bar in the console and reverse video
+    in Liquid Glass, so the selection looked the same on every theme. Every other
+    themed row already uses the palette, so the bar uses the theme's highlight hue
+    and picks black or white text from its luminance to stay readable.
+    """
+    pal = _THEME_PALETTES.get(theme_name, _DEFAULT_PALETTE)
+    rgb = _rgb_from_ansi(pal.get("highlight", ""))
+    if rgb is None:
+        try:
+            script_dir = str(Path(__file__).resolve().parent / "scripts")
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            from liquid_glass_opengl import theme_text_rgb
+            rgb = theme_text_rgb(theme_name)
+        except Exception:
+            rgb = _rgb_from_ansi(COLOR_HOT_PURPLE) or (247, 37, 133)
+    red, green, blue = rgb
+    lum = (red * 299 + green * 587 + blue * 114) // 1000
+    foreground = "\033[1;38;2;0;0;0m" if lum >= 140 else "\033[1;38;2;255;255;255m"
+    return f"\033[48;2;{red};{green};{blue}m", foreground
+
 def _win_apply_glass_colorkey(kernel32, handle) -> None:
     """Paint the default console color with the host's color key so the glass shows through."""
     raw = os.environ.get("MP_LIQUID_GLASS_COLORKEY", "").strip().lstrip("#")
@@ -5715,10 +5744,10 @@ class TerminalPlayerUI:
                     cw = _display_width(ip)
                     ip = ip + " " * (iw - cw) if cw < iw else (_clip_display(ip, iw) if cw > iw else ip)
                     if sel:
-                        if is_lg:
-                            lines.append(f"  {b_col}│{NC}{_glass_rev()}{bold_s}{WHITE}{ip}\033[0m{b_col}│{NC}")
-                        else:
-                            lines.append(f"  {b_col}│{NC}\033[48;2;70;70;70m{WHITE}{ip}{NC}{b_col}│{NC}")
+                        # The selection bar follows the active theme instead of a
+                        # fixed grey (console) or reverse video (Liquid Glass).
+                        sel_bg, sel_fg = _selection_bar_ansi(self.visualizer.theme)
+                        lines.append(f"  {b_col}│{NC}{sel_bg}{sel_fg}{ip}{NC}{b_col}│{NC}")
                     elif act: lines.append(f"  {b_col}│{NC}{bold_s}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
                     elif in_q: lines.append(f"  {b_col}│{NC}{bold_s}{playlist_text_col}{ip}{NC}{b_col}│{NC}")
                     else: lines.append(f"  {b_col}│{NC}{playlist_text_col}{ip}{NC}{b_col}│{NC}")

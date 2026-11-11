@@ -93,7 +93,7 @@ class TestMenuNumberThemeColor(unittest.TestCase):
         blues = [name for name, accent in EXPECTED.items() if _is_light_blue(accent)]
         self.assertEqual(blues, ["ice_cold"])
 
-    def test_selection_uses_that_same_hue_without_a_filled_bar(self):
+    def test_selection_bar_uses_that_same_hue(self):
         themes = " ".join(EXPECTED)
         script = f"""
         set -e
@@ -112,11 +112,17 @@ class TestMenuNumberThemeColor(unittest.TestCase):
         for raw in res.stdout.splitlines():
             theme, line = raw.split("\t", 1)
             accent = EXPECTED[theme]
-            self.assertIn(f"38;2;{accent}", line, theme)
-            self.assertNotIn("48;2;", line, theme)
+            # The filled bar carries the theme hue, so it changes with the theme.
+            self.assertIn(f"48;2;{accent}", line, theme)
+            # The old 1;37;40m foreground painted the bar black in every theme.
+            self.assertNotIn("40m", line, theme)
+            self.assertNotIn("48;5;", line, theme)
             self.assertNotIn("0;229;255", line, theme)
-            for cursor in ("▶", "❯", "►", "›"):
-                self.assertNotIn(cursor, line, theme)
+            # Text stays legible on the fill: black on light hues, white on dark.
+            channels = [int(part) for part in accent.split(";")]
+            luma = (channels[0] * 299 + channels[1] * 587 + channels[2] * 114) // 1000
+            expected_fg = "1;38;2;0;0;0m" if luma >= 140 else "1;38;2;255;255;255m"
+            self.assertIn(expected_fg, line, theme)
             bars.append(accent)
         self.assertEqual(len(bars), len(set(bars)))
 
