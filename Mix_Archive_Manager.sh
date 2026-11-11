@@ -2374,6 +2374,57 @@ launch_liquid_glass_from_menu() {
     return 1
 }
 
+# VR Mode (Windows only) starts Bigscreen, centers the MP Liquid Player on
+# the primary desktop, then starts the music once the player is centered.
+# It refuses every other platform and every Windows install without Bigscreen.
+enter_bigscreen_vr_mode() {
+    if [ "${OS_TYPE:-linux}" != "windows" ]; then
+        clear
+        echo -e "\n${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${BOLD}${RED}                  VR MODE IS SUPPORTED ON MICROSOFT WINDOWS ONLY               ${NC}"
+        echo -e "${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "  ${BOLD}Platform:${NC}   ${CYAN}$(uname -s 2>/dev/null || echo unknown)${NC}"
+        echo -e "  ${BOLD}Required:${NC}   ${GREEN}Windows 10/11 + Bigscreen VR (Steam app 457550)${NC}\n"
+        echo -e "  ${DIM}The MP Liquid Player, MP Mix Manager, and CLI/TTY modes still work here.${NC}\n"
+        press_enter
+        return 1
+    fi
+    if mp_tty_skip_desktop "VR Mode"; then
+        press_enter
+        return 0
+    fi
+    local vr_py="$SCRIPT_DIR/scripts/bigscreen_vr.py"
+    [ ! -f "$vr_py" ] && vr_py="$SCRIPT_DIR/bigscreen_vr.py"
+    if [ ! -f "$vr_py" ]; then
+        echo -e "\n${RED}Error: scripts/bigscreen_vr.py was not found.${NC}\n"
+        press_enter
+        return 1
+    fi
+    local py_bin
+    py_bin="$(mp_python_bin)"
+    local log_file="${HOME}/.config/mix-manager/vr_mode.log"
+    mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
+    clear
+    echo -e "\n${BOLD}${MAGENTA}═══════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BOLD}${MAGENTA}      ENTERING VR MODE — BIGSCREEN + MP LIQUID PLAYER (WINDOWS)               ${NC}"
+    echo -e "${BOLD}${MAGENTA}═══════════════════════════════════════════════════════════════════════════════${NC}\n"
+    echo -e "  ${CYAN}1.${NC} Starting ${BOLD}Bigscreen VR${NC} (your headset is loading in)"
+    echo -e "  ${CYAN}2.${NC} Centering the ${BOLD}MP Liquid Player${NC} on the primary desktop"
+    echo -e "  ${CYAN}3.${NC} Starting the music once the player is centered\n"
+    echo -e "  ${DIM}Theme: Retro Linux Memories • Music starts after the player is placed${NC}\n"
+    MP_VR_MODE=1 MP_HEADER_CLI_MODE=vr "$py_bin" "$vr_py" --root "$SCRIPT_DIR"
+    local vr_rc=$?
+    if [ "$vr_rc" -eq 0 ]; then
+        echo -e "${GREEN}✓ VR Mode is up. Put on your headset and enjoy the mix.${NC}\n"
+        sleep 1.2
+    else
+        echo -e "${YELLOW}VR Mode did not start. See ${log_file}${NC}\n"
+        [ -s "$log_file" ] && tail -n 12 "$log_file"
+        press_enter
+    fi
+    return "$vr_rc"
+}
+
 # First main-menu row. Shift+A opens it from any menu. The launcher
 # refuses to start unless Ollama is already answering.
 launch_mp_harmony_from_menu() {
@@ -5542,15 +5593,19 @@ local pad_left=$(( (text_w - ${#title}) / 2 ))
 local pad_right=$(( text_w - ${#title} - pad_left ))
 (( pad_right < 0 )) && pad_right=0
 # Desktop Bash shows "CLI Mode". The Linux console shows "TTY CLI Mode".
-# MP Gui (MP_GUI_SESSION=1) shows neither. A pipe, such as a test, stays blank.
+# VR Mode shows "VR Mode". MP Gui (MP_GUI_SESSION=1) shows none of them.
+# A pipe, such as a test, stays blank.
 local _mode_plain="" _mode_paint="" _mode_name="" _mode_in_title=0 _mode_need=0
 if [ "${MP_GUI_SESSION:-0}" != "1" ]; then
     case "${MP_HEADER_CLI_MODE:-}" in
+        vr|VR) [ "${MP_VR_MODE:-0}" = "1" ] && _mode_plain="VR Mode" ;;
         tty|TTY) _mode_plain="TTY CLI Mode" ;;
         cli|CLI|desktop|bash) _mode_plain="CLI Mode" ;;
         off|none|gui) ;;
         *)
-            if [ "${MP_TTY_KIOSK:-0}" = "1" ]; then
+            if [ "${MP_VR_MODE:-0}" = "1" ]; then
+                _mode_plain="VR Mode"
+            elif [ "${MP_TTY_KIOSK:-0}" = "1" ]; then
                 _mode_plain="TTY CLI Mode"
             else
                 _mode_name="$(tty 2>/dev/null || true)"
@@ -5585,6 +5640,8 @@ local net="${GREEN}Online${NC}";
 local b_mag="${BOLD}${MAGENTA}" b_blue="${BOLD}${BLUE}" b_cyan="${BOLD}${CYAN}"
 if [ "$_mode_plain" = "TTY CLI Mode" ]; then
     _mode_paint="${BOLD}${GREEN}"
+elif [ "$_mode_plain" = "VR Mode" ]; then
+    _mode_paint="${BOLD}${MAGENTA}"
 elif [ -n "$_mode_plain" ]; then
     _mode_paint="${BOLD}${CYAN}"
 fi
@@ -5720,7 +5777,7 @@ if mp_tty_audio_mode_active && [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then :
 ensure_first_run_equalizer
 ensure_first_run_sample_track
 ensure_liquid_glass_first_run_reward
-_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "AI|Load MP Mix Manager AI Assistant (MP Harmony) (New)|(Shift+A • Ollama must already be running • loads gpt-oss-pinned:latest)" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|"); if [ "${OS_TYPE:-}" = "linux" ]; then main_opts+=("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|(Text console • enables MP Mix Manager TTY Audio Mode)"); fi; main_opts+=("38|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in AI|ai|"Load MP Mix Manager AI Assistant (MP Harmony) (New)"*) launch_mp_harmony_from_menu ;; MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
+_STOP_AUDIO_ON_EXIT=1; while true; do update_mp_bridge_menu "Main Console / Workstation Menu" "true"; update_terminal_geometry 0; _set_menu_box_width box_w "${_TERM_COLS:-80}"; main_header=""; main_opts=("SECTION|SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More|" "AI|Load MP Mix Manager AI Assistant (MP Harmony) (New)|(Shift+A • starts Ollama if needed • loads gpt-oss-pinned:latest)" "MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)" "VR|Enter VR Mode with MP Liquid Player (BigScreen)|(Windows + Bigscreen VR • player centered on the primary desktop • music starts when it is placed)" "0|Run Any Desktop Shortcuts|(Games, Audio, Files, Tools, AI Servers — Linux/Windows/macOS)" "1|Play DJ Mixes (MP Audio Player - Mix Archive Mode)|(Built-in Player, Custom Animated EQ, FLAC/WAV/MP3)" "2|Play Tracks from MUSIC Folders using MP Audio Player|(Music Library • Local Drives & SMB Shares • Add / Remove Folders)" "3|MP Audio Player (Liquid Glass Mode)|(Liquid glass window • OpenGL [Default - All GPUs] or Vulkan • light theme reflections)" "4|Run Mix Conversion|(FLAC, MP3, WAV, or YouTube MP4)" "5|Audio Conversion, EBU R128 Mastering & CUE Sheets|(WAV, MP3, AAC, LUFS, CUE, Splitter)" "6|Retrieve Unconverted WAVs from Archive|(MOVE_NOT_CONVERTED_WAVS.sh)" "7|Search & Import Mixes from Local Drives & SMB|(search_and_import_mixes.sh / import_new_mixes.sh)" "8|Rename a Mix and Associated Assets|(FLAC, Tracklist, Spek)" "9|Find & Remove Duplicate Audio Files / Mixes|(Exact Content & Episode Match)" "10|Export / Copy Mixes to Specified Path|(Audio, Covers, Tracklists, Spek)" "11|Audio Integrity, Bit-Rot Scrub & FLAC Verification|(SHA-256, Bit-Rot Daemon, Fake FLAC)" "12|Cloud & Remote Backup Suite|(Google Drive, iCloud, Dropbox, Custom Folder)" "13|Storage Management & Multiple Mix Archives Setup|(Drive Space, Rescan, Configure Archives)" "SECTION|SECTION 2: STUDIO AUDIO, PLAYBACK, METADATA & VIDEO|" "14|Tracklist Management, Scanning & Metadata Suite|(Browse, Search, Picard, HTML Index)" "15|Audio Players & Retro Playback Suite|(cliamp, Strawberry, VLC, Audacity, Haruna, Winamp...)" "16|Configure Mix Archive Storage Locations|(Primary & Multiple Archives)" "17|Custom Mix Playlists & Traktor History Suite|(.m3u, .m3u8, .xspf, Traktor 3 Playlists)" "18|Digital Audio Workstations (DAWs) & Mix Dispatch|(Reaper, Logic, FL Studio, Ardour, Traktor)" "19|Studio Hardware, Audio Interfaces & Master Volume Control|(PipeWire, ALSA, MIDI, Mute)" "20|Spectrogram Generation & Audio Frequency Analysis|(Single & Multiple Spek, SoX, Praat)" "21|Morning Alarm Clock & DJ Mix Playback Suite|(Steam Games, Wake-Up Mixes, Scheduler)" "22|YouTube Video Suite|(Generate 4K/1080p Videos, Download Videos & Shorts)" "23|Visual Media, Cover Art & Companion Video Suite|(Cut/Split Video, Converters, PPM, Launchers)" "24|Record Video of DJ Mix using GPU Screen Recorder (Linux)|(New Desktop Window)" "25|Listen to Your Top 5 Tracks Right Now (Pre-Selected - Special Option)|${_CACHED_TOP_5_BADGE:-[Ready]}" "SECTION|SECTION 3: SYSTEM, NETWORK, AI & SETTINGS|" "26|Live Session, Stream & Transfer Monitors Suite|(Tracklist, Traktor, Transfers, Uploads, Tasks)" "27|System & Hardware Process Monitors Suite|(btop, nvtop, top)" "28|MP Reporter Suite & Automated Reports Management|(Daily, Weekly, Monthly, Yearly, 12-Month Calendar & Email)" "29|Promotional Outreach, Syndication & Music Shopping|(Emails, RSS/Podcasts, Beatport/Bandcamp)" "30|Network Services, Congen & Internet Control|(SSH, Samba, FTP, Congen KDE Connect, Block Internet)" "31|Desktop Display Settings, Audio Routing & App Control|(Wayland/X11/macOS/Windows, Close Apps)" "32|Universal System Maintenance & Cleanup|(Drive space, OS Updates, Package Clean, Logs)" "33|Monitor System Processes and Bash Commands with System Info|(MP_Monitor_Bash.sh, new Terminal tab)" "34|Dynamic MOTD Banner Manager & Drive Burner|(Last 3 Mixes, Netpbm, ISO USB Burner)" "35|Manager Settings, Themes, Shell CLI & Reboot|(Themes, Migration, Bash CLI, Reboot)" "36|MP Mix Manager GUI|(Liquid Glass window • MP Liquid Player interface • Retro Linux Memories and built-in themes)" "SEP|SEP|"); if [ "${OS_TYPE:-}" = "linux" ]; then main_opts+=("37|Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)|(Text console • enables MP Mix Manager TTY Audio Mode)"); fi; main_opts+=("38|Exit Manager|(or q / exit)"); if [ -n "$CLI_INITIAL_ACTION" ]; then run_deferred_startup; choice="$CLI_INITIAL_ACTION"; CLI_INITIAL_ACTION=""; else run_interactive_submenu "" "$main_header" main_opts 0; choice="$REPLY"; fi; case $choice in AI|ai|"Load MP Mix Manager AI Assistant (MP Harmony) (New)"*) launch_mp_harmony_from_menu ;; MP|"MP GUI Mix Manager (New)"*) launch_mp_gui_from_menu ;; VR|vr|"Enter VR Mode with MP Liquid Player (BigScreen)"*|vr-mode|bigscreen|bigscreen-vr) enter_bigscreen_vr_mode ;; 1|p|P|play|Play|player|mp_player|mp-player|mpplayer|mp|"Play DJ Mixes (MP Audio Player - Mix Archive Mode)"*|"Play Mix/Audio File (MP Audio Player)"*)
 manage_mp_audio_player ;; 2|music|MUSIC|"Play Tracks from MUSIC Folders using MP Audio Player"*|"NEW Feature - Play Tracks from MUSIC Folders using MP Audio Player"*)
 manage_music_folders_menu ;; 3|liquid|liquid-glass|glass|"MP Audio Player (Liquid Glass Mode)"*) launch_liquid_glass_from_menu ;; liquid-config|glass-config|liquid-backend|glass-backend) configure_liquid_glass_backend ;; 4) if [ "$OS_TYPE" = "macos" ] || [ "$(uname -s)" = "Darwin" ]; then launch_mp_audio_player_liquid_glass; else manage_mix_conversion; fi ;; convert|mix-conversion|flac-conversion|"Run Mix Conversion"*)
 manage_mix_conversion ;; 5) manage_audio_conversion ;; 6) echo -e "\n${BOLD}${YELLOW}Retrieving unconverted WAV files...${NC}\n"; run_sub_script "MOVE_NOT_CONVERTED_WAVS.sh"; press_enter; ;; 7) manage_mix_search_and_import ;; 8) rename_mix; press_enter ;; 9) find_duplicate_audio_mixes; ;; 10) export_mixes_to_path ;; 11) manage_integrity_and_verification; ;; 12|backup|cloud-backup) manage_cloud_backup_suite ;; 13) play_sound_effect "storage"; manage_storage_and_archive_config ;;

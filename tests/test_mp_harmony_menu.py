@@ -29,7 +29,7 @@ class TestHarmonyMenu(unittest.TestCase):
         text = MANAGER.read_text(encoding="utf-8")
         ai = text.index(
             '"AI|Load MP Mix Manager AI Assistant (MP Harmony) (New)|'
-            '(Shift+A • Ollama must already be running • loads gpt-oss-pinned:latest)"'
+            '(Shift+A • starts Ollama if needed • loads gpt-oss-pinned:latest)"'
         )
         mp = text.index('"MP|MP GUI Mix Manager (New)|(Press G • Liquid Glass window • runs MP Gui)"')
         zero = text.index('"0|Run Any Desktop Shortcuts|')
@@ -50,12 +50,44 @@ class TestHarmonyMenu(unittest.TestCase):
             result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_launcher_does_not_start_ollama(self):
+    def test_launcher_can_start_ollama_when_it_is_down(self):
         text = LAUNCHER.read_text(encoding="utf-8")
-        self.assertNotIn("manage_ollama.sh", text)
-        self.assertNotIn("ollama serve", text)
+        self.assertIn("harmony_offer_start_ollama", text)
+        self.assertIn("systemctl --user start", text)
+        self.assertIn("distrobox enter --no-workdir -T", text)
+        self.assertIn("ollama serve", text)
+        self.assertIn("Start Ollama now?", text)
+        self.assertIn("Container name:", text)
         self.assertIn("gpt-oss-pinned:latest", text)
-        self.assertIn("does not start it", text)
+
+    def test_declining_the_start_prompt_returns_immediately(self):
+        result = _run_launcher(
+            {
+                "MP_HARMONY_FORCE_DOWN": "1",
+                "MP_HARMONY_ASSUME_NO": "1",
+                "MP_HARMONY_NO_PROMPT": "1",
+            }
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("Ollama is not running", out)
+        self.assertIn("Returning to MP Mix Manager", out)
+        self.assertNotIn("Press Enter to return to MP Mix Manager.", out)
+        self.assertNotIn("You would be installing", out)
+
+    def test_a_missing_container_name_is_reported(self):
+        result = _run_launcher(
+            {
+                "MP_HARMONY_FORCE_DOWN": "1",
+                "MP_HARMONY_ASSUME_YES": "1",
+                "OLLAMA_CONTAINER": "no-such-container-for-this-test",
+                "OLLAMA_START_TIMEOUT": "1",
+                "OLLAMA_API_URL": "http://127.0.0.1:1",
+                "PATH": os.environ.get("PATH", "") + ":/nonexistent",
+            }
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("No podman container named", result.stdout)
 
 
 class TestHarmonyShiftA(unittest.TestCase):

@@ -102,7 +102,7 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
 
   ${BOLD}${BLUE}─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────${NC}
   ${BOLD}${CYAN}AI${NC}  ${BOLD}Load MP Mix Manager AI Assistant (MP Harmony) (New)${NC}
-       First row. Ollama must already be running. Loads gpt-oss-pinned:latest, or asks before installing that model. Shift+A opens it. Shift+A on an empty assistant line returns here.
+       First row. If Ollama is not running the manager asks before starting it: a container name can be given for distrobox/podman, otherwise it uses the systemd user service or a plain ollama serve. Answering no returns to the menu. Loads gpt-oss-pinned:latest, or asks before installing that model. Shift+A opens it. Shift+A on an empty assistant line returns here.
   ${BOLD}${CYAN}MP${NC}  ${BOLD}MP GUI Mix Manager (New)${NC}
        Open the manager in the Liquid Glass window (MP_Gui.sh). Press G on the main menu. Also: gui, mp-gui, 36.
    ${BOLD}${CYAN}0${NC}   ${BOLD}Run Any Desktop Shortcuts — Linux${NC}

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Open the MP Harmony AI Assistant from MP Mix Manager.
-# Ollama must already be answering. This script does not start it.
+# If Ollama is not answering, offer to start it: a systemd user service,
+# a distrobox/podman container (the container name is asked for), or a
+# plain `ollama serve`. Declining returns straight to the manager.
 # The model is the local tag gpt-oss-pinned:latest (OpenAI gpt-oss-20b).
 # Shift+A on an empty assistant line returns to the manager.
 
@@ -14,6 +16,12 @@ HARMONY_MODEL="${HARMONY_MODEL:-gpt-oss-pinned:latest}"
 HARMONY_PARENT_MODEL="${HARMONY_PARENT_MODEL:-gpt-oss:20b}"
 OLLAMA_API_URL="${OLLAMA_API_URL:-http://127.0.0.1:11434}"
 OLLAMA_API_URL="${OLLAMA_API_URL%/}"
+
+OLLAMA_SERVICE="${OLLAMA_SERVICE:-ollama.service}"
+OLLAMA_CONTAINER_DEFAULT="${OLLAMA_CONTAINER_DEFAULT:-ollama-container}"
+OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-}"
+OLLAMA_START_TIMEOUT="${OLLAMA_START_TIMEOUT:-60}"
+OLLAMA_CONTAINER_LOG="${OLLAMA_CONTAINER_LOG:-${TMPDIR:-/tmp}/mp-harmony-ollama-serve.log}"
 
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
@@ -47,6 +55,145 @@ harmony_ollama_is_running() {
         return 0
     fi
     return 1
+}
+
+harmony_ask() {
+    # harmony_ask "prompt" [default] -> stores the answer in HARMONY_ANSWER.
+    local prompt="$1" default="${2:-}"
+    HARMONY_ANSWER=""
+    if [ "${MP_HARMONY_ASSUME_YES:-0}" = "1" ]; then
+        HARMONY_ANSWER="${default:-y}"
+        return 0
+    fi
+    if [ "${MP_HARMONY_ASSUME_NO:-0}" = "1" ]; then
+        return 0
+    fi
+    printf '%b' "$prompt"
+    if [ -r /dev/tty ]; then
+        read -r HARMONY_ANSWER </dev/tty || HARMONY_ANSWER=""
+    else
+        read -r HARMONY_ANSWER || HARMONY_ANSWER=""
+    fi
+    [ -z "$HARMONY_ANSWER" ] && HARMONY_ANSWER="$default"
+    return 0
+}
+
+harmony_confirm_yes() {
+    # harmony_confirm_yes "prompt" [default] -> success when the user answers yes.
+    harmony_ask "$@"
+    case "$HARMONY_ANSWER" in
+        y|Y|yes|YES|Yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+harmony_wait_for_ollama() {
+    local deadline=$((SECONDS + OLLAMA_START_TIMEOUT))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if harmony_ollama_is_running; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+harmony_systemd_service_exists() {
+    command -v systemctl >/dev/null 2>&1 || return 1
+    systemctl --user list-unit-files "$OLLAMA_SERVICE" >/dev/null 2>&1 || return 1
+    systemctl --user list-unit-files "$OLLAMA_SERVICE" 2>/dev/null | grep -q "^${OLLAMA_SERVICE}"
+}
+
+harmony_podman_container_exists() {
+    local name="$1"
+    [ -n "$name" ] || return 1
+    command -v podman >/dev/null 2>&1 || return 1
+    podman container exists "$name" >/dev/null 2>&1
+}
+
+harmony_container_is_running() {
+    local name="$1"
+    [ -n "$name" ] || return 1
+    command -v podman >/dev/null 2>&1 || return 1
+    [ "$(podman inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)" = "true" ]
+}
+
+harmony_start_systemd_service() {
+    harmony_say "${BOLD}Starting ${OLLAMA_SERVICE} with systemctl --user...${NC}"
+    if systemctl --user start "$OLLAMA_SERVICE" >/dev/null 2>&1; then
+        harmony_wait_for_ollama && return 0
+        harmony_say "${YELLOW}${OLLAMA_SERVICE} started, but Ollama is not answering yet.${NC}"
+        return 1
+    fi
+    harmony_say "${RED}systemctl --user could not start ${OLLAMA_SERVICE}.${NC}"
+    return 1
+}
+
+harmony_start_container() {
+    local name="$1"
+    [ -n "$name" ] || return 1
+    command -v distrobox >/dev/null 2>&1 || {
+        harmony_say "${RED}distrobox is not installed, so ${name} cannot be entered.${NC}"
+        return 1
+    }
+    if ! harmony_podman_container_exists "$name"; then
+        harmony_say "${RED}No podman container named ${name} exists on this machine.${NC}"
+        return 1
+    fi
+    harmony_say "${BOLD}Starting Ollama inside the ${name} container...${NC}"
+    if ! harmony_container_is_running "$name"; then
+        harmony_say "  Waking the container first."
+        podman start "$name" >/dev/null 2>&1 || true
+    fi
+    : >"$OLLAMA_CONTAINER_LOG" 2>/dev/null || true
+    nohup distrobox enter --no-workdir -T "$name" -- env \
+        OLLAMA_HOST="0.0.0.0:${OLLAMA_API_URL##*:}" \
+        OLLAMA_ORIGINS="*" \
+        ollama serve >"$OLLAMA_CONTAINER_LOG" 2>&1 &
+    if harmony_wait_for_ollama; then
+        return 0
+    fi
+    harmony_say "${YELLOW}Ollama did not answer from ${name} within ${OLLAMA_START_TIMEOUT}s.${NC}"
+    harmony_say "  Log: ${OLLAMA_CONTAINER_LOG}"
+    return 1
+}
+
+harmony_start_local_serve() {
+    command -v ollama >/dev/null 2>&1 || {
+        harmony_say "${RED}No ollama binary was found on this machine.${NC}"
+        return 1
+    }
+    harmony_say "${BOLD}Starting ollama serve in the background...${NC}"
+    : >"$OLLAMA_CONTAINER_LOG" 2>/dev/null || true
+    nohup ollama serve >"$OLLAMA_CONTAINER_LOG" 2>&1 &
+    if harmony_wait_for_ollama; then
+        return 0
+    fi
+    harmony_say "${YELLOW}ollama serve did not answer within ${OLLAMA_START_TIMEOUT}s.${NC}"
+    harmony_say "  Log: ${OLLAMA_CONTAINER_LOG}"
+    return 1
+}
+
+harmony_choose_container() {
+    # Sets HARMONY_CONTAINER. Asks for the name unless OLLAMA_CONTAINER is set.
+    local candidate="${OLLAMA_CONTAINER:-$OLLAMA_CONTAINER_DEFAULT}"
+    HARMONY_CONTAINER="$candidate"
+    if [ "${MP_HARMONY_NO_PROMPT:-0}" = "1" ] || [ -n "${OLLAMA_CONTAINER:-}" ]; then
+        return 0
+    fi
+    # Offer a detected container as the default name.
+    local running=""
+    if command -v podman >/dev/null 2>&1; then
+        running="$(podman ps -a --format '{{.Names}}' 2>/dev/null | grep -i ollama | head -n 1 || true)"
+        [ -n "$running" ] && candidate="$running"
+    fi
+    harmony_say ""
+    harmony_say "Ollama can run inside a distrobox or podman container."
+    harmony_say "Enter the container name so the manager can start it from there."
+    harmony_say "  Press Enter for: ${BOLD}${candidate}${NC}"
+    harmony_ask "${BOLD}Container name: ${NC}" "$candidate"
+    [ -n "$HARMONY_ANSWER" ] && HARMONY_CONTAINER="$HARMONY_ANSWER"
+    return 0
 }
 
 harmony_model_installed() {
@@ -115,17 +262,7 @@ harmony_confirm_install() {
     if [ "${MP_HARMONY_ASSUME_NO:-0}" = "1" ]; then
         return 1
     fi
-    local answer=""
-    printf '%b' "${BOLD}Install ${HARMONY_MODEL} now? [y/N] ${NC}"
-    if [ -r /dev/tty ]; then
-        read -r answer </dev/tty || answer=""
-    else
-        read -r answer || answer=""
-    fi
-    case "$answer" in
-        y|Y|yes|YES|Yes) return 0 ;;
-        *) return 1 ;;
-    esac
+    harmony_confirm_yes "${BOLD}Install ${HARMONY_MODEL} now? [y/N] ${NC}"
 }
 
 harmony_api_python() {
@@ -281,18 +418,65 @@ harmony_launch_agent() {
     )
 }
 
+harmony_offer_start_ollama() {
+    # Returns 0 when Ollama is answering, 2 when the user declines.
+    harmony_say ""
+    harmony_say "${RED}${BOLD}Ollama is not running, so MP Harmony was not started.${NC}"
+    harmony_say ""
+    harmony_say "The assistant needs the Ollama service answering at ${OLLAMA_API_URL}."
+
+    local how="serve" name=""
+    local has_container_tool=0
+    if command -v distrobox >/dev/null 2>&1 && command -v podman >/dev/null 2>&1; then
+        has_container_tool=1
+    elif harmony_systemd_service_exists; then
+        harmony_say ""
+        harmony_say "A systemd user service is installed: ${BOLD}${OLLAMA_SERVICE}${NC}"
+    fi
+
+    harmony_say ""
+    if ! harmony_confirm_yes "${BOLD}Start Ollama now? [y/N] ${NC}"; then
+        harmony_say "${YELLOW}Ollama was not started. Returning to MP Mix Manager.${NC}"
+        return 2
+    fi
+
+    local started=1
+    if [ "$has_container_tool" -eq 1 ]; then
+        how="container"
+        harmony_choose_container
+        name="$HARMONY_CONTAINER"
+        harmony_start_container "$name" && started=0
+        if [ "$started" -ne 0 ] && harmony_systemd_service_exists; then
+            harmony_start_systemd_service && started=0
+        fi
+    elif harmony_systemd_service_exists; then
+        how="systemd"
+        harmony_start_systemd_service && started=0
+    fi
+    if [ "$started" -ne 0 ]; then
+        harmony_start_local_serve && started=0
+    fi
+    if [ "$started" -ne 0 ]; then
+        harmony_say ""
+        harmony_say "${RED}Ollama could not be started, so MP Harmony was not started.${NC}"
+        harmony_say "Start Ollama yourself, then choose ${BOLD}AI${NC} again or press ${BOLD}Shift+A${NC}."
+        harmony_wait_enter
+        return 2
+    fi
+
+    harmony_say ""
+    harmony_say "${GREEN}Ollama is answering at ${OLLAMA_API_URL}.${NC}"
+    return 0
+}
+
 harmony_main() {
     printf '\033[0m\033[?25h'
     if ! harmony_ollama_is_running; then
-        harmony_say ""
-        harmony_say "${RED}${BOLD}Ollama is not running, so MP Harmony was not started.${NC}"
-        harmony_say ""
-        harmony_say "The assistant needs the Ollama service answering at ${OLLAMA_API_URL}."
-        harmony_say "Start Ollama, then choose ${BOLD}AI${NC} again or press ${BOLD}Shift+A${NC}."
-        harmony_say "This option does not start Ollama for you."
-        harmony_say ""
-        harmony_wait_enter
-        return 2
+        local start_rc=0
+        harmony_offer_start_ollama || start_rc=$?
+        if [ "$start_rc" -ne 0 ]; then
+            return "$start_rc"
+        fi
     fi
 
     if ! harmony_model_installed; then
