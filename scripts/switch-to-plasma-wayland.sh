@@ -4,7 +4,7 @@
 # Location: /home/mplanetarian/Documents/BASH_SCRIPTS/switch-to-plasma-wayland.sh
 # Purpose: Switch Desktop from X11 to Plasma Wayland for HDR gaming on Hisense
 #          4K TV, set Hisense as primary display, ensure HDMI ALSA audio output,
-#          suppress Defasten video playback, and load Steam Big Picture Mode.
+#          suppress video playback, and load Steam Big Picture Mode.
 # ==============================================================================
 
 set -e

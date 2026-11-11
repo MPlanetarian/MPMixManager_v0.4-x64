@@ -342,7 +342,7 @@ def build_pdf(filename="MPlanetarian_MP_Mix_Manager_v0.3_Manual.pdf"):
         ("Section 4: Video Production, Art & Visual Media", [
             ("39", "Generate YouTube Video", "Encodes 4K UHD, 1080p, and 720p YouTube videos using NVENC/VideoToolbox hardware acceleration and 320k AAC audio."),
             ("40", "Cut or Split Video File", "Precision timestamp cutter and equal-segment video splitter supporting stream-copy or re-encoding."),
-            ("41", "Launch Video Playlists", "Launches Defasten or visual companion playlists in VLC, mpv, or Haruna."),
+            ("41", "Launch Video Playlists", "Launches visual companion playlists in VLC, mpv, or Haruna."),
             ("42", "Launch Specific Video", "Dispatches user-specified video files or streaming URLs to the default video playback engine."),
             ("43", "GIMP Image Editor", "Launches GIMP image editor or installs missing dependencies via system package manager."),
             ("44", "Convert Cover Art", "Converts artwork between JPEG, WebP, PNG, and TIFF with strict binary byte budgeting (<= 1MB podcast standard)."),

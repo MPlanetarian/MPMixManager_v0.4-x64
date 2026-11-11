@@ -2,7 +2,7 @@
 # ==============================================================================
 # Script: switch-to-plasma-x11.sh
 # Location: /home/mplanetarian/Documents/BASH_SCRIPTS/switch-to-plasma-x11.sh
-# Purpose: Revert desktop to Plasma X11 session (enables 4-screen Defasten video
+# Purpose: Revert desktop to Plasma X11 session (enables 4-screen video
 #          installation, hardware Konsole tabs, and MP Mix Archive Manager).
 # ==============================================================================
 
