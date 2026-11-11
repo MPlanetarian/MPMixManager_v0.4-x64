@@ -273,6 +273,13 @@ class GlassHost:
         if kv == Gdk.KEY_K or (kv in (Gdk.KEY_k, Gdk.KEY_K) and bool(st & Gdk.ModifierType.SHIFT_MASK)):
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
             return True
+        if kv in (Gdk.KEY_z, Gdk.KEY_Z):
+            spawn_new_visualizer()
+            return True
+        if kv == Gdk.KEY_Escape:
+            if self.renderer is not None:
+                self.renderer.request_close()
+            return True
         return False
 
     def _terminal_in_well(self):
@@ -745,6 +752,20 @@ def ensure_random_visualizer_started() -> bool:
         elif shutil.which("pgrep") and subprocess.run(["pgrep", "-f", "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
             return False
 
+        vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
+        if not vis_script:
+            return False
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        kw = {"creationflags": 0x00000208} if IS_WIN else {"start_new_session": True}
+        with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **kw)
+        return True
+    except Exception:
+        return False
+
+
+def spawn_new_visualizer() -> bool:
+    try:
         vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
         if not vis_script:
             return False

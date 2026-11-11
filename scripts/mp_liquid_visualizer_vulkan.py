@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MP_Liquid_Visualizer — Native Vulkan 3D Audio-Reactive Visualizer Engine."""
 from __future__ import annotations
-import argparse, ctypes, json, math, os, platform, random, signal, socket, subprocess, sys, time
+import shutil, argparse, ctypes, json, math, os, platform, random, signal, socket, subprocess, sys, time
 from ctypes import (CFUNCTYPE, POINTER, Structure, addressof, byref, c_char, c_char_p, c_double,
                     c_float, c_int, c_int32, c_size_t, c_uint8, c_uint32, c_uint64, c_void_p, cast, memmove, sizeof, string_at)
 from ctypes.util import find_library
@@ -870,7 +870,9 @@ class LiquidVisualizerVulkanRenderer:
 
     def _on_key(self, _w, key, _sc, action, _mods):
         if action != GLFW_PRESS: return
-        if key in (GLFW_KEY_ESCAPE, GLFW_KEY_Q):
+        if key == GLFW_KEY_ESCAPE:
+            self.request_close()
+        elif key == GLFW_KEY_Q:
             if not self._player_bonded: self.request_close()
         elif key == GLFW_KEY_Z:
             if not self._player_bonded: self.toggle_fullscreen()
