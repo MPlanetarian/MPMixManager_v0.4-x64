@@ -731,6 +731,10 @@ _autoplay_result: Dict[str, Any] = {"status": "pending", "detail": ""}
 QUEUE_CACHE_TTL = 10.0
 _queue_cache: Optional[Tuple[str, float, Tuple[str, ...]]] = None
 _queue_source_state: Dict[str, Any] = {"fallback": False, "detail": ""}
+# Resolving the queue can take seconds (a 51k-entry music playlist), and the
+# dashboard polls hard. Only one thread may scan; the rest wait and then read
+# the fresh cache instead of starting their own scan.
+_queue_build_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------------------
@@ -806,11 +810,16 @@ def set_library_mode(mode: str) -> Optional[str]:
         target = LIBRARY_MODE_MUSIC
     if target not in MODE_LABELS:
         return None
+    unchanged = get_library_mode() == target
     try:
         WEB_MODE_FILE.parent.mkdir(parents=True, exist_ok=True)
         WEB_MODE_FILE.write_text(target + "\n", encoding="utf-8")
     except Exception:
         return None
+    # Tapping the library that is already active must not rewind the stream to
+    # track one or pay for another library scan.
+    if unchanged:
+        return target
     invalidate_queue_cache()
     reset_stream_for_new_library()
     return target
@@ -919,15 +928,46 @@ def music_folder_roots() -> List[Path]:
     return roots
 
 
+_music_scan_cache: Optional[Tuple[Tuple[Tuple[str, float, int], ...], Tuple[str, ...]]] = None
+
+
+def _music_scan_signature() -> Tuple[Tuple[str, float, int], ...]:
+    """Identity of the music playlist files, so a big JSON is parsed only once."""
+    sig: List[Tuple[str, float, int]] = []
+    for cand in music_playlist_candidates():
+        try:
+            st = cand.stat()
+            sig.append((str(cand), st.st_mtime, st.st_size))
+        except OSError:
+            continue
+    return tuple(sig)
+
+
 def scan_music_files() -> List[str]:
-    """The MUSIC library: generated playlist first, then the folder roots."""
+    """The MUSIC library: generated playlist first, then the folder roots.
+
+    The combined playlist holds tens of thousands of paths in a ~30 MB JSON
+    file, so a re-parse on every library switch made the Mix/Music buttons feel
+    dead. The parsed result is reused until the playlist file changes.
+    """
+    global _music_scan_cache
+
+    signature = _music_scan_signature()
+    if _music_scan_cache and _music_scan_cache[0] == signature:
+        return list(_music_scan_cache[1])
+
+    files: List[str] = []
     for cand in music_playlist_candidates():
         if not cand.is_file():
             continue
         files = _read_playlist_file(cand)
         if files:
-            return files
-    return _scan_dirs(music_folder_roots())
+            break
+    if not files:
+        files = _scan_dirs(music_folder_roots())
+
+    _music_scan_cache = (signature, tuple(files))
+    return list(files)
 
 
 def _scan_dirs(roots: List[Path]) -> List[str]:
@@ -1067,32 +1107,40 @@ def build_stream_queue() -> List[str]:
     if cached and cached[0] == mode and (now - cached[1]) < QUEUE_CACHE_TTL:
         return list(cached[2])
 
-    if mode == LIBRARY_MODE_MUSIC:
-        files = scan_music_files()
-        # An unmounted SMB share leaves the generated playlist full of paths
-        # that no longer resolve. Falling back keeps audio flowing, but the
-        # status call reports it so the phone is not silently mislabelled.
-        _queue_source_state.update({
-            "fallback": not files,
-            "detail": "" if files else "Music library offline - streaming Mix Archive",
-        })
-        if not files:
+    with _queue_build_lock:
+        # Another request may have finished the scan while this one waited.
+        now = time.time()
+        cached = _queue_cache
+        if cached and cached[0] == mode and (now - cached[1]) < QUEUE_CACHE_TTL:
+            return list(cached[2])
+
+        if mode == LIBRARY_MODE_MUSIC:
+            files = scan_music_files()
+            # An unmounted SMB share leaves the generated playlist full of paths
+            # that no longer resolve. Falling back keeps audio flowing, but the
+            # status call reports it so the phone is not silently mislabelled.
+            _queue_source_state.update({
+                "fallback": not files,
+                "detail": "" if files else "Music library offline - streaming Mix Archive",
+            })
+            if not files:
+                files = scan_archive_files()
+        else:
+            _queue_source_state.update({"fallback": False, "detail": ""})
             files = scan_archive_files()
-    else:
-        _queue_source_state.update({"fallback": False, "detail": ""})
-        files = scan_archive_files()
 
-    if files and _env_flag("WEB_COMPANION_SHUFFLE", False):
-        files = list(files)
-        random.shuffle(files)
+        if files and _env_flag("WEB_COMPANION_SHUFFLE", False):
+            files = list(files)
+            random.shuffle(files)
 
-    _queue_cache = (mode, now, tuple(files))
-    return list(files)
+        _queue_cache = (mode, now, tuple(files))
+        return list(files)
 
 
 def invalidate_queue_cache() -> None:
-    global _queue_cache
+    global _queue_cache, _music_scan_cache
     _queue_cache = None
+    _music_scan_cache = None
 
 
 def autoplay_once() -> Dict[str, Any]:
@@ -1502,27 +1550,39 @@ def get_playback_status(cli_theme: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-MINI_PLAYLIST_SIZE = 3
+MINI_PLAYLIST_SIZE = 5
+# Five rows are visible on a phone; the extra entries are what the list scrolls
+# through, so a long mix queue is browsable without loading the whole library.
+MINI_PLAYLIST_WINDOW = 20
 
 
-def get_mini_playlist(limit: int = MINI_PLAYLIST_SIZE) -> Dict[str, Any]:
+def get_mini_playlist(limit: Optional[int] = None) -> Dict[str, Any]:
     """A short window of the stream queue: the current track plus the next ones.
 
-    Only `limit` entries are returned, so the phone shows a compact playlist
-    instead of the whole library. `total` is the full queue length and is what
-    the dashboard shows as the track count.
+    The dashboard renders `show` rows inside a scrollable box and the server
+    sends up to `limit` (default MINI_PLAYLIST_WINDOW) entries, so five tracks
+    are visible at once and the rest can be scrolled. `total` is the full queue
+    length and is what the dashboard shows as the track count.
     """
     queue = build_stream_queue()
     mode = get_library_mode()
+    show = MINI_PLAYLIST_SIZE
     if not queue:
         return {
             "items": [],
             "total": 0,
+            "show": show,
             "current_index": -1,
             "mode": mode,
             "mode_label": MODE_LABELS.get(mode, "Library"),
             "modes": [{"id": mid, "label": label} for mid, label in MODE_LABELS.items()],
         }
+
+    try:
+        window = int(limit) if limit is not None else MINI_PLAYLIST_WINDOW
+    except (TypeError, ValueError):
+        window = MINI_PLAYLIST_WINDOW
+    window = max(1, window)
 
     state = load_stream_session()
     idx = int(state.get("index", 0) or 0)
@@ -1532,8 +1592,12 @@ def get_mini_playlist(limit: int = MINI_PLAYLIST_SIZE) -> Dict[str, Any]:
     idx = max(0, min(idx, len(queue) - 1))
 
     items: List[Dict[str, Any]] = []
-    for offset in range(max(1, int(limit))):
-        i = (idx + offset) % len(queue)
+    # Stop at the end of the queue instead of wrapping: a repeating window
+    # looks broken once it is scrollable.
+    for offset in range(min(window, len(queue))):
+        i = (idx + offset)
+        if i >= len(queue):
+            break
         path = queue[i]
         title, artist, album = clean_track_title("", path, {})
         duration = probe_duration(path)
@@ -1549,6 +1613,7 @@ def get_mini_playlist(limit: int = MINI_PLAYLIST_SIZE) -> Dict[str, Any]:
     return {
         "items": items,
         "total": len(queue),
+        "show": show,
         "current_index": idx,
         "mode": mode,
         "mode_label": MODE_LABELS.get(mode, "Library"),
@@ -1717,7 +1782,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MP Mix Manager — DJ Booth Remote</title>
+    <title>MP Liquid Player (Web) — DJ Booth Remote</title>
     <style>
         :root {{
             --bg: {t['bg']};
@@ -1887,6 +1952,29 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             flex-direction: column;
             gap: 6px;
         }}
+        /* Five rows are visible at once; the rest of the window scrolls. */
+        #miniPlItems {{
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            /* 5 rows x 48px + 4 gaps x 6px = 264px */
+            max-height: 264px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-y;
+            padding-right: 4px;
+        }}
+        #miniPlItems::-webkit-scrollbar {{
+            width: 5px;
+        }}
+        #miniPlItems::-webkit-scrollbar-thumb {{
+            background: var(--accent-secondary);
+            border-radius: 3px;
+        }}
+        #miniPlItems::-webkit-scrollbar-track {{
+            background: transparent;
+        }}
         .mini-pl-head {{
             display: flex;
             align-items: center;
@@ -1924,18 +2012,34 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             background: transparent;
             color: var(--text-dim);
             font-family: inherit;
-            font-size: 0.68rem;
+            font-size: 0.72rem;
             font-weight: 800;
             letter-spacing: 0.4px;
-            padding: 5px 10px;
+            padding: 7px 12px;
             border-radius: 8px;
             cursor: pointer;
+            flex: 1;
             transition: background 0.15s ease, color 0.15s ease;
         }}
         .mode-switch button.active {{
             background: var(--badge-bg);
             color: var(--badge-color);
             box-shadow: 0 0 0 1px var(--badge-color) inset;
+        }}
+        .mode-switch button:disabled {{
+            cursor: progress;
+            opacity: 0.55;
+        }}
+        .mode-switch button.pending:disabled {{
+            opacity: 1;
+            animation: modePulse 1s ease-in-out infinite;
+        }}
+        @keyframes modePulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.45; }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .mode-switch button.pending:disabled {{ animation: none; }}
         }}
         .mini-pl-empty {{
             font-size: 0.75rem;
@@ -1955,6 +2059,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             border: 1px solid var(--card-border);
             cursor: pointer;
             transition: background 0.15s ease, border-color 0.15s ease;
+            /* Uniform 48px rows put exactly five in the 264px window. */
+            flex: 0 0 48px;
+            height: 48px;
+            box-sizing: border-box;
         }}
         .mini-pl-item:hover {{
             background: rgba(255, 255, 255, 0.08);
@@ -2288,8 +2396,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         }}
         .sec-controls {{
             display: flex;
-            justify-content: space-between;
-            gap: 12px;
+            /* Two control clusters cannot sit side by side on a 390px phone;
+               without stacking, the pitch cluster is clipped off the card. */
+            flex-direction: column;
+            gap: 8px;
             width: 100%;
             margin-top: 14px;
             padding-top: 12px;
@@ -2299,8 +2409,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             display: flex;
             align-items: center;
             gap: 6px;
-            flex: 1;
+            flex: 1 1 auto;
+            min-width: 0;
             justify-content: center;
+            flex-wrap: nowrap;
         }}
         .control-pill {{
             font-size: 0.78rem;
@@ -2371,7 +2483,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     </div>
 
     <div class="header">
-        <h1>MP MIX MANAGER <span class="app-version">v{html.escape(VERSION)}</span></h1>
+        <h1>MP LIQUID PLAYER (WEB) <span class="app-version">v{html.escape(VERSION)}</span></h1>
         <p>Studio & DJ Booth Mobile Web Companion</p>
         <div id="themeBadge" class="theme-pill">🎨 <span id="themeNameText">{html.escape(t['name'])}</span></div>
         <div class="theme-bar">
@@ -2460,16 +2572,17 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 <button class="btn-mini" onclick="sendAction('reset_pitch')">0</button>
             </div>
         </div>
-        <!-- Mini Playlist: the current track plus the next two -->
+        <!-- Mini Playlist: the current track plus the next four, scrollable -->
         <div class="mini-playlist" id="miniPlaylist">
             <div class="mini-pl-head">
                 <span id="miniPlTitle">🎵 Up Next</span>
                 <span class="mini-pl-count" id="miniPlCount">0 tracks</span>
             </div>
-            <div class="mode-switch" id="modeSwitch" role="group" aria-label="Choose library">
-                <button type="button" data-mode="MIX_ARCHIVE" onclick="switchLibraryMode('MIX_ARCHIVE')">Mix</button>
-                <button type="button" data-mode="MUSIC" onclick="switchLibraryMode('MUSIC')">Music</button>
+            <div class="mode-switch" id="modeSwitch" role="group" aria-label="Choose library mode">
+                <button type="button" data-mode="MIX_ARCHIVE" onclick="switchLibraryMode('MIX_ARCHIVE')">Mix Mode</button>
+                <button type="button" data-mode="MUSIC" onclick="switchLibraryMode('MUSIC')">Music Mode</button>
             </div>
+            <div id="miniPlNote"></div>
             <div id="miniPlItems"></div>
         </div>
     </div>
@@ -2646,13 +2759,15 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             if (!wrap) return;
             const items = (data && data.items) || [];
             const total = Number(data && data.total) || 0;
+            const show = Math.max(1, Number(data && data.show) || 5);
 
             const countEl = document.getElementById('miniPlCount');
             if (countEl) {{
                 // Track count for the whole selected library, not just the
-                // three rows that fit on a phone screen.
+                // rows that fit on a phone screen.
                 countEl.innerText = total + (total === 1 ? ' track' : ' tracks');
-                countEl.title = items.length + ' shown of ' + total + ' in this library';
+                countEl.title = Math.min(items.length, show) + ' shown of ' + total +
+                                ' in this library · scroll for more';
             }}
 
             const titleEl = document.getElementById('miniPlTitle');
@@ -2661,16 +2776,24 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 titleEl.innerText = '🎵 Up Next · ' + label;
             }}
 
-            wrap.innerHTML = '';
-            if (data && data.library_fallback && data.library_detail) {{
-                // Say so instead of pretending the music library loaded.
-                const note = document.createElement('div');
-                note.className = 'mini-pl-empty';
-                note.style.borderColor = '#ffaa00';
-                note.style.color = '#ffaa00';
-                note.innerText = '⚠ ' + data.library_detail;
-                wrap.appendChild(note);
+            // The offline notice sits above the list, so five rows always fit.
+            const noteEl = document.getElementById('miniPlNote');
+            if (noteEl) {{
+                noteEl.innerHTML = '';
+                if (data && data.library_fallback && data.library_detail) {{
+                    const note = document.createElement('div');
+                    note.className = 'mini-pl-empty';
+                    note.style.borderColor = '#ffaa00';
+                    note.style.color = '#ffaa00';
+                    note.innerText = '⚠ ' + data.library_detail;
+                    noteEl.appendChild(note);
+                }}
             }}
+
+            // Keep the scroll position across the 15-second refresh instead of
+            // snapping back to the top while the user is browsing.
+            const scrollTop = wrap.scrollTop;
+            wrap.innerHTML = '';
 
             if (!items.length) {{
                 const empty = document.createElement('div');
@@ -2704,6 +2827,7 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 row.appendChild(body);
                 wrap.appendChild(row);
             }});
+            wrap.scrollTop = scrollTop;
         }}
 
         function updateModeSwitch(mode) {{
@@ -2712,18 +2836,49 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }});
         }}
 
+        // The mode request scans a multi-thousand-entry library, so it can take
+        // a few seconds. A single token makes sure only the newest tap decides
+        // the highlighted mode and the playlist that is finally shown.
+        let modeRequestToken = 0;
+        let modeSwitchBusy = false;
+
+        function setModeBusy(busy, pendingMode) {{
+            modeSwitchBusy = busy;
+            const group = document.getElementById('modeSwitch');
+            if (group) group.classList.toggle('busy', busy);
+            document.querySelectorAll('#modeSwitch button').forEach(btn => {{
+                btn.disabled = busy;
+                btn.classList.toggle('pending', busy && btn.dataset.mode === pendingMode);
+            }});
+            const titleEl = document.getElementById('miniPlTitle');
+            if (!titleEl || !busy) return;
+            const label = pendingMode === 'MUSIC' ? 'Music' : 'Mix Archive';
+            titleEl.innerText = '⏳ Switching to ' + label + '…';
+        }}
+
         async function switchLibraryMode(mode) {{
             if (!mode) return;
+            const token = ++modeRequestToken;
             updateModeSwitch(mode);
+            setModeBusy(true, mode);
             try {{
                 const res = await fetch('/api/mode?mode=' + encodeURIComponent(mode));
                 const data = await res.json();
+                if (token !== modeRequestToken) return;
                 if (data && data.success) {{
                     updateModeSwitch(data.mode);
+                    // fetchMiniPlaylist reports the offline notice itself, so no
+                    // placeholder render here (it would flash "No audio").
                     await fetchMiniPlaylist();
                     await fetchStatus();
+                }} else {{
+                    fetchMiniPlaylist();
                 }}
-            }} catch (e) {{}}
+            }} catch (e) {{
+                if (token === modeRequestToken) fetchMiniPlaylist();
+            }} finally {{
+                if (token === modeRequestToken) setModeBusy(false, null);
+            }}
         }}
 
         async function fetchMiniPlaylist() {{
@@ -2731,7 +2886,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 const res = await fetch('/api/playlist');
                 const data = await res.json();
                 renderMiniPlaylist(data);
-                if (data && data.mode) updateModeSwitch(data.mode);
+                // A tap already picked the new mode; the poll must not paint the
+                // old one back while that switch is still in flight.
+                if (!modeSwitchBusy && data && data.mode) updateModeSwitch(data.mode);
             }} catch (e) {{}}
         }}
 
@@ -3199,6 +3356,8 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
                 "mode": chosen or get_library_mode(),
                 "mode_label": MODE_LABELS.get(chosen or get_library_mode(), "Library"),
                 "total": len(build_stream_queue()),
+                "library_fallback": bool(_queue_source_state.get("fallback")),
+                "library_detail": _queue_source_state.get("detail", ""),
             }
             self.send_response(200 if chosen else 400)
             self.send_header("Content-Type", "application/json; charset=utf-8")

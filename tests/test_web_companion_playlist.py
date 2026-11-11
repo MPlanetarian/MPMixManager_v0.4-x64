@@ -2,7 +2,7 @@
 
 These cover the behaviour added on top of the streaming base:
 
-  * a three-track mini playlist that also reports the full library count
+  * a five-track mini playlist that also reports the full library count
   * a Mix / Music library switch mirroring the MP Audio Player [1]/[2] modes
   * a Theme button backed by /api/themes and /api/set_theme
   * autoplay that arms the stream at startup without opening a local device
@@ -150,15 +150,34 @@ class TestLibraryMode(CompanionTestBase):
 
 
 class TestMiniPlaylist(CompanionTestBase):
-    def test_returns_three_items_and_full_count(self):
+    def test_returns_five_items_and_full_count(self):
         files = [_touch_audio(self.home / "MIX_ARCHIVE" / f"mix_{i}.flac") for i in range(9)]
         self.use_archive(files)
         companion.set_library_mode("MIX_ARCHIVE")
 
-        data = companion.get_mini_playlist()
-        self.assertEqual(len(data["items"]), 3)
+        data = companion.get_mini_playlist(limit=companion.MINI_PLAYLIST_SIZE)
+        self.assertEqual(companion.MINI_PLAYLIST_SIZE, 5)
+        self.assertEqual(len(data["items"]), 5)
+        self.assertEqual(data["show"], 5)
         self.assertEqual(data["total"], 9)
         self.assertEqual(data["mode"], "MIX_ARCHIVE")
+
+    def test_default_window_is_scrollable_past_the_visible_rows(self):
+        files = [_touch_audio(self.home / "MIX_ARCHIVE" / f"mix_{i}.flac") for i in range(40)]
+        self.use_archive(files)
+        data = companion.get_mini_playlist()
+        self.assertGreater(len(data["items"]), data["show"])
+        self.assertEqual(len(data["items"]), companion.MINI_PLAYLIST_WINDOW)
+        # Indices are contiguous, so the list can scroll without repeats.
+        self.assertEqual([i["index"] for i in data["items"]],
+                         list(range(len(data["items"]))))
+
+    def test_window_stops_at_the_end_of_the_queue(self):
+        files = [_touch_audio(self.home / "MIX_ARCHIVE" / f"mix_{i}.flac") for i in range(7)]
+        self.use_archive(files)
+        data = companion.get_mini_playlist()
+        self.assertEqual(len(data["items"]), 7)
+        self.assertEqual(data["items"][-1]["index"], 6)
 
     def test_first_item_is_marked_current(self):
         files = [_touch_audio(self.home / "MIX_ARCHIVE" / f"mix_{i}.flac") for i in range(4)]
@@ -166,13 +185,6 @@ class TestMiniPlaylist(CompanionTestBase):
         data = companion.get_mini_playlist()
         self.assertTrue(data["items"][0]["current"])
         self.assertFalse(data["items"][1]["current"])
-
-    def test_items_wrap_past_the_end_of_the_queue(self):
-        files = [_touch_audio(self.home / "MIX_ARCHIVE" / f"mix_{i}.flac") for i in range(2)]
-        self.use_archive(files)
-        data = companion.get_mini_playlist(limit=3)
-        self.assertEqual(len(data["items"]), 3)
-        self.assertEqual(data["items"][2]["index"], 0)
 
     def test_empty_library_reports_zero(self):
         self.use_archive([])
@@ -185,6 +197,78 @@ class TestMiniPlaylist(CompanionTestBase):
         self.use_archive([])
         modes = [m["id"] for m in companion.get_mini_playlist()["modes"]]
         self.assertEqual(modes, ["MIX_ARCHIVE", "MUSIC"])
+
+
+class TestModeSwitchResponsiveness(CompanionTestBase):
+    """The Mix/Music buttons must visibly switch, not appear dead."""
+
+    def test_reselecting_the_active_mode_does_not_rewind(self):
+        first = _touch_audio(self.home / "MIX_ARCHIVE" / "a.flac")
+        second = _touch_audio(self.home / "MIX_ARCHIVE" / "b.flac")
+        self.use_archive([first, second])
+        companion.set_library_mode("MIX_ARCHIVE")
+        companion.control_player("select_index", {"index": ["1"]})
+        self.assertEqual(companion.load_stream_session()["index"], 1)
+
+        self.assertEqual(companion.set_library_mode("MIX"), companion.LIBRARY_MODE_MIX)
+        self.assertEqual(companion.load_stream_session()["index"], 1)
+
+    def test_switching_library_returns_the_new_queue_length(self):
+        mix = _touch_audio(self.home / "MIX_ARCHIVE" / "mix_one.flac")
+        track = _touch_audio(self.home / "MUSIC" / "song.mp3")
+        self.use_archive([mix])
+        self.use_music([track])
+        companion.set_library_mode("MIX_ARCHIVE")
+        self.assertEqual(len(companion.build_stream_queue()), 1)
+
+        companion.set_library_mode("MUSIC")
+        queue = companion.build_stream_queue()
+        self.assertEqual(queue, [str(track)])
+        self.assertEqual(len(companion.get_mini_playlist()["items"]), 1)
+
+    def test_music_playlist_is_parsed_only_once(self):
+        """Re-parsing a 30 MB playlist on every tap made the buttons feel dead."""
+        playlist = self.home / "PLAYLISTS_GENERATED" / "DJ_Tracks_ALL_MUSIC_FOLDERS.json"
+        track = _touch_audio(self.home / "MUSIC" / "song.mp3")
+        _write(playlist, json.dumps([{"path": str(track)}]))
+        companion.invalidate_queue_cache()
+
+        calls = []
+        real_read = companion._read_playlist_file
+
+        def counting_read(path):
+            calls.append(path)
+            return real_read(path)
+
+        with patch.object(companion, "music_playlist_candidates", return_value=[playlist]), \
+             patch.object(companion, "_read_playlist_file", side_effect=counting_read):
+            companion.scan_music_files()
+            companion.scan_music_files()
+            companion.scan_music_files()
+
+        self.assertEqual(len(calls), 1)
+
+        # The cache is keyed to the playlist file, so a rewrite re-reads it.
+        with patch.object(companion, "music_playlist_candidates", return_value=[playlist]), \
+             patch.object(companion, "_read_playlist_file", side_effect=counting_read):
+            _write(playlist, json.dumps([{"path": str(track)}, {"path": str(track)}]))
+            self.assertEqual(len(companion.scan_music_files()), 2)
+        self.assertEqual(len(calls), 2)
+
+    def test_page_marks_the_busy_mode_switch(self):
+        page = companion.render_html_page(companion.THEMES["cosmic_supernova"])
+        self.assertIn("setModeBusy", page)
+        self.assertIn("Switching to", page)
+        self.assertIn("button.pending:disabled", page)
+
+    def test_offline_notice_is_outside_the_scroll_list(self):
+        """Five rows must stay visible even when the library is offline."""
+        page = companion.render_html_page(companion.THEMES["cosmic_supernova"])
+        self.assertIn('id="miniPlNote"', page)
+        note_pos = page.index('id="miniPlNote"')
+        list_pos = page.index('id="miniPlItems"')
+        self.assertLess(note_pos, list_pos)
+
 
 
 class TestThemeButton(CompanionTestBase):
@@ -214,7 +298,21 @@ class TestThemeButton(CompanionTestBase):
         self.assertIn('id="modeSwitch"', page)
         self.assertIn('data-mode="MIX_ARCHIVE"', page)
         self.assertIn('data-mode="MUSIC"', page)
+        self.assertIn("Mix Mode", page)
+        self.assertIn("Music Mode", page)
         self.assertIn('id="miniPlCount"', page)
+
+    def test_page_is_branded_as_the_liquid_player(self):
+        page = companion.render_html_page(companion.THEMES["cosmic_supernova"])
+        self.assertIn("MP LIQUID PLAYER (WEB)", page)
+        self.assertIn("<title>MP Liquid Player (Web)", page)
+        self.assertNotIn("MP MIX MANAGER <span", page)
+
+    def test_playlist_scrolls_and_shows_five_rows(self):
+        page = companion.render_html_page(companion.THEMES["cosmic_supernova"])
+        self.assertIn("overflow-y: auto", page)
+        self.assertIn("#miniPlItems", page)
+        self.assertIn("264px", page)
 
 
 class TestAutoplay(CompanionTestBase):
