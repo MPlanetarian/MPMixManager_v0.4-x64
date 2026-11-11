@@ -25,6 +25,7 @@ import time
 import shutil
 import datetime
 import subprocess
+import getpass
 import xml.etree.ElementTree as ET
 
 # ANSI Colors
@@ -920,6 +921,11 @@ def configure_traktor_interactive():
     current_nfs = cfg.get("TRAKTOR_NFS_MOUNT", "")
     current_mac_host = cfg.get("TRAKTOR_MAC_HOST", "")
     current_mac_user = cfg.get("TRAKTOR_MAC_USER", "")
+    current_hist_host = cfg.get("TRAKTOR_SMB_HOST", "")
+    current_hist_share = cfg.get("TRAKTOR_SMB_SHARE", "")
+    current_hist_user = cfg.get("TRAKTOR_SMB_USER", "") or cfg.get("MUSIC_SMB_USER", "")
+    current_hist_pass = cfg.get("TRAKTOR_SMB_PASSWORD", "") or cfg.get("MUSIC_SMB_PASSWORD", "")
+    current_hist_dir = cfg.get("TRAKTOR_SMB_HISTORY_DIR", "")
 
     print(f"  {BOLD}1) Traktor Collection / History Path:{NC} {current_col or '[Auto-detect]'}")
     print(f"  {BOLD}2) Audio Storage Root Directory:    {NC} {current_audio or '[Auto-detect]'}")
@@ -927,10 +933,17 @@ def configure_traktor_interactive():
     print(f"  {BOLD}4) NFS Share Mount Point:           {NC} {current_nfs or '[Not set]'}")
     print(f"  {BOLD}5) Remote Mac SSH Host / IP:        {NC} {current_mac_host or '[Not set]'}")
     print(f"  {BOLD}6) Remote Mac SSH User:             {NC} {current_mac_user or '[Not set]'}")
+    print(f"  {DIM}{'─' * 66}{NC}")
+    print(f"  {DIM}History sync used by Make_SOF_FLAC_CONVERSION.sh:{NC}")
+    print(f"  {BOLD}7) History Sync SMB Host:           {NC} {current_hist_host or '[Not set]'}")
+    print(f"  {BOLD}8) History Sync SMB Share:          {NC} {current_hist_share or '[Not set]'}")
+    print(f"  {BOLD}9) History Sync SMB User:           {NC} {current_hist_user or '[Not set]'}")
+    print(f"  {BOLD}10) History Sync SMB Password:      {NC} {'[saved]' if current_hist_pass else '[Not set]'}")
+    print(f"  {BOLD}11) History Folder Inside Share:    {NC} {current_hist_dir or '[Default]'}")
     print(f"  {BOLD}0) Save and Return{NC}\n")
 
     while True:
-        choice = input("Select setting to modify [1-6, or 0 to finish]: ").strip()
+        choice = input("Select setting to modify [1-11, or 0 to finish]: ").strip()
         if choice == "1":
             val = input(f"Enter Traktor collection.nml path (or History dir) [{current_col}]: ").strip()
             if val:
@@ -957,6 +970,35 @@ def configure_traktor_interactive():
             val = input(f"Enter Mac SSH Username [{current_mac_user}]: ").strip()
             save_config_key("TRAKTOR_MAC_USER", val)
             current_mac_user = val
+        elif choice == "7":
+            val = input(f"Enter SMB host / IP holding the Traktor History folder [{current_hist_host}]: ").strip()
+            if val:
+                save_config_key("TRAKTOR_SMB_HOST", val)
+                current_hist_host = val
+        elif choice == "8":
+            val = input(f"Enter SMB share name [{current_hist_share}]: ").strip()
+            if val:
+                save_config_key("TRAKTOR_SMB_SHARE", val)
+                current_hist_share = val
+        elif choice == "9":
+            val = input(f"Enter SMB username [{current_hist_user}]: ").strip()
+            if val:
+                save_config_key("TRAKTOR_SMB_USER", val)
+                current_hist_user = val
+        elif choice == "10":
+            try:
+                val = getpass.getpass("SMB password (hidden, Enter keeps the saved password): ")
+            except Exception:
+                val = ""
+            if val:
+                save_config_key("TRAKTOR_SMB_PASSWORD", val)
+                current_hist_pass = val
+        elif choice == "11":
+            default_dir = "Documents/Native Instruments/Traktor 3.11.1/History"
+            val = input(f"Enter History folder inside the share [{current_hist_dir or default_dir}]: ").strip()
+            if val:
+                save_config_key("TRAKTOR_SMB_HISTORY_DIR", val)
+                current_hist_dir = val
         elif choice in ["0", "q", "exit", ""]:
             break
 

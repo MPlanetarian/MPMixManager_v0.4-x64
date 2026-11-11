@@ -44,13 +44,22 @@ get_str_hash() { local s="$1" r=""; if [ "$_HAS_MD5SUM" -eq 1 ]; then r="$(print
 safe_mktemp() { local e="${1:+_${1}}" s="${1:+.${1}}"; mktemp "${TMPDIR:-/tmp}/sof${e}_XXXXXX${s}" 2>/dev/null || mktemp -t "sof${e}_XXXXXX${s}" 2>/dev/null || mktemp "/tmp/sof${e}_XXXXXX${s}"; }
 file_size_bytes() { local sz=""; if [ "$_STAT_MODE" -eq 1 ]; then sz=$(stat -c %s "$1" 2>/dev/null || echo 0); elif [ "$_STAT_MODE" -eq 2 ]; then sz=$(stat -f %z "$1" 2>/dev/null || echo 0); else sz=$(wc -c < "$1" 2>/dev/null || echo 0); fi; echo "${sz//[[:space:]]/}"; }
 sync_missing_traktor_history() {
-local dest="$1" cred="" remote_raw="" smb_err="" remote_dir smb_target list_cmd get_cmd copied=0 smb_rc=0 h missing_list=()
-if [ -z "${TRAKTOR_SMB_HOST:-}" ] || [ -z "${TRAKTOR_SMB_SHARE:-}" ] || [ -z "${TRAKTOR_SMB_USER:-}" ] || [ -z "${TRAKTOR_SMB_PASSWORD:-}" ]; then echo " -> Traktor history sync skipped (SMB host, share, user, or password is not set)."; return 0; fi
+local dest="$1" cred="" remote_raw="" smb_err="" remote_dir smb_target list_cmd get_cmd copied=0 smb_rc=0 h missing_list=() smb_host="${TRAKTOR_SMB_HOST:-}" smb_share="${TRAKTOR_SMB_SHARE:-}" smb_user="${TRAKTOR_SMB_USER:-}" smb_pass="${TRAKTOR_SMB_PASSWORD:-}"
+if [ -z "$smb_host" ] && [ -n "${MUSIC_SMB_HOST:-}" ]; then smb_host="$MUSIC_SMB_HOST"; fi
+if [ -z "$smb_host" ] && [ -n "${SMB_DEFAULT_HOST:-}" ]; then smb_host="$SMB_DEFAULT_HOST"; fi
+if [ -z "$smb_user" ] && [ -n "${MUSIC_SMB_USER:-}" ]; then smb_user="$MUSIC_SMB_USER"; fi
+if [ -z "$smb_pass" ] && [ -n "${MUSIC_SMB_PASSWORD:-}" ]; then smb_pass="$MUSIC_SMB_PASSWORD"; fi
+local _smb_missing=()
+if [ -z "$smb_host" ]; then _smb_missing+=("TRAKTOR_SMB_HOST"); fi
+if [ -z "$smb_share" ]; then _smb_missing+=("TRAKTOR_SMB_SHARE"); fi
+if [ -z "$smb_user" ]; then _smb_missing+=("TRAKTOR_SMB_USER"); fi
+if [ -z "$smb_pass" ]; then _smb_missing+=("TRAKTOR_SMB_PASSWORD"); fi
+if [ "${#_smb_missing[@]}" -gt 0 ]; then echo " -> Traktor history sync skipped (not set in config.env: ${_smb_missing[*]})."; return 0; fi
 if ! command -v smbclient >/dev/null 2>&1; then echo " -> WARNING: smbclient is not installed. Continuing with the local Traktor history only."; return 0; fi
 if [ -z "$dest" ]; then echo " -> WARNING: No local Traktor history directory is configured. Skipping history sync."; return 0; fi
 if [ ! -d "$dest" ]; then mkdir -p "$dest" 2>/dev/null || { echo " -> WARNING: Could not create Traktor history directory: $dest"; return 0; }; fi
-remote_dir="${TRAKTOR_SMB_HISTORY_DIR:-Documents/Native Instruments/Traktor 3.11.1/History}"; smb_target="//${TRAKTOR_SMB_HOST}/${TRAKTOR_SMB_SHARE}"; umask 077
-cred=$(safe_mktemp smb); remote_raw=$(safe_mktemp dir); smb_err=$(safe_mktemp err); printf 'username=%s\npassword=%s\n' "$TRAKTOR_SMB_USER" "$TRAKTOR_SMB_PASSWORD" > "$cred"
+remote_dir="${TRAKTOR_SMB_HISTORY_DIR:-Documents/Native Instruments/Traktor 3.11.1/History}"; smb_target="//${smb_host}/${smb_share}"; umask 077
+cred=$(safe_mktemp smb); remote_raw=$(safe_mktemp dir); smb_err=$(safe_mktemp err); printf 'username=%s\npassword=%s\n' "$smb_user" "$smb_pass" > "$cred"
 echo " -> Checking Traktor history on ${smb_target} ..."; list_cmd="cd \"${remote_dir}\"; dir"
 if command -v timeout >/dev/null 2>&1; then timeout 40 smbclient "$smb_target" -A "$cred" -t 20 -c "$list_cmd" > "$remote_raw" 2>"$smb_err" || smb_rc=$?; else smbclient "$smb_target" -A "$cred" -t 20 -c "$list_cmd" > "$remote_raw" 2>"$smb_err" || smb_rc=$?; fi
 if [ "$smb_rc" -ne 0 ]; then echo " -> WARNING: Could not read the Traktor history share. Continuing with local files."; if [ -s "$smb_err" ]; then sed -n '1,3p' "$smb_err" | sed 's/^/    /'; fi; rm -f "$cred" "$remote_raw" "$smb_err" 2>/dev/null || true; return 0; fi

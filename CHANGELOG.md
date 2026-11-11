@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Traktor history sync skipped from Mix Archive Manager** (`Make_SOF_FLAC_CONVERSION.sh`, `scripts/Make_SOF_FLAC_CONVERSION.sh`, `config.env`, `config.env.example`, `scripts/top_5_tracks_manager.py`):
+  - `sync_missing_traktor_history()` required `TRAKTOR_SMB_HOST` and `TRAKTOR_SMB_SHARE`, but neither key existed in `config.env` or `config.env.example`, so the sync always reported "SMB host, share, user, or password is not set" even when the user and password were set.
+  - Added `TRAKTOR_SMB_HOST`, `TRAKTOR_SMB_SHARE`, and `TRAKTOR_SMB_HISTORY_DIR` to `config.env.example`.
+  - The skip message now names the exact keys that are missing instead of listing all four.
+  - Host, user, and password fall back to `MUSIC_SMB_HOST` / `MUSIC_SMB_USER` / `MUSIC_SMB_PASSWORD` / `SMB_DEFAULT_HOST` when the Traktor-specific keys are empty.
+  - Traktor Top 5 Tracks config screen (option 5) gained rows 7-11 for the history sync host, share, user, password (hidden input), and history folder.
+
+---
+
 ## [0.4.2 Stable (Liquid)] - 2026-11-08
 
 Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before this release and was not published with its own notes. The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
