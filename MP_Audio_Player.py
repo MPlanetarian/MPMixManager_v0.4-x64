@@ -1764,7 +1764,9 @@ class AudioEngine:
     def _sync_state_file(self):
         try:
             tmp = STATE_FILE.with_name(f".{STATE_FILE.name}.{os.getpid()}.tmp")
-            tmp.write_text(json.dumps(self.get_status_dict(), default=float), encoding="utf-8")
+            # ensure_ascii=False keeps the EQ bars as real glyphs, matching what
+            # the Manager paints. \uXXXX escapes made bash count six columns per bar.
+            tmp.write_text(json.dumps(self.get_status_dict(), default=float, ensure_ascii=False), encoding="utf-8")
             tmp.replace(STATE_FILE)
             if self.current_track and self.current_track.get("path") and self.duration_sec > 0:
                 pos = round(float(self.position_sec), 2)
