@@ -1,6 +1,6 @@
 1 VERSIONINFO
-FILEVERSION     0,3,6,0
-PRODUCTVERSION  0,3,6,0
+FILEVERSION     0,4,2,0
+PRODUCTVERSION  0,4,2,0
 FILEFLAGSMASK   0x3fL
 FILEFLAGS       0x0L
 FILEOS          0x40004L
@@ -13,12 +13,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Dreamworlds Productions"
             VALUE "FileDescription",  "MP Mix Archive Manager 64-bit Windows Launcher"
-            VALUE "FileVersion",      "0.4.0"
+            VALUE "FileVersion",      "0.4.2"
             VALUE "InternalName",     "MP_Mix_Manager"
             VALUE "LegalCopyright",   "Copyright (C) Dreamworlds Productions. All rights reserved."
             VALUE "OriginalFilename", "MP_Mix_Manager.exe"
             VALUE "ProductName",      "MP Mix Archive Manager"
-            VALUE "ProductVersion",   "0.4.0"
+            VALUE "ProductVersion",   "0.4.2"
         END
     END
     BLOCK "VarFileInfo"

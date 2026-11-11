@@ -5256,7 +5256,7 @@ s4_hdr+="  • Hardware Status       : ${det_badge}\n"
 s4_hdr+="  • MIDI Service Daemon   : ${srv_badge}\n"
 s4_hdr+="  • Audio Player IPC      : ${pl_badge}\n"
 s4_hdr+="  • MIDI Mode Shortcut    : Hold ${BOLD}${YELLOW}SHIFT + BROWSE${NC} (MK1) or ${BOLD}${YELLOW}SHIFT + PREVIEW${NC} (MK2)\n"
-s4_hdr+="  • Supported in v0.4.0   : ${BOLD}${GREEN}Traktor Kontrol S4 Exclusively${NC}\n"
+s4_hdr+="  • Supported in v0.4.2   : ${BOLD}${GREEN}Traktor Kontrol S4 Exclusively${NC}\n"
 local s4_opts=(
 "1|Enable Traktor Kontrol S4 MIDI Mapping Support|(Start Background Service & Save Setting)"
 "2|Disable Traktor Kontrol S4 MIDI Mapping Support|(Stop Background Service & Save Setting)"

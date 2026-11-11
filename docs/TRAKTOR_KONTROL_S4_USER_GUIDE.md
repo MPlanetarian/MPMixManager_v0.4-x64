@@ -5,7 +5,7 @@
 
 ## 1. Overview & Supported Hardware
 
-In Version 0.4.0, MP Mix Archive Manager introduces direct hardware MIDI integration exclusively for the **Native Instruments Traktor Kontrol S4** via the ALSA hardware MIDI port (`hw:0,0` / `/dev/snd/midiC0D0`).
+In Version 0.4.2, MP Mix Archive Manager introduces direct hardware MIDI integration exclusively for the **Native Instruments Traktor Kontrol S4** via the ALSA hardware MIDI port (`hw:0,0` / `/dev/snd/midiC0D0`).
 
 With this feature enabled, you can control the built-in **MP Audio Player** directly from your physical DJ controller without touching the keyboard or mouse.
 

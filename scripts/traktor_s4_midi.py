@@ -707,7 +707,7 @@ def print_status():
     else:
         print(f"  MP Audio Player      : {DIM}Offline / Waiting for launch{NC}")
 
-    print(f"  Supported in v0.4.0  : {BOLD}{GREEN}Traktor Kontrol S4 Exclusively{NC}\n")
+    print(f"  Supported in v0.4.2  : {BOLD}{GREEN}Traktor Kontrol S4 Exclusively{NC}\n")
 
 
 def print_user_guide():
