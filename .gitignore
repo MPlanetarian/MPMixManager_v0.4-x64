@@ -40,6 +40,8 @@ exported_configs/*
 !exported_configs/.gitkeep
 PLAYLISTS_GENERATED/*
 !PLAYLISTS_GENERATED/.gitkeep
+# Tracklist viewer HTML/TEXT exports (generated on demand by the user)
+TRACKLIST_EXPORTS/
 assets/Cover.png
 !Cover.png
 Cover_old.png

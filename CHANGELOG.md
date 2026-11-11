@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MP Package Dev Utility — arm64 and amd64 Linux packages** (`MP_Package_Dev_Utility.sh` in `BASH_SCRIPTS`, `tests/test_package_dev_utility.py`):
+  - New packaging utility that turns a MP Mix Manager source tree into published Linux artifacts for **both amd64 (x86_64) and arm64 (aarch64)**.
+  - Formats: Debian `.deb`, portable `.tar.gz` bundles, and optional RPM `.rpm` when `rpmbuild` is present.
+  - No cross-compilation is required: the payload is interpreted Bash and Python, so an arm64 package carries the identical application code. A native ELF scanner refuses to put an x86-64 binary into an arm64 package unless `--allow-native-binaries` is passed.
+  - `--arch host|amd64|arm64|all` selects targets; `--format deb,tar,rpm|all` selects formats. `--publish` uploads the artifacts, `SHA256SUMS` and generated release notes to a GitHub release with `gh`.
+  - Packages install `/opt/mp-mix-manager`, add `mp-mix-manager`, `mp-mix-manager-gui`, `mp-liquid-player`, `mp-audio-player`, `mp-visualizer` and `mp-alarm` to `PATH`, and register desktop entries and hicolor icons.
+  - Staging strips `.git`, archives, logs, caches, `config.env` (credentials are never shipped) and broken or out-of-tree symlinks. Portable launchers locate the bundle from their own path, so a bundle can be moved or renamed after extraction.
+  - `.deb` output uses `dpkg-deb` when available and falls back to a built-in `ar` + `tar` writer, so packaging works on Fedora/Bazzite/Arch hosts.
+  - Version labels are normalised for packaging: `0.4.2 Stable (Liquid)` becomes `0.4.2`, and pre-release labels use `~` so `0.6.0-rc2` sorts before `0.6.0`.
+  - Every artifact is accompanied by `SHA256SUMS`, `BUILD-MANIFEST.txt` and `RELEASE_NOTES_<version>.md` in `MP_MIX_MANAGER_INSTALLERS/`.
+  - Covered by `tests/test_package_dev_utility.py` (`.deb` structure/metadata, arm64 output, relocatable bundles, checksum verification, dry-run safety, foreign-ELF rejection).
+
 ### Fixed
 - **Menu and player navigation bar followed the dark preset instead of the theme** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_menu_number_theme_color.py`, `tests/test_playlist_theme_highlight.py`):
   - The selected row in the Mix Archive Manager / MP Gui menus emitted the theme fill and then a `1;37;40m` foreground, which carries its own black background. The foreground overwrote the fill, so the navigation bar stayed black in every theme. The foreground is now colour-only, and the fill keeps the theme hue while the idle breathing animation dims it.

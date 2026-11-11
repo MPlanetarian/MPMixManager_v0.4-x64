@@ -459,6 +459,24 @@ def launch_liquid_glass_tracklist(
             return False
 
 
+def export_tracklist_file(target_tracklist: Union[str, Path, None], fmt: str = "html",
+                          base_dir: Optional[Path] = None,
+                          output_dir: Optional[Union[str, Path]] = None) -> Tuple[bool, str]:
+    """Export a tracklist as HTML or TEXT into the program folder's TRACKLIST_EXPORTS."""
+    if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file():
+        return False, "Tracklist file not found"
+    base = Path(base_dir) if base_dir else get_base_dir()
+    try:
+        scripts_dir = str(base / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from tracklist_export import export_tracklist
+        saved = export_tracklist(tl, fmt, base_dir=base, output_dir=output_dir)
+        return True, str(saved)
+    except Exception as exc:
+        return False, str(exc)
+
+
 def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
     base = get_base_dir()
@@ -2144,22 +2162,18 @@ class PlayerIPCServer:
                 res["added"] = added
             elif cmd == "play":
                 pos = float(req.get("position", 0.0) or 0.0)
-                paused = bool(req.get("paused"))
                 if f := req.get("file"):
-                    def _l(tf, p, hold):
+                    def _l(tf, p):
                         for i, t in enumerate(e.playlist):
                             if t["path"] == tf or t["name"] == os.path.basename(tf):
                                 e.load_track(i, True, start_position=p)
-                                if hold: e.pause()
                                 return
                         e.playlist.insert(0, {"name": os.path.basename(tf), "path": tf, "size_mb": 0, "mtime": time.time(), "ext": os.path.splitext(tf)[1][1:].upper()})
                         e.load_track(0, True, start_position=p)
-                        if hold: e.pause()
-                    threading.Thread(target=_l, args=(f, pos, paused), daemon=True).start()
+                    threading.Thread(target=_l, args=(f, pos), daemon=True).start()
                 else:
                     if pos > 0: e.seek(pos)
-                    if paused: e.pause()
-                    else: e.play()
+                    e.play()
             elif cmd == "pause": e.pause()
             elif cmd in ("toggle", "play_pause"): e.toggle_play_pause(); res["state"] = e.state
             elif cmd in ("stop", "quit"):
@@ -5939,7 +5953,7 @@ class TerminalPlayerUI:
             lines = [_strip_bold_ansi(l) for l in lines]
         _present_frame(lines, w, h)
 
-def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None, start_paused: bool = False) -> Optional[int]:
+def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool = True, mode: str = "MIX_ARCHIVE", music_folder: Optional[str] = None, playlist_path: Optional[str] = None, seek_to: Optional[float] = None) -> Optional[int]:
     if is_player_daemon_running():
         # A live PID is not enough: older/crashed startup paths can leave a
         # daemon holding the playback lock after its IPC listener disappeared.
@@ -5983,8 +5997,6 @@ def _spawn_player_daemon(file_path: Optional[str] = None, auto_bluetooth: bool =
         if playlist_path: cmd.extend(["--playlist", str(playlist_path)])
     if seek_to is not None and float(seek_to) > 0:
         cmd.extend(["--seek-to", str(seek_to)])
-    if start_paused:
-        cmd.append("--start-paused")
     cleaned = _existing_audio_path(file_path) if file_path else ""
     if cleaned:
         cmd.append(cleaned)
@@ -6024,11 +6036,12 @@ def main():
         (("--vol",), dict(type=str)), (("--seek",), dict(type=float)),
         (("--seek-to", "--position"), dict(type=float, default=None)),
         (("--resume",), dict(action="store_true")),
-        (("--start-paused",), dict(action="store_true", help="Load the mix but wait for a play command (VR Mode)")),
         (("--status",), dict(action="store_true")), (("--status-line",), dict(action="store_true")),
         (("--play-latest",), dict(action="store_true")), (("--get-latest-mix",), dict(action="store_true")),
         (("--list-mixes",), dict(action="store_true")), (("--open-file-manager", "-f"), dict(action="store_true")),
         (("--tracklist", "-t"), dict(action="store_true")), (("--export-playlist", "-e"), dict(nargs="?", const="default")),
+        (("--tracklist-export",), dict(type=str, choices=("html", "text", "txt"), default=None,
+                                       help="Export the tracklist of the selected mix to HTML or TEXT in TRACKLIST_EXPORTS")),
         (("--style", "--eq"), dict(type=str, choices=EqualizerVisualizer.STYLES)), (("--theme",), dict(type=str, choices=EqualizerVisualizer.THEMES)),
         (("--cmd",), dict(type=str)), (("--music-mode",), dict(action="store_true")), (("--mix-archive-mode",), dict(action="store_true")),
         (("--music-folder",), dict(type=str, default="ALL")), (("--playlist",), dict(type=str, default="")),
@@ -6083,7 +6096,7 @@ def main():
             print("✔ Routed system audio to Bluetooth" if BluetoothAudioRouter().route_to_bluetooth() else "✖ Failed to route to Bluetooth")
         sys.exit(0)
 
-    if args.open_file_manager or args.tracklist:
+    if args.open_file_manager or args.tracklist or args.tracklist_export:
         tp = (st.get("data", {}).get("path") if (daemon_running and (st := send_ipc_command("status"))) else None)
         if not tp or not os.path.exists(tp):
             if latest := MixArchiveScanner(base_dir).get_latest_mix(): tp = latest["path"]
@@ -6093,6 +6106,14 @@ def main():
             print(f"✔ Opened in file manager: {target}" if ok else "✖ Failed to open file manager")
             sys.exit(0 if ok else 1)
         tl = find_tracklist_for_mix(tp) if tp else None
+        if args.tracklist_export:
+            if tl and os.path.isfile(tl):
+                ok, res = export_tracklist_file(tl, args.tracklist_export, base_dir=base_dir)
+                print(f"✔ Exported tracklist ({args.tracklist_export}): {res}" if ok else f"✖ Failed to export tracklist: {res}",
+                      file=sys.stdout if ok else sys.stderr)
+                sys.exit(0 if ok else 1)
+            print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr)
+            sys.exit(1)
         if tl and os.path.isfile(tl) and open_tracklist_window(tl, tp, theme=args.theme): print(f"✔ Opened tracklist: {tl}"); sys.exit(0)
         print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr); sys.exit(1)
 
@@ -6461,7 +6482,7 @@ def main():
                 init_pos = resume_pos
             else:
                 init_pos = 0.0
-            spawned_pid = _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos, start_paused=bool(args.start_paused))
+            spawned_pid = _spawn_player_daemon(init_f, auto_bluetooth=auto_bt, mode=current_mode, music_folder=folder_target, playlist_path=args.playlist, seek_to=init_pos)
             for _ in range(75):
                 time.sleep(0.04)
                 if (SOCKET_PATH.exists() or PORT_FILE.exists()) and is_player_daemon_running(): break
@@ -6469,10 +6490,7 @@ def main():
             spawned_pid = None
             d_data = d_status.get("data", {}) if d_status else {}
             d_state = d_data.get("state", "stopped")
-            if args.start_paused:
-                # VR Mode holds the music until the launcher sees the player centered.
-                pass
-            elif tf:
+            if tf:
                 play_kw = {"file": tf}
                 if args.seek_to is not None:
                     play_kw["position"] = float(args.seek_to)
@@ -6548,8 +6566,7 @@ def main():
     init_pos = float(args.seek_to) if args.seek_to is not None else 0.0
     engine = AudioEngine(mixes, auto_bluetooth=auto_bt, mode=current_mode)
     PlayerIPCServer(engine).start()
-    if mixes and not explicit_missing:
-        engine.load_track(init_idx, not args.start_paused, start_position=init_pos)
+    if mixes and not explicit_missing: engine.load_track(init_idx, True, start_position=init_pos)
 
     try:
         while True:

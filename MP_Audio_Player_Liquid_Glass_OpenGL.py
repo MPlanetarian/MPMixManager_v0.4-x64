@@ -32,6 +32,9 @@ DEFAULT_FONT = "Monospace 11"
 DEFAULT_WINDOW_OPACITY = 0.80
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
+# The tracklist viewer draws its own viewport, but VTE still needs a scrollback
+# buffer so wheel and scrollbar events are delivered to the child terminal.
+TRACKLIST_SCROLLBACK = 2000
 
 RECOMMENDED_FONTS = [
     ("Monospace 11", "Fallback when the Hack family is not installed"),
@@ -179,28 +182,6 @@ def _mode_grid(mode):
     if mode == "MICRO":
         return 74, 7
     return COLS, ROWS
-
-
-def _vr_layout_requested() -> bool:
-    """VR Mode set by scripts/bigscreen_vr.py. The player is centered alone."""
-    if os.environ.get("MP_VR_LAYOUT") != "1":
-        return False
-    try:
-        from bigscreen_vr import vr_layout_active
-    except Exception:
-        return True
-    try:
-        return bool(vr_layout_active())
-    except Exception:
-        return True
-
-
-def _vr_player_grid():
-    try:
-        from bigscreen_vr import vr_player_grid
-        return vr_player_grid()
-    except Exception:
-        return COLS, ROWS
 
 
 def _measure_terminal_cell(font_name: str) -> tuple:
@@ -532,47 +513,6 @@ class GlassHost:
         self._last_top_click = 0.0
         self._target_cols, self._target_rows = _mode_grid(self.mode)
         self._last_well = self._last_panel_state = None
-        # VR Mode opens the player alone, centered on the primary desktop.
-        self._vr_layout = _vr_layout_requested()
-        if self._vr_layout:
-            self._target_cols, self._target_rows = _vr_player_grid()
-        self._vr_tick_at = 0.0
-
-    def _vr_publish_ready(self):
-        """Tell the VR launcher this window is placed, so it can start the music."""
-        if not self._vr_layout or self.renderer is None:
-            return
-        try:
-            from bigscreen_vr import publish_player_ready
-            x, y = self.renderer.window_pos()
-            width, height = self.renderer.window_size()
-            publish_player_ready(x, y, width, height)
-        except Exception:
-            pass
-
-    def _vr_tick(self):
-        """Keep the VR player centered and report its placement."""
-        if not self._vr_layout or self.renderer is None:
-            return
-        now = time.monotonic()
-        if now < self._vr_tick_at:
-            return
-        self._vr_tick_at = now + 0.25
-        try:
-            from bigscreen_vr import center_player_on_screen
-            width, height = self.renderer.window_size()
-            point = center_player_on_screen(width, height)
-            current = self.renderer.window_pos()
-            if abs(int(current[0]) - point[0]) > 2 or abs(int(current[1]) - point[1]) > 2:
-                self.renderer.set_window_pos(point[0], point[1])
-        except Exception:
-            pass
-        self._vr_publish_ready()
-
-    def _vr_place_and_publish(self):
-        """Center the window once and publish the ready report immediately."""
-        self._vr_tick_at = 0.0
-        self._vr_tick()
 
     def _dims(self):
         if self.terminal is not None:
@@ -932,7 +872,6 @@ class GlassHost:
         down = dragging = False
         origin, press_screen, theme, theme_at = self.renderer.window_pos(), (0, 0), read_player_theme(), 0.0
         scroll_at = 0.0
-        self._vr_place_and_publish()
         try:
             while not self.renderer.should_close and proc.poll() is None:
                 now = time.monotonic()
@@ -944,7 +883,6 @@ class GlassHost:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()
                 self._sync_panels()
-                self._vr_tick()
                 self._pump_windows_drag()
                 self.renderer.draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
@@ -984,7 +922,9 @@ class GlassHost:
         term = vte.Terminal()
         term.set_audible_bell(False)
         if hasattr(term, "set_scrollback_lines"):
-            term.set_scrollback_lines(0)
+            # Tracklist mode draws its own viewport, but VTE still needs a scrollback
+            # buffer so wheel and scrollbar input reaches the child process.
+            term.set_scrollback_lines(TRACKLIST_SCROLLBACK if self.mode == "TRACKLIST" else 0)
         window.add(term)
         self._clear_terminal_background(window, term)
         window.show_all()
@@ -1000,7 +940,6 @@ class GlassHost:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
         self._place_terminal(force=True)
         self.renderer.focus_window(self.child_xid)
-        self._vr_place_and_publish()
         term.add_events(
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK

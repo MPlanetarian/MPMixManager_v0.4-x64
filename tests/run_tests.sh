@@ -121,6 +121,48 @@ for ep in "${entrypoints[@]}"; do
 done
 
 # ------------------------------------------------------------------------------
+# TEST 6: Linux Packaging Utility (amd64 + arm64)
+# ------------------------------------------------------------------------------
+echo -e "\n${BOLD}6. Verifying Linux Packaging Utility (amd64 + arm64)...${NC}"
+PKG_UTIL=""
+for _cand in \
+    "$SCRIPT_DIR/MP_Package_Dev_Utility.sh" \
+    "$(dirname "$SCRIPT_DIR")/Documents/BASH_SCRIPTS/MP_Package_Dev_Utility.sh" \
+    "$HOME/Documents/BASH_SCRIPTS/MP_Package_Dev_Utility.sh"; do
+    if [ -f "$_cand" ]; then PKG_UTIL="$_cand"; break; fi
+done
+
+if [ -z "$PKG_UTIL" ]; then
+    report_skip "package dev utility" "MP_Package_Dev_Utility.sh not found"
+else
+    if bash -n "$PKG_UTIL" 2>/dev/null; then
+        report_pass "MP_Package_Dev_Utility.sh syntax valid"
+    else
+        report_fail "MP_Package_Dev_Utility.sh" "bash -n failed"
+    fi
+
+    if [ -x "$PKG_UTIL" ]; then
+        report_pass "MP_Package_Dev_Utility.sh is executable"
+    else
+        report_fail "MP_Package_Dev_Utility.sh" "not executable"
+    fi
+
+    _help_out="$(bash "$PKG_UTIL" --help 2>&1)"
+    if [[ "$_help_out" == *"--arch host|amd64|arm64|all"* ]]; then
+        report_pass "arm64 target advertised in --help"
+    else
+        report_fail "package dev utility" "--help does not list arm64 target"
+    fi
+
+    _dry_out="$(MP_PKG_OUT="$(mktemp -d)" bash "$PKG_UTIL" --arch all --format deb,tar --dry-run 2>&1)"
+    if [[ "$_dry_out" == *"Dry run complete"* ]] && [[ "$_dry_out" == *"arm64"* ]]; then
+        report_pass "arm64 dry-run resolves both architectures"
+    else
+        report_fail "package dev utility" "arm64 dry-run did not resolve"
+    fi
+fi
+
+# ------------------------------------------------------------------------------
 # SUMMARY
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}${GREEN}======================================================================${NC}"

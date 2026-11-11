@@ -1168,6 +1168,39 @@ MP Mix Archive Manager includes an automated test harness ensuring shell script 
 - ✅ Configuration Defaults (`config.env` key validation).
 - ✅ Codebase Synchronization (`cmp` verification between root and `scripts/`).
 - ✅ Executable Permissions Check (`chmod +x` enforcement).
+- ✅ Linux packaging (`tests/test_package_dev_utility.py`) — `.deb` structure and metadata, arm64 output, relocatable portable bundles, checksum integrity, dry-run safety and foreign-ELF rejection.
+
+---
+
+## 📦 Building Linux Packages (amd64 & arm64)
+
+`MP_Package_Dev_Utility.sh` (kept in the `BASH_SCRIPTS` utility directory alongside this project) turns a source tree into distributable Linux artifacts. It builds **both amd64 (x86_64) and arm64 (aarch64)** packages from any host, because the MP Mix Manager payload is interpreted Bash and Python — no cross-compilation is involved.
+
+```bash
+# Interactive menu
+./MP_Package_Dev_Utility.sh
+
+# arm64 .deb + portable .tar.gz
+./MP_Package_Dev_Utility.sh --arch arm64
+
+# Both architectures, every available format
+./MP_Package_Dev_Utility.sh --arch all --format deb,tar,rpm
+
+# Publish the results as a GitHub release
+./MP_Package_Dev_Utility.sh --arch all --publish
+```
+
+Artifacts land in `MP_MIX_MANAGER_INSTALLERS/` (git-ignored) together with `SHA256SUMS`, `BUILD-MANIFEST.txt` and generated `RELEASE_NOTES_<version>.md`.
+
+| Output | File name |
+|---|---|
+| Debian, x86-64 | `mp-mix-manager_<version>_amd64.deb` |
+| Debian, arm64 | `mp-mix-manager_<version>_arm64.deb` |
+| Portable, x86-64 | `MP_Mix_Manager-<version>-linux-x86_64.tar.gz` |
+| Portable, arm64 | `MP_Mix_Manager-<version>-linux-arm64.tar.gz` |
+| RPM (needs `rpmbuild`) | `mp-mix-manager-<version>.x86_64.rpm` / `.aarch64.rpm` |
+
+Packages install `/opt/mp-mix-manager`, add `mp-mix-manager`, `mp-mix-manager-gui`, `mp-liquid-player`, `mp-audio-player`, `mp-visualizer` and `mp-alarm` to `PATH`, and register desktop entries with icons. `config.env` is never shipped, and the build refuses to place a foreign-architecture ELF binary into an arm64 package unless `--allow-native-binaries` is given.
 
 ---
 

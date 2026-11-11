@@ -1,6 +1,7 @@
 #!/bin/bash
 
 CLI_THEME=""
+CLI_EXPORT=""
 POSITIONAL_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -10,6 +11,14 @@ while [ $# -gt 0 ]; do
             ;;
         --theme|-t)
             CLI_THEME="${2:-}"
+            shift 2 2>/dev/null || shift
+            ;;
+        --export=*)
+            CLI_EXPORT="${1#*=}"
+            shift
+            ;;
+        --export|-x)
+            CLI_EXPORT="${2:-}"
             shift 2 2>/dev/null || shift
             ;;
         *)
@@ -415,6 +424,18 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 [ -f "$SCRIPT_DIR/MP_Audio_Player.py" ] && REPO_DIR="$SCRIPT_DIR"
 
+# Exports always land in the MP Mix Manager folder the user is running from.
+if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then
+    PROGRAM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    PROGRAM_DIR="$SCRIPT_DIR"
+fi
+TRACKLIST_EXPORT_DIR="${MP_TRACKLIST_EXPORT_DIR:-TRACKLIST_EXPORTS}"
+case "$TRACKLIST_EXPORT_DIR" in
+    /*) TRACKLIST_EXPORT_PATH="$TRACKLIST_EXPORT_DIR" ;;
+    *)  TRACKLIST_EXPORT_PATH="$PROGRAM_DIR/$TRACKLIST_EXPORT_DIR" ;;
+esac
+
 if [ -z "$TARGET_FILE" ] || [ ! -f "$TARGET_FILE" ]; then
     clear
     echo -e "${RED}Error: Tracklist file not provided or does not exist!${NC}"
@@ -432,6 +453,181 @@ elif [ "$(uname -s)" = "Darwin" ]; then
 elif [ "$(uname -s)" = "FreeBSD" ]; then
     HOST_DESC="FreeBSD $(uname -r)"
 fi
+
+TRACKLIST_VIEW_OFFSET=0
+TRACKLIST_TOTAL_LINES=0
+TRACKLIST_PAGE_ROWS=20
+TRACKLIST_LAST_STATUS=""
+
+# Mouse wheel scrolling. Shift+drag still selects text in the terminal.
+_MOUSE_WHEEL_ON=0
+_enable_mouse_wheel() {
+    [ -t 0 ] && [ -t 1 ] || return 0
+    printf '\033[?1000h\033[?1006h' 2>/dev/null || true
+    _MOUSE_WHEEL_ON=1
+}
+
+_disable_mouse_wheel() {
+    [ "$_MOUSE_WHEEL_ON" = "1" ] || return 0
+    printf '\033[?1006l\033[?1000l' 2>/dev/null || true
+    _MOUSE_WHEEL_ON=0
+}
+
+# Full-screen page: the viewer owns the terminal, so the first line is always line 1.
+_enter_viewer_screen() {
+    [ -t 1 ] || return 0
+    printf '\033[?1049h\033[H\033[2J' 2>/dev/null || true
+}
+
+_leave_viewer_screen() {
+    _disable_mouse_wheel
+    [ -t 1 ] || return 0
+    printf '\033[?1049l' 2>/dev/null || true
+}
+
+_cleanup_viewer() {
+    _leave_viewer_screen
+}
+
+_VIEWER_NEEDS_REDRAW=0
+_redraw_on_resize() {
+    _VIEWER_NEEDS_REDRAW=1
+}
+
+trap '_cleanup_viewer' EXIT INT TERM
+trap '_redraw_on_resize' WINCH
+
+read_viewer_key() {
+    local timeout="${1:-1}"
+    VIEWER_KEY=""
+    if ! read -r -s -n 1 -t "$timeout" VIEWER_KEY; then
+        return 1
+    fi
+    [ "$VIEWER_KEY" = $'\e' ] || return 0
+
+    # ESC begins a sequence: CSI (arrows, PgUp/PgDn, Home/End, SGR mouse) or X10 mouse.
+    local next="" guard=0
+    while [ "$guard" -lt 32 ] && read -r -s -n 1 -t 0.05 next; do
+        VIEWER_KEY="$VIEWER_KEY$next"
+        guard=$((guard + 1))
+        case "$VIEWER_KEY" in
+            $'\e[M'*)
+                # X10 mouse report carries exactly three more bytes.
+                while [ "${#VIEWER_KEY}" -lt 6 ] && read -r -s -n 1 -t 0.05 next; do
+                    VIEWER_KEY="$VIEWER_KEY$next"
+                done
+                break
+                ;;
+            $'\e['*M|$'\e['*m|$'\e['*'~'|$'\e['*[A-Za-z])
+                break
+                ;;
+            $'\e'*[A-Za-z])
+                break
+                ;;
+        esac
+    done
+    return 0
+}
+
+_terminal_rows() {
+    local rows=""
+    if command -v tput >/dev/null 2>&1; then
+        rows=$(tput lines 2>/dev/null || true)
+    fi
+    if ! [[ "$rows" =~ ^[0-9]+$ ]] || [ "$rows" -lt 10 ]; then
+        rows="${LINES:-0}"
+    fi
+    if ! [[ "$rows" =~ ^[0-9]+$ ]] || [ "$rows" -lt 10 ]; then
+        rows=35
+    fi
+    echo "$rows"
+}
+
+_terminal_columns() {
+    local cols=""
+    if command -v tput >/dev/null 2>&1; then
+        cols=$(tput cols 2>/dev/null || true)
+    fi
+    if ! [[ "$cols" =~ ^[0-9]+$ ]] || [ "$cols" -lt 40 ]; then
+        cols="${COLUMNS:-0}"
+    fi
+    if ! [[ "$cols" =~ ^[0-9]+$ ]] || [ "$cols" -lt 40 ]; then
+        cols=100
+    fi
+    echo "$cols"
+}
+
+_tracklist_line_count() {
+    local count
+    count=$(wc -l < "$TARGET_FILE" 2>/dev/null || echo 0)
+    count="${count//[^0-9]/}"
+    [ -z "$count" ] && count=0
+    # A file without a trailing newline still holds one more line.
+    if [ -s "$TARGET_FILE" ] && [ -n "$(tail -c 1 "$TARGET_FILE" 2>/dev/null)" ]; then
+        count=$((count + 1))
+    fi
+    echo "$count"
+}
+
+clamp_view_offset() {
+    local max_offset=$((TRACKLIST_TOTAL_LINES - TRACKLIST_PAGE_ROWS))
+    [ "$max_offset" -lt 0 ] && max_offset=0
+    if [ "$TRACKLIST_VIEW_OFFSET" -gt "$max_offset" ]; then
+        TRACKLIST_VIEW_OFFSET="$max_offset"
+    fi
+    if [ "$TRACKLIST_VIEW_OFFSET" -lt 0 ]; then
+        TRACKLIST_VIEW_OFFSET=0
+    fi
+}
+
+scroll_view() {
+    local delta="$1"
+    TRACKLIST_VIEW_OFFSET=$((TRACKLIST_VIEW_OFFSET + delta))
+    clamp_view_offset
+    render_tracklist
+}
+
+export_tracklist_file() {
+    local fmt="$1"
+    local exporter="$PROGRAM_DIR/scripts/tracklist_export.py"
+    [ ! -f "$exporter" ] && exporter="$PROGRAM_DIR/tracklist_export.py"
+    local out_dir="$TRACKLIST_EXPORT_PATH"
+    mkdir -p "$out_dir" 2>/dev/null || true
+
+    if command -v python3 >/dev/null 2>&1 && [ -f "$exporter" ]; then
+        local saved
+        saved=$(python3 "$exporter" "$TARGET_FILE" --format "$fmt" --base-dir "$PROGRAM_DIR" --output-dir "$out_dir" 2>/dev/null)
+        if [ -n "$saved" ] && [ -f "$saved" ]; then
+            echo "$saved"
+            return 0
+        fi
+    fi
+
+    # Fallback: save the tracklist as-is so the export never silently fails.
+    local base dest
+    base="$(basename "$TARGET_FILE")"
+    base="${base%.*}"
+    if [ "$fmt" = "text" ]; then
+        dest="$out_dir/${base}.txt"
+    else
+        dest="$out_dir/${base}.html"
+    fi
+    mkdir -p "$out_dir" 2>/dev/null || return 1
+    if [ "$fmt" = "text" ]; then
+        cp -f "$TARGET_FILE" "$dest" 2>/dev/null || return 1
+    else
+        {
+            printf '%s\n' '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+            printf '<title>%s • MP Mix Manager Tracklist</title>\n' "$base"
+            printf '%s\n' '<style>body{background:#04060f;color:#e8f6ff;font-family:monospace;padding:2rem;}pre{white-space:pre-wrap;}</style>'
+            printf '</head><body><h1>%s</h1><pre>\n' "$base"
+            sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$TARGET_FILE"
+            printf '%s\n' '</pre></body></html>'
+        } > "$dest" 2>/dev/null || return 1
+    fi
+    echo "$dest"
+    return 0
+}
 
 copy_tracklist_clipboard() {
     local text
@@ -746,24 +942,103 @@ extract_and_copy_mix_audio() {
 
 render_tracklist() {
     load_tracklist_theme
+    TRACKLIST_TOTAL_LINES="$(_tracklist_line_count)"
+
+    local term_rows term_cols
+    term_rows="$(_terminal_rows)"
+    term_cols="$(_terminal_columns)"
+    [ "$term_cols" -gt 160 ] && term_cols=160
+
+    # Row budget: 8 header rows (three title/rule rows, four info rows and the
+    # rule under them), the body, the rule under it, the viewport indicator,
+    # the help rows, the closing rule and the status row.
+    local help_rows=4
+    [ "$term_rows" -lt 24 ] && help_rows=2
+    [ "$term_rows" -lt 17 ] && help_rows=0
+    local chrome=$((8 + 1 + 1 + help_rows + 1 + 1))
+    TRACKLIST_PAGE_ROWS=$((term_rows - chrome))
+    [ "$TRACKLIST_PAGE_ROWS" -lt 2 ] && TRACKLIST_PAGE_ROWS=2
+    [ "$TRACKLIST_PAGE_ROWS" -gt 200 ] && TRACKLIST_PAGE_ROWS=200
+    clamp_view_offset
+
+    # Every footer line is truncated to the terminal width so it can never wrap
+    # and push the first tracklist line out of the window.
+    local piped=0
+    [ -t 1 ] || piped=1
+
+    footer_fit() {
+        local text="$1" limit=$((term_cols - 3)) out="" rest
+        [ "$piped" = "1" ] && limit=100000
+        [ "$limit" -lt 20 ] && limit=20
+        if [ "${#text}" -gt "$limit" ]; then text="${text:0:$limit}"; fi
+        rest="$text"
+        while [[ "$rest" =~ ^([^\[]*)(\[[^]]*\]) ]]; do
+            out+="${BASH_REMATCH[1]}${CYAN}${BASH_REMATCH[2]}${NC}"
+            rest="${rest:${#BASH_REMATCH[0]}}"
+        done
+        out+="$rest"
+        printf '  %b\n' "$out"
+    }
+
+    # Header values are clipped the same way so long paths cannot wrap.
+    header_fit() {
+        local text="$1" limit=$((term_cols - 4))
+        [ "$piped" = "1" ] && limit=100000
+        [ "$limit" -lt 20 ] && limit=20
+        if [ "${#text}" -gt "$limit" ]; then text="${text:0:$limit}…"; fi
+        printf '%s\n' "$text"
+    }
+
     clear
     local filename=$(basename "$TARGET_FILE")
-    local total_lines=$(wc -l < "$TARGET_FILE" 2>/dev/null || echo "0")
     local filesize=$(ls -lh "$TARGET_FILE" 2>/dev/null | awk '{print $5}')
+    local first_line=$((TRACKLIST_VIEW_OFFSET + 1))
+    local last_line=$((TRACKLIST_VIEW_OFFSET + TRACKLIST_PAGE_ROWS))
+    [ "$last_line" -gt "$TRACKLIST_TOTAL_LINES" ] && last_line="$TRACKLIST_TOTAL_LINES"
+    [ "$last_line" -lt "$first_line" ] && last_line="$first_line"
+    local body=$(printf '%*s' "$term_cols" '' | tr ' ' '-')
+    local title_line="            🎶 STREAM OF FREQUENCY • DEDICATED CONSOLE TRACKLIST VIEWER 🎶              "
+    if [ "${#title_line}" -gt "$term_cols" ]; then
+        if [ "$term_cols" -ge 44 ]; then
+            title_line="  🎶 STREAM OF FREQUENCY • TRACKLIST VIEWER 🎶"
+        else
+            title_line="  🎶 TRACKLIST VIEWER 🎶"
+        fi
+    fi
 
-    echo -e "${BOLD}${MAGENTA}========================================================================================${NC}"
-    echo -e "${BOLD}${CYAN}            🎶 STREAM OF FREQUENCY • DEDICATED CONSOLE TRACKLIST VIEWER 🎶              ${NC}"
-    echo -e "${BOLD}${MAGENTA}========================================================================================${NC}"
-    echo -e "  • ${BOLD}File:${NC}        ${GREEN}${filename}${NC} ${DIM}(${filesize}, ${total_lines} lines)${NC}"
-    echo -e "  • ${BOLD}Location:${NC}    ${DIM}$(dirname "$TARGET_FILE")${NC}"
+    echo -e "${BOLD}${MAGENTA}${body}${NC}"
+    echo -e "${BOLD}${CYAN}${title_line}${NC}"
+    echo -e "${BOLD}${MAGENTA}${body}${NC}"
+    echo -e "  • ${BOLD}File:${NC}        ${GREEN}$(header_fit "${filename} (${filesize}, ${TRACKLIST_TOTAL_LINES} lines)")${NC}"
+    echo -e "  • ${BOLD}Location:${NC}    ${DIM}$(header_fit "$(dirname "$TARGET_FILE")")${NC}"
     echo -e "  • ${BOLD}Platform:${NC}    ${YELLOW}${HOST_DESC}${NC} ${DIM}(Borderless Console Mode)${NC}"
     echo -e "  • ${BOLD}Theme:${NC}       ${MAGENTA}${THEME_DISPLAY_NAME}${NC} ${DIM}(${CURRENT_THEME})${NC}"
-    echo -e "${BOLD}${MAGENTA}────────────────────────────────────────────────────────────────────────────────────────${NC}\n"
+    echo -e "${BOLD}${MAGENTA}${body}${NC}"
 
-    local in_tracklist=0
-    local track_count=0
-
+    # Only the visible window of the file is drawn, so line 1 can never scroll away.
+    local index=0
+    local drawn=0
+    local offset="$TRACKLIST_VIEW_OFFSET"
+    local line_limit=$((term_cols - 4))
+    [ "$piped" = "1" ] && line_limit=100000
+    [ "$line_limit" -lt 20 ] && line_limit=20
     while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$index" -lt "$offset" ]; then
+            index=$((index + 1))
+            continue
+        fi
+        if [ "$drawn" -ge "$TRACKLIST_PAGE_ROWS" ]; then
+            break
+        fi
+        index=$((index + 1))
+        drawn=$((drawn + 1))
+
+        # Long lines are clipped so no line can wrap onto a second row and
+        # disturb the viewport arithmetic.
+        if [ "${#line}" -gt "$line_limit" ]; then
+            line="${line:0:$line_limit}…"
+        fi
+
         if [[ "$line" =~ ^={10,}$ || "$line" =~ ^-{10,}$ ]]; then
             echo -e "${DIM}${line}${NC}"
         elif [[ "$line" =~ (RELEASE\ INFO|TRACKLIST|SOURCE\ MANIFEST|SOURCE\ FILES) ]]; then
@@ -771,11 +1046,13 @@ render_tracklist() {
         elif [[ "$line" =~ ^([A-Za-z0-9\ ]+):([[:space:]]+)(.*)$ ]]; then
             local key="${BASH_REMATCH[1]}"
             local val="${BASH_REMATCH[3]}"
+            local key_limit=$((line_limit - ${#key} - 4))
+            if [ "$key_limit" -lt 10 ]; then key_limit=10; fi
+            if [ "${#val}" -gt "$key_limit" ]; then val="${val:0:$key_limit}…"; fi
             echo -e "  ${BOLD}${BLUE}${key}:${NC} ${WHITE}${val}${NC}"
         elif [[ "$line" =~ ^([0-9]{1,3})[\.\)][[:space:]]+(.*)$ ]]; then
             local num="${BASH_REMATCH[1]}"
             local rest="${BASH_REMATCH[2]}"
-            ((track_count++))
             if [[ "$rest" =~ ^([^-]+)[[:space:]]-[[:space:]](.+)$ ]]; then
                 local artist="${BASH_REMATCH[1]}"
                 local title="${BASH_REMATCH[2]}"
@@ -797,63 +1074,148 @@ render_tracklist() {
         fi
     done < "$TARGET_FILE"
 
-    echo ""
-    echo -e "${BOLD}${MAGENTA}========================================================================================${NC}"
-    if [ "$track_count" -gt 0 ]; then
-        echo -e "  ${BOLD}${GREEN}✓ Total Tracks Parsed:${NC} ${BOLD}${WHITE}${track_count}${NC}"
+    local padding=$((TRACKLIST_PAGE_ROWS - drawn))
+    local p
+    for ((p = 0; p < padding; p++)); do echo ""; done
+
+    echo -e "${BOLD}${MAGENTA}${body}${NC}"
+    if [ "$TRACKLIST_VIEW_OFFSET" -gt 0 ] || [ "$last_line" -lt "$TRACKLIST_TOTAL_LINES" ]; then
+        footer_fit "Lines ${first_line}-${last_line} of ${TRACKLIST_TOTAL_LINES} • ${TRACKLIST_PAGE_ROWS} rows/page"
+    else
+        footer_fit "Lines 1-${last_line} of ${TRACKLIST_TOTAL_LINES} • all visible"
     fi
-    echo -e "  ${BOLD}${CYAN}[Q]${NC} Close Window    ${BOLD}${CYAN}[C]${NC} Copy to Clipboard    ${BOLD}${CYAN}[S]${NC} Full Scroll Mode (less)    ${BOLD}${CYAN}[R]${NC} Reload"
-    echo -e "  ${BOLD}${CYAN}[E]${NC} Edit Tracklist in VI    ${BOLD}${CYAN}[G]${NC} Generate & Open Spek    ${BOLD}${CYAN}[D]${NC} Extract & Copy Mix Audio    ${BOLD}${CYAN}[T]${NC} Theme"
-    echo -e "${BOLD}${MAGENTA}========================================================================================${NC}"
+    if [ "$help_rows" -ge 2 ]; then
+        footer_fit "[↑/↓] Scroll  [PgUp/PgDn] Page  [Home/End] Jump  [Wheel] Scroll  [R] Reload"
+        footer_fit "[Q] Close Window  [C] Copy to Clipboard  [S] Full Scroll Mode (less)  [T] Theme"
+    fi
+    if [ "$help_rows" -ge 4 ]; then
+        footer_fit "[E] Edit Tracklist in VI  [G] Generate & Open Spek  [D] Extract & Copy Mix Audio"
+        footer_fit "[X] Export HTML  [Y] Export TEXT  (saved to ${TRACKLIST_EXPORT_PATH}/)"
+    fi
+    echo -e "${BOLD}${MAGENTA}${body}${NC}"
+    if [ -n "$TRACKLIST_LAST_STATUS" ]; then
+        echo -e "  ${TRACKLIST_LAST_STATUS}"
+    else
+        echo ""
+    fi
 }
 
+if [ -t 1 ]; then
+    _enter_viewer_screen
+fi
+
+# --export html|text writes the file and exits without opening the viewer.
+if [ -n "$CLI_EXPORT" ]; then
+    if saved_path=$(export_tracklist_file "$CLI_EXPORT"); then
+        echo "✔ Tracklist exported (${CLI_EXPORT}): ${saved_path}"
+        exit 0
+    fi
+    echo "✖ Tracklist export failed (${CLI_EXPORT})." >&2
+    exit 1
+fi
+
+_enable_mouse_wheel
 render_tracklist
 
 while true; do
+    if [ "$_VIEWER_NEEDS_REDRAW" = "1" ]; then
+        _VIEWER_NEEDS_REDRAW=0
+        render_tracklist
+    fi
     if [ -t 0 ]; then
-        key=""
-        if ! read -r -s -n 1 -t 1 key; then
+        if ! read_viewer_key 1; then
             _cur_file_th="$(_read_saved_theme_file)"
             if [ -n "$_cur_file_th" ] && [ "$_cur_file_th" != "$_LAST_SEEN_FILE_THEME" ]; then
                 render_tracklist
             fi
             continue
         fi
+        key="$VIEWER_KEY"
     elif ! read -r -s -n 1 key; then
         sleep 3600
         exit 0
     fi
 
+    # Mouse wheel reports: SGR (ESC [ < b ; x ; y M) and X10 (ESC [ M cb cx cy).
     case "$key" in
-        [qQ]|$'\e')
+        $'\e[<64;'*|$'\e[M\x60'*)
+            TRACKLIST_LAST_STATUS=""
+            scroll_view -3
+            continue
+            ;;
+        $'\e[<65;'*|$'\e[M\x61'*)
+            TRACKLIST_LAST_STATUS=""
+            scroll_view 3
+            continue
+            ;;
+        $'\e[<'*|$'\e[M'*)
+            continue
+            ;;
+    esac
+
+    case "$key" in
+        [qQ])
             exit 0
+            ;;
+        $'\e')
+            exit 0
+            ;;
+        $'\e[A'|$'\eOA')
+            TRACKLIST_LAST_STATUS=""
+            scroll_view -1
+            ;;
+        $'\e[B'|$'\eOB')
+            TRACKLIST_LAST_STATUS=""
+            scroll_view 1
+            ;;
+        $'\e[5~')
+            TRACKLIST_LAST_STATUS=""
+            scroll_view -"$TRACKLIST_PAGE_ROWS"
+            ;;
+        $'\e[6~'|" ")
+            TRACKLIST_LAST_STATUS=""
+            scroll_view "$TRACKLIST_PAGE_ROWS"
+            ;;
+        $'\e[H'|$'\e[1~'|$'\e[7~'|$'\eOH')
+            TRACKLIST_LAST_STATUS=""
+            TRACKLIST_VIEW_OFFSET=0
+            render_tracklist
+            ;;
+        $'\e[F'|$'\e[4~'|$'\e[8~'|$'\eOF')
+            TRACKLIST_LAST_STATUS=""
+            TRACKLIST_VIEW_OFFSET=$((TRACKLIST_TOTAL_LINES - TRACKLIST_PAGE_ROWS))
+            clamp_view_offset
+            render_tracklist
             ;;
         [cC])
             if copy_tracklist_clipboard; then
-                render_tracklist
-                echo -e "\n  ${BOLD}${GREEN}✓ Tracklist copied to system clipboard!${NC}"
+                TRACKLIST_LAST_STATUS="${BOLD}${GREEN}✓ Tracklist copied to system clipboard!${NC}"
             else
-                echo -e "\n  ${YELLOW}Notice: No clipboard utility found.${NC}"
+                TRACKLIST_LAST_STATUS="${YELLOW}Notice: No clipboard utility found.${NC}"
             fi
+            render_tracklist
             ;;
         [rR])
+            TRACKLIST_LAST_STATUS="${BOLD}${CYAN}✓ Tracklist reloaded from disk.${NC}"
             render_tracklist
-            echo -e "\n  ${BOLD}${CYAN}✓ Tracklist reloaded from disk.${NC}"
             ;;
         [sS])
             if command -v less >/dev/null 2>&1; then
                 less -RFX "$TARGET_FILE"
                 render_tracklist
+            else
+                TRACKLIST_LAST_STATUS="${YELLOW}Notice: 'less' is not installed. Use ↑/↓ to scroll instead.${NC}"
+                render_tracklist
             fi
             ;;
         [eE])
             if edit_tracklist_vi; then
-                render_tracklist
-                echo -e "\n  ${BOLD}${GREEN}✓ Tracklist edited in VI and reloaded from disk.${NC}"
+                TRACKLIST_LAST_STATUS="${BOLD}${GREEN}✓ Tracklist edited in VI and reloaded from disk.${NC}"
             else
-                render_tracklist
-                echo -e "\n  ${YELLOW}Notice: VI editor not found.${NC}"
+                TRACKLIST_LAST_STATUS="${YELLOW}Notice: VI editor not found.${NC}"
             fi
+            TRACKLIST_VIEW_OFFSET=0
+            render_tracklist
             ;;
         [gG])
             generate_or_open_spek
@@ -861,10 +1223,26 @@ while true; do
         [dD])
             extract_and_copy_mix_audio
             ;;
+        [xX])
+            if saved_path=$(export_tracklist_file html); then
+                TRACKLIST_LAST_STATUS="${BOLD}${GREEN}✓ Tracklist exported (HTML): ${saved_path}${NC}"
+            else
+                TRACKLIST_LAST_STATUS="${BOLD}${RED}✗ HTML export failed (could not write to ${TRACKLIST_EXPORT_PATH}).${NC}"
+            fi
+            render_tracklist
+            ;;
+        [yY])
+            if saved_path=$(export_tracklist_file text); then
+                TRACKLIST_LAST_STATUS="${BOLD}${GREEN}✓ Tracklist exported (TEXT): ${saved_path}${NC}"
+            else
+                TRACKLIST_LAST_STATUS="${BOLD}${RED}✗ TEXT export failed (could not write to ${TRACKLIST_EXPORT_PATH}).${NC}"
+            fi
+            render_tracklist
+            ;;
         [tT])
             cycle_tracklist_theme
+            TRACKLIST_LAST_STATUS="${BOLD}${GREEN}✓ Theme switched to: ${THEME_DISPLAY_NAME} (${CURRENT_THEME})${NC}"
             render_tracklist
-            echo -e "\n  ${BOLD}${GREEN}✓ Theme switched to: ${THEME_DISPLAY_NAME} (${CURRENT_THEME})${NC}"
             ;;
     esac
 done
