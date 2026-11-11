@@ -21,8 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Version labels are normalised for packaging: `0.4.2 Stable (Liquid)` becomes `0.4.2`, and pre-release labels use `~` so `0.6.0-rc2` sorts before `0.6.0`.
   - Every artifact is accompanied by `SHA256SUMS`, `BUILD-MANIFEST.txt` and `RELEASE_NOTES_<version>.md` in `MP_MIX_MANAGER_INSTALLERS/`.
   - Covered by `tests/test_package_dev_utility.py` (`.deb` structure/metadata, arm64 output, relocatable bundles, checksum verification, dry-run safety, foreign-ELF rejection).
+- **Tracklist Viewer HTML & TEXT export** (`scripts/tracklist_export.py`, `scripts/view_tracklist_console.sh`, `MP_Audio_Player.py`, `tests/test_tracklist_viewer_scroll_export.py`):
+  - Press **X** in the tracklist viewer to export the tracklist as a styled HTML document, or **Y** for a plain TEXT copy.
+  - Both files are written to **`TRACKLIST_EXPORTS/` inside the MP Mix Manager program folder** the user launched, so they are always easy to find. `TRACKLIST_EXPORTS/` is git-ignored.
+  - **Y** saves the pristine `.txt` tracklist; **X** writes a self-contained dark/glass-themed HTML page with a track table, remix highlighting, print styles and HTML-escaped user content.
+  - Headless use is supported: `view_tracklist_console.sh --export html|text <tracklist>` and `MP_Audio_Player.py --tracklist-export html|text`.
 
 ### Fixed
+- **Tracklist Viewer did not start at the top and could not be scrolled** (`scripts/view_tracklist_console.sh`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `tests/test_tracklist_viewer_scroll_export.py`):
+  - The viewer printed the entire tracklist and then `clear`'d, so anything taller than the window left the first entries scrolled off the top.
+  - It now draws a fixed viewport sized to the terminal: the header, exactly as many tracklist rows as fit, and a footer. Line 1 is always the first thing rendered.
+  - Scrolling added: **↑/↓** one line, **PgUp/PgDn** and **Space** one page, **Home/End** to jump, and the **mouse wheel**. `R` reloads, and the view clamps at both ends.
+  - Added `WINCH` handling so resizing the window recomputes the viewport, and the active theme keeps updating.
+  - Long lines, header values and footer rows are clipped to the terminal width so wrapped lines can no longer disturb the viewport. Piped output is left unclipped.
+  - The Liquid Glass hosts used to disable the VTE scrollback buffer (`set_scrollback_lines(0)`), which dropped wheel/scrollbar events. Tracklist mode now keeps a scrollback buffer so wheel input reaches the viewer.
+  - The viewer runs on the terminal's alternate screen, so closing it restores the console exactly as it was.
+- **Z did not open the MP Visualizer from MP Gui or MP Liquid Player on Linux** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`):
+  - The Linux default backend is OpenGL (`LIQUID_GLASS_BACKEND=opengl`), and its `_on_key_press` handled only **K**. **Z** fell through to the child terminal, so no visualizer window ever appeared. The OpenGL host now handles **Z** the same way the Vulkan host does.
+  - Added `spawn_new_visualizer()`, which always opens a window. The old auto-start path skipped spawning whenever any visualizer process existed, so **Z** did nothing after the window had been closed by hand.
+  - The macOS host gained the same `spawn_new_visualizer()` so the three hosts match.
 - **Menu and player navigation bar followed the dark preset instead of the theme** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_menu_number_theme_color.py`, `tests/test_playlist_theme_highlight.py`):
   - The selected row in the Mix Archive Manager / MP Gui menus emitted the theme fill and then a `1;37;40m` foreground, which carries its own black background. The foreground overwrote the fill, so the navigation bar stayed black in every theme. The foreground is now colour-only, and the fill keeps the theme hue while the idle breathing animation dims it.
   - Row text picks black or white from the theme hue's luminance, so light palettes (Stream of Frequency, Phosphor, Solarized, Emerald, Retro Linux Memories) stay readable instead of drawing white on yellow.
@@ -34,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The skip message now names the exact keys that are missing instead of listing all four.
   - Host, user, and password fall back to `MUSIC_SMB_HOST` / `MUSIC_SMB_USER` / `MUSIC_SMB_PASSWORD` / `SMB_DEFAULT_HOST` when the Traktor-specific keys are empty.
   - Traktor Top 5 Tracks config screen (option 5) gained rows 7-11 for the history sync host, share, user, password (hidden input), and history folder.
+
+### Changed
+- **MP Liquid Visualizer Z key is now a three-step window cycle** (`scripts/mp_liquid_visualizer_vulkan.py`):
+  - The first Z press still enters borderless fullscreen.
+  - The second Z press leaves fullscreen at **half the default window size**, centred on the default window's position.
+  - The third Z press restores the **default window size**. Further presses repeat the cycle.
+  - Once a windowed size has been chosen with Z, moving the window to another monitor no longer forces it back to fullscreen on a 4K display, and the player-bonding code no longer resizes the window back to the player.
+  - Double-click still toggles plain fullscreen.
+  - The cycle lives in `cycle_window_mode()`; `toggle_fullscreen()` remains for `--fullscreen`, `--4k`, the screen saver, and double-click.
+
 
 ---
 

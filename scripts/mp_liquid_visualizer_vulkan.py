@@ -22,6 +22,9 @@ CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 WINDOW_WIDTH = WINDOW_HEIGHT = 700
 RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT = 1920, 1080
 FOUR_K_MIN_WIDTH, FOUR_K_MIN_HEIGHT = 3840, 2160
+MIN_WINDOW_SIDE = 64
+# Z cycles the window through these modes: default -> fullscreen -> half -> default.
+WINDOW_MODE_FULLSCREEN, WINDOW_MODE_HALF, WINDOW_MODE_DEFAULT = "fullscreen", "half", "default"
 
 _BC = "https://mplanetarian.bandcamp.com"
 _DEF = Path("/run/media/mplanetarian/EXT_004_P1_1TB/defasten")
@@ -558,6 +561,17 @@ class LiquidVisualizerVulkanRenderer:
         self._player_bonded_at = 0.0
         self._unbonded_window_pos = None
         self._last_player_geometry = None
+        half_side_w = max(MIN_WINDOW_SIDE, int(self._windowed_size[0]) // 2)
+        half_side_h = max(MIN_WINDOW_SIDE, int(self._windowed_size[1]) // 2)
+        self._default_windowed_size = tuple(self._windowed_size)
+        self._default_windowed_offset = tuple(self._windowed_offset)
+        self._half_windowed_size = (half_side_w, half_side_h)
+        self._half_windowed_offset = (
+            int(self._windowed_offset[0]) + (self._windowed_size[0] - half_side_w) // 2,
+            int(self._windowed_offset[1]) + (self._windowed_size[1] - half_side_h) // 2,
+        )
+        self._user_selected_window_mode = False
+        self.window_mode = WINDOW_MODE_FULLSCREEN if self.fullscreen_on_start else WINDOW_MODE_DEFAULT
         self.width, self.height = self._windowed_size
         self._cur_pos = self._saved_window_pos = self._windowed_offset
         self._images, self._views, self._framebuffers, self._image_available, self._render_finished, self._fences, self._cmd = [], [], [], [], [], [], []
@@ -674,6 +688,9 @@ class LiquidVisualizerVulkanRenderer:
             )
         state = read_player_visualizer_state()
         bonded = bool(state.get("active"))
+        # An explicit Z choice owns the window; do not bond it back to the player.
+        if getattr(self, "_user_selected_window_mode", False):
+            return
         if bonded and self.is_fullscreen:
             self.toggle_fullscreen()
         if self.is_fullscreen:
@@ -910,7 +927,8 @@ class LiquidVisualizerVulkanRenderer:
         elif key == GLFW_KEY_Q:
             if not self._player_bonded: self.request_close()
         elif key == GLFW_KEY_Z:
-            self._toggle_fullscreen_for_user()
+            # Z cycles: fullscreen -> half size -> default size.
+            self._cycle_window_mode_for_user()
         elif key == 75 and (_mods & 1):
             if _IS_WIN:
                 subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
@@ -1024,7 +1042,7 @@ class LiquidVisualizerVulkanRenderer:
         return self.is_fullscreen
 
     def _toggle_fullscreen_for_user(self) -> bool:
-        """Fullscreen toggle shared by the Z key and a window double-click.
+        """Fullscreen toggle shared by a window double-click.
 
         While the visualizer is bonded behind the Liquid Player the window is
         owned by the player, so there is nothing to toggle.
@@ -1032,6 +1050,66 @@ class LiquidVisualizerVulkanRenderer:
         if self._player_bonded:
             return self.is_fullscreen
         return self.toggle_fullscreen()
+
+    def _cycle_window_mode_for_user(self) -> str:
+        """The Z key cycle: default -> fullscreen -> half -> default.
+
+        While the visualizer is bonded behind the Liquid Player the window is
+        owned by the player, so there is nothing to cycle.
+        """
+        if self._player_bonded:
+            return self.window_mode
+        return self.cycle_window_mode()
+
+    def cycle_window_mode(self) -> str:
+        """Advance the window cycle: default -> fullscreen -> half -> default."""
+        if self.is_fullscreen or self.window_mode == WINDOW_MODE_FULLSCREEN:
+            self._user_selected_window_mode = True
+            self._set_windowed_size(self._half_windowed_size[0], self._half_windowed_size[1])
+            self.window_mode = WINDOW_MODE_HALF
+            self._leave_fullscreen_at(self._half_windowed_size, self._half_windowed_offset)
+        elif self.window_mode == WINDOW_MODE_HALF:
+            default_size, default_offset = self._default_windowed_size, self._default_windowed_offset
+            self._user_selected_window_mode = True
+            self._set_windowed_size(default_size[0], default_size[1])
+            self.window_mode = WINDOW_MODE_DEFAULT
+            self._leave_fullscreen_at(default_size, default_offset)
+        else:
+            self.window_mode = WINDOW_MODE_FULLSCREEN
+            self._user_selected_window_mode = True
+            self.toggle_fullscreen()          # enters fullscreen
+        return self.window_mode
+
+    def _leave_fullscreen_at(self, size: Tuple[int, int], offset: Tuple[int, int]) -> None:
+        """Leave fullscreen (if needed) and place the borderless window at size/offset."""
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        width, height = int(size[0]), int(size[1])
+        x, y = int(offset[0]), int(offset[1])
+        if g and w:
+            if self.is_fullscreen:
+                self._leave_fullscreen()
+            try: g.glfwSetWindowSizeLimits(w, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE, GLFW_DONT_CARE)
+            except Exception: pass
+            g.glfwSetWindowMonitor(w, None, x, y, width, height, 0)
+            g.glfwSetWindowSize(w, width, height)
+            g.glfwSetWindowPos(w, x, y)
+            try: g.glfwSetWindowSizeLimits(w, width, height, width, height)
+            except Exception: pass
+        self.is_fullscreen = False
+        self._user_toggled_windowed = True
+        self.width, self.height = width, height
+        self._cur_pos = self._saved_window_pos = (x, y)
+        self._resize = True
+
+    def _leave_fullscreen(self) -> None:
+        """Drop GLFW fullscreen attributes without resizing the window."""
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if not g or not w:
+            return
+        if hasattr(g, "glfwSetWindowAttrib"):
+            try: g.glfwSetWindowAttrib(w, GLFW_FLOATING, GLFW_FALSE)
+            except Exception: pass
+        self._is_4k_cached = self.is_4k_display()
 
     def _screen_pointer(self) -> Tuple[int, int]:
         rx, ry = self.root_pointer()
@@ -1086,7 +1164,9 @@ class LiquidVisualizerVulkanRenderer:
         if cm != getattr(self, "_last_monitor", None):
             self._last_monitor = cm
             self._is_4k_cached = self.is_4k_display(cm)
-            if self._is_4k_cached: self._user_toggled_windowed = False
+            # An explicit Z choice (half/default) must survive a monitor change.
+            if self._is_4k_cached and not self._user_selected_window_mode:
+                self._user_toggled_windowed = False
 
     def root_pointer(self) -> Tuple[int, int]:
         if _IS_WIN:
@@ -1148,13 +1228,15 @@ class LiquidVisualizerVulkanRenderer:
         if g.glfwWindowShouldClose(w): self.should_close = True
         self._sync_player_bond()
         if not self.is_fullscreen:
-            self._match_player_window(wait=False)
+            if not getattr(self, "_user_selected_window_mode", False):
+                self._match_player_window(wait=False)
             if self._is_4k_cached and not getattr(self, "_user_toggled_windowed", False):
                 self.toggle_fullscreen()
             else:
                 ww, wh = c_int(), c_int()
                 g.glfwGetWindowSize(w, byref(ww), byref(wh))
-                locked_w, locked_h = self._windowed_size
+                locked = self._half_windowed_size if self.window_mode == WINDOW_MODE_HALF else self._default_windowed_size
+                locked_w, locked_h = locked
                 if (ww.value, wh.value) != (locked_w, locked_h):
                     g.glfwSetWindowSize(w, locked_w, locked_h)
                     self._resize = True

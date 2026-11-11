@@ -400,7 +400,7 @@ def spawn_new_visualizer() -> bool:
     way ensure_random_visualizer_started does.
     """
     try:
-        import shutil, subprocess
+        import subprocess
         root = Path(__file__).resolve().parent
         vis_script = next((p for p in (root / "MP_Liquid_Visualizer.py", root / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
         if not vis_script:
