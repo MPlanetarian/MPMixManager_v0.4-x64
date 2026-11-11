@@ -86,6 +86,24 @@ def preferred_window_edge() -> int:
     """Square window edge where the visualizer is not matched to the Liquid Player."""
     return WINDOW_WIDTH
 
+
+def _vr_visualizer_side() -> Optional[int]:
+    """Square backdrop size set by scripts/bigscreen_vr.py for VR Mode."""
+    if os.environ.get("MP_VR_LAYOUT") != "1":
+        return None
+    try:
+        side = int(os.environ.get("MP_VR_VISUALIZER_SIZE", "0"))
+    except (TypeError, ValueError):
+        return None
+    return side if side >= 64 else None
+
+
+def _vr_visualizer_offset() -> Tuple[int, int]:
+    try:
+        return int(os.environ["MP_VR_VISUALIZER_X"]), int(os.environ["MP_VR_VISUALIZER_Y"])
+    except (KeyError, TypeError, ValueError):
+        return (0, 0)
+
 def is_windows() -> bool: return _IS_WIN
 def is_windows_10_or_11() -> bool: return _IS_WIN and getattr(sys.getwindowsversion(), "major", 10) >= 10 if hasattr(sys, "getwindowsversion") else _IS_WIN
 def is_macos() -> bool: return _IS_MAC
@@ -507,7 +525,12 @@ class LiquidVisualizerVulkanRenderer:
         self._drag_origin = self._drag_press_screen = (0, 0)
         self._last_click_at = 0.0
         self._last_click_pos: Optional[Tuple[int, int]] = None
-        if _IS_MAC:
+        vr_side = _vr_visualizer_side()
+        if vr_side:
+            # VR Mode: one large square centered behind the MP Liquid Player.
+            self._windowed_size = (int(vr_side), int(vr_side))
+            self._windowed_offset = _vr_visualizer_offset()
+        elif _IS_MAC:
             try:
                 from liquid_player_visualizer import macos_liquid_player_window_size
             except ImportError:
@@ -581,6 +604,9 @@ class LiquidVisualizerVulkanRenderer:
 
     def _match_player_window(self, wait: bool = False) -> None:
         """Use the fitted player window, or the MP Gui window when MP Gui started this visualizer."""
+        if _vr_visualizer_side():
+            # VR Mode: the backdrop keeps its own square. It must not adopt the player's size.
+            return
         if not wait:
             now = time.monotonic()
             if now < getattr(self, "_player_match_at", 0.0):
@@ -628,7 +654,7 @@ class LiquidVisualizerVulkanRenderer:
 
     def _sync_player_bond(self) -> None:
         """Keep the standalone visualizer directly behind the Liquid Player."""
-        if not _IS_LINUX:
+        if not _IS_LINUX or _vr_visualizer_side():
             return
         now = time.monotonic()
         if now < self._player_bonded_at:
@@ -841,6 +867,9 @@ class LiquidVisualizerVulkanRenderer:
 
         ox, oy = self._windowed_offset
         ix, iy = window_launch_origin(ox, oy)
+        if _vr_visualizer_side():
+            # VR Mode places the backdrop itself; do not move it to the corner.
+            ix, iy = int(ox), int(oy)
         if getattr(self, "target_4k", False):
             m4k = self._find_4k_monitor()
             if m4k:

@@ -181,6 +181,28 @@ def _mode_grid(mode):
     return COLS, ROWS
 
 
+def _vr_layout_requested() -> bool:
+    """VR Mode set by scripts/bigscreen_vr.py. The player is centered alone."""
+    if os.environ.get("MP_VR_LAYOUT") != "1":
+        return False
+    try:
+        from bigscreen_vr import vr_layout_active
+    except Exception:
+        return True
+    try:
+        return bool(vr_layout_active())
+    except Exception:
+        return True
+
+
+def _vr_player_grid():
+    try:
+        from bigscreen_vr import vr_player_grid
+        return vr_player_grid()
+    except Exception:
+        return COLS, ROWS
+
+
 def _measure_terminal_cell(font_name: str) -> tuple:
     """Pixel size of one VTE cell. The 9×18 guess is only used when VTE has no font yet."""
     if Gtk is None or Vte is None or GLib is None:
@@ -510,6 +532,47 @@ class GlassHost:
         self._last_top_click = 0.0
         self._target_cols, self._target_rows = _mode_grid(self.mode)
         self._last_well = self._last_panel_state = None
+        # VR Mode opens the player alone, centered on the primary desktop.
+        self._vr_layout = _vr_layout_requested()
+        if self._vr_layout:
+            self._target_cols, self._target_rows = _vr_player_grid()
+        self._vr_tick_at = 0.0
+
+    def _vr_publish_ready(self):
+        """Tell the VR launcher this window is placed, so it can start the music."""
+        if not self._vr_layout or self.renderer is None:
+            return
+        try:
+            from bigscreen_vr import publish_player_ready
+            x, y = self.renderer.window_pos()
+            width, height = self.renderer.window_size()
+            publish_player_ready(x, y, width, height)
+        except Exception:
+            pass
+
+    def _vr_tick(self):
+        """Keep the VR player centered and report its placement."""
+        if not self._vr_layout or self.renderer is None:
+            return
+        now = time.monotonic()
+        if now < self._vr_tick_at:
+            return
+        self._vr_tick_at = now + 0.25
+        try:
+            from bigscreen_vr import center_player_on_screen
+            width, height = self.renderer.window_size()
+            point = center_player_on_screen(width, height)
+            current = self.renderer.window_pos()
+            if abs(int(current[0]) - point[0]) > 2 or abs(int(current[1]) - point[1]) > 2:
+                self.renderer.set_window_pos(point[0], point[1])
+        except Exception:
+            pass
+        self._vr_publish_ready()
+
+    def _vr_place_and_publish(self):
+        """Center the window once and publish the ready report immediately."""
+        self._vr_tick_at = 0.0
+        self._vr_tick()
 
     def _dims(self):
         if self.terminal is not None:
@@ -669,6 +732,10 @@ class GlassHost:
         # M stays with the player. Search uses it as a letter. A real mode change is published back.
         if kv == Gdk.KEY_K or (kv == Gdk.KEY_k and bool(getattr(event, "state", 0) & Gdk.ModifierType.SHIFT_MASK)):
             subprocess.run('pkill -9 -f "MP_Audio_Player"', shell=True)
+            return True
+        # Z opens a new MP Liquid Visualizer window, matching the Vulkan host.
+        if kv in (Gdk.KEY_z, Gdk.KEY_Z):
+            spawn_new_visualizer()
             return True
         return False
 
@@ -865,6 +932,7 @@ class GlassHost:
         down = dragging = False
         origin, press_screen, theme, theme_at = self.renderer.window_pos(), (0, 0), read_player_theme(), 0.0
         scroll_at = 0.0
+        self._vr_place_and_publish()
         try:
             while not self.renderer.should_close and proc.poll() is None:
                 now = time.monotonic()
@@ -876,6 +944,7 @@ class GlassHost:
                     theme, theme_at = read_player_theme(), now
                 self._follow_child_ui_size()
                 self._sync_panels()
+                self._vr_tick()
                 self._pump_windows_drag()
                 self.renderer.draw(theme)
                 down, dragging, origin, press_screen = self._track_drag(down, dragging, origin, press_screen)
@@ -931,6 +1000,7 @@ class GlassHost:
             raise RuntimeError("VTE window has no X11 id to place in the glass")
         self._place_terminal(force=True)
         self.renderer.focus_window(self.child_xid)
+        self._vr_place_and_publish()
         term.add_events(
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
@@ -1147,6 +1217,26 @@ class GlassHost:
         renderer, self.renderer = self.renderer, None
         if renderer is not None:
             renderer.close()
+
+
+def spawn_new_visualizer() -> bool:
+    """Open a new MP Liquid Visualizer window. Pressing Z must always show one.
+
+    Unlike ensure_random_visualizer_started this never consults the running
+    processes: the window may have been closed by hand, in which case Z has
+    to bring it back.
+    """
+    try:
+        vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
+        if not vis_script:
+            return False
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
+        with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+        return True
+    except Exception:
+        return False
 
 
 def ensure_random_visualizer_started() -> bool:
