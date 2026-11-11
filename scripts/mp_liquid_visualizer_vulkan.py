@@ -45,7 +45,7 @@ VISUALIZER_PRESETS: List[Dict[str, Any]] = [
                "cosmic_dreamworlds_cover.jpg", "Cosmic_Dreamworlds_Liquid_Preset.png", url=f"{_BC}/album/mplanetarian-cosmic-dreamworlds-deluxe-edition"),
     _mk_preset(1, "orbital_void_reflux", "Orbital Void Reflux", "MPlanetarian - Orbital Void Reflux",
                "orbital_void_reflux_cover.png", "Orbital_Void_Reflux_Preset.png", _HOME / "Desktop/Cover_WMI_V2.png"),
-    _mk_preset(2, "dreamworlds_ultra_defasten", "Dreamworlds Ultra (Defasten Biomech)", "MPlanetarian - Dreamworlds Ultra (Defasten Edition)",
+    _mk_preset(2, "dreamworlds_ultra_defasten", "Dreamworlds Ultra (MPlanetarian Biomech)", "MPlanetarian - Dreamworlds Ultra (Defasten Edition)",
                "dreamworlds_ultra_defasten_cover.png", "Dreamworlds_Ultra_Defasten_Preset.png", _HOME / "Documents/Dreamworlds_Ultra_7.2.11_Theme/Start_Menu_Icon.png"),
     _mk_preset(3, "infinite_complexity", "Infinite Complexity", "MPlanetarian - Infinite Complexity",
                "infinite_complexity_cover.png", "Infinite_Complexity_Preset.png", _GAMES / "Cover_v4.png"),
@@ -391,6 +391,10 @@ GLFW_FOCUS_ON_SHOW, GLFW_PLATFORM, GLFW_PLATFORM_X11, GLFW_DONT_CARE = 0x0002000
 GLFW_KEY_ESCAPE, GLFW_KEY_Q, GLFW_KEY_Z, GLFW_KEY_SPACE = 256, 81, 90, 32
 GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6, GLFW_KEY_7, GLFW_KEY_8, GLFW_KEY_9 = range(49, 58)
 
+# Mouse double-click detection (matches the Liquid Player caption behavior).
+DOUBLE_CLICK_SECONDS = 0.45
+DOUBLE_CLICK_SLOP_PX = 35
+
 U32, I32, U64, F32, VP, CP = c_uint32, c_int32, c_uint64, c_float, c_void_p, c_char_p
 def _S(n: str, *f: Tuple[str, Any]): return type(n, (Structure,), {"_fields_": list(f)})
 
@@ -501,6 +505,8 @@ class LiquidVisualizerVulkanRenderer:
         self.format = FORMAT_B8G8R8A8_UNORM
         self.cursor = (0.0, 0.0)
         self._drag_origin = self._drag_press_screen = (0, 0)
+        self._last_click_at = 0.0
+        self._last_click_pos: Optional[Tuple[int, int]] = None
         if _IS_MAC:
             try:
                 from liquid_player_visualizer import macos_liquid_player_window_size
@@ -875,7 +881,7 @@ class LiquidVisualizerVulkanRenderer:
         elif key == GLFW_KEY_Q:
             if not self._player_bonded: self.request_close()
         elif key == GLFW_KEY_Z:
-            if not self._player_bonded: self.toggle_fullscreen()
+            self._toggle_fullscreen_for_user()
         elif key == 75 and (_mods & 1):
             if _IS_WIN:
                 subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
@@ -988,16 +994,53 @@ class LiquidVisualizerVulkanRenderer:
         self._is_4k_cached = self.is_4k_display()
         return self.is_fullscreen
 
+    def _toggle_fullscreen_for_user(self) -> bool:
+        """Fullscreen toggle shared by the Z key and a window double-click.
+
+        While the visualizer is bonded behind the Liquid Player the window is
+        owned by the player, so there is nothing to toggle.
+        """
+        if self._player_bonded:
+            return self.is_fullscreen
+        return self.toggle_fullscreen()
+
+    def _screen_pointer(self) -> Tuple[int, int]:
+        rx, ry = self.root_pointer()
+        if rx or ry:
+            return int(rx), int(ry)
+        wx, wy = self.window_pos()
+        return int(wx + self.cursor[0]), int(wy + self.cursor[1])
+
+    def _take_double_click(self, x: int, y: int) -> bool:
+        """Return True when this press completes a double-click, and consume it."""
+        now = time.monotonic()
+        last, at = self._last_click_at, self._last_click_pos
+        if last > 0.0 and at is not None and now - last < DOUBLE_CLICK_SECONDS:
+            if abs(x - at[0]) <= DOUBLE_CLICK_SLOP_PX and abs(y - at[1]) <= DOUBLE_CLICK_SLOP_PX:
+                self._last_click_at, self._last_click_pos = 0.0, None
+                return True
+        self._last_click_at, self._last_click_pos = now, (int(x), int(y))
+        return False
+
     def _on_mouse(self, _w, button, action, _mods):
-        if button == 0:
-            self.mouse_down = action == GLFW_PRESS
-            if self.mouse_down and not self.is_fullscreen:
-                self._drag_active = True
-                self._drag_origin = self.window_pos()
-                rx, ry = self.root_pointer()
-                self._drag_press_screen = (rx, ry) if (rx or ry) else (int(self._drag_origin[0] + self.cursor[0]), int(self._drag_origin[1] + self.cursor[1]))
-            else:
-                self._drag_active = False
+        if button != 0:
+            return
+        self.mouse_down = action == GLFW_PRESS
+        if not self.mouse_down:
+            self._drag_active = False
+            return
+        rx, ry = self._screen_pointer()
+        if self._take_double_click(rx, ry):
+            # A double-click is a window action, never the start of a drag.
+            self._drag_active = False
+            self._toggle_fullscreen_for_user()
+            return
+        if not self.is_fullscreen:
+            self._drag_active = True
+            self._drag_origin = self.window_pos()
+            self._drag_press_screen = (rx, ry)
+        else:
+            self._drag_active = False
 
     def _on_cursor(self, _w, x, y):
         self.cursor = (float(x), float(y))

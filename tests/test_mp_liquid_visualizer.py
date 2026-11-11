@@ -47,6 +47,12 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertLessEqual(fitted[0], 700)
             self.assertLessEqual(fitted[1], 700)
 
+    def test_no_visualizer_preset_name_contains_defasten(self):
+        """Visualizer preset names use the MPlanetarian name, not Defasten."""
+        names = [preset["name"] for preset in vis.VISUALIZER_PRESETS]
+        self.assertFalse([name for name in names if "defasten" in name.lower()])
+        self.assertIn("Dreamworlds Ultra (MPlanetarian Biomech)", names)
+
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
         """First preset must be 'Cosmic Dreamworlds (Liquid)' using strictly ONE Bandcamp cover."""
         self.assertGreaterEqual(len(vis.VISUALIZER_PRESETS), 3)
@@ -94,9 +100,9 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_dreamworlds_ultra_defasten_single_cover(self):
-        """Third preset must be 'Dreamworlds Ultra (Defasten Biomech)' inspired by Defasten's XINRI D and Start_Menu_Icon.png."""
-        preset = vis.get_active_preset("Dreamworlds Ultra (Defasten Biomech)")
-        self.assertEqual(preset["name"], "Dreamworlds Ultra (Defasten Biomech)")
+        """Third preset must be 'Dreamworlds Ultra (MPlanetarian Biomech)' inspired by Defasten's XINRI D and Start_Menu_Icon.png."""
+        preset = vis.get_active_preset("Dreamworlds Ultra (MPlanetarian Biomech)")
+        self.assertEqual(preset["name"], "Dreamworlds Ultra (MPlanetarian Biomech)")
         self.assertEqual(preset["key"], "dreamworlds_ultra_defasten")
         self.assertEqual(preset["id"], 2)
 
@@ -110,7 +116,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertGreaterEqual(
             len(existing_covers),
             1,
-            "Cover art file for Dreamworlds Ultra (Defasten Biomech) must exist",
+            "Cover art file for Dreamworlds Ultra (MPlanetarian Biomech) must exist",
         )
 
         w, h, rgba_bytes = vis.load_preset_cover_rgba(preset, tex_size=256)
@@ -365,6 +371,86 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertEqual(renderer._extent, normal)
         finally:
             renderer.close()
+
+    def test_double_click_window_toggles_fullscreen_and_restores_window_size(self):
+        """A real renderer window enters fullscreen on a double-click and returns on the next one."""
+        import os
+        import time
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "visualizer_state.json"
+            state.write_text('{"active": false, "preset_id": 0}', encoding="utf-8")
+            with mock.patch.dict(os.environ, {"MP_LIQUID_VISUALIZER_STATE": str(state)}):
+                renderer = vis.LiquidVisualizerVulkanRenderer()
+                try:
+                    renderer.open()
+                    normal = renderer.window_size()
+                    self.assertFalse(renderer.is_fullscreen)
+
+                    def double_click():
+                        renderer._on_mouse(renderer._window, 0, vis.GLFW_PRESS, 0)
+                        renderer._on_mouse(renderer._window, 0, 0, 0)
+                        renderer._on_mouse(renderer._window, 0, vis.GLFW_PRESS, 0)
+                        renderer._on_mouse(renderer._window, 0, 0, 0)
+
+                    double_click()
+                    self.assertTrue(renderer.is_fullscreen)
+                    for _ in range(5):
+                        renderer.poll()
+                        time.sleep(0.01)
+                    self.assertTrue(renderer.is_fullscreen)
+
+                    double_click()
+                    self.assertFalse(renderer.is_fullscreen)
+                    for _ in range(5):
+                        renderer.poll()
+                        time.sleep(0.01)
+                    self.assertFalse(renderer.is_fullscreen)
+                    self.assertEqual(renderer.window_size(), normal)
+                finally:
+                    renderer.close()
+
+    def test_double_click_toggles_fullscreen_and_restores_window_size(self):
+        """Two quick left clicks enter fullscreen; the next double-click returns to the window."""
+        import time
+
+        renderer = vis.LiquidVisualizerVulkanRenderer()
+        toggles = []
+
+        def fake_toggle():
+            renderer.is_fullscreen = not renderer.is_fullscreen
+            keys = ["fullscreen", "windowed"]
+            toggles.append(keys[0] if renderer.is_fullscreen else keys[1])
+            return renderer.is_fullscreen
+
+        renderer.toggle_fullscreen = fake_toggle
+        renderer.root_pointer = lambda: (400, 300)
+
+        def double_click():
+            renderer._on_mouse(None, 0, vis.GLFW_PRESS, 0)
+            renderer._on_mouse(None, 0, 0, 0)
+            renderer._on_mouse(None, 0, vis.GLFW_PRESS, 0)
+            renderer._on_mouse(None, 0, 0, 0)
+
+        double_click()
+        self.assertTrue(renderer.is_fullscreen)
+        self.assertFalse(renderer._drag_active)
+        double_click()
+        self.assertFalse(renderer.is_fullscreen)
+        self.assertEqual(toggles, ["fullscreen", "windowed"])
+
+        # A slow second click and a click far away are not double-clicks.
+        renderer._on_mouse(None, 0, vis.GLFW_PRESS, 0)
+        renderer._on_mouse(None, 0, 0, 0)
+        renderer._last_click_at = time.monotonic() - (vis.DOUBLE_CLICK_SECONDS + 0.1)
+        renderer._on_mouse(None, 0, vis.GLFW_PRESS, 0)
+        renderer._on_mouse(None, 0, 0, 0)
+        renderer._last_click_at = time.monotonic()
+        renderer._last_click_pos = (0, 0)
+        renderer._on_mouse(None, 0, vis.GLFW_PRESS, 0)
+        renderer._on_mouse(None, 0, 0, 0)
+        self.assertEqual(toggles, ["fullscreen", "windowed"])
 
     def test_shaders_compiled_and_valid(self):
         """Both Vulkan SPIR-V shaders must exist and have valid SPIR-V magic numbers."""

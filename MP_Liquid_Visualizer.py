@@ -12,7 +12,7 @@ Core Behavior:
 - When music is paused or stopped, 3D generation freezes in-place and waits for the user
   to press Play on the audio player.
 - The user cannot change how the visualizer looks; they can only select different presets.
-- Fixed borderless window by default: 1094x734 on macOS and the same size as the Liquid Player on Linux, and 700x700 elsewhere (press 'z' / 'Z' to toggle fullscreen and back to normal size), no scrollbar, zero text overlay ever displayed.
+- Fixed borderless window by default: 1094x734 on macOS and the same size as the Liquid Player on Linux, and 700x700 elsewhere (double-click the window, or press 'z' / 'Z', to toggle fullscreen and back to the previous window size), no scrollbar, zero text overlay ever displayed.
 - Closes immediately when the user presses Escape or 'q'.
 """
 
