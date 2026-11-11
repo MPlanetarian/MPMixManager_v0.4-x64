@@ -32,6 +32,9 @@ DEFAULT_FONT = "Monospace 11"
 DEFAULT_WINDOW_OPACITY = 0.80
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 FONT_CONFIG_FILE = CONFIG_DIR / "liquid_glass_font"
+# The tracklist viewer draws its own viewport, but VTE still needs a scrollback
+# buffer so wheel and scrollbar events are delivered to the child terminal.
+TRACKLIST_SCROLLBACK = 2000
 
 RECOMMENDED_FONTS = [
     ("Monospace 11", "Fallback when the Hack family is not installed"),
@@ -919,7 +922,9 @@ class GlassHost:
         term = vte.Terminal()
         term.set_audible_bell(False)
         if hasattr(term, "set_scrollback_lines"):
-            term.set_scrollback_lines(0)
+            # Tracklist mode draws its own viewport, but VTE still needs a scrollback
+            # buffer so wheel and scrollbar input reaches the child process.
+            term.set_scrollback_lines(TRACKLIST_SCROLLBACK if self.mode == "TRACKLIST" else 0)
         window.add(term)
         self._clear_terminal_background(window, term)
         window.show_all()

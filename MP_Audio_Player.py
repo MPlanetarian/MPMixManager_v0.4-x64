@@ -459,6 +459,24 @@ def launch_liquid_glass_tracklist(
             return False
 
 
+def export_tracklist_file(target_tracklist: Union[str, Path, None], fmt: str = "html",
+                          base_dir: Optional[Path] = None,
+                          output_dir: Optional[Union[str, Path]] = None) -> Tuple[bool, str]:
+    """Export a tracklist as HTML or TEXT into the program folder's TRACKLIST_EXPORTS."""
+    if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file():
+        return False, "Tracklist file not found"
+    base = Path(base_dir) if base_dir else get_base_dir()
+    try:
+        scripts_dir = str(base / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from tracklist_export import export_tracklist
+        saved = export_tracklist(tl, fmt, base_dir=base, output_dir=output_dir)
+        return True, str(saved)
+    except Exception as exc:
+        return False, str(exc)
+
+
 def open_tracklist_window(target_tracklist: Union[str, Path, None], audio_path: Optional[Union[str, Path]] = None, theme: Optional[str] = None) -> bool:
     if not target_tracklist or not (tl := Path(target_tracklist).expanduser().resolve()).is_file(): return False
     base = get_base_dir()
@@ -5993,6 +6011,8 @@ def main():
         (("--play-latest",), dict(action="store_true")), (("--get-latest-mix",), dict(action="store_true")),
         (("--list-mixes",), dict(action="store_true")), (("--open-file-manager", "-f"), dict(action="store_true")),
         (("--tracklist", "-t"), dict(action="store_true")), (("--export-playlist", "-e"), dict(nargs="?", const="default")),
+        (("--tracklist-export",), dict(type=str, choices=("html", "text", "txt"), default=None,
+                                       help="Export the tracklist of the selected mix to HTML or TEXT in TRACKLIST_EXPORTS")),
         (("--style", "--eq"), dict(type=str, choices=EqualizerVisualizer.STYLES)), (("--theme",), dict(type=str, choices=EqualizerVisualizer.THEMES)),
         (("--cmd",), dict(type=str)), (("--music-mode",), dict(action="store_true")), (("--mix-archive-mode",), dict(action="store_true")),
         (("--music-folder",), dict(type=str, default="ALL")), (("--playlist",), dict(type=str, default="")),
@@ -6047,7 +6067,7 @@ def main():
             print("✔ Routed system audio to Bluetooth" if BluetoothAudioRouter().route_to_bluetooth() else "✖ Failed to route to Bluetooth")
         sys.exit(0)
 
-    if args.open_file_manager or args.tracklist:
+    if args.open_file_manager or args.tracklist or args.tracklist_export:
         tp = (st.get("data", {}).get("path") if (daemon_running and (st := send_ipc_command("status"))) else None)
         if not tp or not os.path.exists(tp):
             if latest := MixArchiveScanner(base_dir).get_latest_mix(): tp = latest["path"]
@@ -6057,6 +6077,14 @@ def main():
             print(f"✔ Opened in file manager: {target}" if ok else "✖ Failed to open file manager")
             sys.exit(0 if ok else 1)
         tl = find_tracklist_for_mix(tp) if tp else None
+        if args.tracklist_export:
+            if tl and os.path.isfile(tl):
+                ok, res = export_tracklist_file(tl, args.tracklist_export, base_dir=base_dir)
+                print(f"✔ Exported tracklist ({args.tracklist_export}): {res}" if ok else f"✖ Failed to export tracklist: {res}",
+                      file=sys.stdout if ok else sys.stderr)
+                sys.exit(0 if ok else 1)
+            print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr)
+            sys.exit(1)
         if tl and os.path.isfile(tl) and open_tracklist_window(tl, tp, theme=args.theme): print(f"✔ Opened tracklist: {tl}"); sys.exit(0)
         print("✖ Tracklist not found" if tp else "✖ No mix available", file=sys.stderr); sys.exit(1)
 

@@ -9,7 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tracklist Viewer HTML & TEXT export** (`scripts/tracklist_export.py`, `scripts/view_tracklist_console.sh`, `MP_Audio_Player.py`, `tests/test_tracklist_viewer_scroll_export.py`):
+  - Press **X** in the tracklist viewer to export the tracklist as a styled HTML document, or **Y** for a plain TEXT copy.
+  - Both files are written to **`TRACKLIST_EXPORTS/` inside the MP Mix Manager program folder** the user launched, so they are always easy to find. `TRACKLIST_EXPORTS/` is git-ignored.
+  - **Y** saves the pristine `.txt` tracklist; **X** writes a self-contained dark/glass-themed HTML page with a track table, remix highlighting, print styles and HTML-escaped user content.
+  - Headless use is supported: `view_tracklist_console.sh --export html|text <tracklist>` and `MP_Audio_Player.py --tracklist-export html|text`.
+
 ### Fixed
+- **Tracklist Viewer did not start at the top and could not be scrolled** (`scripts/view_tracklist_console.sh`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `tests/test_tracklist_viewer_scroll_export.py`):
+  - The viewer printed the entire tracklist and then `clear`'d, so anything taller than the window left the first entries scrolled off the top.
+  - It now draws a fixed viewport sized to the terminal: the header, exactly as many tracklist rows as fit, and a footer. Line 1 is always the first thing rendered.
+  - Scrolling added: **↑/↓** one line, **PgUp/PgDn** and **Space** one page, **Home/End** to jump, and the **mouse wheel**. `R` reloads, and the view clamps at both ends.
+  - Added `WINCH` handling so resizing the window recomputes the viewport, and the active theme keeps updating.
+  - Long lines, header values and footer rows are clipped to the terminal width so wrapped lines can no longer disturb the viewport. Piped output is left unclipped.
+  - The Liquid Glass hosts used to disable the VTE scrollback buffer (`set_scrollback_lines(0)`), which dropped wheel/scrollbar events. Tracklist mode now keeps a scrollback buffer so wheel input reaches the viewer.
+  - The viewer runs on the terminal's alternate screen, so closing it restores the console exactly as it was.
 - **Z did not open the MP Visualizer from MP Gui or MP Liquid Player on Linux** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass_macOS.py`):
   - The Linux default backend is OpenGL (`LIQUID_GLASS_BACKEND=opengl`), and its `_on_key_press` handled only **K**. **Z** fell through to the child terminal, so no visualizer window ever appeared. The OpenGL host now handles **Z** the same way the Vulkan host does.
   - Added `spawn_new_visualizer()`, which always opens a window. The old auto-start path skipped spawning whenever any visualizer process existed, so **Z** did nothing after the window had been closed by hand.
@@ -89,7 +104,6 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - Press **B** again on an empty line to return to the menu. A **B** typed after other characters stays in the command.
 
 ### Fixed
-<<<<<<< HEAD
 - **MP Player text stayed white on every theme** (`MP_Audio_Player.py`, `scripts/liquid_glass_opengl.py`, `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`):
   - Playlist rows, track names, and the control labels use that theme's text colour.
   - Text with no colour of its own uses the same hue. Retro Terminal's hue is white, and the pale pane darkens it to gray. Pale glass darkens a light hue so it can be read.
@@ -97,7 +111,6 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - The installer starts an AppKit menu-bar icon and a login item. The icon does not use PySide6 or a KDE StatusNotifier host.
   - Click the icon to launch MP Gui, MP Liquid Player, or MP Mix Manager, or to close them.
   - The desktop shortcuts use `assets/mp_liquid_glass_icon.png`. MP Gui, MP Liquid Player, and MP Liquid Visualizer get that same Finder image as `MP Mix Manager.command`, so macOS does not place the artwork on the gray application plate. Each application bundle also keeps an `.icns`.
-=======
 - **Linux font for MP Liquid and MP Gui** (`scripts/liquid_glass_font.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`):
   - Both windows use Hack at 11 pt when the Hack family is installed.
   - When Hack is not installed, they use Monospace 11.
@@ -114,7 +127,6 @@ Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before th
   - The player console is an owned window over the borderless glass. After it appears, drags on the top of the player never reach the glass, so the window stays where it opened.
   - The top strip, the outer bezel, and Alt or the Windows key move the glass. The console follows. A second click on that strip still maximizes. The close button and the opacity slider still receive their clicks.
   - A mouse button released over the console no longer leaves the glass drag stuck on.
->>>>>>> 79fc597e212d13d1d570f0a97091edf0cdac8a38
 - **G in the macOS Liquid Player** (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`, `tests/test_liquid_player_mp_gui.py`):
   - The embedded player was started with `MP_LIQUID_GLASS=0`, so **G** built a spectrogram instead of opening MP Gui.
   - That player now gets `MP_LIQUID_GLASS=1`, the same flag as the other Liquid hosts. **G** opens MP Gui.
