@@ -8,6 +8,7 @@ Unit tests for MP Audio Player Playlist theme highlighting:
 
 import unittest
 import sys
+import os
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -408,6 +409,79 @@ class TestPlaylistThemeHighlight(unittest.TestCase):
             for line in panel[1:-1]:
                 bars = [color for glyph, color in glyph_colors(line) if glyph == "│"]
                 self.assertEqual(bars, [border, border], f"Playlist side bars differ for {test_theme}")
+
+    def test_selected_playlist_row_uses_theme_colour(self):
+        """The navigation bar on the selected row follows the active theme.
+
+        It used to be a fixed grey in the console and reverse video in Liquid
+        Glass, so the bar looked identical in every theme. Each theme's highlight
+        hue has to reach the fill, and the text has to stay legible on it.
+        """
+        mock_scanner = MagicMock()
+        mock_scanner.get_mixes.return_value = [
+            {"name": "Mix 01 - Astral Projection", "path": "/path/to/mix1.mp3", "folder": "Chill"},
+            {"name": "Mix 02 - Solar Eclipse", "path": "/path/to/mix2.mp3", "folder": "Trance"},
+        ]
+        ui = TerminalPlayerUI(engine=None, scanner=mock_scanner, ui_size_mode="STANDARD", is_remote=True)
+        ui.selected_row = 0
+
+        st = {
+            "title": "Mix 01 - Astral Projection",
+            "path": "/path/to/mix1.mp3",
+            "state": "playing",
+            "index": 0,
+            "position_sec": 120,
+            "duration_sec": 3600,
+            "position_fmt": "02:00",
+            "duration_fmt": "60:00",
+            "progress_pct": 3.3,
+            "volume": 80,
+            "pitch_percent": 0,
+            "levels": [0.5] * 24,
+            "peaks": [0.7] * 24,
+            "levels_left": [0.5] * 24,
+            "levels_right": [0.5] * 24,
+            "peaks_left": [0.7] * 24,
+            "peaks_right": [0.7] * 24,
+            "rms_level": 0.1,
+            "peak_db": -3.0,
+            "queue_len": 0,
+            "queue": [],
+        }
+
+        seen = {}
+        for light in ("1", ""):
+            with patch.dict("os.environ", {"MP_LIQUID_GLASS": light} if light else {}, clear=False):
+                if not light:
+                    os.environ.pop("MP_LIQUID_GLASS", None)
+                for test_theme in ("dreamworlds_ultra", "sensorium_interface", "cosmic_supernova",
+                                   "retro_terminal", "stream_of_frequency"):
+                    ui.visualizer.theme = test_theme
+                    captured_lines = []
+                    with patch("MP_Audio_Player._present_frame",
+                               side_effect=lambda lines, w, h: captured_lines.extend(lines)), \
+                         patch("MP_Audio_Player._win_visible_size", return_value=(120, 40)):
+                        ui._get_status = MagicMock(return_value=st)
+                        ui._draw_frame()
+                    rows = [l for l in captured_lines if "│" in l and "Mix 01 - Astral Projection" in l]
+                    self.assertTrue(rows, f"Selected playlist row missing for {test_theme}")
+                    row = rows[0]
+                    expected_bg, expected_fg = MP_Audio_Player._selection_bar_ansi(test_theme)
+                    self.assertIn(expected_bg, row,
+                                  f"Selected row is not filled with the {test_theme} theme colour")
+                    # Liquid Glass strips the bold attribute, the console keeps it,
+                    # so only the colour channels are compared.
+                    fg_colour = expected_fg.split("[1;", 1)[-1]
+                    self.assertIn(fg_colour, row, f"Selected row text is unreadable on {test_theme}")
+                    # The old hardcoded values must be gone in both hosts.
+                    self.assertNotIn("48;2;70;70;70", row, f"Console host still paints a grey bar for {test_theme}")
+                    self.assertNotIn("\033[7m", row, f"Liquid Glass host still uses reverse video for {test_theme}")
+                    hue = MP_Audio_Player._rgb_from_ansi(expected_bg)
+                    self.assertIsNotNone(hue, f"{test_theme} selection bar is not a 24-bit colour")
+                    seen.setdefault(test_theme, set()).add(hue)
+        self.assertEqual(len(seen), 5)
+        for test_theme, hues in seen.items():
+            self.assertEqual(len(hues), 1, f"{test_theme} changed hue between the console and Liquid Glass hosts")
 
 
 if __name__ == "__main__":

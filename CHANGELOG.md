@@ -38,7 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Once a windowed size has been chosen with Z, moving the window to another monitor no longer forces it back to fullscreen on a 4K display, and the player-bonding code no longer resizes the window back to the player.
   - Double-click still toggles plain fullscreen.
   - The cycle lives in `cycle_window_mode()`; `toggle_fullscreen()` remains for `--fullscreen`, `--4k`, the screen saver, and double-click.
-
+- **Menu and player navigation bar followed the dark preset instead of the theme** (`Mix_Archive_Manager.sh`, `MP_Audio_Player.py`, `tests/test_menu_number_theme_color.py`, `tests/test_playlist_theme_highlight.py`):
+  - The selected row in the Mix Archive Manager / MP Gui menus emitted the theme fill and then a `1;37;40m` foreground, which carries its own black background. The foreground overwrote the fill, so the navigation bar stayed black in every theme. The foreground is now colour-only, and the fill keeps the theme hue while the idle breathing animation dims it.
+  - Row text picks black or white from the theme hue's luminance, so light palettes (Stream of Frequency, Phosphor, Solarized, Emerald, Retro Linux Memories) stay readable instead of drawing white on yellow.
+  - The MP Liquid Player and MP Audio Player playlist selection bar no longer uses a fixed `48;2;70;70;70` grey in the console or reverse video in Liquid Glass. It uses the active theme's highlight colour in both hosts through the new `_selection_bar_ansi()` helper, with the same luminance contrast rule.
+  - `test_menu_number_theme_color.py` now asserts a filled bar in the theme hue; the previous test still expected the unfilled row from an earlier revision and failed on `main`. `test_playlist_theme_highlight.py` gained `test_selected_playlist_row_uses_theme_colour`, which checks both hosts across five themes.
+855d75f (Keep the navigation bar in the active theme colour)
 - **Traktor history sync skipped from Mix Archive Manager** (`Make_SOF_FLAC_CONVERSION.sh`, `scripts/Make_SOF_FLAC_CONVERSION.sh`, `config.env`, `config.env.example`, `scripts/top_5_tracks_manager.py`):
   - `sync_missing_traktor_history()` required `TRAKTOR_SMB_HOST` and `TRAKTOR_SMB_SHARE`, but neither key existed in `config.env` or `config.env.example`, so the sync always reported "SMB host, share, user, or password is not set" even when the user and password were set.
   - Added `TRAKTOR_SMB_HOST`, `TRAKTOR_SMB_SHARE`, and `TRAKTOR_SMB_HISTORY_DIR` to `config.env.example`.

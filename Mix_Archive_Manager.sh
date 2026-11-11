@@ -701,9 +701,22 @@ local bf="${breath_factor:-100}"
 [ "$bf" -lt 15 ] && bf=15
 [ "$bf" -gt 100 ] && bf=100
 local r=$(( base_r * bf / 100 )) g=$(( base_g * bf / 100 )) b=$(( base_b * bf / 100 ))
-# Paint the complete selected row. Keep the theme's cycling accent as the
-# bar colour so the selection remains easy to spot across every CLI theme.
-local fg="\033[1;37;40m" bg="\033[48;2;${r};${g};${b}m" rst="\033[0m" ptr="    "
+# Paint the complete selected row in the active theme colour. The label stays
+# black or white for contrast, so light hues (Stream of Frequency, Phosphor,
+# Solarized) remain readable. The old 1;37;40m foreground carried its own black
+# background and overwrote the theme fill, which is why the bar was black in
+# every theme. Luminance is taken from the unbreathing colour so the text does
+# not flicker while the idle animation dims the bar.
+local base_lum=$(( (base_r * 299 + base_g * 587 + base_b * 114) / 1000 ))
+local fg bg rst ptr
+if [ "$base_lum" -ge 140 ]; then
+    fg="\033[1;38;2;0;0;0m"
+else
+    fg="\033[1;38;2;255;255;255m"
+fi
+bg="\033[48;2;${r};${g};${b}m"
+rst="\033[0m"
+ptr="    "
 printf -v formatted_key "[%2s]" "$key"
 local line_content="${fg} ${formatted_key} ${label}"
 local raw_len=$(( 1 + ${#formatted_key} + 1 + ${#label} ))
