@@ -227,6 +227,9 @@ ${BOLD}HEADER SESSION:${NC}
 ${BOLD}SYSTEM TRAY:${NC}
   MP Mix Manager, MP Gui, and MP Liquid Player share one tray icon while any of them is open.
   Right-click it for ${CYAN}Launch MP Gui${NC}, ${CYAN}Launch MP Liquid Player${NC}, and ${CYAN}Launch MP Mix Manager${NC}.
+  ${CYAN}Start / Stop MP Web Audio${NC} starts or stops the Mobile Web Companion service (Linux). The row reads
+  ${CYAN}Stop MP Web Audio${NC} while the companion is serving and ${CYAN}Start MP Web Audio${NC} while it is not. Stopping it
+  notifies every connected phone that the companion is restarting, and they refresh themselves as soon as it is back.
   ${CYAN}Close MP Mix Manager (Closes everything)${NC} stops the console manager, MP Gui, MP Liquid Player, playback, and the visualizer.
 
 ${BOLD}INSTANCE CAP:${NC}
@@ -261,6 +264,7 @@ ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
     ${CYAN}alarm${NC} | ${CYAN}alarm-clock${NC}   Launch MPlanetarians Alarm Clock (Wake Up Edition)
     ${CYAN}congen${NC} | ${CYAN}kdeconnect${NC}    Launch Congen KDE Connect Commands Generator & Remote Control
     ${CYAN}m${NC} | ${CYAN}monitor${NC}     Monitor processes, shell commands, and system info in a new tab
+    ${CYAN}reinstall${NC}         Reset this user's config and reinstall (asks what to keep)
 
 ${BOLD}EXAMPLES:${NC}
   ${DIM}# Launch interactive terminal UI:${NC}

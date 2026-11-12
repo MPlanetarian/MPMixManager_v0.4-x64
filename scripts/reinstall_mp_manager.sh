@@ -13,13 +13,15 @@
 #
 # Converted audio is never deleted. FLAC_CONVERTED_OUTPUTS,
 # MP3_CONVERTED_OUTPUTS, WAV_CONVERTED_OUTPUTS, MP4_CONVERTED_OUTPUTS,
-# CONVERTED_WAV_FILES, MIX_ARCHIVE, COVERS, and SPEK_OUTPUTS are left exactly
-# as they are. The user deletes their own audio files.
+# CONVERTED_WAV_FILES, MIX_ARCHIVE, COVERS, SPEK_OUTPUTS, MP_AUDIOWAV_REC_OUTPUT,
+# and TOP_5_TRACKS are left exactly as they are. The user deletes their own
+# audio files.
 #
 # Usage:
 #   ./install.sh --reinstall                     Ask what to preserve
 #   ./install.sh --reinstall --yes               Preserve everything, no prompt
 #   ./install.sh --reinstall --fresh --yes       Wipe everything (no preserve)
+#   ./install.sh --reinstall --dry-run --yes     Show the plan, change nothing
 #   ./install.sh --reinstall --preserve-playlists \
 #                            --preserve-music-folders \
 #                            --preserve-archive-config --yes
@@ -28,6 +30,9 @@
 #   bash scripts/reinstall_mp_manager.sh [options]
 # ==============================================================================
 set -euo pipefail
+
+# macOS ships bash 3.2: no associative arrays, no ${var,,}, and expanding an
+# empty array under `set -u` is an error. Keep to POSIX-plus-bash-3.2 here.
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -179,6 +184,25 @@ fi
 # ------------------------------------------------------------------------------
 # Interactive questions
 # ------------------------------------------------------------------------------
+tty_available() {
+    # A container or a scripted run may have no controlling terminal even
+    # though /dev/tty exists. Probe it in a subshell so a failed open does not
+    # print an error or leave the script attached to a half-open terminal.
+    ( : < /dev/tty ) 2>/dev/null
+}
+
+read_answer() {
+    # $1 variable name; reads one line from the terminal when one is attached,
+    # otherwise from standard input. Never fails on a missing /dev/tty.
+    local var="$1" answer=""
+    if tty_available; then
+        IFS= read -r answer < /dev/tty 2>/dev/null || answer=""
+    else
+        IFS= read -r answer || answer=""
+    fi
+    printf -v "$var" '%s' "$answer"
+}
+
 ask_preserve() {
     # $1 label, $2 variable name
     local label="$1" var="$2" ans=""
@@ -191,11 +215,7 @@ ask_preserve() {
     fi
     while :; do
         printf "      Preserve %s? [Y/n]: " "$label"
-        if [ -r /dev/tty ]; then
-            IFS= read -r ans < /dev/tty || ans=""
-        else
-            IFS= read -r ans || ans=""
-        fi
+        read_answer ans
         case "$ans" in
             ""|y|Y|yes|YES|Yes) printf -v "$var" '%s' 1; return 0 ;;
             n|N|no|NO|No)       printf -v "$var" '%s' 0; return 0 ;;
@@ -212,11 +232,7 @@ confirm_reinstall() {
     echo ""
     echo -e "      Type ${BOLD}REINSTALL${NC} to confirm, or press Enter to cancel:"
     printf "      > "
-    if [ -r /dev/tty ]; then
-        IFS= read -r ans < /dev/tty || ans=""
-    else
-        IFS= read -r ans || ans=""
-    fi
+    read_answer ans
     [ "$ans" = "REINSTALL" ] || return 1
     return 0
 }
@@ -246,7 +262,9 @@ echo -e "  ${BOLD}Will preserve:${NC}"
 [ "$PRESERVE_PLAYLISTS" -eq 1 ] && echo -e "    ${GREEN}•${NC} playlists"
 [ "$PRESERVE_MUSIC" -eq 1 ]     && echo -e "    ${GREEN}•${NC} music folder config"
 [ "$PRESERVE_ARCHIVE" -eq 1 ]   && echo -e "    ${GREEN}•${NC} mix archive folder config"
-if [ "$PRESERVE_PLAYLISTS" -eq 0 ] && [ "$PRESERVE_MUSIC" -eq 0 ] && [ "$PRESERVE_ARCHIVE" -eq 0 ]; then
+[ "$NO_PRESERVE" -eq 0 ]        && echo -e "    ${GREEN}•${NC} saved config snapshots and exported bundles"
+if [ "$PRESERVE_PLAYLISTS" -eq 0 ] && [ "$PRESERVE_MUSIC" -eq 0 ] && \
+   [ "$PRESERVE_ARCHIVE" -eq 0 ] && [ "$NO_PRESERVE" -eq 1 ]; then
     echo -e "    ${DIM}(nothing - full factory reset)${NC}"
 fi
 
@@ -355,12 +373,20 @@ OLD_CONFIG="$ROOT/config.env"
 KEY_FILE=""
 
 read_config_line() {
-    # $1 key; prints the raw assignment line (quotes kept)
+    # $1 key; prints the raw assignment line (quotes kept, no line ending)
     [ -f "$OLD_CONFIG" ] || return 0
-    MP_CFG_KEY="$1" awk '
+    local line
+    line="$(MP_CFG_KEY="$1" awk '
         BEGIN { k = ENVIRON["MP_CFG_KEY"] }
         $0 ~ "^[[:space:]]*" k "=" { print; exit }
-    ' "$OLD_CONFIG"
+    ' "$OLD_CONFIG")"
+    # A config.env written on Windows has CRLF endings. The new template uses
+    # LF, so a carried-over line must not bring the CR with it.
+    line="${line%$'\r'}"
+    if [ -n "$line" ]; then
+        printf '%s\n' "$line"
+    fi
+    return 0
 }
 
 config_value() {
@@ -476,6 +502,9 @@ collect_protected_roots() {
 is_protected_path() {
     local target="${1%/}" root
     [ -n "$target" ] || return 1
+    # macOS ships bash 3.2, where expanding an empty array under `set -u` is an
+    # error, so the count is checked first.
+    [ "${#PROTECTED_ROOTS[@]}" -gt 0 ] || return 1
     for root in "${PROTECTED_ROOTS[@]}"; do
         root="${root%/}"
         [ -n "$root" ] || continue
@@ -509,11 +538,15 @@ wipe_path() {
 }
 
 wipe_dir_contents() {
-    # Remove the contents of a directory but keep the directory itself.
+    # Remove the contents of a directory but keep the directory itself and any
+    # .gitkeep markers, so the shipped first-install layout comes back.
     local dir="$1" entry
     [ -d "$dir" ] || return 0
     for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
         { [ -e "$entry" ] || [ -L "$entry" ]; } || continue
+        case "$(basename "$entry")" in
+            .gitkeep) continue ;;
+        esac
         wipe_path "$entry" || true
     done
 }
@@ -521,8 +554,28 @@ wipe_dir_contents() {
 # ------------------------------------------------------------------------------
 # Build the staging area
 # ------------------------------------------------------------------------------
+stage_parent_ok() {
+    # The staging directory must never sit inside a tree that is about to be
+    # wiped. A TMPDIR pointed at ~/.config would otherwise delete the copies.
+    local candidate="$1"
+    case "$candidate" in
+        "$CONFIG_DIR"|"$CONFIG_DIR"/*|"$ROOT"/*) return 1 ;;
+        "$HOME/.config"|"$HOME/.config"/*) return 1 ;;
+    esac
+    return 0
+}
+
 if [ "$DRY_RUN" -eq 0 ]; then
-    STAGE="$(mktemp -d "${TMPDIR:-/tmp}/mp_reinstall.XXXXXX")" || die "Could not create a staging directory"
+    for candidate in "${TMPDIR:-/tmp}" /tmp "${HOME:-/tmp}"; do
+        [ -d "$candidate" ] || continue
+        stage_parent_ok "$candidate" || continue
+        STAGE="$(mktemp -d "$candidate/mp_reinstall.XXXXXX" 2>/dev/null)" || STAGE=""
+        [ -n "$STAGE" ] && break
+    done
+    if [ -z "$STAGE" ]; then
+        STAGE="$(mktemp -d 2>/dev/null)" || die "Could not create a staging directory"
+    fi
+    stage_parent_ok "$STAGE" || die "Refusing to stage inside a folder that is about to be wiped: $STAGE"
     MANIFEST="$STAGE/manifest.tsv"
     KEY_FILE="$STAGE/config_keys.env"
 else
@@ -531,10 +584,25 @@ fi
 
 echo ""
 say "${BOLD}${BLUE}Stopping player, tray, and visualizer processes...${NC}"
-stop_helpers
+if [ "$DRY_RUN" -eq 1 ]; then
+    step "dry run: no processes are stopped"
+else
+    stop_helpers
+fi
 
 echo ""
 say "${BOLD}${BLUE}Preserving selected settings...${NC}"
+
+# Saved configuration snapshots and exported bundles are the user's own safety
+# net, so a normal reset keeps them. A full factory reset removes them with
+# everything else. The copies in the install tree are never touched.
+if [ "$NO_PRESERVE" -eq 0 ]; then
+    for path in \
+        "$CONFIG_DIR/backups" \
+        "$CONFIG_DIR/exports"; do
+        stage_path "$path"
+    done
+fi
 
 if [ "$PRESERVE_PLAYLISTS" -eq 1 ]; then
     for path in \
@@ -579,8 +647,10 @@ fi
 echo ""
 say "${BOLD}${BLUE}Resetting configuration and runtime state...${NC}"
 
-# Build the protected-root list before config.env is replaced.
+# Build the protected-root list before config.env is replaced. The configured
+# archive root is remembered for the closing report too.
 collect_protected_roots
+PRIOR_ARCHIVE_ROOT="$(config_value MIX_ARCHIVE_DIR)"
 
 # config.env is recreated from the shipped template below.
 wipe_path "$ROOT/config.env" || true
@@ -617,31 +687,8 @@ wipe_path "$ROOT/MP_Mix_Manager_Conversion_Log.txt" || true
 wipe_path "$ROOT/MP_Error.log" || true
 wipe_path "$ROOT/running_history.log" || true
 wipe_path "$ROOT/assets/weather_cache.txt" || true
-wipe_path "$ROOT/LOGS" || true
-wipe_path "$ROOT/.reinstall_stage" || true
-
-if [ -d "$ROOT/logs" ]; then
-    for entry in "$ROOT/logs"/* "$ROOT/logs"/.[!.]*; do
-        { [ -e "$entry" ] || [ -L "$entry" ]; } || continue
-        case "$(basename "$entry")" in
-            .gitkeep) continue ;;
-        esac
-        wipe_path "$entry" || true
-    done
-fi
-
-# Snapshot and exported bundle folders inside the install tree. The .gitkeep
-# markers are kept so the first-install layout comes back unchanged.
-for dir in "$ROOT/config_backups" "$ROOT/exported_configs"; do
-    [ -d "$dir" ] || continue
-    for entry in "$dir"/* "$dir"/.[!.]*; do
-        { [ -e "$entry" ] || [ -L "$entry" ]; } || continue
-        case "$(basename "$entry")" in
-            .gitkeep) continue ;;
-        esac
-        wipe_path "$entry" || true
-    done
-done
+wipe_dir_contents "$ROOT/LOGS" || true
+wipe_dir_contents "$ROOT/logs" || true
 
 # Playlists that live inside the install tree. Generated playlist folders in
 # the user's archive storage are left alone: they sit on removable drives and
@@ -714,26 +761,10 @@ for dir in \
     "$ROOT/SPEK_OUTPUTS"; do
     [ -d "$dir" ] && echo -e "    ${CYAN}${dir}${NC}"
 done
-if [ -f "$OLD_CONFIG" ] || [ -n "${MIX_ARCHIVE_DIR:-}" ]; then
-    :
+# Show the configured archive root when it lives on another drive.
+if [ -n "${PRIOR_ARCHIVE_ROOT:-}" ] && [ -d "$PRIOR_ARCHIVE_ROOT" ]; then
+    echo -e "    ${CYAN}${PRIOR_ARCHIVE_ROOT}${NC}"
 fi
-# Show the configured archive root if it belongs to another drive.
-if [ -n "$KEY_FILE" ] && [ -s "$KEY_FILE" ]; then
-    archive_root="$(MP_CFG_KEY=MIX_ARCHIVE_DIR awk '
-        BEGIN { k = ENVIRON["MP_CFG_KEY"] }
-        $0 ~ "^[[:space:]]*" k "=" {
-            v = $0
-            sub(/^[^=]*=/, "", v)
-            gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", v)
-            print v
-            exit
-        }
-    ' "$KEY_FILE")"
-    if [ -n "${archive_root:-}" ] && [ -d "$archive_root" ]; then
-        echo -e "    ${CYAN}${archive_root}${NC}"
-    fi
-fi
-unset archive_root 2>/dev/null || true
 
 echo ""
 echo -e "${BOLD}${GREEN}======================================================================${NC}"

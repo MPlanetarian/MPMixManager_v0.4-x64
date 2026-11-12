@@ -161,6 +161,47 @@ chmod +x install.sh
 5. **Desktop Entry**: Installs `Mix_Archive_Manager.desktop` into `~/.local/share/applications/` and onto your Desktop.
 6. **System tray**: Enables KDE StatusNotifierWatcher, writes `~/.config/autostart/mp-mix-manager-tray.desktop`, and starts the shared MP Mix Manager tray icon.
 
+### Reinstalling / Resetting to a First Install
+
+If MP Mix Manager stops behaving and you want it back exactly as it was right
+after the first install, run the reinstall flow instead of a plain `./install.sh`:
+
+```bash
+./install.sh --reinstall
+```
+
+It asks three questions, all of which default to **yes**:
+
+| Keep? | What it preserves |
+| :--- | :--- |
+| **Playlists** | Custom playlists, generated playlists, and `favorites.json`. |
+| **Music folder config** | `music_folders.json`, the SMB mount points, and the `MUSIC_SMB_*` / `FAV_EXPORT_*` logins. |
+| **Mix archive folder config** | `MIX_ARCHIVE_DIR`, `EXTRA_MIX_ARCHIVE_DIRS`, and the output folders. |
+
+Everything else is reset: `config.env` is rebuilt from `config.env.example`,
+the theme, equalizer, window layout, caches, and activity history are cleared,
+and the symlinks, tray icon, and desktop shortcuts are installed again.
+
+**Converted audio is never deleted.** `FLAC_CONVERTED_OUTPUTS`,
+`MP3_CONVERTED_OUTPUTS`, `WAV_CONVERTED_OUTPUTS`, `MP4_CONVERTED_OUTPUTS`,
+`CONVERTED_WAV_FILES`, `MIX_ARCHIVE`, `COVERS`, and `SPEK_OUTPUTS` stay exactly
+as they are, including on your external archive drive. Delete those files
+yourself when you are ready.
+
+Non-interactive forms:
+
+```bash
+./install.sh --reinstall --yes                  # keep all three, no questions
+./install.sh --reinstall --fresh --yes          # keep nothing
+./install.sh --reinstall --dry-run --yes        # show the plan, change nothing
+./install.sh --reinstall --preserve-playlists \
+             --no-preserve-music-folders \
+             --no-preserve-archive-config --yes
+```
+
+The same flow is available from the Manager: **35 → 2 → 7**, or with
+`mix-archive-manager reinstall`.
+
 ---
 
 ## 8. Step 7: Configure Environment Paths (`config.env`)

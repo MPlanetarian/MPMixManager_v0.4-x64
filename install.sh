@@ -67,8 +67,19 @@ for _arg in "$@"; do
             echo "Run ./scripts/reinstall_mp_manager.sh --help for the full option list."
             exit 0
             ;;
-        *)
+        --install)
+            # Explicit normal install. Nothing to do; the script proceeds.
+            ;;
+        --preserve-playlists|--preserve-music-folders|--preserve-archive-config|\
+        --no-preserve-playlists|--no-preserve-music-folders|--no-preserve-archive-config|\
+        --keep-playlists|--keep-music-folders|--keep-archive-config|--no-preserve|\
+        --fresh|--yes|-y|--dry-run)
             REINSTALL_ARGS+=("$_arg")
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $_arg${NC}" >&2
+            echo "Run ./install.sh --help to see the available options." >&2
+            exit 1
             ;;
     esac
 done

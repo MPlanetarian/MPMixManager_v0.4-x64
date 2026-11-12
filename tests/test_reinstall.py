@@ -10,9 +10,11 @@ flow, including on Windows and macOS.
 from __future__ import annotations
 
 import os
+import select
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -240,6 +242,78 @@ class ReinstallHelperTests(ReinstallHarness):
         self.assertFalse((generated / "app.m3u8").exists())
         self.assertFalse((custom / "mine.m3u8").exists())
         self.assertTrue((generated / ".gitkeep").is_file())
+
+    def test_interactive_prompts_read_the_three_answers_and_confirm(self) -> None:
+        """Drive the real prompts through a pty: n / y / n, then REINSTALL."""
+        env = os.environ.copy()
+        env.update({
+            "MP_REINSTALL_SKIP_STOP": "1",
+            "MP_REINSTALL_CONFIG_DIR": str(self.config),
+            "MP_REINSTALL_DATA_DIR": str(self.data),
+        })
+        master, slave = os.openpty()
+        proc = subprocess.Popen(
+            [bash_path(), str(HELPER), "--root", str(self.root)],
+            stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
+        )
+        os.close(slave)
+        answers = [b"n\n", b"y\n", b"n\n", b"REINSTALL\n"]
+        index = 0
+        output = b""
+        deadline = time.time() + 40
+        try:
+            while time.time() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.3)
+                if ready:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    output += chunk
+                    if index < len(answers) and (b"[Y/n]" in chunk or b"REINSTALL" in chunk):
+                        time.sleep(0.1)
+                        os.write(master, answers[index])
+                        index += 1
+                if proc.poll() is not None:
+                    break
+            proc.wait(timeout=15)
+        finally:
+            os.close(master)
+        self.assertEqual(proc.returncode, 0, output.decode(errors="replace"))
+        self.assertEqual(index, 4, output.decode(errors="replace"))
+        # playlists declined, music folders kept, archive config declined
+        self.assertFalse((self.config / "playlists").exists())
+        self.assertTrue((self.config / "music_folders.json").is_file())
+        fresh = (self.root / "config.env").read_text(encoding="utf-8")
+        self.assertIn('MUSIC_SMB_USER="djuser"', fresh)
+        self.assertNotIn(f'MIX_ARCHIVE_DIR="{self.archive}"', fresh)
+        self.assert_audio_survived()
+
+    def test_backups_and_exports_survive_a_normal_reset(self) -> None:
+        snapshots = self.config / "backups" / "snapshot_1"
+        snapshots.mkdir(parents=True)
+        (snapshots / "config.env").write_text("MIX_ARCHIVE_DIR=\"/old\"\n", encoding="utf-8")
+        exports = self.config / "exports"
+        exports.mkdir()
+        (exports / "bundle.tar.gz").write_bytes(b"bundle")
+        result = self.run_helper("--yes", "--preserve-playlists")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((snapshots / "config.env").is_file())
+        self.assertTrue((exports / "bundle.tar.gz").is_file())
+
+    def test_fresh_reset_removes_snapshots_and_exports(self) -> None:
+        snapshots = self.config / "backups" / "snapshot_1"
+        snapshots.mkdir(parents=True)
+        (snapshots / "config.env").write_text("MIX_ARCHIVE_DIR=\"/old\"\n", encoding="utf-8")
+        exports = self.config / "exports"
+        exports.mkdir()
+        (exports / "bundle.tar.gz").write_bytes(b"bundle")
+        result = self.run_helper("--fresh", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((snapshots / "config.env").exists())
+        self.assertFalse((exports / "bundle.tar.gz").exists())
 
     def test_report_lists_protected_folders(self) -> None:
         result = self.run_helper("--fresh", "--yes")
