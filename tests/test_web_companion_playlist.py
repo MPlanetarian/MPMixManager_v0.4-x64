@@ -46,6 +46,7 @@ class CompanionTestBase(unittest.TestCase):
             patch.object(companion, "PLAYLIST_DIR", self.config / "playlists"),
             patch.object(companion, "VOLUME_FILE", self.config / "web_companion_stream.json"),
             patch.object(companion, "RESUME_FILE", self.config / "playback_resume.json"),
+            patch.object(companion, "FAVORITES_FILE", self.config / "favorites.json"),
         ]
         for p in self._patches:
             p.start()
@@ -83,6 +84,15 @@ class CompanionTestBase(unittest.TestCase):
         self.addCleanup(self._music_patch.stop)
         companion.invalidate_queue_cache()
 
+    def use_favorites(self, files):
+        """Write a favorites.json the way the MP Audio Player stores it."""
+        tracks = [{"name": Path(f).name, "path": str(Path(f)), "added": 1.0} for f in files]
+        _write(
+            self.config / "favorites.json",
+            json.dumps({"version": 1, "name": "Favorites", "tracks": tracks}),
+        )
+        companion.invalidate_queue_cache()
+
 
 class TestLibraryMode(CompanionTestBase):
     def test_default_mode_is_mix_archive(self):
@@ -100,6 +110,88 @@ class TestLibraryMode(CompanionTestBase):
     def test_mode_accepts_short_aliases(self):
         self.assertEqual(companion.set_library_mode("mix"), companion.LIBRARY_MODE_MIX)
         self.assertEqual(companion.set_library_mode("tracks"), companion.LIBRARY_MODE_MUSIC)
+        self.assertEqual(companion.set_library_mode("faves"), companion.LIBRARY_MODE_FAVORITES)
+        self.assertEqual(companion.set_library_mode("favourite"), companion.LIBRARY_MODE_FAVORITES)
+
+    def test_all_three_modes_are_advertised(self):
+        self.assertEqual(
+            list(companion.MODE_LABELS),
+            ["MIX_ARCHIVE", "MUSIC", "FAVORITES"],
+        )
+        self.assertIn("Favorites", companion.MODE_LABELS.values())
+
+    def test_favorites_mode_streams_the_saved_playlist(self):
+        mix = _touch_audio(self.home / "MIX_ARCHIVE" / "mix_one.flac")
+        fav = _touch_audio(self.home / "MUSIC" / "fav_song.mp3")
+        self.use_archive([mix])
+        self.use_music([])
+        self.use_favorites([fav])
+        companion.set_library_mode("FAVORITES")
+        self.assertEqual(companion.build_stream_queue(), [str(fav)])
+
+    def test_favorites_keep_the_order_the_player_saved(self):
+        first = _touch_audio(self.home / "MUSIC" / "first.mp3")
+        second = _touch_audio(self.home / "MUSIC" / "second.mp3")
+        self.use_archive([])
+        self.use_favorites([second, first])
+        companion.set_library_mode("FAVORITES")
+        self.assertEqual(companion.build_stream_queue(), [str(second), str(first)])
+
+    def test_favorites_deduplicate_paths(self):
+        fav = _touch_audio(self.home / "MUSIC" / "fav.mp3")
+        _write(
+            self.config / "favorites.json",
+            json.dumps({"tracks": [{"path": str(fav)}, {"path": str(fav)}]}),
+        )
+        companion.invalidate_queue_cache()
+        self.assertEqual(companion.scan_favorite_files(), [str(fav)])
+
+    def test_favorites_skip_files_that_no_longer_exist(self):
+        live = _touch_audio(self.home / "MUSIC" / "live.mp3")
+        _write(
+            self.config / "favorites.json",
+            json.dumps({"tracks": [
+                {"path": str(self.home / "MUSIC" / "gone.mp3")},
+                {"path": str(live)},
+            ]}),
+        )
+        companion.invalidate_queue_cache()
+        self.assertEqual(companion.scan_favorite_files(), [str(live)])
+
+    def test_favorites_fall_back_to_the_m3u8_mirror(self):
+        """favorites.m3u8 is written beside favorites.json by the player."""
+        fav = _touch_audio(self.home / "MUSIC" / "fav.mp3")
+        _write(
+            self.config / "favorites.m3u8",
+            "#EXTM3U\n#PLAYLIST:MP Favorites\n#EXTINF:-1,fav.mp3\n" + str(fav) + "\n",
+        )
+        companion.invalidate_queue_cache()
+        self.assertEqual(companion.scan_favorite_files(), [str(fav)])
+
+    def test_empty_favorites_is_empty_not_borrowed_from_the_archive(self):
+        """An empty Favorites is a normal state; it must not stream the archive."""
+        mix = _touch_audio(self.home / "MIX_ARCHIVE" / "mix_one.flac")
+        self.use_archive([mix])
+        self.use_music([])
+        self.use_favorites([])
+        companion.set_library_mode("FAVORITES")
+
+        self.assertEqual(companion.build_stream_queue(), [])
+        data = companion.get_mini_playlist()
+        self.assertEqual(data["items"], [])
+        self.assertEqual(data["total"], 0)
+        self.assertEqual(data["mode"], "FAVORITES")
+        self.assertFalse(data["library_fallback"])
+        self.assertIn("favorites", data["library_detail"].lower())
+
+    def test_favorites_mode_reports_its_label(self):
+        fav = _touch_audio(self.home / "MUSIC" / "fav.mp3")
+        self.use_archive([])
+        self.use_favorites([fav])
+        companion.set_library_mode("FAVORITES")
+        data = companion.get_mini_playlist()
+        self.assertEqual(data["mode_label"], "Favorites")
+        self.assertEqual(len(data["items"]), 1)
 
     def test_unknown_mode_is_rejected(self):
         self.assertIsNone(companion.set_library_mode("bogus"))
@@ -193,10 +285,10 @@ class TestMiniPlaylist(CompanionTestBase):
         self.assertEqual(data["total"], 0)
         self.assertIn("modes", data)
 
-    def test_exposes_both_modes_for_the_switch(self):
+    def test_exposes_every_mode_for_the_switch(self):
         self.use_archive([])
         modes = [m["id"] for m in companion.get_mini_playlist()["modes"]]
-        self.assertEqual(modes, ["MIX_ARCHIVE", "MUSIC"])
+        self.assertEqual(modes, ["MIX_ARCHIVE", "MUSIC", "FAVORITES"])
 
 
 class TestModeSwitchResponsiveness(CompanionTestBase):
@@ -298,8 +390,10 @@ class TestThemeButton(CompanionTestBase):
         self.assertIn('id="modeSwitch"', page)
         self.assertIn('data-mode="MIX_ARCHIVE"', page)
         self.assertIn('data-mode="MUSIC"', page)
-        self.assertIn("Mix Mode", page)
-        self.assertIn("Music Mode", page)
+        self.assertIn('data-mode="FAVORITES"', page)
+        self.assertIn(">Mix</button>", page)
+        self.assertIn(">Music</button>", page)
+        self.assertIn(">Favourites</button>", page)
         self.assertIn('id="miniPlCount"', page)
 
     def test_page_is_branded_as_the_liquid_player(self):

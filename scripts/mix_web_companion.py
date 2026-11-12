@@ -718,10 +718,18 @@ PLAYLIST_DIR = CONFIG_DIR / "playlists"
 MUSIC_FOLDERS_FILE = CONFIG_DIR / "music_folders.json"
 WEB_MODE_FILE = CONFIG_DIR / "web_companion_mode"
 
-# Same two libraries the MP Audio Player switches between with [1] and [2].
+# Same libraries the MP Audio Player switches between with [1], [2] and [3].
 LIBRARY_MODE_MIX = "MIX_ARCHIVE"
 LIBRARY_MODE_MUSIC = "MUSIC"
-MODE_LABELS = {LIBRARY_MODE_MIX: "Mix Archive", LIBRARY_MODE_MUSIC: "Music"}
+LIBRARY_MODE_FAVORITES = "FAVORITES"
+MODE_LABELS = {
+    LIBRARY_MODE_MIX: "Mix Archive",
+    LIBRARY_MODE_MUSIC: "Music",
+    LIBRARY_MODE_FAVORITES: "Favorites",
+}
+# The Favorites playlist is shared with the MP Audio Player, which writes it on
+# every [H] mark, so the companion only ever reads it.
+FAVORITES_FILE = CONFIG_DIR / "favorites.json"
 
 _autoplay_done = threading.Event()
 _autoplay_result: Dict[str, Any] = {"status": "pending", "detail": ""}
@@ -782,7 +790,7 @@ def is_audio_file(path: Any) -> bool:
 
 
 def get_library_mode() -> str:
-    """Which library the companion streams from: MIX_ARCHIVE or MUSIC.
+    """Which library the companion streams from: MIX_ARCHIVE, MUSIC or FAVORITES.
 
     The web toggle persists here so a phone can switch libraries and the choice
     survives a service restart. Falls back to WEB_COMPANION_MODE in config.env,
@@ -808,6 +816,8 @@ def set_library_mode(mode: str) -> Optional[str]:
         target = LIBRARY_MODE_MIX
     elif target in ("MUSIC", "TRACKS", "SONGS", "LIBRARY"):
         target = LIBRARY_MODE_MUSIC
+    elif target in ("FAV", "FAVS", "FAVES", "FAVOURITE", "FAVOURITES", "FAVORITE", "FAVORITES"):
+        target = LIBRARY_MODE_FAVORITES
     if target not in MODE_LABELS:
         return None
     unchanged = get_library_mode() == target
@@ -970,6 +980,43 @@ def scan_music_files() -> List[str]:
     return list(files)
 
 
+def _favorite_key(path: Any) -> str:
+    """Identity used to de-duplicate Favorites, matching the MP Audio Player."""
+    raw = str(path or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(("\\\\", "//", "smb://")):
+        return raw.replace("\\", "/").rstrip("/").lower()
+    try:
+        return os.path.normcase(os.path.abspath(os.path.expanduser(raw)))
+    except Exception:
+        return os.path.normcase(raw)
+
+
+def scan_favorite_files() -> List[str]:
+    """The FAVORITES library: the playlist the MP Audio Player marks with [H].
+
+    favorites.json is the authoritative list (favorites.m3u8 is a mirror of it),
+    so it is read in saved order - the player's Favorites order is meaningful,
+    unlike the newest-first archive and music scans. The file is re-read on each
+    call because it is tiny and the player may mark a track at any moment.
+    """
+    paths: List[str] = []
+    seen = set()
+    for cand in (FAVORITES_FILE, FAVORITES_FILE.with_suffix(".m3u8")):
+        if not cand.is_file():
+            continue
+        for path in _read_playlist_file(cand):
+            key = _favorite_key(path)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            paths.append(path)
+        if paths:
+            break
+    return paths
+
+
 def _scan_dirs(roots: List[Path]) -> List[str]:
     """Newest-first audio files underneath the given directories."""
     skip = {"__pycache__", "node_modules", ".git", "venv", ".venv"}
@@ -1125,6 +1172,15 @@ def build_stream_queue() -> List[str]:
             })
             if not files:
                 files = scan_archive_files()
+        elif mode == LIBRARY_MODE_FAVORITES:
+            files = scan_favorite_files()
+            # An empty Favorites playlist is a normal state, not a broken
+            # library, so it is reported as empty instead of borrowed from
+            # another mode. Marking tracks with [H] in the player fills it.
+            _queue_source_state.update({
+                "fallback": False,
+                "detail": "" if files else "No favorites yet - press H in the player to add one",
+            })
         else:
             _queue_source_state.update({"fallback": False, "detail": ""})
             files = scan_archive_files()
@@ -1575,6 +1631,8 @@ def get_mini_playlist(limit: Optional[int] = None) -> Dict[str, Any]:
             "current_index": -1,
             "mode": mode,
             "mode_label": MODE_LABELS.get(mode, "Library"),
+            "library_fallback": bool(_queue_source_state.get("fallback")),
+            "library_detail": _queue_source_state.get("detail", ""),
             "modes": [{"id": mid, "label": label} for mid, label in MODE_LABELS.items()],
         }
 
@@ -2014,11 +2072,15 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             font-family: inherit;
             font-size: 0.72rem;
             font-weight: 800;
-            letter-spacing: 0.4px;
-            padding: 7px 12px;
+            letter-spacing: 0.2px;
+            padding: 7px 6px;
             border-radius: 8px;
             cursor: pointer;
-            flex: 1;
+            flex: 1 1 0;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             transition: background 0.15s ease, color 0.15s ease;
         }}
         .mode-switch button.active {{
@@ -2579,8 +2641,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 <span class="mini-pl-count" id="miniPlCount">0 tracks</span>
             </div>
             <div class="mode-switch" id="modeSwitch" role="group" aria-label="Choose library mode">
-                <button type="button" data-mode="MIX_ARCHIVE" onclick="switchLibraryMode('MIX_ARCHIVE')">Mix Mode</button>
-                <button type="button" data-mode="MUSIC" onclick="switchLibraryMode('MUSIC')">Music Mode</button>
+                <button type="button" data-mode="MIX_ARCHIVE" onclick="switchLibraryMode('MIX_ARCHIVE')">Mix</button>
+                <button type="button" data-mode="MUSIC" onclick="switchLibraryMode('MUSIC')">Music</button>
+                <button type="button" data-mode="FAVORITES" onclick="switchLibraryMode('FAVORITES')">Favourites</button>
             </div>
             <div id="miniPlNote"></div>
             <div id="miniPlItems"></div>
@@ -2780,12 +2843,16 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             const noteEl = document.getElementById('miniPlNote');
             if (noteEl) {{
                 noteEl.innerHTML = '';
-                if (data && data.library_fallback && data.library_detail) {{
+                if (data && data.library_detail) {{
+                    // A warning when the mode fell back, a plain hint otherwise
+                    // (an empty Favorites playlist is normal, not an error).
                     const note = document.createElement('div');
                     note.className = 'mini-pl-empty';
-                    note.style.borderColor = '#ffaa00';
-                    note.style.color = '#ffaa00';
-                    note.innerText = '⚠ ' + data.library_detail;
+                    if (data.library_fallback) {{
+                        note.style.borderColor = '#ffaa00';
+                        note.style.color = '#ffaa00';
+                    }}
+                    note.innerText = (data.library_fallback ? '⚠ ' : '') + data.library_detail;
                     noteEl.appendChild(note);
                 }}
             }}
@@ -2798,7 +2865,9 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             if (!items.length) {{
                 const empty = document.createElement('div');
                 empty.className = 'mini-pl-empty';
-                empty.innerText = 'No audio found in this library';
+                empty.innerText = (data && data.mode === 'FAVORITES')
+                    ? 'No favourites yet — press H in the player to add one'
+                    : 'No audio found in this library';
                 wrap.appendChild(empty);
                 return;
             }}
@@ -2852,8 +2921,8 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }});
             const titleEl = document.getElementById('miniPlTitle');
             if (!titleEl || !busy) return;
-            const label = pendingMode === 'MUSIC' ? 'Music' : 'Mix Archive';
-            titleEl.innerText = '⏳ Switching to ' + label + '…';
+            const labels = {{ MIX_ARCHIVE: 'Mix Archive', MUSIC: 'Music', FAVORITES: 'Favourites' }};
+            titleEl.innerText = '⏳ Switching to ' + (labels[pendingMode] || 'library') + '…';
         }}
 
         async function switchLibraryMode(mode) {{
