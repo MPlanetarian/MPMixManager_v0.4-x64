@@ -3093,7 +3093,7 @@ if aud_cmd and (dur_s == 0 or pos_s == 0):
     except Exception: pass
 print("\x1f".join([status.lower(), title, artist, album, u, str(max(0, int(pos_s))), str(max(0, int(dur_s)))]))
 ' "$pname" 2>/dev/null) || return 1
-[ -z "$raw" ] && return 1; local st ti ar al rp po du; IFS=$'\x1f' read -r st ti ar al rp po du <<< "$raw"; po=${po:-0}; du=${du:-0}; local pf df pct=0 res="$rp" ex=0 sz=""; pf=$(_fmt_sec "$po"); df=$(_fmt_sec "$du"); (( du > 0 )) && pct=$(( po * 100 / du )); if [ -n "$res" ] && [ -e "$res" ]; then ex=1; else local alt="${rp/#\/media\//\/run\/media\/}"; if [ -n "$alt" ] && [ -e "$alt" ]; then res="$alt"; ex=1; else local pid fd lt; for pid in $(pgrep -x "$pname" 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do [ -e "$fd" ] || continue; lt=$(readlink "$fd" 2>/dev/null); case "$lt" in *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$lt" ] && { res="$lt"; ex=1; break 2; } ;; esac; done; done; fi; fi; (( ex )) && sz=$(ls -lh "$res" 2>/dev/null | awk '{print $5}'); printf -v "${pfx}_RUNNING" '%s' 1; printf -v "${pfx}_STATE" '%s' "$st"; printf -v "${pfx}_TITLE" '%s' "$ti"; printf -v "${pfx}_ARTIST" '%s' "$ar"; printf -v "${pfx}_ALBUM" '%s' "$al"; printf -v "${pfx}_RAW_PATH" '%s' "$rp"; printf -v "${pfx}_RESOLVED_PATH" '%s' "$res"; printf -v "${pfx}_FILE_EXISTS" '%s' "$ex"; printf -v "${pfx}_FILE_SIZE" '%s' "$sz"; printf -v "${pfx}_POSITION" '%s' "$po"; printf -v "${pfx}_DURATION" '%s' "$du"; printf -v "${pfx}_POS_FMT" '%s' "$pf"; printf -v "${pfx}_DUR_FMT" '%s' "$df"; printf -v "${pfx}_PROGRESS_PCT" '%s' "$pct"; return 0
+[ -z "$raw" ] && return 1; local st ti ar al rp po du; IFS=$'\x1f' read -r st ti ar al rp po du <<< "$raw"; po=${po:-0}; du=${du:-0}; local pf df pct=0 res="$rp" ex=0 sz=""; pf=$(_fmt_sec "$po"); df=$(_fmt_sec "$du"); (( du > 0 )) && pct=$(( po * 100 / du )); if [ -n "$res" ] && [ -e "$res" ]; then ex=1; else local alt="${rp/#\/media\//\/run\/media\/}"; if [ -n "$alt" ] && [ -e "$alt" ]; then res="$alt"; ex=1; else local pid fd lt; for pid in $(pgrep -x "$pname" 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do [ -e "$fd" ] || continue; lt=$(readlink "$fd" 2>/dev/null); case "$lt" in *.flac|*.wav|*.wave|*.w64|*.rf64|*.mp3|*.mp2|*.mp1|*.mpga|*.ogg|*.oga|*.opus|*.spx|*.m4a|*.m4b|*.m4p|*.aac|*.alac|*.aiff|*.aif|*.aifc|*.wma|*.ape|*.wv|*.tta|*.tak|*.mpc|*.mpp|*.ac3|*.eac3|*.dts|*.caf|*.au|*.snd|*.amr|*.3ga|*.dsf|*.dff|*.mka|*.voc|*.ofr|*.ofs) [ -f "$lt" ] && { res="$lt"; ex=1; break 2; } ;; esac; done; done; fi; fi; (( ex )) && sz=$(ls -lh "$res" 2>/dev/null | awk '{print $5}'); printf -v "${pfx}_RUNNING" '%s' 1; printf -v "${pfx}_STATE" '%s' "$st"; printf -v "${pfx}_TITLE" '%s' "$ti"; printf -v "${pfx}_ARTIST" '%s' "$ar"; printf -v "${pfx}_ALBUM" '%s' "$al"; printf -v "${pfx}_RAW_PATH" '%s' "$rp"; printf -v "${pfx}_RESOLVED_PATH" '%s' "$res"; printf -v "${pfx}_FILE_EXISTS" '%s' "$ex"; printf -v "${pfx}_FILE_SIZE" '%s' "$sz"; printf -v "${pfx}_POSITION" '%s' "$po"; printf -v "${pfx}_DURATION" '%s' "$du"; printf -v "${pfx}_POS_FMT" '%s' "$pf"; printf -v "${pfx}_DUR_FMT" '%s' "$df"; printf -v "${pfx}_PROGRESS_PCT" '%s' "$pct"; return 0
 }
 get_audacious_track_info() { _mpris_player_info AUDACIOUS audacious; }
 get_strawberry_track_info() { _mpris_player_info STRAWBERRY strawberry; }
@@ -4410,7 +4410,7 @@ get_traktor_version_mac() {
 if [ "$OS_TYPE" != "macos" ]; then echo ""; return 1; fi; local ver=""; if [ -x "/usr/libexec/PlistBuddy" ] && [ -f "/Applications/Native Instruments/Traktor Pro 3/Traktor.app/Contents/Info.plist" ]; then ver="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Applications/Native Instruments/Traktor Pro 3/Traktor.app/Contents/Info.plist" 2>/dev/null | awk '{print $1}')"; elif [ -x "/usr/libexec/PlistBuddy" ] && [ -f "/Applications/Traktor Pro 3.app/Contents/Info.plist" ]; then ver="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Applications/Traktor Pro 3.app/Contents/Info.plist" 2>/dev/null | awk '{print $1}')"; elif [ -x "/usr/libexec/PlistBuddy" ] && [ -f "/Applications/Traktor.app/Contents/Info.plist" ]; then ver="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "/Applications/Traktor.app/Contents/Info.plist" 2>/dev/null | awk '{print $1}')"; fi; if [ -z "$ver" ] && [ -d "$HOME/Documents/Native Instruments" ]; then ver="$(find "$HOME/Documents/Native Instruments" -maxdepth 1 -type d -name "Traktor 3*" 2>/dev/null | sort -V | tail -n 1 | sed 's/.*Traktor //')"; fi; echo "${ver:-3}"
 }
 generate_traktor_playlist_from_history() {
-if [ "$OS_TYPE" != "macos" ]; then echo -e "\n${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}\n${BOLD}${RED}            ⚠️  PLATFORM NOT SUPPORTED FOR TRAKTOR PLAYLISTS ⚠️                 ${NC}\n${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}\n  • ${BOLD}Platform:${NC}           $(uname -s)\n  • ${BOLD}Notice:${NC}             Traktor Pro does not run on Linux natively.\n                          This feature is exclusively supported on ${BOLD}${GREEN}macOS${NC}.\n  • ${BOLD}Remote Access:${NC}      To generate Traktor playlists, execute MP Mix Archive Manager\n                          directly on your macOS workstation.\n${BOLD}${RED}═══════════════════════════════════════════════════════════════════════════════${NC}\n"; press_enter; return 1; fi; local gen_py="$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.py"; local gen_sh="$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.sh"; if [ -x "$gen_sh" ]; then "$gen_sh" "$@"; elif [ -f "$gen_py" ]; then python3 "$gen_py" "$@"; elif [ -f "./scripts/generate_traktor_playlist_from_history.py" ]; then python3 "./scripts/generate_traktor_playlist_from_history.py" "$@"; else echo -e "\n${RED}Error: generate_traktor_playlist_from_history.py was not found in scripts/!${NC}\n"; press_enter; return 1; fi
+local gen_py="$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.py"; local gen_sh="$SCRIPT_DIR/scripts/generate_traktor_playlist_from_history.sh"; if [ -x "$gen_sh" ]; then "$gen_sh" "$@"; elif [ -f "$gen_py" ]; then python3 "$gen_py" "$@"; elif [ -f "$SCRIPT_DIR/generate_traktor_playlist_from_history.py" ]; then python3 "$SCRIPT_DIR/generate_traktor_playlist_from_history.py" "$@"; else echo -e "\n${RED}Error: generate_traktor_playlist_from_history.py was not found in scripts/!${NC}\n"; press_enter; return 1; fi
 }
 launch_fl_studio() {
 local file="${1:-}"; echo -e "\n${BOLD}${YELLOW}Launching Image-Line FL Studio (Fruity Loops)...${NC}\n"; if [ "$OS_TYPE" = "macos" ]; then local fl_mac_apps=("FL Studio 2024" "FL Studio 21" "FL Studio 20" "FL Studio"); for app in "${fl_mac_apps[@]}"; do if [ -d "/Applications/${app}.app" ] || [ -d "$HOME/Applications/${app}.app" ]; then if [ -n "$file" ] && [ -f "$file" ]; then open -a "$app" "$file" &>/dev/null &
@@ -5715,6 +5715,161 @@ local script="" s; for s in "$SCRIPT_DIR/convert_audio_format.sh" "$SCRIPT_DIR/s
 detect_active_music_player() {
 DETECTED_PLAYER_NAME="" DETECTED_TRACK_PATH="" DETECTED_TRACK_TITLE="" DETECTED_PLAYER_LABEL=""; local mp_ok=0 a_ok=0 s_ok=0 c_ok=0; get_mp_audio_player_track_info 2>/dev/null && mp_ok=1; get_audacious_track_info 2>/dev/null && a_ok=1; get_strawberry_track_info 2>/dev/null && s_ok=1; get_cliamp_track_info 2>/dev/null && c_ok=1; if [ "$mp_ok" -eq 1 ] && [ "$MP_PLAYER_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="MP Audio Player" DETECTED_TRACK_PATH="$MP_PLAYER_RESOLVED_PATH" DETECTED_TRACK_TITLE="$MP_PLAYER_TITLE"; elif [ "$a_ok" -eq 1 ] && [ "$AUDACIOUS_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ "$STRAWBERRY_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ "$CLIAMP_STATE" = "playing" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; elif [ "$mp_ok" -eq 1 ] && [ -n "$MP_PLAYER_TITLE" ]; then DETECTED_PLAYER_NAME="MP Audio Player" DETECTED_TRACK_PATH="$MP_PLAYER_RESOLVED_PATH" DETECTED_TRACK_TITLE="$MP_PLAYER_TITLE"; elif [ "$a_ok" -eq 1 ] && [ -n "$AUDACIOUS_TITLE" ]; then DETECTED_PLAYER_NAME="Audacious" DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH" DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE"; elif [ "$s_ok" -eq 1 ] && [ -n "$STRAWBERRY_TITLE" ]; then DETECTED_PLAYER_NAME="Strawberry" DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH" DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE"; elif [ "$c_ok" -eq 1 ] && [ -n "$CLIAMP_TITLE" ]; then DETECTED_PLAYER_NAME="cliamp" DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH" DETECTED_TRACK_TITLE="$CLIAMP_TITLE"; else local procs; procs=$(pgrep -x "audacious|strawberry|cliamp|vlc|audacity|haruna|mpv|kodi" 2>/dev/null | xargs -r ps -o comm= -p 2>/dev/null || true); case "${procs,,}" in *audacious*)  DETECTED_PLAYER_NAME="Audacious"; DETECTED_TRACK_PATH="$AUDACIOUS_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$AUDACIOUS_TITLE" ;; *strawberry*) DETECTED_PLAYER_NAME="Strawberry"; DETECTED_TRACK_PATH="$STRAWBERRY_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$STRAWBERRY_TITLE" ;; *cliamp*)     DETECTED_PLAYER_NAME="cliamp"; DETECTED_TRACK_PATH="$CLIAMP_RESOLVED_PATH"; DETECTED_TRACK_TITLE="$CLIAMP_TITLE" ;; *vlc*)        DETECTED_PLAYER_NAME="VLC" ;; *audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; *haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; *mpv*)        DETECTED_PLAYER_NAME="mpv" ;; *kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *) if command -v playerctl &>/dev/null; then local raw_p; raw_p=$(timeout 1 playerctl -l 2>/dev/null | head -1); raw_p="${raw_p%%.*}"; if [ -n "$raw_p" ]; then case "${raw_p,,}" in audacious*)  DETECTED_PLAYER_NAME="Audacious" ;; strawberry*) DETECTED_PLAYER_NAME="Strawberry" ;; vlc*)        DETECTED_PLAYER_NAME="VLC" ;; haruna*)     DETECTED_PLAYER_NAME="Haruna" ;; mpv*)        DETECTED_PLAYER_NAME="mpv" ;; audacity*)   DETECTED_PLAYER_NAME="Audacity" ;; kodi*)       DETECTED_PLAYER_NAME="Kodi" ;; *)           DETECTED_PLAYER_NAME="$raw_p" ;; esac; fi; fi ;; esac; fi; if [ -n "$DETECTED_PLAYER_NAME" ] && [ -z "$DETECTED_TRACK_PATH" ]; then if command -v playerctl &>/dev/null; then local u; u=$(timeout 1 playerctl metadata xesam:url 2>/dev/null || true); [[ "$u" == file://* ]] && printf -v DETECTED_TRACK_PATH '%b' "${u#file://}" && DETECTED_TRACK_PATH=$(printf '%b' "${DETECTED_TRACK_PATH//%/\\x}"); [ -z "$DETECTED_TRACK_TITLE" ] && DETECTED_TRACK_TITLE=$(timeout 1 playerctl metadata xesam:title 2>/dev/null || true); fi; if [ -z "$DETECTED_TRACK_PATH" ]; then local dp; dp=$(detect_currently_playing_mix 2>/dev/null || true); [ -n "$dp" ] && [ -f "$dp" ] && DETECTED_TRACK_PATH="$dp"; fi; fi; if [ -n "$DETECTED_PLAYER_NAME" ]; then DETECTED_PLAYER_LABEL="${GREEN}${DETECTED_PLAYER_NAME}${NC}"; return 0; fi; DETECTED_PLAYER_LABEL="${RED}No Player Detected${NC}"; return 1
 }
+_collect_narrator_tracklists() {
+local -a s_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}") f_dir a_dir
+if command -v get_all_flac_output_dirs &>/dev/null; then
+while IFS= read -r f_dir; do [ -n "$f_dir" ] && s_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs)
+fi
+if command -v get_all_mix_archive_dirs &>/dev/null; then
+while IFS= read -r a_dir; do [ -n "$a_dir" ] && s_dirs+=("$a_dir"); done < <(get_all_mix_archive_dirs)
+fi
+local -A seen=(); NARRATOR_TRACKLISTS=(); shopt -s nullglob nocaseglob
+local sd f bn
+for sd in "${s_dirs[@]}"; do
+[ -z "$sd" ] || [ ! -d "$sd" ] && continue
+for f in "$sd"/*.txt; do
+[ -f "$f" ] || continue
+bn="${f##*/}"
+case "${bn,,}" in requirements.txt|checksums*|*.sha256.txt|*log*.txt|todo*.txt) continue ;; esac
+if [ -z "${seen[$f]}" ]; then seen["$f"]=1; NARRATOR_TRACKLISTS+=("$f"); fi
+done
+done
+shopt -u nullglob nocaseglob
+return 0
+}
+narrate_tracklist_with_harmony() {
+local narrator="$SCRIPT_DIR/scripts/mp_tracklist_narrator.py"
+[ ! -f "$narrator" ] && narrator="$SCRIPT_DIR/mp_tracklist_narrator.py"
+if [ ! -f "$narrator" ]; then
+echo -e "\n${RED}Error: mp_tracklist_narrator.py was not found in scripts/!${NC}"
+press_enter
+return 1
+fi
+_collect_narrator_tracklists
+local -a ALL_TRACKLIST_FILES=("${NARRATOR_TRACKLISTS[@]}")
+if [ ${#ALL_TRACKLIST_FILES[@]} -eq 0 ]; then
+echo -e "\n${YELLOW}No tracklist .txt files were found in the archive folders.${NC}"
+press_enter
+return 0
+fi
+while true; do
+clear
+echo -e "${BOLD}${MAGENTA}${S70}${NC}"
+echo -e "${BOLD}${MAGENTA}      READ A TRACKLIST OUT LOUD WITH THE MP HARMONY AGENT               ${NC}"
+echo -e "${BOLD}${MAGENTA}${S70}${NC}"
+echo -e "  ${DIM}The selected tracklist is sent to the MP Harmony Agent, which narrates it${NC}"
+echo -e "  ${DIM}with its active AI model and speaks it in the chosen MP Harmony voice.${NC}\n"
+echo -e "  ${BOLD}${CYAN}Current Tracklist Files (file name is the title):${NC}\n"
+local idx=1 shown=() tf bname
+for tf in "${ALL_TRACKLIST_FILES[@]}"; do
+bname="${tf##*/}"
+printf "  %2d) %s\n" "$idx" "${bname%.*}"
+shown+=("$tf")
+((idx++))
+if [ "$idx" -gt 60 ]; then
+echo -e "  ${DIM}...and $(( ${#ALL_TRACKLIST_FILES[@]} - 60 )) more (use the Tracklist Management Suite search to narrow the list)${NC}"
+break
+fi
+done
+echo ""
+echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Tracklist Suite\n"
+local sel
+read -r -p "Select a tracklist to read out loud [1-${#shown[@]}, 0 to cancel]: " sel
+if [[ "$sel" =~ ^([qQ]|0)?$ ]]; then return 0; fi
+if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -lt 1 ] || [ "$sel" -gt "${#shown[@]}" ]; then
+echo -e "\n${RED}Invalid selection.${NC}"; sleep 1.2; continue
+fi
+local chosen_tl="${shown[$((sel - 1))]}"
+clear
+echo -e "${BOLD}${MAGENTA}${S70}${NC}"
+echo -e "${BOLD}${MAGENTA}      CHOOSE THE MP HARMONY VOICE FOR THIS NARRATION                   ${NC}"
+echo -e "${BOLD}${MAGENTA}${S70}${NC}"
+echo -e "  ${DIM}Voices already installed in the MP Harmony Agent:${NC}\n"
+echo -e "  ${BOLD}${CYAN}  1)${NC} Stephen Hawking (Enters the Matrix) ${BOLD}${GREEN}[Default]${NC}"
+echo -e "  ${BOLD}${CYAN}  2)${NC} Morpheus (The Matrix - Master)"
+echo -e "  ${BOLD}${CYAN}  3)${NC} Morpheus (The Construct - 'What is real?')"
+echo -e "  ${BOLD}${CYAN}  4)${NC} Morpheus (Red Pill - 'Rabbit Hole')"
+echo -e "  ${BOLD}${CYAN}  5)${NC} Morpheus (Combat Dojo - 'Free your mind')"
+echo -e "  ${BOLD}${CYAN}  6)${NC} Morpheus (The System - 'Our enemy')"
+echo -e "  ${BOLD}${CYAN}  7)${NC} Agent Smith (The Matrix)"
+echo -e "  ${BOLD}${CYAN}  8)${NC} Neo (The Matrix)"
+echo -e "  ${BOLD}${CYAN}  9)${NC} Trinity (The Matrix)"
+echo -e "  ${BOLD}${CYAN} 10)${NC} The Oracle (The Matrix)"
+echo -e "  ${BOLD}${CYAN} 11)${NC} Zion (Councillor Hamann)\n"
+local v_sel
+read -r -p "Enter voice choice [1-11, Enter = Stephen Hawking]: " v_sel
+local chosen_voice="stephen_hawking_matrix"
+case "$v_sel" in
+2) chosen_voice="morpheus" ;;
+3) chosen_voice="morpheus_construct" ;;
+4) chosen_voice="morpheus_redpill" ;;
+5) chosen_voice="morpheus_dojo" ;;
+6) chosen_voice="morpheus_system" ;;
+7) chosen_voice="agent_smith" ;;
+8) chosen_voice="neo" ;;
+9) chosen_voice="trinity" ;;
+10) chosen_voice="oracle" ;;
+11) chosen_voice="zion" ;;
+*) chosen_voice="stephen_hawking_matrix" ;;
+esac
+local archive_root="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"
+local voiced_dir="${archive_root%/}/MP_TRACKLISTS_VOICED"
+mkdir -p "$voiced_dir" 2>/dev/null || true
+local py_bin
+py_bin="$(mp_python_bin 2>/dev/null || echo python3)"
+[ -z "$py_bin" ] && py_bin="python3"
+[ -x "$py_bin" ] || py_bin="python3"
+clear
+echo -e "${BOLD}${MAGENTA}${S70}${NC}"
+echo -e "${BOLD}${MAGENTA}      NARRATING: ${WHITE}${chosen_tl##*/}${NC}"
+echo -e "${BOLD}${MAGENTA}${S70}${NC}\n"
+local log_file
+log_file="$(mktemp "${TMPDIR:-/tmp}/mp_tracklist_narration.XXXXXX" 2>/dev/null || echo "/tmp/mp_tracklist_narration.$$")"
+MIX_ARCHIVE_DIR="$archive_root" "$py_bin" "$narrator" --tracklist "$chosen_tl" --voice "$chosen_voice" --out-dir "$voiced_dir" 2>&1 | tee "$log_file"
+local nar_rc=${PIPESTATUS[0]}
+local audio_path text_path saved_dir
+audio_path="$(grep -m1 '^AUDIO_PATH=' "$log_file" 2>/dev/null | cut -d= -f2-)"
+text_path="$(grep -m1 '^TEXT_PATH=' "$log_file" 2>/dev/null | cut -d= -f2-)"
+saved_dir="$(grep -m1 '^OUT_DIR=' "$log_file" 2>/dev/null | cut -d= -f2-)"
+rm -f "$log_file" 2>/dev/null || true
+if [ "$nar_rc" -ne 0 ] || [ -z "$audio_path" ] || [ ! -f "$audio_path" ]; then
+echo ""
+echo -e "${RED}The narration could not be generated.${NC}"
+echo -e "${DIM}Make sure the MP Harmony Agent is running (AI Assistant & Local LLM Servers > Manage MP Harmony AI Agent) and that espeak-ng and ffmpeg are installed.${NC}"
+press_enter
+return 1
+fi
+echo ""
+echo -e "${BOLD}${GREEN}The narrated tracklist has been recorded.${NC}\n"
+echo -e "  ${BOLD}Audio Recording:${NC} ${BOLD}${CYAN}${audio_path}${NC}"
+if [ -n "$text_path" ] && [ -f "$text_path" ]; then
+echo -e "  ${BOLD}Transcript:${NC}      ${CYAN}${text_path}${NC}"
+fi
+[ -n "$saved_dir" ] || saved_dir="$voiced_dir"
+echo -e "  ${BOLD}Saved In:${NC}        ${CYAN}${saved_dir}${NC}\n"
+local preview
+read -r -p "Listen to the recorded version in the MP Audio Player (Preview)? [Y/n]: " preview
+if [[ ! "$preview" =~ ^[nN] ]]; then
+echo -e "\n${BOLD}${CYAN}Opening the recording in the MP Audio Player (Preview)...${NC}\n"
+play_audio_file "mp_audio_player" "$audio_path" "" "MIX_ARCHIVE" || {
+echo -e "${YELLOW}The MP Audio Player could not be launched. Opening with the default system player instead.${NC}"
+open_path "$audio_path"
+}
+fi
+echo ""
+echo -e "${BOLD}${CYAN}The narrated audio file is saved at:${NC}"
+echo -e "  ${BOLD}${WHITE}${audio_path}${NC}\n"
+echo -e "  ${DIM}Use this file for audio production, intros, or podcast narration.${NC}"
+local browse
+read -r -p "Open a file browser window at that location now? [Y/n]: " browse
+if [[ ! "$browse" =~ ^[nN] ]]; then
+open_path "${saved_dir:-$voiced_dir}"
+echo -e "${GREEN}✓ File browser opened at: ${saved_dir:-$voiced_dir}${NC}"
+fi
+press_enter
+return 0
+done
+}
 manage_tracklists() {
 local doc_script="" s viewer_sh=""; for s in "$SCRIPT_DIR/generate_tracklist_docs.py" "$SCRIPT_DIR/scripts/generate_tracklist_docs.py" "./generate_tracklist_docs.py"; do [ -f "$s" ] && { doc_script="$s"; break; }; done; for s in "$SCRIPT_DIR/scripts/view_tracklist_console.sh" "$SCRIPT_DIR/view_tracklist_console.sh" "./scripts/view_tracklist_console.sh"; do [ -f "$s" ] && { viewer_sh="$s"; break; }; done
 _view_single_tracklist() {
@@ -6097,7 +6252,7 @@ get_manager_uptime() {
 local now="${EPOCHSECONDS:-${EPOCHSECONDS:-$(printf "%(%s)T" -1)}}"; local start="${MANAGER_START_EPOCH:-$now}"; (( start <= 0 )) && start="$now"; local el=$(( now - start )); (( el < 0 )) && el=0; local m_up="$((el % 60))s"; (( el >= 60 )) && m_up="$(((el % 3600) / 60))m $m_up"; if (( el >= 86400 )); then m_up="$((el / 86400))d $(((el % 86400) / 3600))h $m_up"; elif (( el >= 3600 )); then m_up="$((el / 3600))h $m_up"; fi; local sys_up; sys_up="$(_format_system_uptime_text)"; local audio_st="Active"; [ "${OS_TYPE:-}" != "windows" ] && audio_st=$(get_audio_volume_and_mute); printf -v _MANAGER_UPTIME_LINE '%b' "  ${BOLD}${CYAN}⏱ MP Manager Uptime:${NC} ${m_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🖥 System Uptime:${NC} ${sys_up}  ${BOLD}${BLUE}│${NC}  ${BOLD}${CYAN}🔊 Audio:${NC} ${audio_st}"; printf '%s\n' "$_MANAGER_UPTIME_LINE"
 }
 detect_currently_playing_mix() {
-get_mp_audio_player_track_info 2>/dev/null && [ -f "${MP_PLAYER_RAW_PATH:-}" ] && { printf '%s\n' "$MP_PLAYER_RAW_PATH"; return 0; }; get_audacious_track_info 2>/dev/null && [ -f "${AUDACIOUS_RESOLVED_PATH:-}" ] && { printf '%s\n' "$AUDACIOUS_RESOLVED_PATH"; return 0; }; get_strawberry_track_info 2>/dev/null && [ -f "${STRAWBERRY_RESOLVED_PATH:-}" ] && { printf '%s\n' "$STRAWBERRY_RESOLVED_PATH"; return 0; }; get_cliamp_track_info 2>/dev/null && [ -f "${CLIAMP_RESOLVED_PATH:-}" ] && { printf '%s\n' "$CLIAMP_RESOLVED_PATH"; return 0; }; if command -v playerctl &>/dev/null; then local p_st p_url p_path; p_st=$(playerctl status 2>/dev/null); if [[ "${p_st%%$'\n'*}" =~ ^(Playing|Paused)$ ]]; then p_url=$(playerctl metadata xesam:url 2>/dev/null); p_url="${p_url%%$'\n'*}"; if [[ "$p_url" == file://* ]]; then printf -v p_path '%b' "${p_url#file://}"; printf -v p_path '%b' "${p_path//%/\\x}"; [ -f "$p_path" ] && { printf '%s\n' "$p_path"; return 0; }; fi; fi; fi; local pid fd tgt; for pid in $(pgrep -i -f 'audacious|strawberry|vlc|mpv|kodi|cliamp' 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do if [ -e "$fd" ] && tgt=$(readlink "$fd" 2>/dev/null); then case "$tgt" in *.flac|*.wav|*.mp3|*.m4a|*.ogg) [ -f "$tgt" ] && { printf '%s\n' "$tgt"; return 0; } ;; esac; fi; done; done; return 1
+get_mp_audio_player_track_info 2>/dev/null && [ -f "${MP_PLAYER_RAW_PATH:-}" ] && { printf '%s\n' "$MP_PLAYER_RAW_PATH"; return 0; }; get_audacious_track_info 2>/dev/null && [ -f "${AUDACIOUS_RESOLVED_PATH:-}" ] && { printf '%s\n' "$AUDACIOUS_RESOLVED_PATH"; return 0; }; get_strawberry_track_info 2>/dev/null && [ -f "${STRAWBERRY_RESOLVED_PATH:-}" ] && { printf '%s\n' "$STRAWBERRY_RESOLVED_PATH"; return 0; }; get_cliamp_track_info 2>/dev/null && [ -f "${CLIAMP_RESOLVED_PATH:-}" ] && { printf '%s\n' "$CLIAMP_RESOLVED_PATH"; return 0; }; if command -v playerctl &>/dev/null; then local p_st p_url p_path; p_st=$(playerctl status 2>/dev/null); if [[ "${p_st%%$'\n'*}" =~ ^(Playing|Paused)$ ]]; then p_url=$(playerctl metadata xesam:url 2>/dev/null); p_url="${p_url%%$'\n'*}"; if [[ "$p_url" == file://* ]]; then printf -v p_path '%b' "${p_url#file://}"; printf -v p_path '%b' "${p_path//%/\\x}"; [ -f "$p_path" ] && { printf '%s\n' "$p_path"; return 0; }; fi; fi; fi; local pid fd tgt; for pid in $(pgrep -i -f 'audacious|strawberry|vlc|mpv|kodi|cliamp' 2>/dev/null); do for fd in /proc/"$pid"/fd/*; do if [ -e "$fd" ] && tgt=$(readlink "$fd" 2>/dev/null); then case "$tgt" in *.flac|*.wav|*.wave|*.w64|*.rf64|*.mp3|*.mp2|*.mp1|*.mpga|*.ogg|*.oga|*.opus|*.spx|*.m4a|*.m4b|*.m4p|*.aac|*.alac|*.aiff|*.aif|*.aifc|*.wma|*.ape|*.wv|*.tta|*.tak|*.mpc|*.mpp|*.ac3|*.eac3|*.dts|*.caf|*.au|*.snd|*.amr|*.3ga|*.dsf|*.dff|*.mka|*.voc|*.ofr|*.ofs) [ -f "$tgt" ] && { printf '%s\n' "$tgt"; return 0; } ;; esac; fi; done; done; return 1
 }
 auto_show_playing_mix_assets() {
 local mix_file="$1" player_name="${2:-${DEFAULT_AUDIO_PLAYER:-audacious}}"; [ -f "${mix_file:-}" ] || return 0; local mix_base="${mix_file##*/}"; local found_cover audio_spec audio_out; found_cover=$(find_mix_cover "$mix_file" 2>/dev/null); [ -f "${found_cover:-}" ] && open_cover_art_window "$found_cover" || found_cover=""; [ -n "$found_cover" ] && align_mix_windows_on_screen; if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then (sleep 0.6; open_video_url "$STARTUP_YOUTUBE_URL" &>/dev/null || true) &
@@ -6262,13 +6417,16 @@ manage_storage_and_archive_config() {
 while true; do local a_disp="${RED}Not Configured${NC} ${DIM}(Root: ${SCRIPT_DIR}/MIX_ARCHIVE)${NC}"; is_mix_archive_configured && a_disp="${GREEN}${MIX_ARCHIVE_DIR}${NC}"; local x_disp="${EXTRA_MIX_ARCHIVE_DIRS:+\n  Extra Archives  : ${CYAN}${EXTRA_MIX_ARCHIVE_DIRS}${NC}}"; local opts=("1|Show Mix Storage Drive Space Remaining|(All Configured Mix Drives)" "2|Show All Attached Drives Space Remaining|(Get_All_Drive_Space.sh)" "3|Refresh Archive Status & File Counts|(Rescan WAVs, FLACs & Tracklists)" "4|Rescan Mix Archive Folders|(Refresh configured archive folders and mix inventory)" "5|Configure Mix Archive Storage Locations|(Primary & Multiple Folders)" "6|Clone Entire Mix Archive Folders to New Destination|(MP_Mix_Archive_Cloner)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "STORAGE MANAGEMENT & ARCHIVE CONFIGURATION" "  Primary Archive : ${a_disp}${x_disp}\n" opts 0; case "$REPLY" in 1) show_mix_drive_space ;; 2) echo -e "\n${BOLD}${YELLOW}Scanning Drive Space Across Attached Storage...${NC}\n"; run_sub_script "Get_All_Drive_Space.sh"; press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Rescanning Mix Archive Status & File Counts across all drives...${NC}\n"; clear_archive_dir_cache; invalidate_archive_stats_cache; show_stats --force; save_header_cache 2>/dev/null || true; echo -e "\n${GREEN}✓ Archive status, file counts, and cache successfully refreshed.${NC}\n"; press_enter "Press [Enter] to return to Storage Management Menu..." ;; 4) if ! is_mix_archive_configured; then echo -e "\n${YELLOW}Configure a primary Mix Archive folder before rescanning archives.${NC}\n"; configure_mix_archive_folder; continue; fi; echo -e "\n${BOLD}${YELLOW}Rescanning all configured Mix Archive folders...${NC}\n"; clear_archive_dir_cache; invalidate_archive_stats_cache; local rescan_dirs=(); while IFS= read -r rescan_dir; do [ -n "$rescan_dir" ] && rescan_dirs+=("$rescan_dir"); done < <(get_all_mix_archive_dirs --refresh); if ((${#rescan_dirs[@]} == 0)); then echo -e "${YELLOW}No configured Mix Archive folders are currently available to scan.${NC}\n"; else printf 'Scanning %d configured archive folder(s):\n' "${#rescan_dirs[@]}"; printf '  • %s\n' "${rescan_dirs[@]}"; show_stats --force; save_header_cache 2>/dev/null || true; echo -e "\n${GREEN}✓ Configured Mix Archive folders and inventory successfully rescanned.${NC}\n"; fi; press_enter "Press [Enter] to return to Storage Management Menu..." ;; 5|13) configure_mix_archive_folder ;; 6|clone|cloner) run_sub_script "MP_Mix_Archive_Cloner.sh"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 manage_tracklist_suite() {
-local f py_exp="$SCRIPT_DIR/scripts/export_chapters.py" py_id="$SCRIPT_DIR/scripts/identify_mix_tracks.py"; while true; do local opts=("1|Tracklist Management Suite|(Browse, Search, View, Export HTML & PDF)" "2|Search for Mix & Auto-Play with Live Tracklist View|(MP Audio Player)" "3|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "4|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "5|Launch MusicBrainz Picard Meta Tag Editor|(Auto-install if missing)" "6|Export YouTube & SoundCloud Chapters|(export_chapters.py - Timestamps / CUE / MD)" "7|Auto-Identify Unknown Tracks via Audio Fingerprinting|(identify_mix_tracks.py - AcoustID / Shazam)" "8|Extract Tracklist from Traktor History Files by Range|(Traktor .nml History)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "TRACKLIST MANAGEMENT, SCANNING & METADATA SUITE" "" opts 0; case "$REPLY" in 1) manage_tracklists ;; 2) search_and_play_mix ;; 3) echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"; run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"; [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 5) launch_or_install_picard ;; 6) echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"; read -r -p "Enter path to tracklist .txt or .cue file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_exp" "$f" --format all --clipboard || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 7) echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"; read -r -p "Enter path to mix audio file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_id" "$f" || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 8) extract_tracklist_from_traktor_history ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local f py_exp="$SCRIPT_DIR/scripts/export_chapters.py" py_id="$SCRIPT_DIR/scripts/identify_mix_tracks.py"; while true; do local opts=("1|Tracklist Management Suite|(Browse, Search, View, Export HTML & PDF)" "2|Search for Mix & Auto-Play with Live Tracklist View|(MP Audio Player)" "3|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "4|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "5|Launch MusicBrainz Picard Meta Tag Editor|(Auto-install if missing)" "6|Export YouTube & SoundCloud Chapters|(export_chapters.py - Timestamps / CUE / MD)" "7|Auto-Identify Unknown Tracks via Audio Fingerprinting|(identify_mix_tracks.py - AcoustID / Shazam)" "8|Extract Tracklist from Traktor History Files by Range|(Traktor .nml History)" "9|Read Tracklist Out Loud with MP Harmony Agent|(Stephen Hawking voice • saves audio to MP_TRACKLISTS_VOICED)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "TRACKLIST MANAGEMENT, SCANNING & METADATA SUITE" "" opts 0; case "$REPLY" in 1) manage_tracklists ;; 2) search_and_play_mix ;; 3) echo -e "\n${BOLD}${YELLOW}Scanning & Generating Missing Tracklists...${NC}\n"; run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Starting Master Tracklist HTML Generation...${NC}\n"; [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 5) launch_or_install_picard ;; 6) echo -e "\n${BOLD}${BLUE}=== EXPORT YOUTUBE & SOUNDCLOUD CHAPTERS ===${NC}\n"; read -r -p "Enter path to tracklist .txt or .cue file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_exp" "$f" --format all --clipboard || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 7) echo -e "\n${BOLD}${BLUE}=== AUTO-IDENTIFY TRACKS VIA AUDIO FINGERPRINTING ===${NC}\n"; read -r -p "Enter path to mix audio file: " f; f="${f#[\'\"]}"; f="${f%[\'\"]}"; [ -f "$f" ] && python3 "$py_id" "$f" || echo -e "${RED}Error: File not found.${NC}"; press_enter ;; 8) extract_tracklist_from_traktor_history ;; 9|narrate|read-aloud|read-aloud-tracklist|tts) narrate_tracklist_with_harmony ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 generate_archive_folder_playlists_menu() {
 ensure_playlists_generated_dirs; local p="$SCRIPT_DIR/scripts/generate_archive_folder_playlists.py"; [ -f "$p" ] || p="$SCRIPT_DIR/generate_archive_folder_playlists.py"; [ -f "$p" ] && python3 "$p" || { echo -e "${RED}Error: generate_archive_folder_playlists.py not found!${NC}"; press_enter; }
 }
 manage_playlists_and_history() {
-local t_ver rb py_rb="$SCRIPT_DIR/scripts/export_rekordbox_playlist.py"; t_ver="$(get_traktor_version_mac 2>/dev/null)"; t_ver="${t_ver//$'\r'/}"; t_ver="${t_ver//$'\n'/}"; while true; do local opts=("1|Custom Mix Playlists Suite|(.m3u / .m3u8 / .xspf - Create, Edit & Launch)" "2|Generate Mix Archive Folder Playlists|(.m3u / .m3u8 / .xspf ➔ PLAYLISTS_GENERATED)" "3|Generate Playlist from History Files on Traktor ${t_ver:-3}|(Key Sorted / Decks Ready)" "4|Listen to Your Top 5 Tracks Right Now|$(get_top_5_status_badge)" "5|Export Playlists / Traktor History to Pioneer Rekordbox XML|(export_rekordbox_playlist.py)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "CUSTOM PLAYLISTS & TRAKTOR HISTORY SUITE" "" opts 0; case "$REPLY" in 1) manage_playlists_menu ;; 2) generate_archive_folder_playlists_menu ;; 3) generate_traktor_playlist_from_history ;; 4|top5|top-5|top|special) manage_top_5_tracks ;; 5) echo -e "\n${BOLD}${BLUE}=== EXPORT TO PIONEER REKORDBOX XML ===${NC}\n"; read -r -p "Enter path to Traktor .nml, .m3u, or .m3u8 playlist: " rb; rb="${rb#[\'\"]}"; rb="${rb%[\'\"]}"; [ -f "$rb" ] && python3 "$py_rb" "$rb" || echo -e "${RED}Error: Playlist file not found.${NC}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+local t_ver rb py_rb="$SCRIPT_DIR/scripts/export_rekordbox_playlist.py"; t_ver="$(get_traktor_version_mac 2>/dev/null)"; t_ver="${t_ver//$'\r'/}"; t_ver="${t_ver//$'\n'/}"; while true; do local opts=("1|Custom Mix Playlists Suite|(.m3u / .m3u8 / .xspf - Create, Edit & Launch)" "2|Generate Mix Archive Folder Playlists|(.m3u / .m3u8 / .xspf ➔ PLAYLISTS_GENERATED)" "3|Generate Playlist from History Files on Traktor ${t_ver:-3}|(Key Sorted / Decks Ready)" "4|Export Favorites DJ Set|(Local folder / SMB + Tracklist + Traktor playlist)" "5|Listen to Your Top 5 Tracks Right Now|$(get_top_5_status_badge)" "6|Export Playlists / Traktor History to Pioneer Rekordbox XML|(export_rekordbox_playlist.py)" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "CUSTOM PLAYLISTS & TRAKTOR HISTORY SUITE" "" opts 0; case "$REPLY" in 1) manage_playlists_menu ;; 2) generate_archive_folder_playlists_menu ;; 3) generate_traktor_playlist_from_history ;; 4|fav|favorites|export-favorites|dj-set) export_favorites_dj_set; press_enter ;; 5|top5|top-5|top|special) manage_top_5_tracks ;; 6) echo -e "\n${BOLD}${BLUE}=== EXPORT TO PIONEER REKORDBOX XML ===${NC}\n"; read -r -p "Enter path to Traktor .nml, .m3u, or .m3u8 playlist: " rb; rb="${rb#[\'\"]}"; rb="${rb%[\'\"]}"; [ -f "$rb" ] && python3 "$py_rb" "$rb" || echo -e "${RED}Error: Playlist file not found.${NC}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+}
+export_favorites_dj_set() {
+local py="$SCRIPT_DIR/scripts/MP_Fav_Playlist_Track_Exporter.py"; local sh="$SCRIPT_DIR/scripts/MP_Fav_Playlist_Track_Exporter.sh"; [ ! -f "$py" ] && py="$SCRIPT_DIR/MP_Fav_Playlist_Track_Exporter.py"; if [ -f "$sh" ]; then bash "$sh" "$@"; elif [ -f "$py" ]; then python3 "$py" "$@"; else echo -e "\n${RED}Error: MP_Fav_Playlist_Track_Exporter was not found in scripts/!${NC}\n"; press_enter; return 1; fi
 }
 _LAST_TOP_5_CHECK=0; _CACHED_TOP_5_BADGE=""
 get_top_5_status_badge() {

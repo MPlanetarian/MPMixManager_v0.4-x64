@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+
+## [0.4.3 Stable (Liquid)] - 2026-11-12
+
+Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the Favorites DJ Set exporter, uniform menus with mouse support, three rainbow EQ effects, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
 
 ### Added
 - **Favorites DJ Set Exporter** (`scripts/MP_Fav_Playlist_Track_Exporter.py`, `scripts/MP_Fav_Playlist_Track_Exporter.sh`, `MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `scripts/generate_traktor_playlist_from_history.py`, `config.env.example`, `tests/test_favorites_dj_export.py`):
@@ -19,30 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Clearing Favorites now uses a decision window.** Pressing **D** / Delete in the Favorites playlist opens a confirmation panel; **Y** clears the playlist and any other key or Esc keeps it. Audio files are never deleted. Other libraries keep the existing two-step arm/confirm.
   - Manager menu **17 → 4. Export Favorites DJ Set** launches the same exporter.
   - `scripts/generate_traktor_playlist_from_history.py` was implemented (it was a stub) and now also supports headless `--history-id`, `--playlist-name`, `--track`, `--list-history --json` and `--version-only`, which the exporter and the Manager use. Writes back up `collection.nml` first and restore it if the write fails.
-- **One navigation bar on every page of the Manager** (`Mix_Archive_Manager.sh`, `tests/test_uniform_navigation.py`):
-  - Twenty-nine sub-pages used to print a plain list and ask for `Enter choice`. They now render through `run_interactive_submenu()`, so the whole program shares one interaction model: ↑/↓ and PgUp/PgDn/Home/End to move, `/` to filter, Enter to select, Esc/`0`/`q` to go back, and `[G] MP Gui`, `[B] Bash`, `[Shift+A]` and `[C] Theme` everywhere.
-  - Converted pages: Video Cutting & Splitting, System & Hardware Process Monitors, Bash CLI Runner, Visual/Video/Art Launchers, Live Session & Stream Monitors, Monitor Processes & Bash Commands, Video Playlists, Spectrogram (Spek) Suite, Cover Art Converter, Duplicate Detector, Search & Import, Liquid Glass Backend, Weather & Ephemeris, Daily Reports, Audio Players, Audio Player & Startup config (plus its tracklist-viewer, video-player and YouTube sub-pages), Visualizer Presets, Visualizer Screen Saver, cliamp, DAWs, Network Services, System Maintenance (all four OS variants), Traktor Live Monitor, Promotional Outreach, Bluetooth Audio, Audio Checksums, Open Mix in DAW, Export/Copy Mixes, and the Morning Alarm & DJ Mix Scheduler.
-  - Pages that used to print a wide `=====` banner now put that status text in the menu header, where the scrolling viewport keeps it above the option list.
-- **Mouse support in the Manager menus** (`Mix_Archive_Manager.sh`):
-  - SGR mouse reporting (`1000`/`1006`) is enabled only while a menu is on screen and switched off again by `cleanup_submenu_screen()` and `exit_mix_manager()`, so the console is never left capturing the pointer.
-  - A single left click moves the highlight, and a double click on the same row within 600 ms activates that option — the main page and every submenu share the behaviour, and the double-clicked row is routed through exactly the same select path as Enter.
-  - The mouse wheel steps the highlight up and down one selectable row.
-  - `MP_MANAGER_MOUSE=0` disables the feature for anyone who prefers the terminal's native text selection; the setting is checked before reporting is turned on.
-- **`tests/test_uniform_navigation.py`** guards the unified menus: no reachable page may prompt for a menu choice outside `run_interactive_submenu`, and the mouse wiring (enable/disable, SGR parse, click, double click, wheel) is asserted directly, including two live pty tests that click real painted rows.
-
-### Fixed
-- **Two navigation tests had been failing on `main`** (`tests/test_manager_resize.py`, `tests/test_option33_submenus.py`):
-  - Both sliced the manager with hard-coded line counts (`sed -n '1,142p'`, `head -n 2613`). As soon as anything above the menu grew, the slice stopped mid-function and every case failed with `syntax error: unexpected end of file`.
-  - The resize test now anchors on `read_nav_key()` and feeds `read_nav_key` an open but silent stdin, so the TICK/RESIZE flow is exercised instead of tripping over EOF.
-  - The option-33 test derives the prefix from `manage_ai_models()` and asserts on the current `Beszel Hub:` status line rather than a row that had been renamed.
-
----
-
-## [0.4.3 Stable (Liquid)] - 2026-11-12
-
-Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
-
-### Added
 - **In-window MP Visualizer on the Vulkan backend** (`scripts/liquid_glass_vulkan.py`, `MP_Audio_Player_Liquid_Glass.py`, `tests/test_visualizer_backend_parity.py`):
   - The visualizer used to appear behind the terminal text only on the OpenGL player host. Choosing `LIQUID_GLASS_BACKEND=vulkan` silently lost the background and showed plain glass.
   - Added `VisualizerBackground`, the Vulkan counterpart of `liquid_player_visualizer.PlayerVisualizerLayer`. It runs the same preset shader and the same telemetry bridge over the glass swapchain, so a preset looks the same on either backend.
@@ -216,6 +195,7 @@ Released November 12, 2026. This release finishes the visualizer work started in
 - `tests/test_web_companion_playlist.py` — 41 cases, adding saved-order streaming, de-duplication, missing-file skipping, the `.m3u8` mirror, alias resolution, three advertised modes, the five-row window, scrollable geometry, playlist parse caching, reselect-no-rewind, and the empty-Favorites behaviour.
 - `tests/test_player_banner_eq_alignment.py` — 7 tests for the JSON decoder, surrogate pairs, the fixed-width EQ field, the state reader, and the UTF-8 writer.
 - `tests/test_tracklist_viewer_scroll_export.py` and `tests/test_package_dev_utility.py` cover the new exports and both package architectures.
+- `tests/test_favorites_dj_export.py` — the Favorites DJ Set exporter: empty-playlist refusal, local and SMB copy with size and decode verification, tracklist and `.m3u8` output, the decision window when clearing Favorites, and the Traktor playlist hand-off.
 - `tests/test_resolve_mp_python.py` — 6 tests: capability-based interpreter selection prefers an interpreter that can import `gi`/`numpy`, honours `MP_PYTHON` and `MP_PYTHON_CANDIDATES`, and never picks a Python that lacks the modules a GTK host needs.
 - `tests/test_uniform_navigation.py` — 12 tests: every reachable page routes through `run_interactive_submenu()`, mouse reporting is enabled and torn down correctly, and click/double-click/wheel map to the same selection path as the keyboard.
 - `tests/test_visualizer_backend_parity.py` — 23 tests: the Vulkan in-window background matches the OpenGL layer, preset and cover re-upload on change, the standalone renderer resolves auto/OpenGL/Vulkan, and every launcher forwards the chosen backend.
