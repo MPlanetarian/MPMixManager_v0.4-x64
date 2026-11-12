@@ -326,7 +326,10 @@ class MonitorSpanMixin:
         for _name, rect in self.monitor_rects():
             if tuple(rect) == tuple(bounds):
                 return self._monitor_handle_for(rect)
-        return None
+        # Coordinates can be scaled between the spawner and this process (HiDPI
+        # X11 vs logical KWin). Fall back to the monitor under the window.
+        mon, _rect = self._window_monitor()
+        return mon
 
     def _monitor_handle_for(self, rect):
         """Return the GLFW monitor handle whose desktop rect matches ``rect``."""

@@ -286,6 +286,47 @@ class TestSpanLifecycle(SpanSessionDirMixin):
             self.assertTrue(renderer.handle_span_key(vulkan_vis.GLFW_KEY_F11))
         self.assertTrue(span.stop_requested(os.getpid()))
 
+    def test_span_monitor_falls_back_to_the_window_monitor(self) -> None:
+        """A HiDPI coordinate mismatch must not leave a spanned window monitorless."""
+        renderer = vulkan_vis.LiquidVisualizerVulkanRenderer.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer._glfw = MagicMock()
+        renderer._init_span_state((2880, 0, 2880, 1620), "spawned")
+        renderer.monitor_rects = MagicMock(return_value=[("Left", (0, 0, 1920, 1080))])
+        sentinel = object()
+        renderer._window_monitor = MagicMock(return_value=(sentinel, (0, 0, 1920, 1080)))
+        self.assertIs(renderer.span_monitor(), sentinel)
+
+    def test_span_monitor_matches_the_assigned_rect_first(self) -> None:
+        renderer = vulkan_vis.LiquidVisualizerVulkanRenderer.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer._glfw = MagicMock()
+        renderer._init_span_state((1920, 0, 2560, 1440), "spawned")
+        renderer.monitor_rects = MagicMock(return_value=[("Right", (1920, 0, 2560, 1440))])
+        handle = object()
+        renderer._monitor_handle_for = MagicMock(return_value=handle)
+        renderer._window_monitor = MagicMock(side_effect=AssertionError("must not be needed"))
+        self.assertIs(renderer.span_monitor(), handle)
+
+    def test_spawned_window_does_not_save_the_active_preset(self) -> None:
+        renderer = vulkan_vis.LiquidVisualizerVulkanRenderer.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.preset = {"id": 0, "key": "owner_preset"}
+        renderer._init_span_state(None, "spawned")
+        renderer._device = 0
+        renderer._pipeline = 0
+        with patch.object(vulkan_vis, "save_active_preset") as save:
+            renderer.switch_preset({"id": 3, "key": "spawned_preset"})
+        save.assert_not_called()
+        self.assertEqual(renderer.preset["key"], "spawned_preset")
+
+    def test_owner_window_still_saves_the_active_preset(self) -> None:
+        renderer = vulkan_vis.LiquidVisualizerVulkanRenderer.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.preset = {"id": 0, "key": "owner_preset"}
+        renderer._init_span_state(None, "")
+        renderer._device = 0
+        renderer._pipeline = 0
+        with patch.object(vulkan_vis, "save_active_preset") as save:
+            renderer.switch_preset({"id": 3, "key": "next_preset"})
+        save.assert_called_once_with("next_preset")
+
 
 class TestSpanBackends(SpanSessionDirMixin):
     def test_both_renderers_share_the_mixin(self) -> None:

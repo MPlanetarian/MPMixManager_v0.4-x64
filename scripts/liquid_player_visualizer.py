@@ -1623,16 +1623,23 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
                 g.glfwSetWindowSizeLimits(w, -1, -1, -1, -1)
             except Exception:
                 pass
-            try:
-                if self._span_bounds and hasattr(g, "glfwSetWindowMonitor"):
-                    # Fill exactly the monitor this window was assigned to.
-                    bx, by, bw, bh = self._span_bounds
-                    g.glfwSetWindowMonitor(w, mon, bx, by, bw, bh, 0)
-                else:
+            filled = False
+            if self._span_bounds and mon and hasattr(g, "glfwSetWindowMonitor"):
+                # Fill exactly the monitor this window was assigned to, using
+                # that monitor's own mode rather than the global default.
+                try:
+                    md = g.glfwGetVideoMode(mon).contents
+                    g.glfwSetWindowMonitor(w, mon, 0, 0, int(md.width), int(md.height), int(md.refreshRate or 0))
+                    fw, fh = int(md.width), int(md.height)
+                    filled = True
+                except Exception:
+                    filled = False
+            if not filled:
+                try:
                     g.glfwSetWindowPos(w, 0, 0)
                     g.glfwSetWindowSize(w, fw, fh)
-            except Exception:
-                pass
+                except Exception:
+                    pass
             self.width, self.height = fw, fh
         else:
             x, y = getattr(self, "_saved_pos", self._cur_pos)
