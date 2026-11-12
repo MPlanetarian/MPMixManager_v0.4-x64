@@ -209,6 +209,7 @@ ${BOLD}VISUALIZER KEYS:${NC}
   ${CYAN}F11${NC}        Same as F10, with a different random preset per spawned window.
                Press F10 or F11 again to close the extra windows.
   ${CYAN}Z${NC}          Cycle fullscreen -> half the default size -> default size.
+  ${CYAN}R${NC}          Turn random mode on: a new random preset every minute. Press R again to stop.
 
 ${BOLD}HEADER SESSION:${NC}
   A desktop Bash terminal shows ${CYAN}CLI Mode${NC} on the right of the main header title.

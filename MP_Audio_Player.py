@@ -184,6 +184,37 @@ def _fx_ring_lut(steps: int) -> Tuple[Tuple[float, float, str], ...]:
     return trig
 
 
+@functools.lru_cache(maxsize=24)
+def _fx_polar_lut(cw: int, height: int) -> Tuple[Tuple[Tuple[float, float, float], ...], ...]:
+    """Per-cell (radius 0..1, angle, sin(3*angle)) for a field of this size.
+
+    The plasma backdrops run for every cell of every frame. Their geometry only
+    depends on the field size, so the square root and arc tangent are cached.
+    """
+    cw = max(1, int(cw))
+    h = max(1, int(height))
+    cx, cy = (cw - 1) / 2.0, (h - 1) / 2.0
+    radius = max(0.80, math.hypot(cx * 0.55, cy))
+    rows = []
+    for r in range(h):
+        y = r - cy
+        row = []
+        for c in range(cw):
+            x = (c - cx) * 0.55
+            rad = math.sqrt(x * x + y * y) / radius
+            th = math.atan2(y, x)
+            row.append((rad, th, math.sin(th * 3.0)))
+        rows.append(tuple(row))
+    return tuple(rows)
+
+
+@functools.lru_cache(maxsize=24)
+def _fx_sin_lut(steps: int, cycles: float) -> Tuple[float, ...]:
+    """sin(2*pi*cycles*i/steps) for a ring, cached."""
+    steps = max(1, int(steps))
+    return tuple(math.sin(2.0 * math.pi * cycles * i / steps) for i in range(steps))
+
+
 @functools.lru_cache(maxsize=16384)
 def _rainbow_fx_ansi(hue_idx: int, value_q: int, bold: bool = False) -> str:
     """Cached TrueColor rainbow ANSI for a hue and a 0..12 brightness level.
@@ -3880,18 +3911,22 @@ class EqualizerVisualizer:
         gc, gcol = self._fx_grid(cw, H)
         petals = 8 if cw < 56 else (12 if cw < 96 else 16)
         hue_base = (now * 0.11 * spd) % 1.0
+        hue_base_i = int(hue_base * 360)
+        tbl_n = _fx_ansi_table(False)
+        tbl_b = _fx_ansi_table(True)
 
         # 1. Interference plasma backdrop inside the bloom radius.
+        polar = _fx_polar_lut(cw, H)
+        spark_phase = int(now * 4.0)
         for r in range(H):
-            y = r - cy
+            row_polar = polar[r]
+            row_c, row_col = gc[r], gcol[r]
             for c in range(cw):
-                x = (c - cx) * 0.55
-                rad = math.hypot(x, y) / R
-                th = math.atan2(y, x)
+                rad, th, sin3 = row_polar[c]
                 if rad > 1.02:
-                    if ((r * 7 + c * 13 + int(now * 4.0)) % 29) == 0 and rad < 1.35:
-                        hue = (hue_base + rad * 0.5) % 1.0
-                        self._fx_put(gc, gcol, r, c, "·", _rainbow_fx_ansi(int(hue * 360), 3))
+                    if ((r * 7 + c * 13 + spark_phase) % 29) == 0 and rad < 1.35:
+                        row_c[c] = "·"
+                        row_col[c] = _fx_ansi_table(False)[(hue_base_i + int(rad * 0.5 * 360)) % 360][3]
                     continue
                 petal = 0.5 + 0.5 * math.cos(th * petals + now * 0.75 * spd)
                 f1 = math.sin(rad * 11.0 - now * 1.9 * spd + rms * 2.4)
@@ -3899,9 +3934,10 @@ class EqualizerVisualizer:
                 val = (0.5 + 0.5 * f1) * (0.55 + 0.45 * f2) * (0.30 + 0.70 * petal) * max(0.30, 1.0 - rad * 0.60)
                 if val < 0.105:
                     continue
-                hue = (hue_base + rad * 0.55 + th / (2.0 * math.pi) * 0.20) % 1.0
+                hue_i = (hue_base_i + int(rad * 0.55 * 360) + int(th / (2.0 * math.pi) * 0.20 * 360)) % 360
                 glyph = "░" if val < 0.34 else ("▒" if val < 0.54 else ("▓" if val < 0.76 else "█"))
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), 2 + int(val * 9)))
+                row_c[c] = glyph
+                row_col[c] = _fx_ansi_table(False)[hue_i][2 + int(val * 9)]
 
         # 2. Spectrum rings: one per frequency band group, pulsing with the music.
         n_rings = max(5, min(13, H * 2))
@@ -4084,18 +4120,17 @@ class EqualizerVisualizer:
         tbl_b = _fx_ansi_table(True)
         swirl_phase = phase * 11.0 + now * 0.5 * spd
         hue_base_i = int(hue_base * 360)
-        col_x = [((c - cx) * 0.55) for c in range(cw)]
+        radial_phase = phase * 9.0
+        polar = _fx_polar_lut(cw, H)
         for r in range(H):
-            y = r - cy
+            row_polar = polar[r]
             row_c, row_col = gc[r], gcol[r]
             for c in range(cw):
-                x = col_x[c]
-                rad = math.sqrt(x * x + y * y) / R
+                rad, th, sin3 = row_polar[c]
                 if rad > 1.05:
                     continue
-                th = math.atan2(y, x)
                 swirl = th + 2.4 / (rad + 0.16) + swirl_phase
-                f = math.sin(swirl * 3.0) * math.cos(rad * 16.0 - phase * 9.0 + th * 2.0)
+                f = math.sin(swirl * 3.0) * math.cos(rad * 16.0 - radial_phase + th * 2.0)
                 val = (0.5 + 0.5 * f) * (0.30 + 0.70 * rad) * (1.0 - min(1.0, rad * 0.35))
                 if val < 0.115:
                     continue
