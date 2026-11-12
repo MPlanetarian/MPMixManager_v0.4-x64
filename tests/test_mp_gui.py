@@ -338,7 +338,15 @@ class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):
         if _liquid_glass_claim_launch; then echo GUI:YES; else echo GUI:NO; fi
         _liquid_glass_release_launch
         pgrep() { printf '%s\n' "5252 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py"; }
-        if _liquid_glass_claim_launch; then echo PLAYER:YES; else echo PLAYER:NO; fi
+        if _liquid_glass_claim_launch; then echo ONE:YES; else echo ONE:NO; fi
+        _liquid_glass_release_launch
+        pgrep() {
+            printf '%s\n' "6001 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            printf '%s\n' "6002 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            printf '%s\n' "6003 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py"
+            printf '%s\n' "6004 python3 MP_Audio_Player_Liquid_Glass_OpenGL.py"
+        }
+        if _liquid_glass_claim_launch; then echo FOUR:YES; else echo FOUR:NO; fi
         rm -rf "$HOME"
         """
         res = subprocess.run(
@@ -350,7 +358,10 @@ class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):
         )
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("GUI:YES", res.stdout)
-        self.assertIn("PLAYER:NO", res.stdout)
+        # One player still leaves room for another window.
+        self.assertIn("ONE:YES", res.stdout)
+        # A fifth MP Liquid Player window is refused.
+        self.assertIn("FOUR:NO", res.stdout)
 
     def test_gui_startup_does_not_open_the_player(self):
         script = r"""
@@ -377,9 +388,10 @@ class TestGuiDoesNotBlockLiquidPlayer(unittest.TestCase):
     def test_launchers_ignore_the_manager_host(self):
         for name in ("scripts/launch-liquid-glass", "scripts/launch_liquid_glass.sh"):
             text = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("*--manager*) continue", text)
+            # The four-window cap replaces the old single-instance pgrep gate.
+            self.assertIn("mp_instance_claim player", text)
+            self.assertIn("mp_instance_notify_limit player", text)
             self.assertNotIn('pgrep -f "MP_Audio_Player_Liquid_Glass"', text)
-            self.assertIn("mp_player_raise_host", text)
             darwin = text.index('uname -s)" = "Darwin"')
             opengl = text.index("MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py", darwin)
             metal = text.index("MP_Audio_Player_Liquid_Glass_macOS.py", opengl)

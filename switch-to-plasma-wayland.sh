@@ -4,7 +4,7 @@
 # Location: /home/mplanetarian/Documents/BASH_SCRIPTS/switch-to-plasma-wayland.sh
 # Purpose: Switch Desktop from X11 to Plasma Wayland for HDR gaming on Hisense
 #          4K TV, set Hisense as primary display, ensure HDMI ALSA audio output,
-#          suppress Defasten video playback, and load Steam Big Picture Mode.
+#          suppress MPlanetarian video playback, and load Steam Big Picture Mode.
 # ==============================================================================
 
 set -e
@@ -47,7 +47,7 @@ if [ "$CURRENT_SESSION" = "wayland" ]; then
     echo -e "${GREEN}[✓] Audio set to: GA102 HDMI Digital Stereo (${HDMI_SINK})${NC}"
 
     echo -e "${BOLD}${BLUE}[*] Checking Steam Big Picture Mode...${NC}"
-    if ! pgrep -fa "steam" | grep -qv "defasten"; then
+    if ! pgrep -fa "steam" | grep -qv "mplanetarian"; then
         echo -e "${YELLOW}Starting Steam in Big Picture Mode...${NC}"
         nohup steam -gamepadui >/dev/null 2>&1 &
     else
@@ -98,8 +98,8 @@ echo -e "${BOLD}${BLUE}[4/5] Closing open desktop application windows...${NC}"
 if [ -x "/home/mplanetarian/Desktop/DESKTOP/close_allapps.sh" ]; then
     /home/mplanetarian/Desktop/DESKTOP/close_allapps.sh >/dev/null 2>&1 || true
 fi
-pkill -f "play_defasten" 2>/dev/null || true
-pkill -f "Defasten" 2>/dev/null || true
+pkill -f "play_mplanetarian" 2>/dev/null || true
+pkill -f "MPlanetarian" 2>/dev/null || true
 echo -e "${GREEN}[✓] Background media players and applications closed.${NC}"
 
 # 5. Prompt to switch session (logout)
@@ -109,7 +109,7 @@ echo -e "      ${YELLOW}When you log in to Wayland:${NC}"
 echo -e "      • ${GREEN}Hisense 4K Display will be set as Default / Primary with HDR enabled${NC}"
 echo -e "      • ${GREEN}GA102 HDMI ALSA Audio will remain active${NC}"
 echo -e "      • ${GREEN}Steam Big Picture Mode (Gamepad UI) will launch automatically${NC}"
-echo -e "      • ${GREEN}Defasten videos and background tools will NOT run${NC}"
+echo -e "      • ${GREEN}MPlanetarian videos and background tools will NOT run${NC}"
 echo ""
 
 read -r -p "Log out of X11 now to enter Plasma Wayland? [Y/n]: " response

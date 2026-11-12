@@ -93,13 +93,18 @@ class TestMenu(unittest.TestCase):
         )
         self.assertEqual(tray.MENU_ENTRIES[-1][0], "close-all")
 
-    def test_launch_focuses_an_open_app_and_spawns_a_closed_one(self):
+    def test_launch_opens_new_windows_up_to_the_cap(self):
         base = ROOT
-        focused = tray.launch_plan(tray.ROLE_GUI, base, {tray.ROLE_GUI})
-        self.assertEqual(focused["action"], "focus")
-        self.assertEqual(focused["title"], "MP Mix Manager (Liquid Glass")
+        # One MP Gui window is open: a launch opens another, it does not focus.
+        opened = tray.launch_plan(
+            tray.ROLE_GUI, base, {tray.ROLE_GUI}, counts={tray.ROLE_GUI: 1}
+        )
+        self.assertEqual(opened["action"], "spawn")
+        self.assertEqual(opened["title"], "MP Mix Manager (Liquid Glass")
 
-        spawned = tray.launch_plan(tray.ROLE_LIQUID, base, set())
+        spawned = tray.launch_plan(
+            tray.ROLE_LIQUID, base, set(), counts={tray.ROLE_LIQUID: 3}
+        )
         self.assertEqual(spawned["action"], "spawn")
         self.assertTrue(str(spawned["argv"][0]).endswith("launch-liquid-glass"))
 
@@ -112,6 +117,29 @@ class TestMenu(unittest.TestCase):
         self.assertEqual(manager["action"], "spawn")
         self.assertTrue(str(manager["argv"][0]).endswith("launch-manager"))
         self.assertEqual(manager["title"], "MP Mix Archive Manager")
+
+    def test_a_fifth_gui_or_player_launch_focuses_instead(self):
+        for role, title in (
+            (tray.ROLE_GUI, "MP Mix Manager (Liquid Glass"),
+            (tray.ROLE_LIQUID, "MP Audio Player (Liquid Glass"),
+        ):
+            at_limit = tray.launch_plan(role, ROOT, set(), counts={role: 4})
+            self.assertEqual(at_limit["action"], "focus")
+            self.assertEqual(at_limit["title"], title)
+            self.assertTrue(at_limit["limit"])
+            self.assertEqual(at_limit["cap"], 4)
+            self.assertEqual(at_limit["argv"], [])
+            # Three windows still leave room for a fourth.
+            self.assertEqual(
+                tray.launch_plan(role, ROOT, set(), counts={role: 3})["action"],
+                "spawn",
+            )
+
+    def test_the_console_manager_is_not_capped(self):
+        plan = tray.launch_plan(
+            tray.ROLE_MANAGER, ROOT, set(), counts={tray.ROLE_MANAGER: 99}
+        )
+        self.assertEqual(plan["action"], "spawn")
 
     def test_macos_manager_launch_opens_terminal(self):
         plan = tray.launch_plan(tray.ROLE_MANAGER, ROOT, set(), platform_name="darwin")

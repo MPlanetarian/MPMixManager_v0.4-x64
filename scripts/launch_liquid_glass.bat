@@ -60,6 +60,14 @@ if not exist "%TARGET_PY%" (
     exit /b 1
 )
 
+:: MP Liquid Player opens at most four windows. A fifth launch focuses one.
+"%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" check player >nul 2>&1
+if errorlevel 3 (
+    "%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" focus player >nul 2>&1
+    "%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" notify player >nul 2>&1
+    exit /b 0
+)
+
 :: Set environment and execute
 set "MP_LIQUID_GLASS=1"
 set "MP_LIQUID_GLASS_PLATFORM=win32"

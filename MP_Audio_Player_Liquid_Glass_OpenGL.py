@@ -14,6 +14,11 @@ if str(ROOT / "scripts") not in sys.path:
 from desktop_launch_screen import window_launch_origin  # noqa: E402
 from liquid_glass_font import default_liquid_glass_font  # noqa: E402
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
+try:  # The four-window cap ships beside the host; a lone copy still runs.
+    from mp_instance_limit import host_allowed  # noqa: E402
+except ImportError:
+    def host_allowed(role):  # type: ignore[misc]
+        return True
 from liquid_glass_opengl import (
     LiquidGlassRendererOpenGL,
     read_player_theme,
@@ -590,11 +595,24 @@ class GlassHost:
         publish_liquid_player_window_size(width_i, height_i)
 
     def _publish_player_window_geometry(self):
-        if self.mode != "NORMAL" or not sys.platform.startswith("linux") or self.renderer is None:
+        """Publish the player's position and size for the bonded visualizer.
+
+        Mini and Micro are the same window, so their geometry is published
+        too. Without that the visualizer kept the Normal geometry and came
+        away from the player as soon as M changed the size.
+
+        While a resize is still being applied, the size the host asked for is
+        published instead of the half-applied one, so the visualizer moves
+        straight to the new mode instead of stepping through it.
+        """
+        if self.mode in ("MANAGER", "TRACKLIST") or not sys.platform.startswith("linux") or self.renderer is None:
             return
         try:
             x, y = self.renderer.window_pos()
             width, height = self.renderer.window_size()
+            target = getattr(self, "_window_target", None)
+            if target and time.monotonic() < getattr(self, "_window_target_until", 0.0):
+                width, height = target
             from liquid_player_visualizer import publish_liquid_player_window_geometry
             publish_liquid_player_window_geometry(x, y, width, height)
         except Exception:
@@ -1172,7 +1190,7 @@ def spawn_new_visualizer() -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
-            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random", "--backend", "opengl"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True
     except Exception:
         return False
@@ -1202,7 +1220,7 @@ def ensure_random_visualizer_started() -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
-            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
+            subprocess.Popen([sys.executable, str(vis_script), "--preset", "random", "--backend", "opengl"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True
     except Exception:
         return False
@@ -1261,6 +1279,17 @@ def main(argv):
             i += 1
 
     player_gui = not embed and not tracklist_path
+    # MP Gui and MP Liquid Player stop at four windows. The tracklist viewer,
+    # the embed check, and helper flags are not counted.
+    if player_gui:
+        counted_role = "gui" if manager else "player"
+        if not host_allowed(counted_role):
+            print(
+                f"{'MP Gui' if manager else 'MP Liquid Player'} is already open 4 times. "
+                "Close a window first (4 is the maximum).",
+                file=sys.stderr,
+            )
+            return 1
     if player_gui and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 

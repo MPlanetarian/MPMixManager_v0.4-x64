@@ -32,6 +32,26 @@ LAST_DAILY_EMAIL_DATE="${LAST_DAILY_EMAIL_DATE:-}"
 LAST_MONTHLY_REPORT_DATE="${LAST_MONTHLY_REPORT_DATE:-}"
 LAST_YEARLY_REPORT_DATE="${LAST_YEARLY_REPORT_DATE:-}"
 
+# Resolve a Python interpreter that actually has the reporter dependencies
+# (matplotlib / reportlab). `python3` on PATH is frequently Homebrew's build,
+# which lacks them; using it made every report attempt fail silently, so the
+# scheduler never recorded the run and retried every 60 seconds forever.
+PYTHON_BIN=""
+_resolve_python() {
+    local cand
+    for cand in "${MP_PYTHON:-}" /usr/bin/python3 python3; do
+        [ -n "$cand" ] || continue
+        if "$cand" -c 'import matplotlib, reportlab' >/dev/null 2>&1; then
+            PYTHON_BIN="$cand"
+            return 0
+        fi
+    done
+    PYTHON_BIN="${MP_PYTHON:-python3}"
+    return 0
+}
+_resolve_python
+py() { "$PYTHON_BIN" "$@"; }
+
 save_setting() {
     local key="$1"
     local val="$2"
@@ -64,7 +84,7 @@ run_report() {
         echo "Error: mp_report_generator.py not found" >&2
         return 1
     fi
-    python3 "$py_script" --kind "$kind"
+    py "$py_script" --kind "$kind"
 }
 
 check_and_run() {
@@ -128,7 +148,7 @@ check_and_run() {
             local cur_hm="${current_time//:/}"
             cur_hm=$((10#$cur_hm))
             if [ "$cur_hm" -ge 1300 ]; then
-                if python3 "$email_script" --send >/dev/null 2>&1; then
+                if py "$email_script" --send >/dev/null 2>&1; then
                     save_setting "LAST_DAILY_EMAIL_DATE" "$today"
                     LAST_DAILY_EMAIL_DATE="$today"
                 fi
@@ -137,19 +157,38 @@ check_and_run() {
     fi
 
     # 5. DAILY AI BRAIN LOGS & MODELS REPORT CATCH-UP (10:05 AM or whenever launched)
+    #
+    # This used to run unconditionally on every 60s tick with no "already done
+    # today" guard in the shell, so it re-executed the generator forever. The
+    # generator does have its own once-per-day check, but it happens after an
+    # expensive matplotlib/reportlab import, so each tick still burned ~0.8s of
+    # CPU and ~200MB. Guard on a dated marker instead.
     local ai_script="${SCRIPT_DIR}/scripts/generate_ai_report_section.py"
+    local ai_marker="${CONFIG_DIR}/.last_ai_brain_report"
     if [ -f "$ai_script" ]; then
         local cur_hm="${current_time//:/}"
         cur_hm=$((10#$cur_hm))
-        if [ "$cur_hm" -ge 1005 ]; then
-            python3 "$ai_script" --daily >/dev/null 2>&1 || true
+        if [ "$cur_hm" -ge 1005 ] && [ "$(cat "$ai_marker" 2>/dev/null || true)" != "$today" ]; then
+            if py "$ai_script" --daily >/dev/null 2>&1; then
+                printf '%s\n' "$today" > "$ai_marker"
+            fi
         fi
     fi
 }
 
 start_daemon() {
-    # Lightweight loop checking every 60 seconds
+    # Lightweight loop checking every 60 seconds.
+    #
+    # Singleton enforcement uses an flock on a shared lock file rather than a
+    # pid file, because the pid file alone is racy: every manager launch spawns
+    # `--check-or-run` and `--daemon` in parallel, so many daemons can pass the
+    # "is the old pid alive?" test before any of them writes its pid. The lock
+    # is held for the lifetime of the daemon and is released automatically when
+    # it dies, so a crashed daemon never blocks a restart.
     local pid_file="${CONFIG_DIR}/mp_scheduled_reporter.pid"
+    local lock_file="${CONFIG_DIR}/mp_scheduled_reporter.lock"
+
+    # Reject dead/duplicate losers before forking at all.
     if [ -f "$pid_file" ]; then
         local old_pid
         old_pid="$(cat "$pid_file" 2>/dev/null || true)"
@@ -158,8 +197,22 @@ start_daemon() {
         fi
     fi
 
+    # fd 9 holds the exclusive lock for the whole daemon lifetime.
+    exec 9>>"$lock_file" || return 0
+    if ! flock -n 9; then
+        # Another daemon already owns the lock; this process is a duplicate.
+        exec 9>&-
+        return 0
+    fi
+
     (
-        echo "$$" > "$pid_file"
+        # BASHPID is the pid of this subshell; $$ would be the parent's pid,
+        # which made the pid file point at a long-dead process.
+        echo "$BASHPID" > "$pid_file"
+        # Exit on TERM/INT/HUP as well as EXIT, so `kill` actually stops the
+        # daemon instead of just deleting its pid file and looping forever.
+        trap 'rm -f "$pid_file"; [ -n "${SLEEP_PID:-}" ] && kill "$SLEEP_PID" 2>/dev/null; exit 0' INT TERM HUP
+        trap 'rm -f "$pid_file"' EXIT
         while true; do
             # Reload config in case user toggled settings or updated scheduled time
             if [ -f "$CONFIG_FILE" ]; then
@@ -167,7 +220,13 @@ start_daemon() {
                 source "$CONFIG_FILE"
             fi
             check_and_run >/dev/null 2>&1 || true
-            sleep 60
+            # Sleep in the background and `wait` for it: bash defers traps while
+            # blocked in a foreground command, so a plain `sleep 60` made the
+            # daemon ignore SIGTERM for up to a minute.
+            sleep 60 &
+            SLEEP_PID=$!
+            wait "$SLEEP_PID" 2>/dev/null || true
+            SLEEP_PID=""
         done
     ) &
     disown
@@ -228,13 +287,13 @@ case "${1:-}" in
         save_setting "LAST_YEARLY_REPORT_DATE" "$(date +%Y)"
         ;;
     --email-status|email-status)
-        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --status
+        py "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --status
         ;;
     --email-send|email-send)
-        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --send
+        py "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --send
         ;;
     --email-force|email-force)
-        python3 "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --force
+        py "${SCRIPT_DIR}/scripts/mp_daily_email_reporter.py" --force
         ;;
     --status|status)
         print_status

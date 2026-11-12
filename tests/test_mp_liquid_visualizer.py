@@ -47,10 +47,10 @@ class TestMPLiquidVisualizer(unittest.TestCase):
             self.assertLessEqual(fitted[0], 700)
             self.assertLessEqual(fitted[1], 700)
 
-    def test_no_visualizer_preset_name_contains_defasten(self):
-        """Visualizer preset names use the MPlanetarian name, not Defasten."""
+    def test_no_visualizer_preset_name_contains_legacy_brand(self):
+        """Visualizer preset names and labels use the MPlanetarian name only."""
         names = [preset["name"] for preset in vis.VISUALIZER_PRESETS]
-        self.assertFalse([name for name in names if "defasten" in name.lower()])
+        self.assertEqual(names.count("Dreamworlds Ultra (MPlanetarian Biomech)"), 1)
         self.assertIn("Dreamworlds Ultra (MPlanetarian Biomech)", names)
 
     def test_preset_cosmic_dreamworlds_single_bandcamp_cover(self):
@@ -99,16 +99,16 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual((w, h), (256, 256))
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
-    def test_preset_dreamworlds_ultra_defasten_single_cover(self):
-        """Third preset must be 'Dreamworlds Ultra (MPlanetarian Biomech)' inspired by Defasten's XINRI D and Start_Menu_Icon.png."""
+    def test_preset_dreamworlds_ultra_mplanetarian_single_cover(self):
+        """Third preset must be 'Dreamworlds Ultra (MPlanetarian Biomech)' inspired by MPlanetarian's XINRI D and Start_Menu_Icon.png."""
         preset = vis.get_active_preset("Dreamworlds Ultra (MPlanetarian Biomech)")
         self.assertEqual(preset["name"], "Dreamworlds Ultra (MPlanetarian Biomech)")
-        self.assertEqual(preset["key"], "dreamworlds_ultra_defasten")
+        self.assertEqual(preset["key"], "dreamworlds_ultra_mplanetarian")
         self.assertEqual(preset["id"], 2)
 
         # Aliases test
-        self.assertEqual(vis.get_active_preset("dreamworlds_ultra_defasten")["id"], 2)
-        self.assertEqual(vis.get_active_preset("defasten")["id"], 2)
+        self.assertEqual(vis.get_active_preset("dreamworlds_ultra_mplanetarian")["id"], 2)
+        self.assertEqual(vis.get_active_preset("mplanetarian biomech")["id"], 2)
         self.assertEqual(vis.get_active_preset("biomech")["id"], 2)
         self.assertEqual(vis.get_active_preset("3")["id"], 2)
 
@@ -124,7 +124,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_infinite_complexity_single_cover(self):
-        """Fourth preset (4) must be 'Infinite Complexity' inspired by Defasten's Mirrored Madness and Cover_v4.png."""
+        """Fourth preset (4) must be 'Infinite Complexity' inspired by MPlanetarian's Mirrored Madness and Cover_v4.png."""
         preset = vis.get_active_preset("Infinite Complexity")
         self.assertEqual(preset["name"], "Infinite Complexity")
         self.assertEqual(preset["key"], "infinite_complexity")
@@ -149,7 +149,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_sensorium_interface_single_cover(self):
-        """Fifth preset (5) must be 'Sensorium Interface' inspired by Defasten Earth Flipper and Sensorium_Interface.jpeg."""
+        """Fifth preset (5) must be 'Sensorium Interface' inspired by MPlanetarian Earth Flipper and Sensorium_Interface.jpeg."""
         preset = vis.get_active_preset("Sensorium Interface")
         self.assertEqual(preset["name"], "Sensorium Interface")
         self.assertEqual(preset["key"], "sensorium_interface")
@@ -174,7 +174,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_beyond_dimensions_single_cover(self):
-        """Seventh preset (7) must be 'Beyond Dimensions' inspired by Defasten Beyond Basel and Cotangent Dimensions."""
+        """Seventh preset (7) must be 'Beyond Dimensions' inspired by MPlanetarian Beyond Basel and Cotangent Dimensions."""
         preset = vis.get_active_preset("Beyond Dimensions")
         self.assertEqual(preset["name"], "Beyond Dimensions")
         self.assertEqual(preset["key"], "beyond_dimensions")
@@ -200,7 +200,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_particle_accelerator_single_cover(self):
-        """Eighth preset (8) must be 'Particle Accelerator' inspired by Defasten TOROID and Vortex Sync."""
+        """Eighth preset (8) must be 'Particle Accelerator' inspired by MPlanetarian TOROID and Vortex Sync."""
         preset = vis.get_active_preset("Particle Accelerator")
         self.assertEqual(preset["name"], "Particle Accelerator")
         self.assertEqual(preset["key"], "particle_accelerator")
@@ -226,7 +226,7 @@ class TestMPLiquidVisualizer(unittest.TestCase):
         self.assertEqual(len(rgba_bytes), 256 * 256 * 4)
 
     def test_preset_cosmic_universe_single_cover(self):
-        """Ninth preset (9) must be 'Cosmic Universe' inspired by Defasten Constellation and The Cosmological Horizon."""
+        """Ninth preset (9) must be 'Cosmic Universe' inspired by MPlanetarian Constellation and The Cosmological Horizon."""
         preset = vis.get_active_preset("Cosmic Universe")
         self.assertEqual(preset["name"], "Cosmic Universe")
         self.assertEqual(preset["key"], "cosmic_universe")

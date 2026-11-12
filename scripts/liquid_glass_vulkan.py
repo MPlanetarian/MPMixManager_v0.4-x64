@@ -31,6 +31,8 @@ from ctypes import (
     c_uint32,
     c_uint64,
     c_void_p,
+    memmove,
+    sizeof,
 )
 from pathlib import Path
 
@@ -308,6 +310,8 @@ ST_COMMAND_BUFFER_BEGIN = 42
 ST_RENDER_PASS_BEGIN = 43
 ST_BUFFER_MEMORY_BARRIER = 44
 ST_IMAGE_MEMORY_BARRIER = 45
+ST_IMAGE_CREATE_INFO = 14
+ST_SAMPLER_CREATE_INFO = 23
 ST_SWAPCHAIN_CREATE = 1000001000
 ST_PRESENT_INFO = 1000001001
 
@@ -369,6 +373,25 @@ SUBOPTIMAL = 1000001003
 OUT_OF_DATE = -1000001004
 WHOLE_SIZE = 0xFFFFFFFFFFFFFFFF
 SUCCESS = 0
+
+# --- MP Visualizer in-window background -------------------------------
+# The Vulkan host draws the same preset shader as the standalone
+# visualizer into the glass framebuffer, so the player window shows the
+# visualizer on the Vulkan backend exactly like it does on OpenGL.
+DESCRIPTOR_COMBINED_IMAGE_SAMPLER = 1
+IMAGE_USAGE_TRANSFER_DST = 0x2
+IMAGE_USAGE_SAMPLED = 0x4
+BUFFER_USAGE_TRANSFER_SRC = 0x1
+IMAGE_TYPE_2D = 0
+TILING_OPTIMAL = 0
+LAYOUT_TRANSFER_DST = 7
+LAYOUT_SHADER_READ_ONLY = 5
+FILTER_LINEAR = 1
+SAMPLER_MIPMAP_LINEAR = 1
+SAMPLER_ADDRESS_REPEAT = 0
+ACCESS_TRANSFER_WRITE = 0x1000
+ACCESS_SHADER_READ = 0x20
+STAGE_TOP = 0x1
 
 GLFW_CLIENT_API = 0x00022001
 GLFW_NO_API = 0
@@ -678,6 +701,35 @@ class VkDescriptorBufferInfo(ctypes.Structure):
     _fields_ = [("buffer", c_uint64), ("offset", c_uint64), ("range", c_uint64)]
 
 
+class VkDescriptorImageInfo(ctypes.Structure):
+    _fields_ = [
+        ("sampler", c_uint64), ("imageView", c_uint64), ("imageLayout", c_uint32),
+    ]
+
+
+class VkSamplerCreateInfo(ctypes.Structure):
+    _fields_ = [
+        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
+        ("magFilter", c_uint32), ("minFilter", c_uint32), ("mipmapMode", c_uint32),
+        ("addressModeU", c_uint32), ("addressModeV", c_uint32), ("addressModeW", c_uint32),
+        ("mipLodBias", c_float), ("anisotropyEnable", c_uint32), ("maxAnisotropy", c_float),
+        ("compareEnable", c_uint32), ("compareOp", c_uint32),
+        ("minLod", c_float), ("maxLod", c_float),
+        ("borderColor", c_uint32), ("unnormalizedCoordinates", c_uint32),
+    ]
+
+
+class VkImageCreateInfo(ctypes.Structure):
+    _fields_ = [
+        ("sType", c_uint32), ("pNext", c_void_p), ("flags", c_uint32),
+        ("imageType", c_uint32), ("format", c_uint32), ("extent", VkExtent3D),
+        ("mipLevels", c_uint32), ("arrayLayers", c_uint32), ("samples", c_uint32),
+        ("tiling", c_uint32), ("usage", c_uint32), ("sharingMode", c_uint32),
+        ("queueFamilyIndexCount", c_uint32), ("pQueueFamilyIndices", c_void_p),
+        ("initialLayout", c_uint32),
+    ]
+
+
 class VkWriteDescriptorSet(ctypes.Structure):
     _fields_ = [
         ("sType", c_uint32), ("pNext", c_void_p), ("dstSet", c_uint64),
@@ -916,6 +968,8 @@ class LiquidGlassRenderer:
         self._readback_bytes = 0
         self._alive = False
         self._step = "start"
+        # The player host sets this to draw the MP Visualizer in-window.
+        self.allow_player_visualizer = False
 
     @property
     def summary(self):
@@ -1003,6 +1057,15 @@ class LiquidGlassRenderer:
             self._vk.DeviceWaitIdle(self._device)
         except Exception:
             pass
+        # The visualizer layer owns a second pipeline and its own descriptors,
+        # so it must be released before the descriptor pool and device goes.
+        layer = getattr(self, "_vis_layer", None)
+        if layer is not None:
+            try:
+                layer.release()
+            except Exception:
+                pass
+            self._vis_layer = None
         self._destroy_readback()
         for fence in self._fences:
             self._vk.DestroyFence(self._device, fence, None)
@@ -1163,6 +1226,13 @@ class LiquidGlassRenderer:
             self._recreate_swapchain()
         if self.window_size() != self._shape_size:
             self._apply_shape()
+        visualizer = self._visualizer_state()
+        if visualizer is not None:
+            # The visualizer fills the window; the glass shader is skipped, the
+            # same way the OpenGL host returns straight after its frame.
+            self.sync_player_visualizer_opacity(True)
+            return self._render(capture, visualizer=visualizer)
+        self.sync_player_visualizer_opacity(False)
         colors, effective_opacity, factor = get_dynamic_theme_state(theme_name, opacity)
         win = self.x11_window() if hasattr(self, "x11_window") else None
         if factor != 1.0 and win:
@@ -1172,6 +1242,68 @@ class LiquidGlassRenderer:
                 self._set_opacity(win, self.clear_opacity * factor)
         self._write_ubo(colors, effective_opacity)
         return self._render(capture)
+
+    def _visualizer_state(self):
+        """The player's visualizer state while this host may draw the background."""
+        if not getattr(self, "allow_player_visualizer", False):
+            return None
+        try:
+            from liquid_player_visualizer import read_player_visualizer_state
+        except ImportError:
+            from scripts.liquid_player_visualizer import read_player_visualizer_state
+        try:
+            state = read_player_visualizer_state()
+        except Exception:
+            return None
+        return state if state.get("active") else None
+
+    def draw_player_visualizer_background(self, fw, fh) -> bool:
+        """Draw the MP Visualizer behind the terminal text.
+
+        Mirrors the OpenGL host API. The hooks are kept on the renderer so
+        the player host can call one name on either backend.
+        """
+        if not getattr(self, "allow_player_visualizer", False):
+            return False
+        state = self._visualizer_state()
+        if not state:
+            return False
+        return bool(self._visualizer_layer().draw(self, state))
+
+    def _visualizer_layer(self):
+        layer = getattr(self, "_vis_layer", None)
+        if layer is None:
+            layer = self._vis_layer = VisualizerBackground()
+        return layer
+
+    def sync_player_visualizer_opacity(self, active: bool) -> None:
+        """Make the glass window nearly solid while the visualizer is showing."""
+        win = self.x11_window() if hasattr(self, "x11_window") else 0
+        if not active:
+            if getattr(self, "_vis_vk_opacity", None) is None:
+                return
+            self._vis_vk_opacity = None
+            try:
+                if win:
+                    self._set_opacity(win, float(self.clear_opacity))
+                elif is_windows() and self._window and hasattr(self._glfw, "glfwSetWindowOpacity"):
+                    self._glfw.glfwSetWindowOpacity(self._window, c_float(float(self.clear_opacity)))
+            except Exception:
+                pass
+            return
+        target = max(float(getattr(self, "clear_opacity", 0.70)), 0.94)
+        if getattr(self, "_vis_vk_opacity", None) == target:
+            return
+        try:
+            if win:
+                self._set_opacity(win, target)
+            elif is_windows() and self._window and hasattr(self._glfw, "glfwSetWindowOpacity"):
+                self._glfw.glfwSetWindowOpacity(self._window, c_float(target))
+            else:
+                return
+        except Exception:
+            return
+        self._vis_vk_opacity = target
 
     def _silence_overlays(self):
         os.environ.setdefault("DISABLE_MANGOHUD", "1")
@@ -1998,6 +2130,14 @@ class LiquidGlassRenderer:
         vk.QueueSubmit = load("vkQueueSubmit", c_int32, [P, U32, P, H])
         vk.QueuePresentKHR = load("vkQueuePresentKHR", c_int32, [P, P])
         vk.QueueWaitIdle = load("vkQueueWaitIdle", c_int32, [P])
+        # MP Visualizer background: cover texture upload and sampling.
+        vk.CreateImage = load("vkCreateImage", c_int32, [P, P, P, POINTER(H)])
+        vk.DestroyImage = load("vkDestroyImage", None, [P, H, P])
+        vk.GetImageMemoryRequirements = load("vkGetImageMemoryRequirements", None, [P, H, P])
+        vk.BindImageMemory = load("vkBindImageMemory", c_int32, [P, H, H, c_uint64])
+        vk.CreateSampler = load("vkCreateSampler", c_int32, [P, P, P, POINTER(H)])
+        vk.DestroySampler = load("vkDestroySampler", None, [P, H, P])
+        vk.CmdCopyBufferToImage = load("vkCmdCopyBufferToImage", None, [P, H, H, U32, U32, P])
         queue = c_void_p()
         vk.GetDeviceQueue(self._device, self._queue_family, 0, byref(queue))
         self._queue = queue
@@ -2416,7 +2556,7 @@ class LiquidGlassRenderer:
             slot[:] = (x * scale, y * scale, w * scale, h * scale)
         ctypes.memmove(self._ubo_ptr, byref(ubo), ctypes.sizeof(ubo))
 
-    def _render(self, capture):
+    def _render(self, capture, visualizer=None):
         vk = self._vk
         frame = self._frame
         fence = self._fences[frame]
@@ -2437,6 +2577,18 @@ class LiquidGlassRenderer:
         begin.sType = ST_COMMAND_BUFFER_BEGIN
         begin.flags = CMD_ONE_TIME
         _check(vk.BeginCommandBuffer(cmd, _addr(begin)), "begin command")
+
+        if visualizer is not None:
+            # The MP Visualizer draws the whole window. Publish the frame
+            # details the layer records against, then let it own the pass.
+            self._draw_cmd = cmd
+            self._draw_index = index.value
+            self._draw_extent = tuple(self._extent)
+            layer = self._visualizer_layer()
+            if layer.draw(self, visualizer):
+                _check(vk.EndCommandBuffer(cmd), "end command")
+                return self._submit_and_present(frame, cmd, index, capture=capture)
+
         barrier = VkBufferMemoryBarrier()
         barrier.sType = ST_BUFFER_MEMORY_BARRIER
         barrier.srcAccessMask = ACCESS_HOST_WRITE
@@ -2501,6 +2653,45 @@ class LiquidGlassRenderer:
             _check(presented, "present")
         self._frame = (frame + 1) % 2
         self._frame_keep = (begin, barrier, clear, rp, wait_sem, signal_sem, wait_stage, cmd_keep, submit, swap, present, index)
+        return pixels
+
+    def _submit_and_present(self, frame, cmd, index, capture=False):
+        """Publish a recorded frame. Shared by the glass and visualizer passes."""
+        vk = self._vk
+        fence = self._fences[frame]
+        wait_sem = c_uint64(self._image_available[frame])
+        signal_sem = c_uint64(self._render_finished[frame])
+        wait_stage = c_uint32(STAGE_COLOR_OUT)
+        cmd_keep = c_void_p(cmd)
+        submit = VkSubmitInfo()
+        submit.sType = ST_SUBMIT_INFO
+        submit.waitSemaphoreCount = 1
+        submit.pWaitSemaphores = ctypes.cast(byref(wait_sem), c_void_p)
+        submit.pWaitDstStageMask = ctypes.cast(byref(wait_stage), c_void_p)
+        submit.commandBufferCount = 1
+        submit.pCommandBuffers = ctypes.cast(byref(cmd_keep), c_void_p)
+        submit.signalSemaphoreCount = 1
+        submit.pSignalSemaphores = ctypes.cast(byref(signal_sem), c_void_p)
+        _check(vk.QueueSubmit(self._queue, 1, _addr(submit), fence), "queue submit")
+        pixels = None
+        if capture and self._can_readback:
+            _check(vk.WaitForFences(self._device, 1, byref(c_uint64(fence)), 1, 2_000_000_000), "wait draw")
+            pixels = self._read_image(self._images[index.value])
+        swap = c_uint64(self._swapchain)
+        present = VkPresentInfoKHR()
+        present.sType = ST_PRESENT_INFO
+        present.waitSemaphoreCount = 1
+        present.pWaitSemaphores = ctypes.cast(byref(signal_sem), c_void_p)
+        present.swapchainCount = 1
+        present.pSwapchains = ctypes.cast(byref(swap), c_void_p)
+        present.pImageIndices = ctypes.cast(byref(index), c_void_p)
+        presented = vk.QueuePresentKHR(self._queue, _addr(present))
+        if presented in (OUT_OF_DATE, SUBOPTIMAL):
+            self._resize = True
+        elif presented != SUCCESS:
+            _check(presented, "present")
+        self._frame = (frame + 1) % 2
+        self._frame_keep = (wait_sem, signal_sem, wait_stage, cmd_keep, submit, swap, present)
         return pixels
 
     def _ensure_readback(self):
@@ -2587,6 +2778,567 @@ class LiquidGlassRenderer:
             self._glfw.glfwDestroyWindow(self._window)
             self._window = None
             self._glfw.glfwTerminate()
+
+
+class VisualizerBackground:
+    """Draws the MP Visualizer preset behind the Vulkan liquid glass.
+
+    This is the Vulkan counterpart of ``liquid_player_visualizer.PlayerVisualizerLayer``.
+    The OpenGL host has drawn the visualizer inside the player window since
+    the feature was added; the Vulkan host had no equivalent, so choosing
+    ``LIQUID_GLASS_BACKEND=vulkan`` silently lost the background. This class
+    gives the Vulkan host the same picture from the same preset shader and
+    the same telemetry bridge.
+
+    It owns a second graphics pipeline over the glass swapchain: the preset
+    shader writes the full window, then the glass shader is not drawn, which
+    matches the OpenGL host (it returns straight after the visualizer frame).
+    """
+
+    def __init__(self):
+        self._ready = False
+        self._error = ""
+        self._preset_id = -1
+        self._layout = 0
+        self._pipeline = 0
+        self._dset = 0
+        self._pool = 0
+        self._desc_layout = 0
+        self._ubo = 0
+        self._ubo_memory = 0
+        self._ubo_ptr = None
+        self._ubo_size = 0
+        self._ubo_flat = None
+        self._ubo_flat_ptr = None
+        self._tex_image = 0
+        self._tex_memory = 0
+        self._tex_view = 0
+        self._tex_sampler = 0
+        self._tex_key = ""
+        self._keep = []
+        self._modules = []
+        self._bridge = None
+        self._last = 0.0
+
+    # -- public -----------------------------------------------------------
+    def wants(self, state) -> bool:
+        return bool(state.get("active"))
+
+    def draw(self, renderer, state, bridge=None) -> bool:
+        """Draw one visualizer frame. Returns True when it drew."""
+        if not self.wants(state):
+            return False
+        try:
+            return self._draw(renderer, state, bridge)
+        except Exception as exc:
+            if not self._error:
+                self._error = str(exc)
+                print(f"MP Visualizer background unavailable (Vulkan): {exc}", file=sys.stderr)
+            return False
+
+    # -- internals --------------------------------------------------------
+    def _draw(self, renderer, state, bridge) -> bool:
+        import time
+        preset_id = int(state.get("preset_id") or 0)
+        if not self._ready:
+            self._build(renderer)
+        if preset_id != self._preset_id:
+            self._switch_preset(renderer, preset_id)
+        self._ensure_cover(renderer, state)
+        bridge = self._ensure_bridge() if bridge is None else bridge
+        now = time.monotonic()
+        dt = 0.016 if self._last <= 0.0 else max(0.0, min(0.05, now - self._last))
+        self._last = now
+        self._write_ubo(renderer, bridge, state)
+        return self._render(renderer)
+
+    def release(self) -> None:
+        """Free every Vulkan object this layer owns."""
+        vk, dev = getattr(self, "_vk", None), getattr(self, "_device", 0)
+        if not vk or not dev:
+            self._ready = False
+            return
+        try:
+            vk.DeviceWaitIdle(dev)
+        except Exception:
+            pass
+        for attr, destroy in (
+            ("_tex_sampler", vk.DestroySampler),
+            ("_tex_view", vk.DestroyImageView),
+            ("_tex_image", vk.DestroyImage),
+        ):
+            handle = getattr(self, attr, 0)
+            if handle:
+                try:
+                    destroy(dev, handle, None)
+                except Exception:
+                    pass
+                setattr(self, attr, 0)
+        if self._tex_memory:
+            try:
+                vk.FreeMemory(dev, self._tex_memory, None)
+            except Exception:
+                pass
+            self._tex_memory = 0
+        if self._pipeline:
+            try:
+                vk.DestroyPipeline(dev, self._pipeline, None)
+            except Exception:
+                pass
+            self._pipeline = 0
+        for mod in self._modules:
+            if mod:
+                try:
+                    vk.DestroyShaderModule(dev, mod, None)
+                except Exception:
+                    pass
+        self._modules = []
+        if self._layout:
+            try:
+                vk.DestroyPipelineLayout(dev, self._layout, None)
+            except Exception:
+                pass
+            self._layout = 0
+        if self._desc_layout:
+            try:
+                vk.DestroyDescriptorSetLayout(dev, self._desc_layout, None)
+            except Exception:
+                pass
+            self._desc_layout = 0
+        if self._pool:
+            try:
+                vk.DestroyDescriptorPool(dev, self._pool, None)
+            except Exception:
+                pass
+            self._pool = 0
+        if self._ubo_memory:
+            try:
+                vk.UnmapMemory(dev, self._ubo_memory)
+                vk.DestroyBuffer(dev, self._ubo, None)
+                vk.FreeMemory(dev, self._ubo_memory, None)
+            except Exception:
+                pass
+            self._ubo = self._ubo_memory = 0
+            self._ubo_ptr = None
+        self._keep = []
+        self._ready = False
+
+    def _build(self, renderer) -> None:
+        """Create the pipeline, descriptor set, and UBO over the glass swapchain."""
+        from mp_liquid_visualizer_vulkan import VisualizerUBO
+        vk, dev = renderer._vk, renderer._device
+        self._vk, self._device, self._queue = vk, dev, renderer._queue
+
+        # --- UBO -------------------------------------------------------
+        self._ubo_size = sizeof(VisualizerUBO)
+        self._ubo, self._ubo_memory, _ = renderer._create_buffer(
+            self._ubo_size, 0x10  # BUFFER_USAGE_UNIFORM_BUFFER
+        )
+        ptr = c_void_p()
+        _check(vk.MapMemory(dev, self._ubo_memory, 0, self._ubo_size, 0, byref(ptr)), "map visualizer ubo")
+        self._ubo_ptr = ptr
+        self._ubo_flat = (c_float * (self._ubo_size // 4))()
+        self._ubo_flat_ptr = ctypes.cast(self._ubo_flat, c_void_p)
+
+        # --- descriptor layout: UBO + cover sampler ---------------------
+        bindings = (VkDescriptorSetLayoutBinding * 2)()
+        bindings[0].binding = 0
+        bindings[0].descriptorType = DESCRIPTOR_UNIFORM
+        bindings[0].descriptorCount = 1
+        bindings[0].stageFlags = STAGE_FRAGMENT_BIT
+        bindings[1].binding = 1
+        bindings[1].descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
+        bindings[1].descriptorCount = 1
+        bindings[1].stageFlags = STAGE_FRAGMENT_BIT
+        set_info = VkDescriptorSetLayoutCreateInfo()
+        set_info.sType = ST_DESCRIPTOR_SET_LAYOUT
+        set_info.bindingCount = 2
+        set_info.pBindings = _addr(bindings)
+        layout = c_uint64()
+        _check(vk.CreateDescriptorSetLayout(dev, _addr(set_info), None, byref(layout)), "visualizer descriptor layout")
+        self._desc_layout = layout.value
+
+        layouts = (c_uint64 * 1)(self._desc_layout)
+        pipe_info = VkPipelineLayoutCreateInfo()
+        pipe_info.sType = ST_PIPELINE_LAYOUT
+        pipe_info.setLayoutCount = 1
+        pipe_info.pSetLayouts = ctypes.cast(layouts, c_void_p)
+        playout = c_uint64()
+        _check(vk.CreatePipelineLayout(dev, _addr(pipe_info), None, byref(playout)), "visualizer pipeline layout")
+        self._layout = playout.value
+
+        # --- descriptor pool + set -------------------------------------
+        sizes = (VkDescriptorPoolSize * 2)(
+            VkDescriptorPoolSize(DESCRIPTOR_UNIFORM, 1),
+            VkDescriptorPoolSize(DESCRIPTOR_COMBINED_IMAGE_SAMPLER, 1),
+        )
+        pool_info = VkDescriptorPoolCreateInfo()
+        pool_info.sType = ST_DESCRIPTOR_POOL
+        pool_info.maxSets = 1
+        pool_info.poolSizeCount = 2
+        pool_info.pPoolSizes = _addr(sizes)
+        pool = c_uint64()
+        _check(vk.CreateDescriptorPool(dev, _addr(pool_info), None, byref(pool)), "visualizer descriptor pool")
+        self._pool = pool.value
+        alloc = VkDescriptorSetAllocateInfo()
+        alloc.sType = ST_DESCRIPTOR_SET_ALLOCATE
+        alloc.descriptorPool = self._pool
+        alloc.descriptorSetCount = 1
+        alloc.pSetLayouts = ctypes.cast(layouts, c_void_p)
+        dset = c_uint64()
+        _check(vk.AllocateDescriptorSets(dev, _addr(alloc), byref(dset)), "visualizer descriptor set")
+        self._dset = dset.value
+
+        self._keep = [
+            bindings, set_info, layouts, pipe_info, sizes, pool_info, alloc,
+        ]
+        # The cover image starts as a 2x2 stand-in so the descriptor is valid
+        # before the first preset texture is uploaded.
+        self._upload_solid(renderer, 12, 40, 96)
+        self._write_cover_descriptor()
+        self._ready = True
+
+    def _write_cover_descriptor(self) -> None:
+        vk = self._vk
+        buffer_info = VkDescriptorBufferInfo(self._ubo, 0, self._ubo_size)
+        image_info = VkDescriptorImageInfo(self._tex_sampler, self._tex_view, LAYOUT_SHADER_READ_ONLY)
+        writes = (VkWriteDescriptorSet * 2)()
+        writes[0].sType = ST_WRITE_DESCRIPTOR_SET
+        writes[0].dstSet = self._dset
+        writes[0].dstBinding = 0
+        writes[0].descriptorCount = 1
+        writes[0].descriptorType = DESCRIPTOR_UNIFORM
+        writes[0].pBufferInfo = _addr(buffer_info)
+        writes[1].sType = ST_WRITE_DESCRIPTOR_SET
+        writes[1].dstSet = self._dset
+        writes[1].dstBinding = 1
+        writes[1].descriptorCount = 1
+        writes[1].descriptorType = DESCRIPTOR_COMBINED_IMAGE_SAMPLER
+        writes[1].pImageInfo = _addr(image_info)
+        self._desc_keep = (buffer_info, image_info, writes)
+        vk.UpdateDescriptorSets(self._device, 2, _addr(writes), 0, None)
+
+    def _create_pipeline(self, renderer) -> None:
+        """Build the preset pipeline against the glass render pass."""
+        from mp_liquid_visualizer_vulkan import SHADER_DIR
+        try:
+            from liquid_player_visualizer import vulkan_preset_spirv
+        except ImportError:
+            from scripts.liquid_player_visualizer import vulkan_preset_spirv
+        vk, dev = renderer._vk, renderer._device
+        frag_path = vulkan_preset_spirv(self._preset_id) or (SHADER_DIR / "mp_liquid_visualizer.frag.spv")
+        vert = renderer._shader_module(SHADER_DIR / "mp_liquid_visualizer.vert.spv")
+        frag = renderer._shader_module(frag_path)
+        self._modules.extend([vert, frag])
+        stages = (VkPipelineShaderStageCreateInfo * 2)()
+        for index, (module, bit) in enumerate(((vert, SHADER_VERTEX), (frag, SHADER_FRAGMENT))):
+            stages[index].sType = ST_PIPELINE_SHADER_STAGE
+            stages[index].stage = bit
+            stages[index].module = module
+            stages[index].pName = b"main"
+
+        vertex = VkPipelineVertexInputStateCreateInfo()
+        vertex.sType = ST_PIPELINE_VERTEX_INPUT
+        assembly = VkPipelineInputAssemblyStateCreateInfo()
+        assembly.sType = ST_PIPELINE_INPUT_ASSEMBLY
+        assembly.topology = TOPOLOGY_TRIANGLE_LIST
+        viewport = VkPipelineViewportStateCreateInfo()
+        viewport.sType = ST_PIPELINE_VIEWPORT
+        viewport.viewportCount = 1
+        viewport.scissorCount = 1
+        raster = VkPipelineRasterizationStateCreateInfo()
+        raster.sType = ST_PIPELINE_RASTER
+        raster.polygonMode = 0
+        raster.lineWidth = 1.0
+        multi = VkPipelineMultisampleStateCreateInfo()
+        multi.sType = ST_PIPELINE_MULTISAMPLE
+        multi.rasterizationSamples = SAMPLE_1
+        blend_att = VkPipelineColorBlendAttachmentState()
+        blend_att.colorWriteMask = COLOR_WRITE_ALL
+        blend = VkPipelineColorBlendStateCreateInfo()
+        blend.sType = ST_PIPELINE_COLOR_BLEND
+        blend.attachmentCount = 1
+        blend.pAttachments = _addr(blend_att)
+        dynamics = (c_uint32 * 2)(DYNAMIC_VIEWPORT, DYNAMIC_SCISSOR)
+        dynamic = VkPipelineDynamicStateCreateInfo()
+        dynamic.sType = ST_PIPELINE_DYNAMIC
+        dynamic.dynamicStateCount = 2
+        dynamic.pDynamicStates = ctypes.cast(dynamics, c_void_p)
+
+        gp = VkGraphicsPipelineCreateInfo()
+        gp.sType = ST_GRAPHICS_PIPELINE
+        gp.stageCount = 2
+        gp.pStages = ctypes.cast(stages, c_void_p)
+        gp.pVertexInputState = _addr(vertex)
+        gp.pInputAssemblyState = _addr(assembly)
+        gp.pViewportState = _addr(viewport)
+        gp.pRasterizationState = _addr(raster)
+        gp.pMultisampleState = _addr(multi)
+        gp.pColorBlendState = _addr(blend)
+        gp.pDynamicState = _addr(dynamic)
+        gp.layout = self._layout
+        gp.renderPass = renderer._render_pass
+        gp.basePipelineIndex = -1
+        self._keep.extend([
+            stages, vertex, assembly, viewport, raster, multi,
+            blend_att, blend, dynamics, dynamic, gp,
+        ])
+        pipeline = c_uint64()
+        _check(vk.CreateGraphicsPipelines(dev, 0, 1, _addr(gp), None, byref(pipeline)), "visualizer graphics pipeline")
+        self._pipeline = pipeline.value
+
+    def _switch_preset(self, renderer, preset_id: int) -> None:
+        """Rebuild only the pipeline for the new preset; the cover follows."""
+        if self._pipeline:
+            try:
+                renderer._vk.DeviceWaitIdle(renderer._device)
+                renderer._vk.DestroyPipeline(renderer._device, self._pipeline, None)
+            except Exception:
+                pass
+            self._pipeline = 0
+        for mod in self._modules:
+            if mod:
+                try:
+                    renderer._vk.DestroyShaderModule(renderer._device, mod, None)
+                except Exception:
+                    pass
+        self._modules = []
+        self._preset_id = int(preset_id)
+        self._tex_key = ""      # force a cover re-upload for the new preset
+        self._create_pipeline(renderer)
+
+    def _ensure_bridge(self):
+        if self._bridge is None:
+            from mp_liquid_visualizer_vulkan import AudioTelemetryBridge
+            self._bridge = AudioTelemetryBridge()
+        return self._bridge
+
+    def _ensure_cover(self, renderer, state) -> None:
+        key = f"{state.get('preset_id')}:{state.get('preset_key')}"
+        if key == self._tex_key:
+            return
+        try:
+            from mp_liquid_visualizer_vulkan import load_preset_cover_rgba, preset_by_id
+        except ImportError:
+            from scripts.mp_liquid_visualizer_vulkan import load_preset_cover_rgba, preset_by_id
+        preset = preset_by_id(int(state.get("preset_id") or 0)) or {
+            "id": state.get("preset_id") or 0,
+            "key": state.get("preset_key"),
+            "name": state.get("preset_name"),
+            "cover_paths": [],
+        }
+        try:
+            width, height, pixels = load_preset_cover_rgba(preset, tex_size=512)
+        except Exception:
+            width, height, pixels = 0, 0, b""
+        if not pixels:
+            self._upload_solid(renderer, 18, 72, 140)
+        else:
+            self._upload_image(renderer, width, height, pixels)
+        self._write_cover_descriptor()
+        self._tex_key = key
+
+    def _destroy_cover(self, renderer) -> None:
+        vk, dev = renderer._vk, renderer._device
+        for attr, destroy in (("_tex_view", vk.DestroyImageView), ("_tex_image", vk.DestroyImage)):
+            handle = getattr(self, attr, 0)
+            if handle:
+                try:
+                    destroy(dev, handle, None)
+                except Exception:
+                    pass
+                setattr(self, attr, 0)
+        if self._tex_memory:
+            try:
+                vk.FreeMemory(dev, self._tex_memory, None)
+            except Exception:
+                pass
+            self._tex_memory = 0
+
+    def _upload_solid(self, renderer, r: int, g: int, b: int) -> None:
+        pixel = bytes((r, g, b, 255)) * 4
+        self._upload_image(renderer, 2, 2, pixel)
+
+    def _upload_image(self, renderer, width: int, height: int, rgba: bytes) -> None:
+        """Copy an RGBA8 image into a device-local texture and sample it."""
+        vk, dev = renderer._vk, renderer._device
+        vk.DeviceWaitIdle(dev)
+        self._destroy_cover(renderer)
+
+        byte_count = len(rgba)
+        staging, staging_memory, _ = renderer._create_buffer(byte_count, BUFFER_USAGE_TRANSFER_SRC)
+        ptr = c_void_p()
+        _check(vk.MapMemory(dev, staging_memory, 0, byte_count, 0, byref(ptr)), "map visualizer cover")
+        memmove(ptr, rgba, byte_count)
+        vk.UnmapMemory(dev, staging_memory)
+
+        image_info = VkImageCreateInfo()
+        image_info.sType = ST_IMAGE_CREATE_INFO
+        image_info.imageType = IMAGE_TYPE_2D
+        image_info.format = FORMAT_R8G8B8A8_UNORM
+        image_info.extent = VkExtent3D(width, height, 1)
+        image_info.mipLevels = 1
+        image_info.arrayLayers = 1
+        image_info.samples = SAMPLE_1
+        image_info.tiling = TILING_OPTIMAL
+        image_info.usage = IMAGE_USAGE_TRANSFER_DST | IMAGE_USAGE_SAMPLED
+        image_info.sharingMode = SHARING_EXCLUSIVE
+        image_info.initialLayout = LAYOUT_UNDEFINED
+        image = c_uint64()
+        _check(vk.CreateImage(dev, _addr(image_info), None, byref(image)), "visualizer cover image")
+        self._tex_image = image.value
+
+        req = VkMemoryRequirements()
+        vk.GetImageMemoryRequirements(dev, self._tex_image, _addr(req))
+        try:
+            memory_type = renderer._memory_type(req.memoryTypeBits, 0x1)  # DEVICE_LOCAL
+        except Exception:
+            memory_type = renderer._memory_type(req.memoryTypeBits, 0)
+        alloc = VkMemoryAllocateInfo()
+        alloc.sType = ST_MEMORY_ALLOCATE_INFO
+        alloc.allocationSize = req.size
+        alloc.memoryTypeIndex = memory_type
+        memory = c_uint64()
+        _check(vk.AllocateMemory(dev, _addr(alloc), None, byref(memory)), "visualizer cover memory")
+        self._tex_memory = memory.value
+        _check(vk.BindImageMemory(dev, self._tex_image, self._tex_memory, 0), "bind visualizer cover")
+
+        span = VkImageSubresourceRange(IMAGE_ASPECT_COLOR, 0, 1, 0, 1)
+
+        def record(cmd):
+            barrier_in = VkImageMemoryBarrier()
+            barrier_in.sType = ST_IMAGE_MEMORY_BARRIER
+            barrier_in.srcAccessMask = 0
+            barrier_in.dstAccessMask = ACCESS_TRANSFER_WRITE
+            barrier_in.oldLayout = LAYOUT_UNDEFINED
+            barrier_in.newLayout = LAYOUT_TRANSFER_DST
+            barrier_in.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+            barrier_in.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+            barrier_in.image = self._tex_image
+            barrier_in.subresourceRange = span
+            vk.CmdPipelineBarrier(cmd, STAGE_TOP, STAGE_TRANSFER, 0, 0, None, 0, None, 1, _addr(barrier_in))
+            region = VkBufferImageCopy()
+            region.imageSubresource = VkImageSubresourceLayers(IMAGE_ASPECT_COLOR, 0, 0, 1)
+            region.imageExtent = VkExtent3D(width, height, 1)
+            vk.CmdCopyBufferToImage(cmd, staging, self._tex_image, LAYOUT_TRANSFER_DST, 1, _addr(region))
+            barrier_out = VkImageMemoryBarrier()
+            barrier_out.sType = ST_IMAGE_MEMORY_BARRIER
+            barrier_out.srcAccessMask = ACCESS_TRANSFER_WRITE
+            barrier_out.dstAccessMask = ACCESS_SHADER_READ
+            barrier_out.oldLayout = LAYOUT_TRANSFER_DST
+            barrier_out.newLayout = LAYOUT_SHADER_READ_ONLY
+            barrier_out.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+            barrier_out.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+            barrier_out.image = self._tex_image
+            barrier_out.subresourceRange = span
+            vk.CmdPipelineBarrier(cmd, STAGE_TRANSFER, STAGE_FRAGMENT, 0, 0, None, 0, None, 1, _addr(barrier_out))
+            return (barrier_in, region, barrier_out)
+
+        self._submit_blocking(renderer, record)
+        vk.DestroyBuffer(dev, staging, None)
+        vk.FreeMemory(dev, staging_memory, None)
+
+        view_info = VkImageViewCreateInfo()
+        view_info.sType = ST_IMAGE_VIEW_CREATE_INFO
+        view_info.image = self._tex_image
+        view_info.viewType = IMAGE_VIEW_2D
+        view_info.format = FORMAT_R8G8B8A8_UNORM
+        view_info.aspectMask = IMAGE_ASPECT_COLOR
+        view_info.levelCount = 1
+        view_info.layerCount = 1
+        view = c_uint64()
+        _check(vk.CreateImageView(dev, _addr(view_info), None, byref(view)), "visualizer cover view")
+        self._tex_view = view.value
+
+        if not self._tex_sampler:
+            sampler_info = VkSamplerCreateInfo()
+            sampler_info.sType = ST_SAMPLER_CREATE_INFO
+            sampler_info.magFilter = FILTER_LINEAR
+            sampler_info.minFilter = FILTER_LINEAR
+            sampler_info.mipmapMode = SAMPLER_MIPMAP_LINEAR
+            sampler_info.addressModeU = SAMPLER_ADDRESS_REPEAT
+            sampler_info.addressModeV = SAMPLER_ADDRESS_REPEAT
+            sampler_info.addressModeW = SAMPLER_ADDRESS_REPEAT
+            sampler_info.maxLod = 1.0
+            sampler = c_uint64()
+            _check(vk.CreateSampler(dev, _addr(sampler_info), None, byref(sampler)), "visualizer cover sampler")
+            self._tex_sampler = sampler.value
+
+    def _submit_blocking(self, renderer, record) -> None:
+        """Run a one-shot command buffer and wait for it."""
+        vk, dev = renderer._vk, renderer._device
+        alloc = VkCommandBufferAllocateInfo()
+        alloc.sType = ST_COMMAND_BUFFER_ALLOCATE
+        alloc.commandPool = renderer._pool
+        alloc.level = 0
+        alloc.commandBufferCount = 1
+        cmd = c_void_p()
+        _check(vk.AllocateCommandBuffers(dev, _addr(alloc), byref(cmd)), "visualizer one-time command")
+        begin = VkCommandBufferBeginInfo()
+        begin.sType = ST_COMMAND_BUFFER_BEGIN
+        begin.flags = CMD_ONE_TIME
+        _check(vk.BeginCommandBuffer(cmd, _addr(begin)), "begin visualizer command")
+        keep = record(cmd)
+        _check(vk.EndCommandBuffer(cmd), "end visualizer command")
+        submit = VkSubmitInfo()
+        submit.sType = ST_SUBMIT_INFO
+        submit.commandBufferCount = 1
+        submit.pCommandBuffers = ctypes.cast(byref(cmd), c_void_p)
+        _check(vk.QueueSubmit(renderer._queue, 1, _addr(submit), 0), "submit visualizer command")
+        _check(vk.QueueWaitIdle(renderer._queue), "wait visualizer command")
+        self._keep.append((alloc, begin, cmd, submit, keep))
+
+    def _write_ubo(self, renderer, bridge, state) -> None:
+        u = self._ubo_flat
+        fw, fh = renderer.framebuffer_size()
+        u[0], u[1], u[2], u[3] = float(fw), float(fh), bridge.accum_time, 1.0 if bridge.is_playing else 0.0
+        u[4], u[5], u[6], u[7] = bridge.sub_bass, bridge.bass, bridge.low_mid, bridge.mid
+        u[8], u[9], u[10], u[11] = bridge.high_mid, bridge.treble, bridge.air, bridge.rms_energy
+        u[12], u[13], u[14], u[15] = bridge.beat_pulse, bridge.bass_phase, bridge.mid_phase, bridge.high_phase
+        u[16:32] = bridge.bands16
+        u[32], u[33], u[34], u[35] = (
+            float(self._preset_id), float(bridge.pitch_factor), 1.0,
+            float(getattr(bridge, "dynamic_time", bridge.accum_time)),
+        )
+        memmove(self._ubo_ptr, self._ubo_flat_ptr, self._ubo_size)
+
+    def _render(self, renderer) -> bool:
+        """Record the visualizer draw into the frame's command buffer."""
+        vk = renderer._vk
+        cmd = renderer._draw_cmd
+        idx = renderer._draw_index
+        extent = renderer._draw_extent
+        barrier = VkBufferMemoryBarrier()
+        barrier.sType = ST_BUFFER_MEMORY_BARRIER
+        barrier.srcAccessMask = ACCESS_HOST_WRITE
+        barrier.dstAccessMask = ACCESS_UNIFORM
+        barrier.srcQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+        barrier.dstQueueFamilyIndex = QUEUE_FAMILY_IGNORED
+        barrier.buffer = self._ubo
+        barrier.size = self._ubo_size
+        vk.CmdPipelineBarrier(cmd, STAGE_HOST, STAGE_FRAGMENT, 0, 0, None, 1, _addr(barrier), 0, None)
+
+        clear = VkClearValue()
+        clear.color[:] = (0.0, 0.0, 0.0, 1.0)
+        begin = VkRenderPassBeginInfo()
+        begin.sType = ST_RENDER_PASS_BEGIN
+        begin.renderPass = renderer._render_pass
+        begin.framebuffer = renderer._framebuffers[idx]
+        begin.renderArea.extent = VkExtent2D(*extent)
+        begin.clearValueCount = 1
+        begin.pClearValues = _addr(clear)
+        vk.CmdBeginRenderPass(cmd, _addr(begin), 0)
+        vk.CmdBindPipeline(cmd, 0, self._pipeline)
+        view = VkViewport(0.0, 0.0, float(extent[0]), float(extent[1]), 0.0, 1.0)
+        scissor = VkRect2D(VkOffset2D(0, 0), VkExtent2D(*extent))
+        vk.CmdSetViewport(cmd, 0, 1, ctypes.c_void_p(ctypes.addressof(view)))
+        vk.CmdSetScissor(cmd, 0, 1, ctypes.c_void_p(ctypes.addressof(scissor)))
+        dset = c_uint64(self._dset)
+        vk.CmdBindDescriptorSets(cmd, 0, self._layout, 0, 1, ctypes.cast(byref(dset), c_void_p), 0, None)
+        vk.CmdDraw(cmd, 3, 1, 0, 0)
+        vk.CmdEndRenderPass(cmd)
+        self._frame_keep = (barrier, clear, begin, view, scissor, dset)
+        return True
 
 
 def save_png(path, width, height, bgra, swap_rb=True):

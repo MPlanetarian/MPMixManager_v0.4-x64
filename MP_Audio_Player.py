@@ -16,7 +16,7 @@ def _get_app_version() -> str:
         if c.is_file():
             try: return c.read_text(encoding="utf-8").strip()
             except Exception: pass
-    return "0.4.2 Stable (Liquid)"
+    return "0.4.3 Stable (Liquid)"
 
 VERSION = _get_app_version()
 
@@ -115,7 +115,17 @@ def meter_peak_glyph() -> str: return "\u2500" if _use_limited_console_glyphs() 
 def meter_level_char(frac: float, peak_here: bool) -> str:
     return "█" if frac >= 1.0 else (prism_level_glyph(max(1, min(8, int(frac * 8)))) if frac > 0.0 else (meter_peak_glyph() if peak_here else " "))
 
-_STARDUST_SAFE = {"✦": "•", "✧": "°", "⋆": "·", "◆": "•", "╵": "│", "▔": "─", "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~", "∿": "~", "∽": "~", "›": ">", "»": ">"}
+_STARDUST_SAFE = {
+    "✦": "•", "✧": "°", "⋆": "·", "◆": "•", "◇": "o", "╵": "│", "▔": "─",
+    "⠄": "·", "⠂": ".", "⠁": ".", "⠈": "'", "⡀": ".", "≈": "~", "≋": "~",
+    "∿": "~", "∽": "~", "›": ">", "»": ">",
+    # Rainbow mandala / plasma / wormhole glyphs.
+    "✺": "*", "✷": "*", "✸": "*", "✹": "*", "✻": "*", "❋": "*", "❖": "*",
+    "✱": "*", "✳": "*", "✴": "*", "⁂": "*", "⁕": "*", "⍟": "*", "⎈": "*",
+    "⬢": "*", "⬡": "o", "◈": "<>", "◉": "O", "◎": "o", "◌": ".",
+    "⌬": "o", "╱": "/", "╲": "\\", "┃": "|", "┊": "|", "╎": "|",
+    "━": "-", "═": "=", "▪": ".",
+}
 def console_symbol(ch: str) -> str: return _STARDUST_SAFE.get(ch, ch) if _use_limited_console_glyphs() else ch
 
 # Precomputed high-efficiency rainbow color tables for Stream of Frequency visualizer (360 degrees of hue)
@@ -124,6 +134,22 @@ _RAINBOW_ANSI_BOLD = tuple(f"\033[1;38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_R
 _RAINBOW_ANSI_NORMAL = tuple(f"\033[38;2;{r};{g};{b}m" for r, g, b in _RAINBOW_RGB_TABLE)
 _RAINBOW_ANSI_DIM = tuple(f"\033[38;2;{r//2};{g//2};{b//2}m" for r, g, b in _RAINBOW_RGB_TABLE)
 _RAINBOW_ANSI_FAINT = tuple(f"\033[38;2;{max(20, int(r*0.35))};{max(20, int(g*0.35))};{max(20, int(b*0.35))}m" for r, g, b in _RAINBOW_RGB_TABLE)
+
+_FX_WHITE_HOT = "\033[1;38;2;255;255;255m"
+
+@functools.lru_cache(maxsize=16384)
+def _rainbow_fx_ansi(hue_idx: int, value_q: int, bold: bool = False) -> str:
+    """Cached TrueColor rainbow ANSI for a hue and a 0..12 brightness level.
+
+    The three new full-field effects paint thousands of cells per frame. Building
+    an escape sequence with colorsys for every cell is too slow, so the hue is an
+    index into the precomputed rainbow table and the brightness is quantised to
+    twelve steps and memoised.
+    """
+    r, g, b = _RAINBOW_RGB_TABLE[int(hue_idx) % 360]
+    v = max(0, min(12, int(value_q))) / 12.0
+    r, g, b = int(round(r * v)), int(round(g * v)), int(round(b * v))
+    return f"\033[{'1;' if bold else ''}38;2;{r};{g};{b}m"
 
 _DUST_CHOICES_LIM = {"hot": ["•", "°", "·", "˙", "+"], "mid": ["•", "°", "·", "˙", ".", "*"], "low": ["·", "˙", ".", "*", "'", ","]}
 _DUST_CHOICES_FULL = {"hot": ["✦", "✧", "⋆", "•", "°"], "mid": ["•", "°", "·", "˙", "⠄", "⠂"], "low": ["·", "˙", "⠄", "⠂", "⠁", "⠈", "⡀"]}
@@ -2856,6 +2882,9 @@ _THEME_ALIASES = {
 class EqualizerVisualizer:
     STYLES = [
         "stream_of_frequency_eq",
+        "rainbow_mandala_eq",
+        "rainbow_wormhole_eq",
+        "rainbow_aurora_eq",
         "stereo_eq",
         "neon_prism_eq",
         "stardust_particles_eq",
@@ -2865,12 +2894,42 @@ class EqualizerVisualizer:
     ]
     STYLE_NAMES = {
         "stream_of_frequency_eq": "Stream of Frequency (Dynamic Spectrogram)",
+        "rainbow_mandala_eq": "Rainbow Mandala Bloom (Kaleidoscopic Spectrum)",
+        "rainbow_wormhole_eq": "Rainbow Wormhole (Hyperspace Plasma Tunnel)",
+        "rainbow_aurora_eq": "Rainbow Aurora Cascade (Holographic Ribbons)",
         "stereo_eq": "Dual Stereo (12-Band)",
         "neon_prism_eq": "Neon Chroma Prism (Thin Hi-Res)",
         "stardust_particles_eq": "Stardust Chroma (Thin Lines & Falling Dust)",
         "master_spectrum": "Master Spectrum (24-Band)",
         "analog_vu": "Analog Studio VU",
         "oscilloscope": "Oscilloscope Waveform",
+    }
+    STYLE_ALIASES = {
+        # Rainbow Mandala Bloom
+        "mandala": "rainbow_mandala_eq",
+        "mandala_eq": "rainbow_mandala_eq",
+        "rainbow_mandala": "rainbow_mandala_eq",
+        "kaleidoscope": "rainbow_mandala_eq",
+        "kaleidoscopic": "rainbow_mandala_eq",
+        "bloom": "rainbow_mandala_eq",
+        "petals": "rainbow_mandala_eq",
+        "rainbow_bloom": "rainbow_mandala_eq",
+        # Rainbow Wormhole
+        "wormhole": "rainbow_wormhole_eq",
+        "wormhole_eq": "rainbow_wormhole_eq",
+        "rainbow_wormhole": "rainbow_wormhole_eq",
+        "tunnel": "rainbow_wormhole_eq",
+        "hyperspace": "rainbow_wormhole_eq",
+        "vortex": "rainbow_wormhole_eq",
+        "plasma": "rainbow_wormhole_eq",
+        # Rainbow Aurora Cascade
+        "aurora": "rainbow_aurora_eq",
+        "aurora_eq": "rainbow_aurora_eq",
+        "rainbow_aurora": "rainbow_aurora_eq",
+        "ribbons": "rainbow_aurora_eq",
+        "cascade": "rainbow_aurora_eq",
+        "holographic": "rainbow_aurora_eq",
+        "curtains": "rainbow_aurora_eq",
     }
     THEMES = [
         "stream_of_frequency",
@@ -2916,6 +2975,7 @@ class EqualizerVisualizer:
         self.style_idx = self.theme_idx = 0
         self.dust_particles, self.last_dust_update, self.dust_rng = [], time.time(), random.Random()
         self._sof_buffer, self._sof_particles, self._sof_last_time, self._sof_rng = None, [], time.time(), random.Random()
+        self._init_rainbow_fx_state()
         selected_theme = theme or default_theme
         try:
             th_file = CONFIG_DIR / "theme"
@@ -2927,21 +2987,57 @@ class EqualizerVisualizer:
         try:
             eq_file = CONFIG_DIR / "eq_style"
             ts = style or default_style
-            if ts and ts in self.STYLES: self.style_idx = self.STYLES.index(ts)
-            elif ts and str(ts).lower() in ("stream", "stream_of_frequency", "stream_of_frequency_eq", "frequency_stream", "frequency_stream_eq", "spectrogram", "dynamic_spectrogram", "river", "rainbow_stream"):
-                self.style_idx = self.STYLES.index("stream_of_frequency_eq")
+            if ts:
+                self.style_idx = self._resolve_style(ts)
             elif eq_file.is_file():
-                seq = eq_file.read_text(encoding="utf-8").strip().lower()
-                if seq in self.STYLES: self.style_idx = self.STYLES.index(seq)
-                elif seq in ("stream", "stream_of_frequency", "stream_of_frequency_eq", "frequency_stream", "frequency_stream_eq", "spectrogram", "dynamic_spectrogram", "river", "rainbow_stream"):
-                    self.style_idx = self.STYLES.index("stream_of_frequency_eq")
-                elif seq in ("neon", "prism", "chroma", "neon_prism"): self.style_idx = self.STYLES.index("neon_prism_eq")
-                elif seq in ("stardust", "particles", "dust", "falling_dust", "stardust_eq", "chroma_dust"): self.style_idx = self.STYLES.index("stardust_particles_eq")
+                self.style_idx = self._resolve_style(eq_file.read_text(encoding="utf-8").strip().lower())
         except Exception: pass
         # The Stream of Frequency theme owns its matching spectrogram effect.
         # A stale persisted eq_style must not override the selected theme.
         if not (style or default_style) and selected_theme and self.theme == "stream_of_frequency":
             self.style_idx = self.STYLES.index("stream_of_frequency_eq")
+
+    @classmethod
+    def _resolve_style(cls, name: Optional[str]) -> int:
+        """Return the STYLES index for a style key or a friendly alias.
+
+        Unknown names fall back to the Stream of Frequency spectrogram, which
+        keeps an existing `eq_style` file working after an effect is renamed.
+        """
+        key = str(name or "").strip().lower()
+        if key in cls.STYLES:
+            return cls.STYLES.index(key)
+        if key in cls.STYLE_ALIASES:
+            return cls.STYLES.index(cls.STYLE_ALIASES[key])
+        if key in ("stream", "stream_of_frequency", "stream_of_frequency_eq", "frequency_stream",
+                   "frequency_stream_eq", "spectrogram", "dynamic_spectrogram", "river", "rainbow_stream"):
+            return cls.STYLES.index("stream_of_frequency_eq")
+        if key in ("neon", "prism", "chroma", "neon_prism"):
+            return cls.STYLES.index("neon_prism_eq")
+        if key in ("stardust", "particles", "dust", "falling_dust", "stardust_eq", "chroma_dust"):
+            return cls.STYLES.index("stardust_particles_eq")
+        return cls.STYLES.index("stream_of_frequency_eq")
+
+    def _init_rainbow_fx_state(self):
+        """Animation state for the three full-field rainbow effects."""
+        rng = random.Random()
+        self._fx_rng = rng
+        # Mandala Bloom: rotating petal rings, radial sparks, spiral trail.
+        self._mandala_rings = []
+        self._mandala_sparks = []
+        self._mandala_last = time.time()
+        self._mandala_rotation = 0.0
+        self._mandala_pulse = 0.0
+        # Wormhole: nested elliptical rings travelling toward the viewer.
+        self._worm_rings = []
+        self._worm_motes = []
+        self._worm_last = time.time()
+        self._worm_phase = 0.0
+        # Aurora: ribbon curtains drifting in a sine lattice.
+        self._aurora_curtains = []
+        self._aurora_embers = []
+        self._aurora_last = time.time()
+        self._aurora_phase = 0.0
 
     @property
     def style(self) -> str: return self.STYLES[self.style_idx]
@@ -3620,6 +3716,577 @@ class EqualizerVisualizer:
         lines.append(bot_l)
         return lines
 
+    # ── Shared helpers for the three full-field Rainbow FX visualisers ──
+    def _fx_ensure_state(self):
+        if not hasattr(self, "_fx_rng"):
+            self._init_rainbow_fx_state()
+        _ensure_numpy()
+
+    def _fx_audio(self, status: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Normalise player telemetry into the bands and pulse the FX need."""
+        st = status or {}
+
+        def _arr(key: str, fallback) -> np.ndarray:
+            raw = st.get(key)
+            try:
+                arr = np.asarray(raw if raw is not None else fallback, dtype=float)
+            except Exception:
+                arr = np.asarray(fallback, dtype=float)
+            if arr.ndim != 1 or arr.size < 2:
+                arr = np.asarray(fallback, dtype=float)
+            if arr.ndim != 1 or arr.size < 2:
+                arr = np.zeros(24, dtype=float)
+            return np.nan_to_num(np.clip(arr, 0.0, 1.0), nan=0.0)
+
+        zero = [0.0] * 24
+        base = _arr("levels", zero)
+        left = _arr("levels_left", base)
+        right = _arr("levels_right", base)
+        peaks = _arr("peaks", base)
+        mono = 0.5 * (left + right) if left.size == right.size else base
+        n = 16
+        if mono.size > 1:
+            bands = np.interp(np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, mono.size), mono)
+            pks = np.interp(np.linspace(0.0, 1.0, n), np.linspace(0.0, 1.0, peaks.size), peaks) if peaks.size > 1 else np.zeros(n)
+        else:
+            bands = pks = np.zeros(n)
+        bands = np.clip(bands, 0.0, 1.0)
+        pks = np.clip(pks, 0.0, 1.0)
+        state = str(st.get("state", "stopped"))
+        rms = float(st.get("rms_level", 0.0) or 0.0)
+        peak_db = float(st.get("peak_db", -60.0) or -60.0)
+        try:
+            pitch = int(st.get("pitch_percent", 0) or 0)
+        except (TypeError, ValueError):
+            pitch = 0
+        speed = max(0.5, min(2.0, 1.0 + pitch / 100.0))
+        energy = float(np.mean(bands)) if bands.size else 0.0
+        pulse = max(0.0, min(1.0, rms * 2.4 + max(0.0, (peak_db + 30.0) / 30.0) * 0.45 + energy * 0.35))
+        return {
+            "st": st, "state": state, "playing": state == "playing", "paused": state == "paused",
+            "bands": bands, "peaks": pks, "rms": rms, "peak_db": peak_db,
+            "speed": speed, "energy": energy, "pulse": pulse,
+            "beat": state == "playing" and (rms > 0.13 or peak_db > -4.5),
+        }
+
+    @staticmethod
+    def _fx_grid(cw: int, height: int) -> Tuple[List[List[str]], List[List[str]]]:
+        return ([[" "] * cw for _ in range(height)], [[""] * cw for _ in range(height)])
+
+    @staticmethod
+    def _fx_put(gc, gcol, r: int, c: int, glyph: str, ansi: str):
+        if 0 <= r < len(gc) and 0 <= c < len(gc[0]):
+            gc[r][c] = console_symbol(glyph)
+            gcol[r][c] = ansi
+
+    def _fx_lines(self, gc, gcol, inner_w: int, header: str, footer: str) -> List[str]:
+        """Wrap a glyph/colour grid in the same frame every equaliser uses."""
+        inner_w = max(8, int(inner_w))
+        top = f"  {self.b_col}╭{header}{'─' * max(0, inner_w - _display_width(header))}╮{NC}"
+        bot = f"  {self.b_col}╰{footer}{'─' * max(0, inner_w - _display_width(footer))}╯{NC}"
+        lines = [top]
+        for r in range(len(gc)):
+            parts = []
+            for c, glyph in enumerate(gc[r]):
+                if glyph == " ":
+                    parts.append(" ")
+                else:
+                    parts.append(f"{gcol[r][c]}{glyph}{NC}")
+            lines.append(f"  {self.b_col}│{NC}{''.join(parts)}{self.b_col}│{NC}")
+        lines.append(bot)
+        return lines
+
+    def _fx_micro_meter(self, style: str, t_now: float, levels) -> str:
+        """A 14-cell rainbow readout for MICRO mode, one glyph per style."""
+        lv = np.asarray(levels if levels is not None else [], dtype=float)
+        n = 14
+        out = []
+        for i in range(n):
+            v = float(lv[i % len(lv)]) if lv.size else 0.0
+            hue = int(((t_now * 0.55 + i * 0.071) % 1.0) * 360)
+            ansi = _rainbow_fx_ansi(hue, 5 + int(min(1.0, v) * 7), v > 0.72)
+            if style == "rainbow_mandala_eq":
+                glyph = "✺" if v > 0.74 else ("✴" if v > 0.48 else ("✳" if v > 0.22 else ("◦" if v > 0.05 else "·")))
+            elif style == "rainbow_wormhole_eq":
+                glyph = "◉" if v > 0.72 else ("◎" if v > 0.44 else ("◌" if v > 0.20 else ("∙" if v > 0.05 else "·")))
+            else:
+                glyph = "✦" if v > 0.74 else ("≋" if v > 0.46 else ("∿" if v > 0.22 else ("~" if v > 0.05 else "·")))
+            out.append(f"{ansi}{console_symbol(glyph)}{NC}")
+        return "".join(out)
+
+    # ── Rainbow Mandala Bloom ─────────────────────────────────────────
+    def render_rainbow_mandala_eq(self, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 7) -> List[str]:
+        """Kaleidoscopic mandala: spectrum rings, rotating petals, orbits and shockwaves."""
+        self._fx_ensure_state()
+        a = self._fx_audio(status)
+        inner_w = max(20, width - 6 if width >= 26 else width - 4)
+        H = max(1, int(height))
+        cw = inner_w
+        now = time.time()
+        dt = max(0.004, min(0.12, now - getattr(self, "_mandala_last", now)))
+        self._mandala_last = now
+        spd, playing, paused = a["speed"], a["playing"], a["paused"]
+        bands, peaks, rms, beat, pulse = a["bands"], a["peaks"], a["rms"], a["beat"], a["pulse"]
+        rng = self._fx_rng
+        cx, cy = (cw - 1) / 2.0, (H - 1) / 2.0
+        R = max(0.80, math.hypot(cx * 0.55, cy))
+        gc, gcol = self._fx_grid(cw, H)
+        petals = 8 if cw < 56 else (12 if cw < 96 else 16)
+        hue_base = (now * 0.11 * spd) % 1.0
+
+        # 1. Interference plasma backdrop inside the bloom radius.
+        for r in range(H):
+            y = r - cy
+            for c in range(cw):
+                x = (c - cx) * 0.55
+                rad = math.hypot(x, y) / R
+                th = math.atan2(y, x)
+                if rad > 1.02:
+                    if ((r * 7 + c * 13 + int(now * 4.0)) % 29) == 0 and rad < 1.35:
+                        hue = (hue_base + rad * 0.5) % 1.0
+                        self._fx_put(gc, gcol, r, c, "·", _rainbow_fx_ansi(int(hue * 360), 3))
+                    continue
+                petal = 0.5 + 0.5 * math.cos(th * petals + now * 0.75 * spd)
+                f1 = math.sin(rad * 11.0 - now * 1.9 * spd + rms * 2.4)
+                f2 = math.sin(th * 7.0 + rad * 6.0 + now * 0.85 * spd)
+                val = (0.5 + 0.5 * f1) * (0.55 + 0.45 * f2) * (0.30 + 0.70 * petal) * max(0.30, 1.0 - rad * 0.60)
+                if val < 0.105:
+                    continue
+                hue = (hue_base + rad * 0.55 + th / (2.0 * math.pi) * 0.20) % 1.0
+                glyph = "░" if val < 0.34 else ("▒" if val < 0.54 else ("▓" if val < 0.76 else "█"))
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), 2 + int(val * 9)))
+
+        # 2. Spectrum rings: one per frequency band group, pulsing with the music.
+        n_rings = max(5, min(13, H * 2))
+        for k in range(n_rings):
+            band = float(bands[(k * 5 + 1) % len(bands)])
+            rr = 0.16 + 0.84 * ((k + 1) / float(n_rings)) + band * 0.055
+            if rr > 1.06:
+                continue
+            steps = max(56, cw * 2)
+            ring_hue = (hue_base + 0.30 * math.cos(k * 0.9 + now * 0.5) + 0.45 * k / max(1, n_rings)) % 1.0
+            bright = 4 + int(band * 8) + (1 if pulse > 0.55 else 0)
+            for i in range(steps):
+                th = 2.0 * math.pi * i / steps
+                x = math.cos(th) * rr * R
+                y = math.sin(th) * rr * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
+                tx, ty = -math.sin(th) / 0.55, math.cos(th)
+                ang = math.atan2(ty, tx)
+                octant = int(round((ang + math.pi) / (math.pi / 4.0))) % 8
+                glyph = ("─", "╱", "│", "╲", "─", "╱", "│", "╲")[octant]
+                hue = (ring_hue + th / (2.0 * math.pi) * 0.22) % 1.0
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), bright, band > 0.55))
+
+        # 3. Rotating kaleidoscopic petals, lengths driven by the spectrum.
+        for p in range(petals):
+            band = float(bands[(p * 3) % len(bands)])
+            peak = float(peaks[(p * 5) % len(peaks)])
+            ang = p * 2.0 * math.pi / petals + now * 0.24 * spd + hue_base * 2.0 * math.pi
+            length = 0.26 + 0.66 * band + 0.06 * pulse
+            steps = max(10, int(length * R * 4.0) + 8)
+            for i in range(steps + 1):
+                t = i / float(steps)
+                rr = 0.08 + t * length
+                if rr > 0.99:
+                    break
+                x = math.cos(ang) * rr * R
+                y = math.sin(ang) * rr * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                hue = (hue_base + p / float(petals) + t * 0.32) % 1.0
+                bright = 4 + int(t * 8)
+                glyph = "·" if t < 0.25 else ("∙" if t < 0.55 else "✦")
+                if t > 0.94:
+                    glyph = "✺" if peak > 0.85 else ("✦" if peak > 0.55 else "✧")
+                    bright = 12
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), bright, t > 0.85))
+
+        # 4. Chromatic double spiral winding through the petals.
+        for i in range(max(90, cw * 3)):
+            t = i / float(max(90, cw * 3))
+            rr = t * 0.97
+            ang = hue_base * 2.0 * math.pi + now * 1.05 * spd + rr * 8.5
+            for side in (0.0, math.pi):
+                x = math.cos(ang + side) * rr * R
+                y = math.sin(ang + side) * rr * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                hue = (hue_base + rr * 0.8 + (0.5 if side else 0.0)) % 1.0
+                self._fx_put(gc, gcol, r, c, "·" if t < 0.6 else "∙", _rainbow_fx_ansi(int(hue * 360), 5))
+
+        # 5. Orbiting sparks: update, draw, and spawn from the loudest bands.
+        sparks = self._mandala_sparks
+        for p in sparks:
+            p["angle"] += p["omega"] * dt * spd
+            p["rr"] += p["drift"] * dt
+            p["life"] -= dt
+        self._mandala_sparks = sparks = [p for p in sparks if p["life"] > 0.0 and 0.06 < p["rr"] < 1.02]
+        if playing:
+            loud = float(np.max(bands)) if bands.size else 0.0
+            if rng.random() < 0.35 + loud * 0.55:
+                for _ in range(1 + int(loud * 2.0)):
+                    self._mandala_sparks.append({
+                        "angle": rng.uniform(0.0, 2.0 * math.pi),
+                        "rr": rng.uniform(0.12, 0.94),
+                        "omega": rng.uniform(0.4, 2.4) * (1.0 if rng.random() > 0.5 else -1.0),
+                        "drift": rng.uniform(-0.10, 0.14),
+                        "life": rng.uniform(1.1, 3.2),
+                        "max_life": 3.2,
+                        "hue": rng.uniform(0.0, 1.0),
+                        "glyph": rng.choice(("✦", "✧", "⋆", "✱", "✳", "✴", "●", "◉")),
+                        "trail": rng.random() < 0.45,
+                    })
+        if len(self._mandala_sparks) > 120:
+            self._mandala_sparks = self._mandala_sparks[-120:]
+        for p in self._mandala_sparks:
+            fade = max(0.0, min(1.0, p["life"] / p["max_life"]))
+            hue = (hue_base + p["hue"] + now * 0.22) % 1.0
+            bright = max(2, min(12, int(11 * fade) + 1))
+            for trail in (0.0, 0.07, 0.14) if p["trail"] else (0.0,):
+                x = math.cos(p["angle"] - trail) * p["rr"] * R
+                y = math.sin(p["angle"] - trail) * p["rr"] * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                glyph = p["glyph"] if trail == 0.0 else "·"
+                self._fx_put(gc, gcol, r, c, glyph,
+                             _rainbow_fx_ansi(int(hue * 360), bright if trail == 0.0 else max(2, bright - 4),
+                                              trail == 0.0 and fade > 0.6))
+
+        # 6. Beat shockwaves radiating out from the core.
+        waves = self._mandala_rings
+        for w in waves:
+            w["rr"] += w["v"] * dt * spd
+            w["life"] -= dt
+        self._mandala_rings = waves = [w for w in waves if w["life"] > 0.0 and w["rr"] < 1.15]
+        if beat and a["playing"]:
+            if not waves or waves[-1]["rr"] > 0.28:
+                self._mandala_rings.append({"rr": 0.08, "v": 0.55 + rms * 0.8, "life": 1.5, "hue": rng.uniform(0.0, 1.0)})
+        if len(self._mandala_rings) > 8:
+            self._mandala_rings = self._mandala_rings[-8:]
+        for w in self._mandala_rings:
+            steps = max(48, cw * 2)
+            hue = (w["hue"] + now * 0.3) % 1.0
+            fade = max(0.0, min(1.0, w["life"] / 1.5))
+            for i in range(steps):
+                th = 2.0 * math.pi * i / steps
+                x = math.cos(th) * w["rr"] * R
+                y = math.sin(th) * w["rr"] * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                self._fx_put(gc, gcol, r, c, "✦" if i % 12 == 0 else "·",
+                             _rainbow_fx_ansi(int((hue + th / (2.0 * math.pi) * 0.3) * 360),
+                                              max(2, int(10 * fade)), fade > 0.72))
+
+        # 7. Pulsing core singularity.
+        core_r = int(round(cy))
+        core_c = int(round(cx))
+        core_glyph = "✺" if beat else ("✴" if pulse > 0.5 else "✳")
+        core_lvl = 12 if beat else (9 if pulse > 0.4 else 6)
+        for dr, dc, g in ((0, 0, core_glyph), (-1, 0, "✧"), (1, 0, "✧"), (0, -1, "·"), (0, 1, "·")):
+            hue = (hue_base + now * 0.5 + (dr + dc) * 0.1) % 1.0
+            self._fx_put(gc, gcol, core_r + dr, core_c + dc, g, _rainbow_fx_ansi(int(hue * 360), core_lvl, True))
+
+        header = "── 🌈 RAINBOW MANDALA BLOOM (KALEIDOSCOPIC SPECTRUM) " if inner_w >= 58 else ("── 🌈 MANDALA BLOOM " if inner_w >= 30 else "── 🌈 ")
+        footer = ("── PETALS %d • RINGS %d • ORBITS %d ────" % (petals, n_rings, len(self._mandala_sparks))) if inner_w >= 52 else "── MANDALA "
+        return self._fx_lines(gc, gcol, inner_w, header, footer)
+
+    # ── Rainbow Wormhole ──────────────────────────────────────────────
+    def render_rainbow_wormhole_eq(self, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 7) -> List[str]:
+        """Hyperspace tunnel: nested rings rushing outward, warp spokes and plasma walls."""
+        self._fx_ensure_state()
+        a = self._fx_audio(status)
+        inner_w = max(20, width - 6 if width >= 26 else width - 4)
+        H = max(1, int(height))
+        cw = inner_w
+        now = time.time()
+        dt = max(0.004, min(0.12, now - getattr(self, "_worm_last", now)))
+        self._worm_last = now
+        spd, playing = a["speed"], a["playing"]
+        bands, peaks, rms, beat, pulse = a["bands"], a["peaks"], a["rms"], a["beat"], a["pulse"]
+        rng = self._fx_rng
+        cx, cy = (cw - 1) / 2.0, (H - 1) / 2.0
+        R = max(0.80, math.hypot(cx * 0.55, cy))
+        gc, gcol = self._fx_grid(cw, H)
+        flow = (0.30 + 0.55 * pulse + 0.35 * a["energy"]) * spd
+        self._worm_phase = (getattr(self, "_worm_phase", 0.0) + dt * flow) % 1.0
+        phase = self._worm_phase
+        self._worm_flash = max(0.0, getattr(self, "_worm_flash", 0.0) - dt * 2.4)
+        if beat:
+            self._worm_flash = 1.0
+        flash = self._worm_flash
+        hue_base = (now * 0.13 * spd) % 1.0
+
+        # 1. Plasma tunnel walls: spiralling interference between the rings.
+        for r in range(H):
+            y = r - cy
+            for c in range(cw):
+                x = (c - cx) * 0.55
+                rad = math.hypot(x, y) / R
+                if rad > 1.05:
+                    continue
+                th = math.atan2(y, x)
+                swirl = th + 2.4 / (rad + 0.16) + phase * 11.0 + now * 0.5 * spd
+                f = math.sin(swirl * 3.0) * math.cos(rad * 16.0 - phase * 9.0 + th * 2.0)
+                val = (0.5 + 0.5 * f) * (0.30 + 0.70 * rad) * (1.0 - min(1.0, rad * 0.35))
+                if val < 0.115:
+                    continue
+                hue = (hue_base + rad * 0.85 + th / (2.0 * math.pi) * 0.12) % 1.0
+                glyph = "░" if val < 0.36 else ("▒" if val < 0.60 else "▓")
+                lvl = max(2, min(12, 2 + int(val * 8) + int(flash * 2)))
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl))
+
+        # 2. Nested tunnel rings, each flying toward the viewer.
+        n_rings = max(6, min(15, H * 2 + 3))
+        for k in range(n_rings):
+            frac = ((k + phase) % n_rings) / float(n_rings)
+            rr = 0.04 + 0.99 * (frac ** 1.85)
+            band = float(bands[int(min(len(bands) - 1, frac * len(bands)))])
+            peak = float(peaks[int(min(len(peaks) - 1, frac * len(peaks)))])
+            depth = frac
+            steps = max(56, cw * 2)
+            ring_hue = (hue_base + frac * 0.75 + 0.12 * math.sin(now * 0.9 + k * 1.3)) % 1.0
+            bright = max(2, min(12, 2 + int(depth * 8) + int(band * 3) + int(flash * 2)))
+            for glow, dglyph, dlevel in ((0.0, None, bright), (0.022, "·", max(2, bright - 3))):
+                rr_g = rr * (1.0 - glow)
+                if rr_g <= 0.0:
+                    continue
+                for i in range(steps):
+                    th = 2.0 * math.pi * i / steps
+                    wob = 1.0 + 0.035 * math.sin(th * 3.0 + now * 1.7 + k) + band * 0.035
+                    x = math.cos(th) * rr_g * R * wob
+                    y = math.sin(th) * rr_g * R * wob
+                    r = int(round(cy + y))
+                    c = int(round(cx + x / 0.55))
+                    if not (0 <= r < H and 0 <= c < cw):
+                        continue
+                    if dglyph is None:
+                        tx, ty = -math.sin(th) / 0.55, math.cos(th)
+                        octant = int(round((math.atan2(ty, tx) + math.pi) / (math.pi / 4.0))) % 8
+                        glyph = ("─", "╱", "│", "╲", "─", "╱", "│", "╲")[octant]
+                    else:
+                        glyph = dglyph
+                    hue = (ring_hue + th / (2.0 * math.pi) * 0.26) % 1.0
+                    self._fx_put(gc, gcol, r, c, glyph,
+                                 _rainbow_fx_ansi(int(hue * 360), dlevel, dglyph is None and (peak > 0.72 or depth > 0.8)))
+
+        # 3. Warp spokes: one per spectrum band, radiating from the singularity.
+        n_spokes = len(bands)
+        for i in range(n_spokes):
+            band = float(bands[i])
+            ang = i * 2.0 * math.pi / n_spokes + now * 0.35 * spd + hue_base * 2.0 * math.pi
+            length = 0.15 + 0.88 * band
+            steps = max(8, int(length * R * 3.2) + 6)
+            for j in range(steps + 1):
+                t = j / float(steps)
+                rr = 0.05 + t * length
+                if rr > 1.03:
+                    break
+                x = math.cos(ang) * rr * R
+                y = math.sin(ang) * rr * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                hue = (hue_base + i / float(n_spokes) + t * 0.4) % 1.0
+                glyph = "·" if t < 0.5 else ("∙" if t < 0.82 else "✦")
+                lvl = 3 + int(t * 8)
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, t > 0.9))
+
+        # 4. Hyperspace motes rushing outward with rainbow trails.
+        motes = self._worm_motes
+        for p in motes:
+            p["rr"] += p["v"] * dt * spd
+            p["angle"] += p["omega"] * dt * spd
+            p["life"] -= dt
+        self._worm_motes = motes = [p for p in motes if p["life"] > 0.0 and p["rr"] < 1.06]
+        if playing:
+            loud = float(np.max(bands)) if bands.size else 0.0
+            if rng.random() < 0.40 + loud * 0.5:
+                for _ in range(1 + int(loud * 3.0)):
+                    self._worm_motes.append({
+                        "angle": rng.uniform(0.0, 2.0 * math.pi),
+                        "rr": rng.uniform(0.02, 0.16),
+                        "v": rng.uniform(0.28, 0.70),
+                        "omega": rng.uniform(-0.9, 0.9),
+                        "life": rng.uniform(0.8, 2.0),
+                        "max_life": 2.0,
+                        "hue": rng.uniform(0.0, 1.0),
+                        "glyph": rng.choice(("✦", "✧", "⋆", "●", "◉", "•", "∙")),
+                    })
+        if len(self._worm_motes) > 90:
+            self._worm_motes = self._worm_motes[-90:]
+        for p in self._worm_motes:
+            fade = max(0.0, min(1.0, p["life"] / p["max_life"]))
+            for trail in (0.0, -0.05, -0.10, -0.15):
+                rr = p["rr"] + trail
+                if rr <= 0.0:
+                    continue
+                x = math.cos(p["angle"]) * rr * R
+                y = math.sin(p["angle"]) * rr * R
+                r = int(round(cy + y))
+                c = int(round(cx + x / 0.55))
+                hue = (hue_base + p["hue"] + p["rr"] * 0.4) % 1.0
+                glyph = p["glyph"] if trail == 0.0 else "·"
+                lvl = max(2, int((11 if trail == 0.0 else 6) * fade))
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, trail == 0.0 and fade > 0.65))
+
+        # 5. Singularity core with an event horizon.
+        core_r, core_c = int(round(cy)), int(round(cx))
+        horizon = "◉" if beat else ("◎" if pulse > 0.45 else "◌")
+        for dr, dc, g, lvl in ((0, 0, horizon, 12), (-1, 0, "·", 8), (1, 0, "·", 8), (0, -1, "·", 8), (0, 1, "·", 8),
+                               (-1, -1, "✧", 10), (-1, 1, "✧", 10), (1, -1, "✧", 10), (1, 1, "✧", 10)):
+            hue = (hue_base + now * 0.6 + (dr * 0.11 + dc * 0.07)) % 1.0
+            self._fx_put(gc, gcol, core_r + dr, core_c + dc, g, _rainbow_fx_ansi(int(hue * 360), lvl, True))
+
+        header = "── 🌌 RAINBOW WORMHOLE (HYPERSPACE PLASMA TUNNEL) " if inner_w >= 56 else ("── 🌌 WORMHOLE " if inner_w >= 28 else "── 🌌 ")
+        footer = ("── VELOCITY %.2fx • RINGS %d • MOTES %d ────" % (flow, n_rings, len(self._worm_motes))) if inner_w >= 52 else "── TUNNEL "
+        return self._fx_lines(gc, gcol, inner_w, header, footer)
+
+    # ── Rainbow Aurora Cascade ────────────────────────────────────────
+    def render_rainbow_aurora_eq(self, status: Optional[Dict[str, Any]] = None, width: int = 80, height: int = 7) -> List[str]:
+        """Holographic aurora: sine ribbon curtains, shimmer trails, poles and embers."""
+        self._fx_ensure_state()
+        a = self._fx_audio(status)
+        inner_w = max(20, width - 6 if width >= 26 else width - 4)
+        H = max(1, int(height))
+        cw = inner_w
+        now = time.time()
+        dt = max(0.004, min(0.12, now - getattr(self, "_aurora_last", now)))
+        self._aurora_last = now
+        spd, playing = a["speed"], a["playing"]
+        bands, peaks, rms, beat, pulse = a["bands"], a["peaks"], a["rms"], a["beat"], a["pulse"]
+        rng = self._fx_rng
+        gc, gcol = self._fx_grid(cw, H)
+        hue_base = (now * 0.12 * spd) % 1.0
+        self._aurora_flash = max(0.0, getattr(self, "_aurora_flash", 0.0) - dt * 2.2)
+        if beat:
+            self._aurora_flash = 1.0
+        flash = self._aurora_flash
+
+        # 1. Polar haze: two interfering waves across the upper sky.
+        haze_h = max(1, int(math.ceil(H * 0.55)))
+        for r in range(haze_h):
+            yf = r / float(max(1, H))
+            for c in range(cw):
+                xf = c / float(max(1, cw))
+                f = (math.sin(xf * 9.0 + now * 1.3 * spd + r * 0.7)
+                     + math.sin(xf * 5.0 - now * 0.9 * spd + yf * 8.0)
+                     + math.sin((xf + yf) * 13.0 + now * 2.1 * spd))
+                val = (f / 3.0 + 1.0) * 0.5 * (1.0 - yf / max(0.35, H * 0.55))
+                if val < 0.34:
+                    continue
+                hue = (hue_base + xf * 0.65 + yf * 0.25) % 1.0
+                glyph = "░" if val < 0.58 else ("▒" if val < 0.78 else "▓")
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), max(2, int(val * 7))))
+
+        # 2. Spectrum poles rising from the floor behind the curtains.
+        step = 2 if cw >= 40 else 3
+        for c in range(0, cw, step):
+            band = float(bands[(c // step) % len(bands)])
+            col_h = int(round(band * H))
+            for j in range(col_h):
+                r = H - 1 - j
+                if r < 0:
+                    break
+                hue = (hue_base + c / float(max(1, cw)) * 0.5 + j * 0.03) % 1.0
+                self._fx_put(gc, gcol, r, c, "╎" if j % 2 else "┊", _rainbow_fx_ansi(int(hue * 360), 2 + int(j / max(1, H) * 5)))
+
+        # 3. Ribbon curtains: sine lattice whose amplitude follows the spectrum.
+        curtains = self._aurora_curtains
+        if not curtains:
+            count = max(3, min(6, H))
+            for k in range(count):
+                curtains.append({
+                    "yf": (k + 0.6) / (count + 0.2),
+                    "amp": rng.uniform(0.30, 0.75),
+                    "freq": rng.uniform(0.10, 0.26),
+                    "speed": rng.uniform(0.45, 1.10),
+                    "phase": rng.uniform(0.0, 6.283),
+                    "hue": rng.uniform(0.0, 1.0),
+                    "thick": rng.randint(2, 4),
+                    "drift": rng.uniform(-0.010, 0.010),
+                })
+        for k, cur in enumerate(curtains):
+            band = float(bands[(k * 4 + 1) % len(bands)])
+            peak = float(peaks[(k * 6 + 2) % len(peaks)])
+            amp = cur["amp"] * (0.55 + band * 1.7) * max(0.5, H * 0.32)
+            y0 = cur["yf"] * (H - 1)
+            crest_y = [0.0] * cw
+            for c in range(cw):
+                wave = (math.sin(c * cur["freq"] + now * cur["speed"] * spd + cur["phase"])
+                        + 0.55 * math.sin(c * cur["freq"] * 2.2 - now * cur["speed"] * 0.65 * spd + cur["phase"] * 1.7)
+                        + 0.30 * math.sin(c * cur["freq"] * 0.5 + now * 0.4 * spd))
+                y = y0 + amp * wave * 0.55
+                y = max(0.0, min(float(H - 1), y))
+                crest_y[c] = y
+                top = int(round(y))
+                for d in range(cur["thick"]):
+                    r = top + d
+                    if not (0 <= r < H):
+                        continue
+                    fade = 1.0 - d / float(cur["thick"] + 1)
+                    hue = (hue_base + cur["hue"] + c / float(max(1, cw)) * 0.55 + d * 0.04 + now * 0.05) % 1.0
+                    lvl = max(2, int((4 + band * 8 + flash * 3) * fade))
+                    glyph = ("✦" if d == 0 and peak > 0.80 else
+                             ("│" if d == 0 else ("┊" if d == 1 else ("╎" if d == 2 else "·"))))
+                    self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, d == 0 and band > 0.55))
+                if peak > 0.62 and (c + k) % 9 == 0:
+                    self._fx_put(gc, gcol, top - 1, c, "✧", _rainbow_fx_ansi(int(((hue_base + c * 0.09) % 1.0) * 360), 11, True))
+
+        # 4. Ember shower: sparks falling and rising through the curtains.
+        embers = self._aurora_embers
+        for p in embers:
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["life"] -= dt
+        self._aurora_embers = embers = [p for p in embers if p["life"] > 0.0 and -1.0 < p["y"] < H and -1.0 < p["x"] < cw]
+        if playing:
+            loud = float(np.max(bands)) if bands.size else 0.0
+            if rng.random() < 0.45 + loud * 0.45:
+                for _ in range(1 + int(loud * 2.0)):
+                    self._aurora_embers.append({
+                        "x": rng.uniform(0.0, max(1.0, cw - 1)),
+                        "y": rng.uniform(0.0, max(0.0, H - 1)),
+                        "vx": rng.uniform(-0.9, 0.9),
+                        "vy": rng.choice((-1.0, -1.0, 1.0)) * rng.uniform(0.5, 1.6),
+                        "life": rng.uniform(0.9, 2.4),
+                        "max_life": 2.4,
+                        "hue": rng.uniform(0.0, 1.0),
+                        "glyph": rng.choice(("✦", "✧", "⋆", "•", "°", "∙", "·")),
+                    })
+        if len(self._aurora_embers) > 80:
+            self._aurora_embers = self._aurora_embers[-80:]
+        for p in self._aurora_embers:
+            fade = max(0.0, min(1.0, p["life"] / p["max_life"]))
+            twinkle = 0.55 + 0.45 * math.sin(now * 7.0 + p["hue"] * 9.0)
+            for trail in (0.0, 1.0, 2.0):
+                r = int(round(p["y"] - p["vy"] * 0.10 * trail))
+                c = int(round(p["x"] - p["vx"] * 0.10 * trail))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
+                hue = (hue_base + p["hue"] + now * 0.15) % 1.0
+                glyph = p["glyph"] if trail == 0.0 else "·"
+                lvl = max(2, int((11 if trail == 0 else 6) * fade * twinkle))
+                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, trail == 0 and fade > 0.7))
+
+        # 5. Beat flare: a white-hot ribbon sweeps the crests.
+        if flash > 0.05:
+            sweep = int((now * 40.0) % max(1, cw))
+            for c in range(cw):
+                if abs(c - sweep) > 2:
+                    continue
+                for k in range(min(len(curtains), 3)):
+                    band = float(bands[(k * 4 + 1) % len(bands)])
+                    y = int(round(max(0.0, min(float(H - 1), curtains[k]["yf"] * (H - 1) + band))))
+                    self._fx_put(gc, gcol, y, c, "✺" if k == 0 else "✦",
+                                 _rainbow_fx_ansi(int(((hue_base + c * 0.08 + k * 0.2) % 1.0) * 360), 12, True))
+
+        header = "── 🌈 RAINBOW AURORA CASCADE (HOLOGRAPHIC RIBBONS) " if inner_w >= 58 else ("── 🌈 AURORA CASCADE " if inner_w >= 30 else "── 🌈 ")
+        footer = ("── CURTAINS %d • EMBERS %d • SPECTRUM POLES ────" % (len(curtains), len(self._aurora_embers))) if inner_w >= 52 else "── AURORA "
+        return self._fx_lines(gc, gcol, inner_w, header, footer)
+
     def render_vertical_pitch_fader(self, pitch_pct: int, total_lines: int = 10) -> List[str]:
         p, frows = max(-20, min(20, int(pitch_pct))), max(3, total_lines - 2)
         has_hint = frows % 2 == 0
@@ -4032,6 +4699,17 @@ def launch_liquid_glass_player(
         pass
     log_file = log_dir / "liquid_glass.log"
 
+    # MP Liquid Player stops at four windows. The host claims its own slot
+    # before it draws, and this early check only gives a clear message.
+    limiter = _mp_instance_module()
+    if limiter is not None and limiter.at_limit("player"):
+        try:
+            limiter.focus_existing("player")
+            limiter.notify_limit("player")
+        except Exception:
+            pass
+        return False
+
     extra_kwargs = {}
     if sys.platform == "win32":
         extra_kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
@@ -4068,6 +4746,23 @@ def launch_liquid_glass_player(
             except Exception:
                 pass
             return False
+
+
+def _mp_instance_module():
+    """The shared four-window limiter, or None when the helper is missing."""
+    try:
+        import mp_instance_limit
+        return mp_instance_limit
+    except ImportError:
+        pass
+    try:
+        scripts = get_base_dir() / "scripts"
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        import mp_instance_limit
+        return mp_instance_limit
+    except Exception:
+        return None
 
 
 def _mp_gui_is_running() -> bool:
@@ -4143,13 +4838,19 @@ def launch_mp_gui(base_dir: Optional[Path] = None) -> bool:
     """Open MP Gui beside the player, or focus that window if it is already open.
 
     --keep-theme leaves the shared theme file alone so the open Liquid Player keeps its color.
+    MP Gui opens up to four windows. A fifth launch focuses one instead.
     """
-    if _mp_gui_is_running():
+    limiter = _mp_instance_module()
+    if limiter is not None and limiter.at_limit("gui"):
+        try:
+            limiter.notify_limit("gui")
+        except Exception:
+            pass
         if _focus_mp_gui():
             return True
         if _windowed_mp_gui_host():
             _raise_windowed_mp_gui(base_dir or Path(__file__).resolve().parent)
-            return True
+        return True
     base = base_dir or get_base_dir()
     launcher = base / "MP_Gui.sh"
     if not launcher.is_file():

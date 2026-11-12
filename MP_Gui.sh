@@ -28,6 +28,9 @@ CONFIG_FILE="$HOME/.config/mix-manager/config.env"
 [ ! -f "$CONFIG_FILE" ] && CONFIG_FILE="$BASE_DIR/config.env"
 
 TARGET_PY=""
+# Renderer backend for the standalone visualizer spawned below. macOS keeps
+# "auto": the Metal/OpenGL host picks for itself and the visualizer probes.
+BACKEND="auto"
 
 # Same host order as scripts/launch_liquid_glass.sh. The Metal macOS file
 # loads a device pointer and writes the manager to stdout; it does not open
@@ -51,7 +54,6 @@ if [ -z "$TARGET_PY" ]; then
         VAL=$(grep -E "^LIQUID_GLASS_BACKEND=" "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"'\'' ')
         [ -n "$VAL" ] && BACKEND="$(echo "$VAL" | tr '[:upper:]' '[:lower:]')"
     fi
-
     if [ "$BACKEND" = "vulkan" ]; then
         TARGET_PY="$BASE_DIR/MP_Audio_Player_Liquid_Glass.py"
         [ ! -f "$TARGET_PY" ] && TARGET_PY="$BASE_DIR/scripts/MP_Audio_Player_Liquid_Glass.py"
@@ -168,23 +170,36 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Focus the existing manager window. A process with no mapped window is not
-# already open, including the Metal macOS host and a machine without wmctrl.
-if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
-    # shellcheck disable=SC1091
-    source "$BASE_DIR/scripts/mp_gui_focus.sh"
-    if mp_gui_focus_if_open; then
+# Four MP Gui windows at most. The claim is atomic: two shortcuts pressed
+# together cannot both take the last slot. Each launch opens another window
+# until the fourth; only a fifth focuses a window that is already up.
+_LIMIT_SH="$BASE_DIR/scripts/mp_instance_limit.sh"
+if [ -f "$_LIMIT_SH" ]; then
+    # shellcheck disable=SC1090
+    source "$_LIMIT_SH"
+    if ! mp_instance_claim gui; then
+        case "$(uname -s 2>/dev/null)" in
+            MINGW*|MSYS*|CYGWIN*)
+                if [ -f "$BASE_DIR/scripts/mp_gui_focus_win.py" ]; then
+                    "$MP_PY" "$BASE_DIR/scripts/mp_gui_focus_win.py" || true
+                fi
+                ;;
+        esac
+        if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$BASE_DIR/scripts/mp_gui_focus.sh"
+            mp_gui_focus_if_open || true
+        fi
+        mp_instance_focus gui || true
+        mp_instance_notify_limit gui
         exit 0
     fi
+fi
+unset _LIMIT_SH
+
+if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
     mp_gui_stop_windowless_hosts
 fi
-case "$(uname -s 2>/dev/null)" in
-    MINGW*|MSYS*|CYGWIN*)
-        if [ -f "$BASE_DIR/scripts/mp_gui_focus_win.py" ] && "$MP_PY" "$BASE_DIR/scripts/mp_gui_focus_win.py"; then
-            exit 0
-        fi
-        ;;
-esac
 
 # One tray icon shared with the console manager and MP Liquid Player.
 if [ -f "$BASE_DIR/scripts/mp_system_tray.sh" ]; then
@@ -229,7 +244,10 @@ if [ "$NO_VISUALIZER" -eq 0 ] && ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visu
     VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
     if [ -f "$VIS_PY" ]; then
-        MP_VISUALIZER_MATCH_GUI=1 nohup "$MP_PY" "$VIS_PY" --preset random >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
+        # The standalone visualizer picks its own renderer. Forward the
+        # host backend we chose above so the window behind MP Gui uses the
+        # same GPU path as the window in front of it.
+        MP_VISUALIZER_MATCH_GUI=1 nohup "$MP_PY" "$VIS_PY" --preset random --backend "$BACKEND" >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
     fi
 fi
 

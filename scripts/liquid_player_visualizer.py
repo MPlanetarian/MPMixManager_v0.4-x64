@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+from ctypes import POINTER, byref, c_double, c_float, c_int, c_uint64, c_void_p, cast
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,11 @@ if sys.platform == "darwin":
 
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 _DEFAULT_STATE = CONFIG_DIR / "liquid_player_visualizer.json"
+
+try:
+    from visualizer_monitor_span import MonitorSpanMixin
+except ImportError:
+    from scripts.visualizer_monitor_span import MonitorSpanMixin
 _CACHE: Dict[str, Any] = {"path": "", "mtime": None, "state": None}
 
 _TEXT_GUARD = """
@@ -841,14 +847,36 @@ def specialize_visualizer_source(source: str, preset_id: int, march_steps: Optio
 
     The fragment shader carries every preset. Apple's compiler keeps the whole
     program live when the id is a uniform, and that register pressure is what
-    makes the march slow. Pitch and dynamic time stay in u_preset.
+    makes the march slow. Pitch and dynamic time stay in the preset uniform.
+
+    The Vulkan shader spells the accessor ``u.preset.x`` while the OpenGL port
+    rewrites it to ``u_preset.x``, so both spellings must be folded or the
+    preset scenes never collapse out of the program.
     """
     preset = f"({float(int(preset_id)):.1f})"
-    specialized = source.replace("u_preset.x", preset)
+    specialized = source
+    for accessor in ("u.preset.x", "u_preset.x"):
+        if accessor in specialized:
+            specialized = specialized.replace(accessor, preset)
     steps = _FULL_MARCH_STEPS if march_steps is None else int(march_steps)
     if steps != _FULL_MARCH_STEPS and _MARCH_LOOP in specialized:
         specialized = specialized.replace(_MARCH_LOOP, f"for (int i = 0; i < {steps}; i++)", 1)
     return specialized
+
+
+def march_advance(bridge, dt: float) -> None:
+    """Advance the scene clock, freezing the geometry while audio is paused.
+
+    The MP Visualizer must "freeze instantly in-place on pause/stop". The
+    raymarch time comes from ``accum_time``, so while the player is not
+    playing we creep that time forward slowly instead of jumping to a new
+    scene. Both the Vulkan and OpenGL renderers use this so a pause looks
+    identical on either backend.
+    """
+    if not getattr(bridge, "is_playing", False):
+        step = max(0.0, float(dt)) * 0.45
+        bridge.accum_time += step
+        bridge.dynamic_time += step
 
 
 def _window_points(renderer) -> Optional[tuple]:
@@ -896,15 +924,27 @@ class PlayerVisualizerLayer:
         state = read_player_visualizer_state()
         if not state.get("active"):
             return False
+        return self.draw_with_state(renderer, fw, fh, state)
+
+    def draw_with_state(self, renderer, fw: int, fh: int, state: Dict[str, Any],
+                        bridge=None) -> bool:
+        """Draw ``state``'s preset into the bound framebuffer.
+
+        The OpenGL host and the standalone OpenGL visualizer both call this.
+        The standalone renderer passes its own already-updated ``bridge`` so
+        audio telemetry is read once per frame and shared by both paths.
+        """
+        if not state.get("active"):
+            return False
         try:
-            return self._draw(renderer, fw, fh, state)
+            return self._draw(renderer, fw, fh, state, bridge=bridge)
         except Exception as exc:
             if not self._error:
                 self._error = str(exc)
                 print(f"MP Visualizer background unavailable: {exc}", file=sys.stderr)
             return False
 
-    def _draw(self, renderer, fw: int, fh: int, state: Dict[str, Any]) -> bool:
+    def _draw(self, renderer, fw: int, fh: int, state: Dict[str, Any], bridge=None) -> bool:
         import time
         from OpenGL import GL
 
@@ -912,14 +952,16 @@ class PlayerVisualizerLayer:
         if not self._compile(GL, renderer, preset_id):
             return False
         self._ensure_cover(GL, state)
-        bridge = self._ensure_bridge()
+        # A caller-supplied bridge is updated by the caller, so the audio
+        # telemetry is read once per frame and not twice.
+        externally_managed = bridge is not None
+        bridge = self._ensure_bridge() if bridge is None else bridge
         now = time.monotonic()
         dt = 0.016 if self._last <= 0.0 else max(0.0, min(0.05, now - self._last))
         self._last = now
-        bridge.update(dt)
-        if not bridge.is_playing:
-            bridge.accum_time += dt * 0.45
-            bridge.dynamic_time += dt * 0.45
+        if not externally_managed:
+            bridge.update(dt)
+        march_advance(bridge, dt)
 
         fw_i, fh_i = max(2, int(fw)), max(2, int(fh))
         points = _window_points(renderer)
@@ -928,6 +970,17 @@ class PlayerVisualizerLayer:
             rw, rh = visualizer_internal_size(fw_i, fh_i, fullscreen=fullscreen)
         else:
             rw, rh = visualizer_internal_size(fw_i, fh_i, points[0], points[1], fullscreen=fullscreen)
+        # Screensaver: fill the screen but never march above the capped size.
+        cap = getattr(renderer, "_saver_render", None)
+        if cap:
+            try:
+                cap_w, cap_h = max(2, int(cap[0])), max(2, int(cap[1]))
+                if rw > cap_w or rh > cap_h:
+                    scale = min(cap_w / rw, cap_h / rh)
+                    rw = max(2, int(round(rw * scale)))
+                    rh = max(2, int(round(rh * scale)))
+            except (TypeError, ValueError, IndexError):
+                pass
         if (rw, rh) != (fw_i, fh_i) and self._ensure_target(GL, rw, rh) and self._ensure_upscale(GL):
             GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self._fbo)
             GL.glViewport(0, 0, rw, rh)
@@ -1110,6 +1163,531 @@ class PlayerVisualizerLayer:
             GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex)
             GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
         self._tex_key = key
+
+    def _upload_solid(self, GL, r: int, g: int, b: int) -> None:
+        """Bind a flat 2x2 colour when the artwork cannot be read."""
+        pixel = bytes((r, g, b, 255)) * 4
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self._tex)
+        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 2, 2, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixel)
+
+    def release(self) -> None:
+        """Free the GL objects this layer owns, on the current context."""
+        try:
+            from OpenGL import GL
+        except Exception:
+            return
+        for prog in [self._prog, self._upscale, *(p for p, _ in self._programs.values())]:
+            if prog:
+                try:
+                    GL.glDeleteProgram(int(prog))
+                except Exception:
+                    pass
+        for tex in (self._tex, self._color):
+            if tex:
+                try:
+                    GL.glDeleteTextures([int(tex)])
+                except Exception:
+                    pass
+        if self._fbo:
+            try:
+                GL.glDeleteFramebuffers(1, [int(self._fbo)])
+            except Exception:
+                pass
+        self._prog = self._upscale = self._tex = self._color = self._fbo = 0
+        self._programs.clear()
+        self._failed.clear()
+        self._tex_key = ""
+        self._target_size = (0, 0)
+
+
+class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin):
+    """Standalone MP Visualizer window drawn with OpenGL instead of Vulkan.
+
+    This is the OpenGL twin of ``LiquidVisualizerVulkanRenderer``. It exists
+    so the standalone visualizer runs on machines without a Vulkan driver,
+    and when the configured Liquid Glass backend is OpenGL. It shares the
+    preset shader, the telemetry bridge, and the window sizing helpers with
+    the Vulkan renderer, so every preset behaves the same on both.
+    """
+
+    # The public surface below mirrors LiquidVisualizerVulkanRenderer.
+    preset: Dict[str, Any]
+    title = "MP Liquid Visualizer"
+
+    def __init__(self, preset_name: Optional[str] = None, fullscreen: bool = False,
+                 target_4k: bool = False,
+                 span_bounds: Optional[tuple] = None, span_role: str = "",
+                 saver_render: Optional[tuple] = None):
+        from mp_liquid_visualizer_vulkan import WINDOW_MODE_DEFAULT, get_active_preset
+        self.preset = get_active_preset(preset_name)
+        self.fullscreen_on_start = bool(fullscreen or target_4k)
+        self.target_4k = bool(target_4k)
+        self.should_close = False
+        self.is_fullscreen = False
+        self.screensaver = False
+        self._wake_event = False
+        self._saver_render = None
+        self._saver_bounds = None
+        self._saver_cursor_primed = False
+        self._player_bonded = False
+        self.width, self.height = 700, 700
+        self.cursor = (0.0, 0.0)
+        self.mouse_down = False
+        self.window_mode = WINDOW_MODE_DEFAULT
+        self._alive = False
+        self._glfw = None
+        self._window = None
+        self._layer = PlayerVisualizerLayer()
+        self._bridge = None
+        self._last = 0.0
+        self._vao = 0
+        self._vbo = 0
+        self._cur_pos = (72, 64)
+        self._size = (700, 700)
+        # F10/F11 monitor spanning and the screensaver render cap.
+        self._init_span_state(span_bounds, span_role)
+        self._saver_render = tuple(saver_render) if saver_render else None
+        if span_bounds:
+            bx, by, bw, bh = (int(v) for v in span_bounds)
+            cover = min(bw, bh)
+            self._size = (cover, cover)
+            self._cur_pos = (bx + (bw - cover) // 2, by + (bh - cover) // 2)
+        self._on_key_cb = None
+        self._on_mouse_cb = None
+        self._on_cursor_cb = None
+
+    # -- identity ---------------------------------------------------------
+    @property
+    def summary(self) -> str:
+        return (
+            f"MP_Liquid_Visualizer OpenGL device: {self.renderer_name} "
+            f"(vendor: {self.vendor_name}, version: {self.gl_version}) | "
+            f"Preset: {self.preset['name']} | Window: {self.width}x{self.height}"
+        )
+
+    # -- lifecycle --------------------------------------------------------
+    def open(self):
+        from mp_liquid_visualizer_vulkan import load_glfw_dll
+        glfw = load_glfw_dll()
+        self._glfw = glfw
+        self._bind_glfw(glfw)
+        if not glfw.glfwInit():
+            raise RuntimeError("glfwInit failed")
+
+        glfw.glfwDefaultWindowHints()
+        for hint, value in (
+            (0x00022001, 0x00030001),   # CLIENT_API = OPENGL_API
+            (0x00022002, 3),            # CONTEXT_VERSION_MAJOR
+            (0x00022003, 3),            # CONTEXT_VERSION_MINOR
+            (0x00022008, 0x00032001),   # OPENGL_PROFILE = CORE
+            (0x00020004, 0),            # DECORATED
+            (0x00020005, 1),            # VISIBLE
+            (0x00020001, 1),            # FOCUSED
+            (0x00020003, 0),            # RESIZABLE
+        ):
+            glfw.glfwWindowHint(hint, value)
+        if sys.platform == "darwin":
+            glfw.glfwWindowHint(0x00022006, 1)  # FORWARD_COMPAT
+        if hasattr(glfw, "glfwWindowHintString"):
+            try:
+                glfw.glfwWindowHintString(0x00024001, b"MP_Visualizer")
+                glfw.glfwWindowHintString(0x00024002, b"mp_visualizer")
+            except Exception:
+                pass
+
+        saver_bounds = getattr(self, "_saver_bounds", None)
+        span_bounds = getattr(self, "_span_bounds", None)
+        if saver_bounds:
+            # Screensaver: fill the assigned monitor's desktop rect exactly.
+            ww = max(64, int(saver_bounds[2]))
+            wh = max(64, int(saver_bounds[3]))
+        elif span_bounds:
+            # A spawned F10/F11 window starts on its own monitor, then fills it
+            # after the two-second delay.
+            ww = max(64, int(self._size[0]))
+            wh = max(64, int(self._size[1]))
+        else:
+            ww, wh = self._initial_size()
+        self._size = (ww, wh)
+        self.width, self.height = ww, wh
+        window = glfw.glfwCreateWindow(ww, wh, self.title.encode("utf-8"), None, None)
+        if not window:
+            raise RuntimeError("GLFW could not open an OpenGL window for the MP Visualizer")
+        self._window = window
+        if saver_bounds:
+            ox, oy = int(saver_bounds[0]), int(saver_bounds[1])
+        elif span_bounds:
+            ox, oy = int(self._cur_pos[0]), int(self._cur_pos[1])
+        else:
+            ox, oy = self._initial_offset()
+        glfw.glfwSetWindowPos(window, ox, oy)
+        self._cur_pos = (ox, oy)
+        self._bind_input()
+        glfw.glfwMakeContextCurrent(window)
+        try:
+            glfw.glfwSwapInterval(1)
+        except Exception:
+            pass
+        self._init_gl()
+        self._alive = True
+        if self.fullscreen_on_start:
+            self.toggle_fullscreen()
+        if self._span_role == "spawned":
+            # The two-second clock starts when the window is visible.
+            import time as _time
+            self._span_fullscreen_at = _time.monotonic() + 2.0
+        print(self.summary, flush=True)
+        return self
+
+    def _initial_size(self) -> tuple:
+        from mp_liquid_visualizer_vulkan import _IS_MAC, _IS_LINUX, WINDOW_WIDTH
+        if _IS_LINUX:
+            try:
+                from liquid_player_visualizer import linux_visualizer_match_window_size
+            except ImportError:
+                from scripts.liquid_player_visualizer import linux_visualizer_match_window_size
+            return tuple(int(v) for v in linux_visualizer_match_window_size())
+        if _IS_MAC:
+            try:
+                from liquid_player_visualizer import macos_liquid_player_window_size
+            except ImportError:
+                from scripts.liquid_player_visualizer import macos_liquid_player_window_size
+            return tuple(int(v) for v in macos_liquid_player_window_size())
+        return (WINDOW_WIDTH, WINDOW_WIDTH)
+
+    def _initial_offset(self) -> tuple:
+        from mp_liquid_visualizer_vulkan import _IS_LINUX, window_launch_origin
+        if _IS_LINUX:
+            return (72, 64)
+        x, y = window_launch_origin(160, 80)
+        return (int(x), int(y))
+
+    def _bind_glfw(self, g) -> None:
+        from ctypes import POINTER, c_char_p, c_int, c_uint64, c_void_p
+        g.glfwInit.restype = c_int
+        g.glfwInitHint.argtypes = [c_int, c_int]
+        g.glfwWindowHint.argtypes = [c_int, c_int]
+        g.glfwDefaultWindowHints.argtypes = []
+        if hasattr(g, "glfwWindowHintString"):
+            g.glfwWindowHintString.argtypes = [c_int, c_char_p]
+        g.glfwCreateWindow.restype = c_void_p
+        g.glfwCreateWindow.argtypes = [c_int, c_int, c_char_p, c_void_p, c_void_p]
+        g.glfwDestroyWindow.argtypes = [c_void_p]
+        g.glfwMakeContextCurrent.argtypes = [c_void_p]
+        g.glfwSwapInterval.argtypes = [c_int]
+        g.glfwSwapBuffers.argtypes = [c_void_p]
+        g.glfwPollEvents.argtypes = []
+        g.glfwWindowShouldClose.argtypes = [c_void_p]
+        g.glfwWindowShouldClose.restype = c_int
+        g.glfwSetWindowShouldClose.argtypes = [c_void_p, c_int]
+        g.glfwGetWindowSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwGetFramebufferSize.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwGetWindowPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwSetWindowPos.argtypes = [c_void_p, c_int, c_int]
+        g.glfwSetWindowSize.argtypes = [c_void_p, c_int, c_int]
+        g.glfwSetWindowSizeLimits.argtypes = [c_void_p, c_int, c_int, c_int, c_int]
+        g.glfwSetMouseButtonCallback.argtypes = [c_void_p, c_void_p]
+        g.glfwSetCursorPosCallback.argtypes = [c_void_p, c_void_p]
+        g.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
+        if hasattr(g, "glfwSetWindowAttrib"):
+            g.glfwSetWindowAttrib.argtypes = [c_void_p, c_int, c_int]
+        if not sys.platform.startswith("win") and sys.platform != "darwin":
+            g.glfwGetX11Window.argtypes = [c_void_p]
+            g.glfwGetX11Window.restype = c_uint64
+        # Monitor discovery and placement, used by the F10/F11 monitor span.
+        from mp_liquid_visualizer_vulkan import GLFWvidmode
+        g.glfwGetPrimaryMonitor.restype = c_void_p
+        g.glfwGetMonitors.restype = POINTER(c_void_p)
+        g.glfwGetMonitors.argtypes = [POINTER(c_int)]
+        g.glfwGetMonitorPos.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+        g.glfwGetVideoMode.argtypes = [c_void_p]
+        g.glfwGetVideoMode.restype = POINTER(GLFWvidmode)
+        g.glfwGetMonitorName.argtypes = [c_void_p]
+        g.glfwGetMonitorName.restype = c_char_p
+        g.glfwSetWindowMonitor.argtypes = [c_void_p, c_void_p, c_int, c_int, c_int, c_int, c_int]
+
+    def apply_saver_geometry(self) -> None:
+        """Resize and move an already-open window onto its screensaver monitor."""
+        bounds = getattr(self, "_saver_bounds", None)
+        if not bounds or not getattr(self, "_window", None):
+            return
+        g = getattr(self, "_glfw", None)
+        if not g:
+            return
+        from ctypes import c_int
+        bx, by = int(bounds[0]), int(bounds[1])
+        bw = max(64, int(bounds[2]))
+        bh = max(64, int(bounds[3]))
+        try:
+            g.glfwSetWindowSizeLimits(self._window, 0, 0, 0x7FFFFFFF, 0x7FFFFFFF)
+        except Exception:
+            pass
+        try:
+            g.glfwSetWindowSize(self._window, bw, bh)
+            g.glfwSetWindowPos(self._window, bx, by)
+        except Exception:
+            pass
+        self.width, self.height = bw, bh
+        self._size = (bw, bh)
+        self._cur_pos = (bx, by)
+
+    def _bind_input(self) -> None:
+        from ctypes import CFUNCTYPE, c_double, c_int, c_void_p
+        self._on_key_cb = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int, c_int)(self._on_key)
+        self._on_mouse_cb = CFUNCTYPE(None, c_void_p, c_int, c_int, c_int)(self._on_mouse)
+        self._on_cursor_cb = CFUNCTYPE(None, c_void_p, c_double, c_double)(self._on_cursor)
+        g, w = self._glfw, self._window
+        g.glfwSetKeyCallback(w, cast(self._on_key_cb, c_void_p))
+        if hasattr(g, "glfwSetMouseButtonCallback"):
+            g.glfwSetMouseButtonCallback(w, cast(self._on_mouse_cb, c_void_p))
+        if hasattr(g, "glfwSetCursorPosCallback"):
+            g.glfwSetCursorPosCallback(w, cast(self._on_cursor_cb, c_void_p))
+
+    def _on_key(self, _w, key, _sc, action, _mods) -> None:
+        if action != 1:  # GLFW_PRESS
+            return
+        if self.screensaver:
+            # Screensaver swallows every keypress: the first one only wakes it.
+            self._wake_event = True
+            self.request_close()
+            return
+        if key == 256:  # ESCAPE
+            self.request_close()
+        elif key == 81:  # Q
+            self.request_close()
+        elif key == 90:  # Z
+            self.cycle_window_mode()
+        elif 49 <= key <= 57:  # 1..9
+            from mp_liquid_visualizer_vulkan import presets_by_slot
+            slots = presets_by_slot()
+            idx = key - 49
+            if 0 <= idx < len(slots):
+                self.switch_preset(slots[idx])
+        elif key in (61, 334, 45, 333):  # =/+ or -/-
+            from mp_liquid_visualizer_vulkan import cycle_preset
+            forward = key in (61, 334)
+            nxt = cycle_preset(self.preset, 1 if forward else -1)
+            if nxt is not None:
+                self.switch_preset(nxt)
+        else:
+            # F10 spans every other monitor; F11 does it with random presets.
+            self.handle_span_key(key)
+
+    def _on_mouse(self, _w, button, action, _mods) -> None:
+        if self.screensaver:
+            if action == 1:
+                self._wake_event = True
+                self.request_close()
+            return
+        if button == 0:
+            self.mouse_down = action == 1
+            if action == 1:
+                self._toggle_fullscreen_if_double_click()
+
+    def _toggle_fullscreen_if_double_click(self) -> None:
+        import time as _time
+        now = _time.monotonic()
+        last = getattr(self, "_last_click_at", 0.0)
+        self._last_click_at = now
+        if last > 0.0 and now - last < 0.45:
+            self._last_click_at = 0.0
+            self.toggle_fullscreen()
+
+    def _on_cursor(self, _w, x, y) -> None:
+        if self.screensaver:
+            # GLFW reports a position as soon as the window appears; ignore it.
+            if self._saver_cursor_primed:
+                self._wake_event = True
+                self.request_close()
+            self._saver_cursor_primed = True
+            return
+        self.cursor = (float(x), float(y))
+
+    def _init_gl(self) -> None:
+        import numpy as np
+        from OpenGL import GL
+        self.vendor_name = (GL.glGetString(GL.GL_VENDOR) or b"Unknown").decode("utf-8", "replace")
+        self.renderer_name = (GL.glGetString(GL.GL_RENDERER) or b"OpenGL").decode("utf-8", "replace")
+        self.gl_version = (GL.glGetString(GL.GL_VERSION) or b"Unknown").decode("utf-8", "replace")
+        quad = np.array([
+            -1.0, 1.0, 0.0, 0.0,
+            -1.0, -1.0, 0.0, 1.0,
+            1.0, -1.0, 1.0, 1.0,
+            -1.0, 1.0, 0.0, 0.0,
+            1.0, -1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 0.0,
+        ], dtype=np.float32)
+        self._vao = int(GL.glGenVertexArrays(1))
+        self._vbo = int(GL.glGenBuffers(1))
+        GL.glBindVertexArray(self._vao)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._vbo)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, quad.nbytes, quad, GL.GL_STATIC_DRAW)
+        GL.glEnableVertexAttribArray(0)
+        GL.glVertexAttribPointer(0, 2, GL.GL_FLOAT, GL.GL_FALSE, 16, c_void_p(0))
+        GL.glEnableVertexAttribArray(1)
+        GL.glVertexAttribPointer(1, 2, GL.GL_FLOAT, GL.GL_FALSE, 16, c_void_p(8))
+        GL.glBindVertexArray(0)
+
+    # -- drawing ----------------------------------------------------------
+    def draw(self, bridge, capture: bool = False):
+        from OpenGL import GL
+        if not self.poll():
+            return None
+        fw, fh = self.framebuffer_size()
+        if fw < 2 or fh < 2:
+            return None
+        state = {
+            "active": True,
+            "preset_id": int(self.preset.get("id") or 0),
+            "preset_key": self.preset.get("key"),
+            "preset_name": self.preset.get("name"),
+        }
+        GL.glViewport(0, 0, fw, fh)
+        GL.glClearColor(0.0, 0.0, 0.0, 1.0)
+        GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        if not self._layer.draw_with_state(self, fw, fh, state, bridge=bridge):
+            raise RuntimeError(self._layer._error or "MP Visualizer could not draw with OpenGL")
+        pixels = None
+        if capture:
+            raw = GL.glReadPixels(0, 0, fw, fh, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+            pixels = (fw, fh, bytes(raw))
+        self._glfw.glfwSwapBuffers(self._window)
+        return pixels
+
+    # -- window state -----------------------------------------------------
+    def poll(self) -> bool:
+        g, w = self._glfw, self._window
+        if not g or not w:
+            return not self.should_close
+        g.glfwPollEvents()
+        if g.glfwWindowShouldClose(w):
+            self.should_close = True
+        self.poll_monitor_span()
+        return not self.should_close
+
+    def window_size(self) -> tuple:
+        from ctypes import byref, c_int
+        w, h = c_int(), c_int()
+        self._glfw.glfwGetWindowSize(self._window, byref(w), byref(h))
+        return max(1, int(w.value)), max(1, int(h.value))
+
+    def framebuffer_size(self) -> tuple:
+        from ctypes import byref, c_int
+        w, h = c_int(), c_int()
+        self._glfw.glfwGetFramebufferSize(self._window, byref(w), byref(h))
+        return max(1, int(w.value)), max(1, int(h.value))
+
+    def window_pos(self) -> tuple:
+        return self._cur_pos
+
+    def set_window_pos(self, x: int, y: int) -> None:
+        self._cur_pos = (int(x), int(y))
+        self._glfw.glfwSetWindowPos(self._window, int(x), int(y))
+
+    def request_close(self) -> None:
+        self.should_close = True
+        if self._window:
+            self._glfw.glfwSetWindowShouldClose(self._window, 1)
+
+    def toggle_fullscreen(self) -> bool:
+        from mp_liquid_visualizer_vulkan import RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
+        g, w = self._glfw, self._window
+        if not g or not w:
+            self.is_fullscreen = not self.is_fullscreen
+            return self.is_fullscreen
+        if not self.is_fullscreen:
+            self._saved_pos = self.window_pos()
+            fw, fh = RENDER_1080P_WIDTH, RENDER_1080P_HEIGHT
+            try:
+                mon = self.span_monitor() or g.glfwGetPrimaryMonitor()
+                mode = g.glfwGetVideoMode(mon) if hasattr(g, "glfwGetVideoMode") else None
+                if mode:
+                    md = mode.contents
+                    # A 4K panel stays at 1080p, matching the Vulkan renderer.
+                    if md.width and md.height and (md.width < 3840 or md.height < 2160):
+                        fw, fh = int(md.width), int(md.height)
+            except Exception:
+                pass
+            self.is_fullscreen = True
+            try:
+                g.glfwSetWindowSizeLimits(w, -1, -1, -1, -1)
+            except Exception:
+                pass
+            try:
+                if self._span_bounds and hasattr(g, "glfwSetWindowMonitor"):
+                    # Fill exactly the monitor this window was assigned to.
+                    bx, by, bw, bh = self._span_bounds
+                    g.glfwSetWindowMonitor(w, mon, bx, by, bw, bh, 0)
+                else:
+                    g.glfwSetWindowPos(w, 0, 0)
+                    g.glfwSetWindowSize(w, fw, fh)
+            except Exception:
+                pass
+            self.width, self.height = fw, fh
+        else:
+            x, y = getattr(self, "_saved_pos", self._cur_pos)
+            ww, wh = self._size
+            self.is_fullscreen = False
+            try:
+                g.glfwSetWindowSize(w, ww, wh)
+                g.glfwSetWindowPos(w, int(x), int(y))
+            except Exception:
+                pass
+            self._cur_pos = (int(x), int(y))
+            self.width, self.height = ww, wh
+        return self.is_fullscreen
+
+    def cycle_window_mode(self) -> str:
+        from mp_liquid_visualizer_vulkan import WINDOW_MODE_HALF, WINDOW_MODE_DEFAULT
+        if self.is_fullscreen:
+            self.toggle_fullscreen()
+            self._resize_window(*self._size)
+            self.window_mode = WINDOW_MODE_DEFAULT
+        elif self.window_mode == WINDOW_MODE_HALF:
+            self._resize_window(*self._size)
+            self.window_mode = WINDOW_MODE_DEFAULT
+        else:
+            self._resize_window(max(64, self._size[0] // 2), max(64, self._size[1] // 2))
+            self.window_mode = WINDOW_MODE_HALF
+        return self.window_mode
+
+    def _resize_window(self, width: int, height: int) -> None:
+        g, w = self._glfw, self._window
+        if not g or not w:
+            return
+        try:
+            g.glfwSetWindowSizeLimits(w, -1, -1, -1, -1)
+            g.glfwSetWindowSize(w, int(width), int(height))
+        except Exception:
+            pass
+        self.width, self.height = int(width), int(height)
+
+    def switch_preset(self, preset: Dict[str, Any]) -> None:
+        self.preset = dict(preset)
+
+    # -- close ------------------------------------------------------------
+    def close(self) -> None:
+        self.shutdown_monitor_span()
+        try:
+            self._layer.release()
+        except Exception:
+            pass
+        try:
+            from OpenGL import GL
+            if self._vao:
+                GL.glDeleteVertexArrays(1, [self._vao])
+            if self._vbo:
+                GL.glDeleteBuffers(1, [self._vbo])
+        except Exception:
+            pass
+        if self._window and self._glfw:
+            try:
+                self._glfw.glfwDestroyWindow(self._window)
+                self._glfw.glfwTerminate()
+            except Exception:
+                pass
+        self._window = None
+        self._alive = False
 
     def _upload_solid(self, GL, r: int, g: int, b: int) -> None:
         pixel = bytes((r, g, b, 255)) * 4

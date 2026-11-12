@@ -49,7 +49,7 @@ echo ""
 echo -e "${BOLD}${BLUE}[2/2] Ready to return to Plasma X11!${NC}"
 echo -e "      ${YELLOW}When you log in to X11:${NC}"
 echo -e "      • ${GREEN}Standard multi-monitor desktop layout restored${NC}"
-echo -e "      • ${GREEN}Defasten 4-Screen video installation will resume automatically${NC}"
+echo -e "      • ${GREEN}MPlanetarian 4-Screen video installation will resume automatically${NC}"
 echo -e "      • ${GREEN}Hardware Konsole tabs & MP Mix Archive Manager will launch on login${NC}"
 echo ""
 

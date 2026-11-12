@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Traktor Kontrol S4 Hardware MIDI Controller Service for MP Mix Archive Manager & MP Audio Player
-Version 0.4.2 Stable (Liquid)
+Version 0.4.3 Stable (Liquid)
 
 Communicates with Native Instruments Traktor Kontrol S4 over Hardware ALSA MIDI Port (amidi / hw:0,0).
 Translates MIDI Mode signals (Pitch Faders, Buttons, Encoders, Volume Sliders) to MP Audio Player IPC commands.
@@ -707,7 +707,7 @@ def print_status():
     else:
         print(f"  MP Audio Player      : {DIM}Offline / Waiting for launch{NC}")
 
-    print(f"  Supported in v0.4.2  : {BOLD}{GREEN}Traktor Kontrol S4 Exclusively{NC}\n")
+    print(f"  Supported in v0.4.3  : {BOLD}{GREEN}Traktor Kontrol S4 Exclusively{NC}\n")
 
 
 def print_user_guide():
@@ -723,7 +723,7 @@ def print_user_guide():
     # Fallback built-in guide
     print(f"""
 {BOLD}{MAGENTA}========================================================================{NC}
-{BOLD}{WHITE}   🎛️  TRAKTOR KONTROL S4 GETTING STARTED GUIDE (v0.4.2){NC}
+{BOLD}{WHITE}   🎛️  TRAKTOR KONTROL S4 GETTING STARTED GUIDE (v0.4.3){NC}
 {BOLD}{MAGENTA}========================================================================{NC}
 
 1. SWITCHING TO MIDI MODE ON THE S4:

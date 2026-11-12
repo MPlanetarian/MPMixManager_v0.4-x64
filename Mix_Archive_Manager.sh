@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; export MANAGER_START_EPOCH; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; _TERM_LINES=""; _TERM_COLS=""; _TERM_RESIZED=1; _on_winch() { _TERM_RESIZED=1; }; trap '_on_winch' WINCH; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.2 Stable (Liquid)"; fi; fi; export VERSION
+if [[ "$OSTYPE" == "darwin"* && "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then for bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do [[ -x "$bash" ]] && exec "$bash" "$0" "$@"; done; fi; SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; MANAGER_START_EPOCH="${MANAGER_START_EPOCH:-${EPOCHSECONDS:-$(date +%s 2>/dev/null || echo 0)}}"; export MANAGER_START_EPOCH; shopt -s checkwinsize 2>/dev/null || true; export PYTHONIOENCODING="utf-8" PYTHONUTF8=1; UNAME_S="${UNAME_S:-$(uname -s 2>/dev/null)}"; UNAME_M="${UNAME_M:-$(uname -m 2>/dev/null)}"; _TERM_LINES=""; _TERM_COLS=""; _TERM_RESIZED=1; _on_winch() { _TERM_RESIZED=1; }; trap '_on_winch' WINCH; S70="======================================================================"; D70="----------------------------------------------------------------------"; if [ -z "${VERSION:-}" ]; then if [ -f "$SCRIPT_DIR/VERSION" ]; then VERSION="$(head -n 1 "$SCRIPT_DIR/VERSION" | tr -d '\r\n')"; else VERSION="0.4.3 Stable (Liquid)"; fi; fi; export VERSION
 _has_flatpak() { [[ -d "/var/lib/flatpak/app/$1" || -d "$HOME/.local/share/flatpak/app/$1" ]] && return 0; command -v flatpak &>/dev/null || return 1; [[ -z "${_FP_LIST_CACHE+x}" ]] && _FP_LIST_CACHE="$(flatpak list --columns=application 2>/dev/null)"; [[ "$_FP_LIST_CACHE" == *"$1"* ]]; }
 _fmt_sec() { local t=${1:-0}; ((t<0)) && t=0; ((t>=3600)) && printf "%02d:%02d:%02d" $((t/3600)) $(((t%3600)/60)) $((t%60)) || printf "%02d:%02d" $(((t%3600)/60)) $((t%60)); }
 format_seconds_aud() { _fmt_sec "$1"; }
@@ -551,11 +551,62 @@ _nav_take_ready() {
 local _dest="$1" _ch; _nav_mark_console; if [[ -n "$_nav_pending" ]]; then _ch="${_nav_pending:0:1}"; _nav_pending="${_nav_pending:1}"; elif IFS= read -rsn1 -t 0.001 _ch; then [[ -z "$_ch" ]] && return 2; else return 1; fi; printf -v "$_dest" '%s' "$_ch"
 }
 _nav_push_front() { _nav_pending="${1}${_nav_pending}"; }
+# Mouse support for the menu pages. SGR reporting (1006) gives us a clean
+# "ESC [ < button ; column ; row M" report instead of raw bytes, so a click can
+# be mapped straight onto a painted option row. Set MP_MANAGER_MOUSE=0 to keep
+# the terminal's native text selection.
+_NAV_MOUSE_ON=0
+_nav_mouse_supported() {
+    [ "${MP_MANAGER_MOUSE:-1}" = "1" ] || return 1
+    [ -t 0 ] && [ -t 1 ] || return 1
+    return 0
+}
+_nav_mouse_enable() {
+    _nav_mouse_supported || return 0
+    [ "${_NAV_MOUSE_ON:-0}" -eq 1 ] && return 0
+    printf '\033[?1000h\033[?1006h' 2>/dev/null || true
+    _NAV_MOUSE_ON=1
+    return 0
+}
+_nav_mouse_disable() {
+    [ "${_NAV_MOUSE_ON:-0}" -eq 1 ] || { _NAV_MOUSE_ON=0; return 0; }
+    printf '\033[?1000l\033[?1006l' 2>/dev/null || true
+    _NAV_MOUSE_ON=0
+    return 0
+}
 _nav_pull() {
 local _to="$1" _dest="$2"; if [[ -n "$_nav_pending" ]]; then printf -v "$_dest" '%s' "${_nav_pending:0:1}"; _nav_pending="${_nav_pending:1}"; return 0; fi; local _ch="" _rc=0; IFS= read -rsn1 -t "$_to" _ch; _rc=$?; if [[ "$_rc" -eq 0 ]]; then printf -v "$_dest" '%s' "$_ch"; return 0; fi; printf -v "$_dest" '%s' ""; return "$_rc"
 }
 _discard_buffered_vertical_arrows() {
 local guard=0 b1="" b2="" b3="" b4="" seq="" cur="" steps=0 discard_it=0 ready_rc=0 empties=0; while [[ "$guard" -lt 200 ]]; do ((guard++)); b1=""; _nav_take_ready b1; ready_rc=$?; if [[ "$ready_rc" -eq 2 ]]; then if [[ "${_NAV_WIN_CON:-0}" -ne 1 ]]; then _nav_pending=$'\n'"${_nav_pending}"; return 0; fi; ((empties++)); [[ "$empties" -ge 2 ]] && return 0; continue; fi; [[ "$ready_rc" -eq 0 ]] || return 0; if [[ "${_NAV_WIN_CON:-0}" -eq 1 && ( "$b1" == "A" || "$b1" == "B" || "$b1" == $'\r' ) ]]; then continue; fi; if [[ "$b1" != $'\e' ]]; then _nav_push_front "$b1"; return 0; fi; if ! _nav_take_ready b2 || [[ "$b2" != "[" && "$b2" != "O" ]]; then _nav_push_front "${b1}${b2:-}"; return 0; fi; if [[ "$b2" == "[" ]]; then if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then if [[ "$b3" == "[" ]]; then if ! _nav_take_ready b4 || [[ "$b4" != "A" && "$b4" != "B" ]]; then _nav_push_front "${b1}${b2}${b3}${b4:-}"; return 0; fi; discard_it=1; else seq="${b1}${b2}${b3}"; while [[ "$steps" -lt 16 ]]; do ((steps++)); cur=""; if ! _nav_take_ready cur; then _nav_push_front "$seq"; return 0; fi; seq+="$cur"; if [[ "$cur" == "A" || "$cur" == "B" ]]; then discard_it=1; break; fi; if [[ "$cur" =~ [A-Za-z~] ]]; then _nav_push_front "$seq"; return 0; fi; done; [[ "$discard_it" -ne 1 ]] && { _nav_push_front "$seq"; return 0; }; fi; fi; elif [[ "$b2" == "O" ]]; then if ! _nav_take_ready b3 || [[ "$b3" != "A" && "$b3" != "B" ]]; then _nav_push_front "${b1}${b2}${b3:-}"; return 0; fi; fi; done
+}
+_NAV_MOUSE_EVENT=""
+_nav_parse_sgr_mouse() {
+    # Reads the remainder of an SGR mouse report: "<btn>;<col>;<row>M|m".
+    # Returns MOUSE:<btn>:<col>:<row> for a press, MOUSE_RELEASE for a lift.
+    local seq="" ch="" guard=0 term=""
+    while [ "$guard" -lt 32 ]; do
+        ((guard++))
+        ch=""
+        if ! _nav_pull 0.02 ch; then break; fi
+        [ -z "$ch" ] && continue
+        seq+="$ch"
+        case "$ch" in
+            M|m) term="$ch"; break ;;
+        esac
+    done
+    _NAV_MOUSE_EVENT=""
+    [ -z "$term" ] && return 1
+    seq="${seq%?}"
+    local btn="" mx="" my=""
+    IFS=';' read -r btn mx my <<< "$seq"
+    [[ "$btn" =~ ^[0-9]+$ && "$mx" =~ ^[0-9]+$ && "$my" =~ ^[0-9]+$ ]] || return 1
+    if [ "$term" = "M" ]; then
+        _NAV_MOUSE_EVENT="MOUSE:${btn}:${mx}:${my}"
+    else
+        _NAV_MOUSE_EVENT="MOUSE_RELEASE"
+    fi
+    return 0
 }
 read_nav_key() {
     local _out_var="$1" _k=""
@@ -647,6 +698,18 @@ read_nav_key() {
                                         _emit_key "UNKNOWN" 
                                         ;;
                                 esac
+                            fi
+                            ;;
+                        "<")
+                            # SGR mouse report: ESC [ < btn ; col ; row M|m
+                            if _nav_parse_sgr_mouse; then
+                                if [ -n "$_NAV_MOUSE_EVENT" ]; then
+                                    _emit_key "$_NAV_MOUSE_EVENT"
+                                else
+                                    _emit_key "UNKNOWN"
+                                fi
+                            else
+                                _emit_key "UNKNOWN"
                             fi
                             ;;
                         *) _emit_key "UNKNOWN" ;;
@@ -948,12 +1011,68 @@ _menu_fast_paint_selection() {
 local old_idx="$1"; [ "${_menu_fast_ok:-0}" -eq 1 ] || return 1; [[ "${_TERM_LINES:-}" =~ ^[0-9]+$ ]] || return 1; [ "$_menu_status_row" -ge 1 ] && [ "$_menu_status_row" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$old_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$old_idx]}" -lt "$_TERM_LINES" ] || return 1; [ "${_menu_item_row[$cur_idx]:-0}" -ge 1 ] && [ "${_menu_item_row[$cur_idx]}" -lt "$_TERM_LINES" ] || return 1; [[ "${view_top:-}" =~ ^[0-9]+$ && "${view_end:-}" =~ ^[0-9]+$ ]] || return 1; [ -n "${_menu_item_row[$old_idx]:-}" ] || return 1; [ -n "${_menu_item_row[$cur_idx]:-}" ] || return 1; [ "$cur_idx" -ge "$view_top" ] && [ "$cur_idx" -le "$view_end" ] || return 1; [ "$old_idx" -ge "$view_top" ] && [ "$old_idx" -le "$view_end" ] || return 1; local plain sel status; _menu_line_plain "$old_idx" plain
 IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$cur_idx]}"; highlight_menu_line "$o_key" "$o_label" "$o_extra" "${selectable_map[$cur_idx]:-0}" sel "$box_w"; _compose_menu_status status; printf '\033[?25l\033[?12l\033[?7l\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\033[0m\033[%s;1H%b\r\033[?25l' "${_menu_item_row[$old_idx]}" "$plain" "${_menu_item_row[$cur_idx]}" "$sel" "${_menu_status_row}" "$status"; return 0
 }
+_menu_mouse_row_to_idx() {
+    local _row="$1" _dest="$2" i
+    for (( i=view_top; i<=view_end; i++ )); do
+        if [ "${_menu_item_row[$i]:-0}" -eq "$_row" ]; then
+            printf -v "$_dest" '%s' "$i"
+            return 0
+        fi
+    done
+    return 1
+}
+_menu_nudge_selection() {
+    # Wheel scrolling: step one selectable row up (-1) or down (+1).
+    local dir="$1" hops=0
+    [ "$total_opts" -le 0 ] && return 0
+    while [ "$hops" -lt "$total_opts" ]; do
+        cur_idx=$(( (cur_idx + dir + total_opts) % total_opts ))
+        local _k=""; IFS='|' read -r _k _ _ <<< "${_opts_ref[$cur_idx]}"
+        if [ "$_k" != "SECTION" ] && [ "$_k" != "SEP" ]; then break; fi
+        ((hops++))
+    done
+    typed_buffer=""
+}
+_menu_handle_mouse() {
+    # Single left click moves the highlight; a second click on the same row
+    # within 600 ms activates it. The wheel steps the highlight.
+    local ev="$1" _tag="" btn="" col="" row="" idx=""
+    _MENU_MOUSE_ACTIVATE=0
+    _MENU_MOUSE_SELECTED=0
+    IFS=':' read -r _tag btn col row <<< "$ev"
+    case "$btn" in
+        64) _menu_nudge_selection -1; _MENU_MOUSE_SELECTED=1; return 0 ;;
+        65) _menu_nudge_selection 1;  _MENU_MOUSE_SELECTED=1; return 0 ;;
+        0)  ;;
+        *)  return 0 ;;
+    esac
+    _menu_mouse_row_to_idx "$row" idx || return 0
+    [ "${selectable_map[$idx]:-(-1)}" -lt 0 ] && return 0
+    local now="${EPOCHREALTIME:-0}"
+    now="${now//[.,]/}"
+    local prev="${_LAST_MOUSE_AT:-0}"
+    if [ "$idx" = "${_LAST_MOUSE_IDX:-}" ] && [ "$prev" -gt 0 ] 2>/dev/null; then
+        if [ $(( now - prev )) -lt 600000 ] 2>/dev/null; then
+            cur_idx="$idx"
+            _LAST_MOUSE_AT=0; _LAST_MOUSE_IDX=""
+            _MENU_MOUSE_ACTIVATE=1
+            _MENU_MOUSE_SELECTED=1
+            return 0
+        fi
+    fi
+    cur_idx="$idx"
+    _LAST_MOUSE_AT="$now"
+    _LAST_MOUSE_IDX="$idx"
+    typed_buffer=""
+    _MENU_MOUSE_SELECTED=1
+    return 0
+}
 cleanup_submenu_screen() {
-_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
+_MENU_CURSOR_LOCK=0; _stop_win_cursor_hider; _nav_mouse_disable; printf '\033[?7h\033[?12h\033[?25h\033[?2026l'
 }                                            
-_MENU_CURSOR_LOCK=1; _start_win_cursor_hider; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local menu_rule; printf -v menu_rule '%*s' "$((inner_w + 1))" ''; menu_rule="${menu_rule// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 4 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - ${#st_raw} - 4 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); if [ "$l1_pad" -lt 1 ]; then local _over=$((1 - l1_pad)); local _tlen=${#disp_title}; if [ $((_tlen - _over)) -gt 3 ]; then disp_title="${disp_title:0:$((_tlen - _over - 3))}..."; else disp_title="${disp_title:0:$(( _tlen > _over ? _tlen - _over : 0 ))}"; fi; l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 1 ] && l1_pad=1; fi; local l1_sp
+_MENU_CURSOR_LOCK=1; _start_win_cursor_hider; _nav_mouse_enable; printf '\033[?25l\033[?12l\033[?7l'; local _last_menu_frame=""; local typed_buffer=""; local search_mode=0; local search_query=""; local view_top=0; local last_term_lines="$_TERM_LINES"; local _MENU_FRAME_FRESH=0; local _LAST_MENU_TICK_S="${SECONDS:-0}"; local -a _menu_item_row=(); local _menu_status_row=0; local _menu_fast_ok=0; local _ARROW_HOLD=0; local _LAST_NAV_TIME="${SECONDS:-0}" _BREATH_STEP=0 _BREATH_TICK_DIV=0 _IS_BREATHING=0; local _LAST_MOUSE_AT=0 _LAST_MOUSE_IDX="" _MENU_MOUSE_ACTIVATE=0 _MENU_MOUSE_SELECTED=0; local -a _BREATH_FACTORS=(100 98 94 88 82 74 66 58 50 42 35 30 26 24 22 20 20 22 24 26 30 35 42 50 58 66 74 82 88 94 98 100); while true; do update_terminal_geometry 0; local cur_box_w; _set_menu_box_width cur_box_w "${_TERM_COLS:-80}"; local _draw=1; if [ "$cur_box_w" -eq "$box_w" ] && [ "$_TERM_LINES" -eq "$last_term_lines" ] && [ -n "$_last_menu_frame" ] && [ "${_MENU_FRAME_FRESH:-0}" -eq 1 ]; then _draw=0; fi; if [ "$_draw" -eq 0 ]; then printf '\033[?25l\033[?12l\033[?7l'; else if [ "$cur_box_w" -ne "$box_w" ] || [ "$_TERM_LINES" -ne "$last_term_lines" ]; then box_w="$cur_box_w"; last_term_lines="$_TERM_LINES"; _CURRENT_BOX_W="$box_w"; build_header_block; fi; local inner_w=$(( box_w - 2 )); local text_w=$(( box_w - 4 )); local h_border; printf -v h_border '%*s' "$inner_w" ''; h_border="${h_border// /─}"; local menu_rule; printf -v menu_rule '%*s' "$((inner_w + 1))" ''; menu_rule="${menu_rule// /─}"; local player_banner=""; local banner_lines=0; if get_mp_audio_player_track_info 2>/dev/null; then local st_color="$GREEN"; local st_icon="▶"; if [ "$MP_PLAYER_STATE" = "paused" ]; then st_color="$YELLOW"; st_icon="⏸"; fi; local st_low="$(printf "%s" "$MP_PLAYER_STATE" | tr "A-Z" "a-z")"; local st_sym="${BOLD}${st_color}${st_icon} ${st_low}${NC}"; local st_raw="${st_icon} ${st_low}"; if [ "${MP_PLAYER_RECORDING:-false}" = "true" ]; then st_sym+=" ${BOLD}${RED}● REC${NC}"; st_raw+=" ● REC"; fi; local p_mode_title="♫ MP AUDIO PLAYER"; [ "$MP_PLAYER_MODE" = "MUSIC" ] && p_mode_title="♫ MP AUDIO PLAYER [MUSIC MODE - TRACKS]"; local rem_dashes=$(( inner_w - ${#p_mode_title} - 4 )); [ "$rem_dashes" -lt 0 ] && rem_dashes=0; local p_top_dashes; printf -v p_top_dashes '%*s' "$rem_dashes" ''; p_top_dashes="${p_top_dashes// /─}"; player_banner+="  ${BOLD}${MAGENTA}╭── ${p_mode_title} ${p_top_dashes}╮\033[K${NC}\n"; local pos_pct_str="${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT} (${MP_PLAYER_PROGRESS_PCT%.*}%)"; local max_t_len=$(( text_w - ${#pos_pct_str} - ${#st_raw} - 4 )); [ "$max_t_len" -lt 4 ] && max_t_len=4; [ "$max_t_len" -gt "$text_w" ] && max_t_len="$text_w"; local disp_title="$MP_PLAYER_TITLE"; if [ ${#disp_title} -gt "$max_t_len" ]; then disp_title="${disp_title:0:$((max_t_len - 3))}..."; fi; local l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; local l1_right="${CYAN}${MP_PLAYER_POS_FMT}/${MP_PLAYER_DUR_FMT}${NC} ${DIM}(${MP_PLAYER_PROGRESS_PCT%.*}%)${NC}"; local raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); local l1_pad=$(( text_w - raw_l1_len )); if [ "$l1_pad" -lt 1 ]; then local _over=$((1 - l1_pad)); local _tlen=${#disp_title}; if [ $((_tlen - _over)) -gt 3 ]; then disp_title="${disp_title:0:$((_tlen - _over - 3))}..."; else disp_title="${disp_title:0:$(( _tlen > _over ? _tlen - _over : 0 ))}"; fi; l1_left="${st_sym}  ${BOLD}${YELLOW}${disp_title}${NC}"; raw_l1_len=$(( ${#st_raw} + 2 + ${#disp_title} + ${#pos_pct_str} )); l1_pad=$(( text_w - raw_l1_len )); [ "$l1_pad" -lt 1 ] && l1_pad=1; fi; local l1_sp
 printf -v l1_sp '%*s' "$l1_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC} ${l1_left}${l1_sp}${l1_right} ${BOLD}${MAGENTA}│\033[K${NC}\n"; local line2_ctrl="[Space] Toggle [M] Player [L] Liquid [G] MP Gui [C] Theme [n] Next [</>] Track [p] UI [f] FM"; local eq_raw="$(_mp_player_eq_field "${MP_PLAYER_MINI_EQ:-}")"; local eq_disp="${CYAN}${eq_raw}${NC}"; local l2_pad=$(( text_w - 16 - ${#eq_raw} - ${#line2_ctrl} )); if [ "$l2_pad" -lt 0 ]; then local _keep=$(( ${#line2_ctrl} + l2_pad )); [ "$_keep" -lt 0 ] && _keep=0; if [ "$_keep" -gt 3 ]; then line2_ctrl="${line2_ctrl:0:$((_keep - 3))}..."; else line2_ctrl="${line2_ctrl:0:$_keep}"; fi; l2_pad=0; fi; local l2_sp=""; [ "$l2_pad" -gt 0 ] && printf -v l2_sp '%*s' "$l2_pad" ''; player_banner+="  ${BOLD}${MAGENTA}│${NC}   ${DIM}EQ:${NC} ${eq_disp}${l2_sp}${DIM}Controls: ${line2_ctrl}${NC} ${BOLD}${MAGENTA}│\033[K${NC}\n"; player_banner+="  ${BOLD}${MAGENTA}╰${h_border}╯\033[K${NC}\n"; banner_lines=4; fi; local effective_overhead=$(( overhead + banner_lines )); local max_visible=$(( _TERM_LINES - effective_overhead - 1 )); max_visible=$(( max_visible < 2 ? 2 : max_visible )); if [ "$max_visible" -ge "$total_opts" ]; then max_visible=$total_opts; view_top=0; else view_top=$(( cur_idx < view_top ? cur_idx : view_top )); view_top=$(( cur_idx >= view_top + max_visible ? cur_idx - max_visible + 1 : view_top )); view_top=$(( view_top > total_opts - max_visible ? total_opts - max_visible : view_top )); view_top=$(( view_top < 0 ? 0 : view_top )); fi; if [ "$cur_idx" -le 1 ]; then view_top=0; elif [ "$cur_idx" -gt 0 ]; then local _pk=""; IFS='|' read -r _pk _ _ <<< "${_opts_ref[$((cur_idx - 1))]}"; [ "$_pk" = "SECTION" ] && [ "$((cur_idx - 1))" -lt "$view_top" ] && view_top=$((cur_idx - 1)); fi; local view_end=$(( view_top + max_visible - 1 )); [ "$view_end" -ge "$total_opts" ] && view_end=$(( total_opts - 1 )); local frame_buf="$cached_header_block"; [ -n "$player_banner" ] && frame_buf+="$player_banner"; _menu_item_row=(); _menu_fast_ok=0; local _menu_row=$(( cached_header_lines + banner_lines + 2 )); if [ "$view_top" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▲  (${view_top} more option$([ "$view_top" -gt 1 ] && echo "s") above - press ↑ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; local idx; for (( idx=view_top; idx<=view_end; idx++ )); do _menu_item_row[$idx]=$((_menu_row++)); IFS='|' read -r o_key o_label o_extra <<< "${_opts_ref[$idx]}"; if [ "$o_key" = "SECTION" ]; then local sec_rem=$(( inner_w - ${#o_label} - 8 )); [ "$sec_rem" -lt 4 ] && sec_rem=4; local sec_dashes; printf -v sec_dashes '%*s' "$sec_rem" ''; sec_dashes="${sec_dashes// /─}"; frame_buf+="  ${BOLD}${BLUE}─── [ ${o_label} ] ${sec_dashes}\033[K${NC}\n"; continue; elif [ "$o_key" = "SEP" ]; then frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; continue; fi; if [ "$idx" -eq "$cur_idx" ]; then local sel_color_idx="${selectable_map[$cur_idx]:-0}"; local h_line=""; highlight_menu_line "$o_key" "$o_label" "$o_extra" "$sel_color_idx" h_line "$box_w"; frame_buf+="${h_line}\n"; else local key_formatted; printf -v key_formatted "[%2s]" "$o_key"; local key_display="${BOLD}${MENU_NUM:-${CYAN}}${key_formatted}${NC}"; local label_display="${o_label}"; local extra_display=""; local _fitted_extra=""; _fitted_extra="$(_fit_menu_extra "$o_key" "$o_label" "$o_extra" "$(( box_w + 2 ))")"; [ -n "$_fitted_extra" ] && extra_display="  ${DIM}${_fitted_extra}${NC}"
-frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
+frame_buf+="     ${key_display} ${label_display}${extra_display}\033[K\n"; fi; done; _menu_status_row=$((_menu_row + 2)); _menu_fast_ok=1; local remaining_below=$(( total_opts - 1 - view_end )); if [ "$remaining_below" -gt 0 ]; then frame_buf+="  ${BOLD}${YELLOW}▼  (${remaining_below} more option$([ "$remaining_below" -gt 1 ] && echo "s") below - press ↓ to scroll)\033[K${NC}\n"; else frame_buf+="\033[K\n"; fi; frame_buf+="  ${BOLD}${BLUE}${menu_rule}\033[K${NC}\n"; local _status_line=""; _compose_menu_status _status_line; frame_buf+="$_status_line"; if [ "$frame_buf" != "$_last_menu_frame" ]; then _last_menu_frame="$frame_buf"; printf '\033[?25l\033[?12l\033[?7l\033[H%b\033[J\r\033[?25l' "$frame_buf"; else printf '\033[?25l\033[?12l\033[?7l'; fi; if [ "${STARTUP_AUTOPLAY_EXECUTED:-0}" -eq 0 ]; then run_deferred_startup; fi; _MENU_FRAME_FRESH=1; fi; if [ "${_ARROW_HOLD:-0}" -eq 1 ]; then _discard_buffered_vertical_arrows; _ARROW_HOLD=0; fi; local key_action=""; read_nav_key key_action; if [ "$key_action" != "TICK" ]; then _MENU_FRAME_FRESH=0; _LAST_NAV_TIME="${SECONDS:-0}"; if [ "$_IS_BREATHING" -eq 1 ]; then _IS_BREATHING=0; _BREATH_STEP=0; _BREATH_TICK_DIV=0; fi; fi; case "$key_action" in MOUSE:*) if _menu_handle_mouse "$key_action"; then if [ "${_MENU_MOUSE_ACTIVATE:-0}" -eq 1 ]; then cleanup_submenu_screen; clear; if [ "$search_mode" -eq 1 ] || [ -n "$search_query" ]; then IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; elif [ -n "$typed_buffer" ]; then REPLY="$typed_buffer"; else IFS='|' read -r sel_key _ _ <<< "${_opts_ref[$cur_idx]}"; REPLY="$sel_key"; fi; return 0; fi; _MENU_FRAME_FRESH=0; fi; continue ;; MOUSE_RELEASE) continue ;; TOGGLE_FULLSCREEN) toggle_manager_fullscreen; _TERM_RESIZED=1; last_term_lines=0; _last_menu_frame=""; printf '\033[?25l\033[?12l\033[?7l'; continue ;; 
 
 RESIZE) 
     update_terminal_geometry 1
@@ -1526,7 +1645,7 @@ exit_mix_manager() {
         mp_tty_restore_terminal
     fi
     # Switch back from alternate screen buffer and restore cursor/wrap
-    printf '\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
+    printf '\033[?1000l\033[?1006l\033[?1049l\033[?7h\033[?12h\033[?25h\033[?2026l' 2>/dev/null || true
     if [ "${MP_TTY_ABNORMAL_EXIT:-0}" = "1" ]; then
         printf '\n[!] Application terminated.\n'
         exit 139
@@ -2179,6 +2298,43 @@ launch_mp_audio_player_window() {
 # the GUI as an already-open player, so L did nothing.
 # macOS pgrep -a prints only the pid, so the command match never saw either
 # process. Linux pgrep -l drops the arguments, so --manager needs -a there.
+# MP Gui and MP Liquid Player are capped at four windows (mp_instance_limit.py).
+_mp_instance_limit_sh() {
+    local s
+    for s in "$SCRIPT_DIR/scripts/mp_instance_limit.sh" "$SCRIPT_DIR/mp_instance_limit.sh"; do
+        if [ -f "$s" ]; then
+            printf '%s\n' "$s"
+            return 0
+        fi
+    done
+    return 1
+}
+_mp_instance_source() {
+    local s
+    s="$(_mp_instance_limit_sh)" || return 1
+    # shellcheck disable=SC1090
+    source "$s"
+    return 0
+}
+_mp_instance_limit_reached() {
+    local role="$1"
+    _mp_instance_source || return 1
+    mp_instance_check "$role"
+    [ $? -eq 3 ]
+}
+_mp_instance_announce_limit() {
+    local role="$1" label
+    case "$role" in
+        gui) label="MP Gui" ;;
+        player) label="MP Liquid Player" ;;
+        *) label="MP Mix Manager" ;;
+    esac
+    echo -e "\n${YELLOW}${label} is already open 4 times. Close a window before opening another (4 is the maximum).${NC}\n"
+    _mp_instance_source || return 0
+    mp_instance_notify_limit "$role" || true
+    mp_instance_focus "$role" || true
+    return 0
+}
 _mp_liquid_glass_process_lines() {
     if [ "$(uname -s)" = "Darwin" ]; then
         pgrep -fl 'MP_Audio_Player_Liquid_Glas[s]' 2>/dev/null || true
@@ -2224,20 +2380,25 @@ _focus_mp_liquid_player() {
     fi
     return 2
 }
-# One Liquid Glass window. mkdir is atomic, so startup autoplay and the
-# fallback launch cannot both pass before either process exists.
+# One Liquid Glass launch at a time, up to the four-window cap. mkdir is
+# atomic, so startup autoplay and the fallback launch cannot both pass before
+# either process exists. A fifth window is refused; the cap itself lives in
+# mp_instance_limit.py and is shared with every other launcher.
 _liquid_glass_claim_launch() {
     local lockdir="${HOME}/.config/mix-manager/liquid_glass_launch.lock"
     local oldp="" self_pid="${BASHPID:-$$}"
     # $$ does not change inside ( ). Two startup jobs would look like one owner.
-    local _lg_line="" _lg_player=0
+    local _lg_line="" _lg_running=0
     while IFS= read -r _lg_line; do
         case "$_lg_line" in
             *--manager*) continue ;;
-            *MP_Audio_Player_Liquid_Glass*) _lg_player=1; break ;;
+            *MP_Audio_Player_Liquid_Glass*) _lg_running=$((_lg_running + 1)) ;;
         esac
     done < <(_mp_liquid_glass_process_lines)
-    if [ "$_lg_player" -eq 1 ]; then
+    if [ "$_lg_running" -ge 4 ]; then
+        return 1
+    fi
+    if declare -F _mp_instance_limit_reached >/dev/null 2>&1 && _mp_instance_limit_reached player; then
         return 1
     fi
     mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
@@ -2339,6 +2500,12 @@ launch_mp_audio_player_liquid_glass() {
         return
     fi
 
+    # MP Liquid Player opens up to four windows. Only a fifth focuses one.
+    if _mp_instance_limit_reached player; then
+        _mp_instance_announce_limit player
+        return 0
+    fi
+
     if ! _liquid_glass_claim_launch; then
         _focus_mp_liquid_player
         return 0
@@ -2429,6 +2596,11 @@ launch_liquid_glass_from_menu() {
         echo -e "\n${RED}Liquid Glass launcher was not found in ${SCRIPT_DIR}.${NC}"
         press_enter
         return 1
+    fi
+    # MP Liquid Player opens up to four windows. Only a fifth focuses one.
+    if _mp_instance_limit_reached player; then
+        _mp_instance_announce_limit player
+        return 0
     fi
     local log_file="${HOME}/.config/mix-manager/liquid_glass.log"
     mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
@@ -2525,7 +2697,8 @@ launch_mp_harmony_from_menu() {
 }
 
 # Option 36 opens the Mix Manager inside the same Liquid Glass window as the player.
-# A second launch focuses that window. The Liquid Player may stay open beside it.
+# MP Gui opens up to four windows. Only a fifth launch focuses one instead.
+# The Liquid Player may stay open beside it.
 launch_mp_gui_from_menu() {
     if mp_tty_skip_desktop "MP Mix Manager GUI"; then
         press_enter
@@ -2537,14 +2710,16 @@ launch_mp_gui_from_menu() {
         press_enter
         return 1
     fi
-    # Focus only when a glass window is actually up. A Metal --manager process
+    # Focus only when a fourth window is already up. A Metal --manager process
     # and a missing wmctrl used to make G return without opening anything.
-    if [ -f "$SCRIPT_DIR/scripts/mp_gui_focus.sh" ]; then
-        # shellcheck disable=SC1091
-        source "$SCRIPT_DIR/scripts/mp_gui_focus.sh"
-        if mp_gui_focus_if_open; then
-            return 0
+    if _mp_instance_limit_reached gui; then
+        if [ -f "$SCRIPT_DIR/scripts/mp_gui_focus.sh" ]; then
+            # shellcheck disable=SC1091
+            source "$SCRIPT_DIR/scripts/mp_gui_focus.sh"
+            mp_gui_focus_if_open || true
         fi
+        _mp_instance_announce_limit gui
+        return 0
     fi
     local log_file="${HOME}/.config/mix-manager/mp_gui.log"
     mkdir -p "${HOME}/.config/mix-manager" 2>/dev/null || true
@@ -2599,13 +2774,14 @@ launch_mp_liquid_visualizer() {
         saved_key="$(cat "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || true)"
         [ "$saved_key" = "cosmic_dreamworlds_liquid" ] && preset_label="Cosmic Dreamworlds (Liquid)"
         [ "$saved_key" = "orbital_void_reflux" ] && preset_label="Orbital Void Reflux"
-        [ "$saved_key" = "dreamworlds_ultra_defasten" ] && preset_label="Dreamworlds Ultra (Defasten Biomech)"
+        [ "$saved_key" = "dreamworlds_ultra_mplanetarian" ] && preset_label="Dreamworlds Ultra (MPlanetarian Biomech)"
         [ "$saved_key" = "infinite_complexity" ] && preset_label="Infinite Complexity"
         [ "$saved_key" = "sensorium_interface" ] && preset_label="Sensorium Interface"
         [ "$saved_key" = "stream_of_frequency" ] && preset_label="Stream of Frequency"
         [ "$saved_key" = "beyond_dimensions" ] && preset_label="Beyond Dimensions"
         [ "$saved_key" = "particle_accelerator" ] && preset_label="Particle Accelerator"
         [ "$saved_key" = "cosmic_universe" ] && preset_label="Cosmic Universe"
+        [ "$saved_key" = "dreamworlds_chromatic_storm" ] && preset_label="Dreamworlds (Chromatic Storm)"
         [ "$saved_key" = "random" ] && preset_label="Random Mode"
     fi
     if [ -n "$preset_arg" ]; then
@@ -2614,9 +2790,10 @@ launch_mp_liquid_visualizer() {
             beyond_dimensions|*beyond*|*dimensions*|*cotangent*) preset_label="Beyond Dimensions" ;;
             particle_accelerator|*particle*|*accelerator*|*toroid*) preset_label="Particle Accelerator" ;;
             cosmic_universe|*cosmic*|*universe*|*constellation*|*horizon*) preset_label="Cosmic Universe" ;;
+            dreamworlds_chromatic_storm|*chromatic*|*storm*) preset_label="Dreamworlds (Chromatic Storm)" ;;
             stream_of_frequency|*stream*|*frequency*) preset_label="Stream of Frequency" ;;
             orbital_void_reflux|*orbital*|*void*|*reflux*) preset_label="Orbital Void Reflux" ;;
-            dreamworlds_ultra_defasten|*defasten*|*ultra*|*biomech*) preset_label="Dreamworlds Ultra (Defasten Biomech)" ;;
+            dreamworlds_ultra_mplanetarian|*mplanetarian*|*ultra*|*biomech*) preset_label="Dreamworlds Ultra (MPlanetarian Biomech)" ;;
             infinite_complexity|*infinite*|*complexity*) preset_label="Infinite Complexity" ;;
             sensorium_interface|*sensorium*|*interface*|*earth*|*flipper*) preset_label="Sensorium Interface" ;;
             *) preset_label="Cosmic Dreamworlds (Liquid)" ;;
@@ -2647,10 +2824,11 @@ manage_mp_liquid_visualizer_presets() {
         local p7_mark="  "
         local p8_mark="  "
         local p9_mark="  "
+        local p10_mark="  "
         local pr_mark="  "
         if [ "$active_key" = "orbital_void_reflux" ]; then
             p2_mark="★ "
-        elif [ "$active_key" = "dreamworlds_ultra_defasten" ]; then
+        elif [ "$active_key" = "dreamworlds_ultra_mplanetarian" ]; then
             p3_mark="★ "
         elif [ "$active_key" = "infinite_complexity" ]; then
             p4_mark="★ "
@@ -2664,6 +2842,8 @@ manage_mp_liquid_visualizer_presets() {
             p8_mark="★ "
         elif [ "$active_key" = "cosmic_universe" ]; then
             p9_mark="★ "
+        elif [ "$active_key" = "dreamworlds_chromatic_storm" ]; then
+            p10_mark="★ "
         elif [ "$active_key" = "random" ]; then
             pr_mark="★ "
         else
@@ -2675,22 +2855,24 @@ manage_mp_liquid_visualizer_presets() {
         echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
         echo -e "  ${BOLD}${CYAN}Engine:${NC}            Vulkan 1.x Native 3D Raymarching & Liquid Glass"
         echo -e "  ${BOLD}${CYAN}Window:${NC}            1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere (fixed borderless • Esc/q to Close)"
+        echo -e "  ${BOLD}${CYAN}Multi-Monitor:${NC}     F10 fills every other monitor with this visualizer (fullscreen after 2s); F11 does it with a different random preset per screen; F10/F11 again closes the extras"
         echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
         echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
-        echo -e "${BOLD}Available Visualizer Presets (9 Official Presets):${NC}"
+        echo -e "${BOLD}Available Visualizer Presets (9 on number keys, + more on +/- keys):${NC}"
         echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC}        ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
         echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}                ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
-        echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (Defasten Biomech)${NC} ${DIM}[Defasten Xinri D & Start_Menu_Icon.png]${NC}"
-        echo -e "  ${BOLD}${CYAN}4)${NC} ${BOLD}${GREEN}${p4_mark}Infinite Complexity${NC}                 ${DIM}[Defasten Mirrored Madness & Cover_v4.png]${NC}"
-        echo -e "  ${BOLD}${CYAN}5)${NC} ${BOLD}${GREEN}${p5_mark}Sensorium Interface${NC}                 ${DIM}[Defasten Earth Flipper & Sensorium_Interface.jpeg]${NC}"
+        echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (MPlanetarian Biomech)${NC} ${DIM}[MPlanetarian Xinri D & Start_Menu_Icon.png]${NC}"
+        echo -e "  ${BOLD}${CYAN}4)${NC} ${BOLD}${GREEN}${p4_mark}Infinite Complexity${NC}                 ${DIM}[MPlanetarian Mirrored Madness & Cover_v4.png]${NC}"
+        echo -e "  ${BOLD}${CYAN}5)${NC} ${BOLD}${GREEN}${p5_mark}Sensorium Interface${NC}                 ${DIM}[MPlanetarian Earth Flipper & Sensorium_Interface.jpeg]${NC}"
         echo -e "  ${BOLD}${CYAN}6)${NC} ${BOLD}${GREEN}${p6_mark}Stream of Frequency${NC}                 ${DIM}[MPlanetarian - Stream of Frequency (Official Cover)]${NC}"
-        echo -e "  ${BOLD}${CYAN}7)${NC} ${BOLD}${GREEN}${p7_mark}Beyond Dimensions${NC}                   ${DIM}[Defasten Beyond Basel 2023 & Cotangent Dimensions]${NC}"
-        echo -e "  ${BOLD}${CYAN}8)${NC} ${BOLD}${GREEN}${p8_mark}Particle Accelerator${NC}                ${DIM}[Defasten TOROID & Vortex Sync (Mateh's Version)]${NC}"
-        echo -e "  ${BOLD}${CYAN}9)${NC} ${BOLD}${GREEN}${p9_mark}Cosmic Universe${NC}                     ${DIM}[Defasten Constellation & The Cosmological Horizon]${NC}"
+        echo -e "  ${BOLD}${CYAN}7)${NC} ${BOLD}${GREEN}${p7_mark}Beyond Dimensions${NC}                   ${DIM}[MPlanetarian Beyond Basel 2023 & Cotangent Dimensions]${NC}"
+        echo -e "  ${BOLD}${CYAN}8)${NC} ${BOLD}${GREEN}${p8_mark}Particle Accelerator${NC}                ${DIM}[MPlanetarian TOROID & Vortex Sync (Mateh's Version)]${NC}"
+        echo -e "  ${BOLD}${CYAN}9)${NC} ${BOLD}${GREEN}${p9_mark}Cosmic Universe${NC}                     ${DIM}[MPlanetarian Constellation & The Cosmological Horizon]${NC}"
+        echo -e "  ${BOLD}${CYAN}+)${NC} ${BOLD}${GREEN}${p10_mark}Dreamworlds (Chromatic Storm)${NC}        ${DIM}[Dreamworlds Lockscreen & XI-N vessel sequence — 12 animations]${NC}"
         echo -e "  ${BOLD}${CYAN}r)${NC} ${BOLD}${GREEN}${pr_mark}Random Preset Mode${NC}                  ${DIM}[Randomly Selects a Visualizer Preset on Each Run]${NC}"
         echo -e "  ${BOLD}${CYAN}l)${NC} Launch MP_Liquid_Visualizer Now (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless Vulkan Window)"
         echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
-        read -r -p "Select option [0-9, r, l]: " vp_choice
+        read -r -p "Select option [0-9, +, r, l]: " vp_choice
         case "$vp_choice" in
             1)
                 [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"
@@ -2703,8 +2885,8 @@ manage_mp_liquid_visualizer_presets() {
                 sleep 1
                 ;;
             3)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds Ultra (Defasten Biomech)"
-                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (Defasten Biomech)${NC}"
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds Ultra (MPlanetarian Biomech)"
+                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (MPlanetarian Biomech)${NC}"
                 sleep 1
                 ;;
             4)
@@ -2735,6 +2917,11 @@ manage_mp_liquid_visualizer_presets() {
             9)
                 [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Universe"
                 echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Universe${NC}"
+                sleep 1
+                ;;
+            +|chromatic|storm)
+                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds (Chromatic Storm)"
+                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds (Chromatic Storm)${NC}"
                 sleep 1
                 ;;
             r|R|rand|random)
@@ -3255,7 +3442,7 @@ split_video_clip() {
 echo -e "\n${BOLD}${BLUE}=== SPLIT VIDEO FILE (.MP4) ===${NC}\n"; run_sub_script "Split_Video_File.sh" "$@"
 }
 manage_video_cut_and_split() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}                   VIDEO CUTTING & SPLITTING SUITE                    ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  ${BOLD}${CYAN}1)${NC} Cut / Trim Video File by Start & End Time (${GREEN}Cut_Video.sh${NC})\n  ${BOLD}${CYAN}2)${NC} Split Video File (.mp4) into Equal Parts (${GREEN}Split_Video_File.sh${NC})\n  ${BOLD}${CYAN}3)${NC} Return to Main Menu\n"; read -r -p "Enter choice [1-3]: " v_choice; case "$v_choice" in 1) run_sub_script "Cut_Video.sh"; press_enter; ;; 2) run_sub_script "Split_Video_File.sh"; press_enter; ;; 3|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
+local opts=("1|Cut / Trim Video File by Start & End Time|(Cut_Video.sh)" "2|Split Video File (.mp4) into Equal Parts|(Split_Video_File.sh)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "VIDEO CUTTING & SPLITTING SUITE" "" opts 0; case "$REPLY" in 1) run_sub_script "Cut_Video.sh"; press_enter; ;; 2) run_sub_script "Split_Video_File.sh"; press_enter; ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
 }
 launch_cliamp() {
 echo -e "\n${BOLD}${YELLOW}Launching cliamp Music Player in a new window...${NC}\n"; local cliamp_bin
@@ -4592,14 +4779,130 @@ launch_apple_podcasts ;; 12|audacity) launch_audacity; ;; 13|midi) list_usb_midi
 16|bt|bluetooth|"bluetooth audio")
 manage_bluetooth_audio ;; 17|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.5; ;; esac; done
 }
+manage_visualizer_screensaver() {
+    local saver_py="$SCRIPT_DIR/scripts/mp_visualizer_idle_saver.py"
+    local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
+    if [ ! -f "$saver_py" ]; then
+        echo -e "\n${RED}Error: scripts/mp_visualizer_idle_saver.py was not found in ${SCRIPT_DIR}!${NC}\n"
+        press_enter
+        return 1
+    fi
+    while true; do
+        clear
+        local idle_seconds dwell_seconds state_line running_line
+        idle_seconds="${MP_SAVER_IDLE:-300}"
+        dwell_seconds="${MP_SAVER_DWELL:-45}"
+        if [ -f "$HOME/.config/mix-manager/visualizer_idle_saver.json" ]; then
+            state_line="$(grep -o '"idle_threshold": [0-9.]*' "$HOME/.config/mix-manager/visualizer_idle_saver.json" 2>/dev/null | head -1 | grep -o '[0-9.]*$' || true)"
+            [ -n "$state_line" ] && idle_seconds="$state_line"
+            dwell_seconds="$(grep -o '"dwell": [0-9.]*' "$HOME/.config/mix-manager/visualizer_idle_saver.json" 2>/dev/null | head -1 | grep -o '[0-9.]*$' || echo "$dwell_seconds")"
+        fi
+        if python3 "$saver_py" --status 2>/dev/null | grep -q RUNNING; then
+            running_line="${GREEN}● RUNNING${NC}"
+        else
+            running_line="${RED}○ STOPPED${NC}"
+        fi
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+        echo -e "${BOLD}${MAGENTA}     MP VISUALIZER — DESKTOP SCREEN SAVER (IDLE AUTO-LAUNCH)           ${NC}"
+        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
+        echo -e "  ${BOLD}${CYAN}Mode:${NC}              Fullscreen MP Visualizer, exits on any key or mouse movement"
+        echo -e "  ${BOLD}${CYAN}Presets:${NC}           Cycles through every installed preset automatically"
+        echo -e "  ${BOLD}${CYAN}Idle Threshold:${NC}    ${idle_seconds}s of inactivity before it starts"
+        echo -e "  ${BOLD}${CYAN}Preset Dwell:${NC}      ${dwell_seconds}s held on each preset"
+        echo -e "  ${BOLD}${CYAN}Daemon Status:${NC}     ${running_line}\n"
+        echo -e "  ${BOLD}${CYAN}1)${NC} Preview Screen Saver Now ${DIM}(fullscreen, press any key to exit)${NC}"
+        echo -e "  ${BOLD}${CYAN}2)${NC} Start Idle Auto-Launch Daemon ${DIM}(uses the thresholds above)${NC}"
+        echo -e "  ${BOLD}${CYAN}3)${NC} Stop Idle Auto-Launch Daemon"
+        echo -e "  ${BOLD}${CYAN}4)${NC} Show Daemon Status"
+        echo -e "  ${BOLD}${CYAN}5)${NC} Change Idle Threshold ${DIM}(currently ${idle_seconds}s)${NC}"
+        echo -e "  ${BOLD}${CYAN}6)${NC} Change Preset Dwell ${DIM}(currently ${dwell_seconds}s)${NC}"
+        echo -e "  ${BOLD}${CYAN}7)${NC} Install Autostart at Login ${DIM}(daemon launches automatically)${NC}"
+        echo -e "  ${BOLD}${CYAN}8)${NC} Remove Autostart at Login"
+        echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
+        local sc_choice
+        read -r -p "Select option [0-8]: " sc_choice
+        case "$sc_choice" in
+            1)
+                echo -e "\n${BOLD}${CYAN}Starting screen saver preview — press any key or move the mouse to exit...${NC}\n"
+                [ -f "$vis_py" ] && python3 "$vis_py" --screensaver --saver-dwell "$dwell_seconds"
+                press_enter
+                ;;
+            2)
+                mkdir -p "$HOME/.config/mix-manager"
+                nohup python3 "$saver_py" --idle "$idle_seconds" --dwell "$dwell_seconds" \
+                    >> "$HOME/.config/mix-manager/visualizer_idle_saver.log" 2>&1 &
+                disown
+                sleep 1
+                echo -e "\n${GREEN}✔ Idle auto-launch daemon started (${idle_seconds}s threshold).${NC}"
+                sleep 1
+                ;;
+            3)
+                python3 "$saver_py" --stop
+                press_enter
+                ;;
+            4)
+                python3 "$saver_py" --status
+                press_enter
+                ;;
+            5)
+                local new_idle
+                read -r -p "Idle seconds before the saver starts [default 300]: " new_idle
+                new_idle="${new_idle:-300}"
+                if [[ "$new_idle" =~ ^[0-9]+$ ]]; then
+                    echo "$new_idle" > "$HOME/.config/mix-manager/visualizer_idle_threshold" 2>/dev/null || true
+                    echo -e "\n${GREEN}✔ Idle threshold set to ${new_idle}s. Restart the daemon to apply.${NC}"
+                else
+                    echo -e "\n${RED}Please enter a whole number of seconds.${NC}"
+                fi
+                sleep 1
+                ;;
+            6)
+                local new_dwell
+                read -r -p "Seconds to hold each preset [default 45]: " new_dwell
+                new_dwell="${new_dwell:-45}"
+                if [[ "$new_dwell" =~ ^[0-9]+$ ]]; then
+                    echo "$new_dwell" > "$HOME/.config/mix-manager/visualizer_dwell" 2>/dev/null || true
+                    echo -e "\n${GREEN}✔ Preset dwell set to ${new_dwell}s. Restart the daemon to apply.${NC}"
+                else
+                    echo -e "\n${RED}Please enter a whole number of seconds.${NC}"
+                fi
+                sleep 1
+                ;;
+            7)
+                local autostart_dir="$HOME/.config/autostart"
+                mkdir -p "$autostart_dir"
+                cat > "$autostart_dir/mp-visualizer-screensaver.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=MP Visualizer Idle Screen Saver
+Comment=Launches the MP Visualizer as a screensaver after desktop inactivity
+Exec=python3 "$saver_py" --idle ${idle_seconds} --dwell ${dwell_seconds}
+Terminal=false
+X-GNOME-Autostart-enabled=true
+Categories=Graphics;
+DESKTOP
+                echo -e "\n${GREEN}✔ Autostart entry installed:${NC} ${autostart_dir}/mp-visualizer-screensaver.desktop"
+                sleep 1
+                ;;
+            8)
+                rm -f "$HOME/.config/autostart/mp-visualizer-screensaver.desktop"
+                echo -e "\n${GREEN}✔ Autostart entry removed.${NC}"
+                sleep 1
+                ;;
+            0|[qQ]) return 0 ;;
+            *) echo -e "\n${RED}Invalid selection.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 manage_visual_media_launchers() {
-local vml_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         VISUAL, VIDEO & ART LAUNCHERS SUITE        ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a visual or media application to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch MP_Liquid_Visualizer — 3D Vulkan Audio-Reactive Visualizer (${GREEN}1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless • Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}2)${NC} Select MP_Liquid_Visualizer Preset (${GREEN}Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Video Playlists (${GREEN}NFT Videos in VLC${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Specific Video in Default Video Player (${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}5)${NC} Launch GIMP Image Editor (${GREEN}gimp / org.gimp.GIMP${NC})\n  ${BOLD}${CYAN}6)${NC} Launch Electric Sheep Generative Screensaver (${GREEN}electricsheep / infinidream${NC})\n  ${BOLD}${CYAN}7)${NC} Launch GeeXLab Demo Launcher (${GREEN}FurMark_linux64/demo_launcher.sh${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-7]: " vml_choice; case "$vml_choice" in 1|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 2|preset|presets) manage_mp_liquid_visualizer_presets ;; 3) launch_video_playlists ;; 4) manage_video_dispatcher ;; 5) launch_gimp ;; 6) launch_electricsheep ;; 7) launch_geexlab_demos ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
+local vml_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         VISUAL, VIDEO & ART LAUNCHERS SUITE        ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a visual or media application to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch MP_Liquid_Visualizer — 3D Vulkan Audio-Reactive Visualizer (${GREEN}1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless • Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}2)${NC} Select MP_Liquid_Visualizer Preset (${GREEN}Cosmic Dreamworlds / Orbital Void Reflux${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Video Playlists (${GREEN}NFT Videos in VLC${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Specific Video in Default Video Player (${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}5)${NC} Launch GIMP Image Editor (${GREEN}gimp / org.gimp.GIMP${NC})\n  ${BOLD}${CYAN}6)${NC} Launch Electric Sheep Generative Screensaver (${GREEN}electricsheep / infinidream${NC})\n  ${BOLD}${CYAN}7)${NC} Launch GeeXLab Demo Launcher (${GREEN}FurMark_linux64/demo_launcher.sh${NC})\n  ${BOLD}${CYAN}8)${NC} MP Visualizer Screen Saver (${GREEN}Idle Auto-Launch • Fullscreen • Preset Cycle${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-8]: " vml_choice; case "$vml_choice" in 1|z|Z|visualizer|liquid-visualizer) launch_mp_liquid_visualizer ;; 2|preset|presets) manage_mp_liquid_visualizer_presets ;; 3) launch_video_playlists ;; 4) manage_video_dispatcher ;; 5) launch_gimp ;; 6) launch_electricsheep ;; 7) launch_geexlab_demos ;; 8|screensaver|saver|idle-saver) manage_visualizer_screensaver ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
 }
 manage_live_monitors() {
 local lm_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}         LIVE SESSION & STREAM MONITORS SUITE       ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a live monitor to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch Live Tracklist Monitor (${GREEN}SOF_Live_Tracker.sh${NC})\n  ${BOLD}${CYAN}2)${NC} Launch Traktor Live Monitor & Audio Recorder (${GREEN}New Window - CPU, Tracks, Audio I/O${NC})\n  ${BOLD}${CYAN}3)${NC} Launch Live File Transfer Monitor (${GREEN}transfer-monitor${NC})\n  ${BOLD}${CYAN}4)${NC} Launch Chrome Upload Monitor (${GREEN}Podcast Connect / Web Uploads${NC})\n  ${BOLD}${CYAN}5)${NC} View Running Background Tasks (${GREEN}Track and inspect background jobs${NC})\n  ${BOLD}${CYAN}6)${NC} Live Audio & Video Output Conversion Monitor (${GREEN}MP_Mix_Manager_Audio_File_Output_Monitor.py${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-6]: " lm_choice; case "$lm_choice" in 1) echo -e "\n${BOLD}${YELLOW}Launching Live Tracklist Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; run_sub_script "SOF_Live_Tracker.sh"; trap 'exit_mix_manager' INT; press_enter; ;; 2) launch_traktor_monitor_window ;; 3) echo -e "\n${BOLD}${YELLOW}Launching Live File Transfer Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; if command -v transfer-monitor &>/dev/null; then transfer-monitor; elif [ -x "$HOME/.local/bin/transfer-monitor" ]; then "$HOME/.local/bin/transfer-monitor"; else echo -e "${RED}Error: transfer-monitor command not found in PATH or ~/.local/bin!${NC}"; fi; trap 'exit_mix_manager' INT; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Launching Chrome Upload Monitor (Press Ctrl+C to return)...${NC}\n"; sleep 0.8; trap ':' INT; if command -v chrome-upload-monitor &>/dev/null; then chrome-upload-monitor; elif [ -x "$HOME/.local/bin/chrome-upload-monitor" ]; then "$HOME/.local/bin/chrome-upload-monitor"; elif [ -x "./chrome_upload_monitor.py" ]; then python3 ./chrome_upload_monitor.py; elif [ -x "$SCRIPT_DIR/chrome_upload_monitor.py" ]; then python3 "$SCRIPT_DIR/chrome_upload_monitor.py"; elif [ -x "./Monitor_Chrome_Uploads.sh" ]; then ./Monitor_Chrome_Uploads.sh; elif [ -x "$SCRIPT_DIR/Monitor_Chrome_Uploads.sh" ]; then "$SCRIPT_DIR/Monitor_Chrome_Uploads.sh"; else echo -e "${RED}Error: chrome-upload-monitor command not found in PATH or ~/.local/bin!${NC}"; fi; trap 'exit_mix_manager' INT; press_enter ;; 5) view_tasks; press_enter ;; 6) local mon_py="$SCRIPT_DIR/scripts/MP_Mix_Manager_Audio_File_Output_Monitor.py"; [ ! -f "$mon_py" ] && mon_py="$SCRIPT_DIR/MP_Mix_Manager_Audio_File_Output_Monitor.py"; if [ -f "$mon_py" ]; then python3 "$mon_py"; else echo -e "${RED}Error: MP_Mix_Manager_Audio_File_Output_Monitor.py not found!${NC}"; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
 }
 manage_system_process_monitors() {
-local spm_choice; while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}        SYSTEM & HARDWARE PROCESS MONITORS          ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; echo ""; echo -e "${BOLD}Select a process / resource monitor to launch:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch Resource Monitor (${GREEN}btop${NC}) [CPU, RAM, Disks, Network]\n  ${BOLD}${CYAN}2)${NC} Launch GPU Process Monitor (${GREEN}nvtop${NC}) [NVIDIA / AMD / Intel GPU VRAM & Cores]\n  ${BOLD}${CYAN}3)${NC} Launch System Process Monitor (${GREEN}top${NC}) [Standard UNIX Process Table]\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-3]: " spm_choice; case "$spm_choice" in 1) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 2) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 3) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
+local opts=("1|Launch Resource Monitor|btop • CPU, RAM, Disks, Network" "2|Launch GPU Process Monitor|nvtop • NVIDIA / AMD / Intel GPU VRAM & Cores" "3|Launch System Process Monitor|top • Standard UNIX Process Table" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "SYSTEM & HARDWARE PROCESS MONITORS" "" opts 0; case "$REPLY" in 1) echo -e "\n${BOLD}${YELLOW}Launching btop Resource Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v btop &>/dev/null; then _sync_btop_theme "$CURRENT_THEME"; btop; else echo -e "${RED}Error: btop command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 2) echo -e "\n${BOLD}${YELLOW}Launching nvtop GPU Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v nvtop &>/dev/null; then nvtop; else echo -e "${RED}Error: nvtop command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 3) echo -e "\n${BOLD}${YELLOW}Launching top Process Monitor (Press 'q' to exit)...${NC}\n"; sleep 0.5; trap ':' INT; if command -v top &>/dev/null; then top; else echo -e "${RED}Error: top command not found in PATH!${NC}"; press_enter; fi; trap 'exit_mix_manager' INT ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1; ;; esac; done
 }
 run_bash_cli() {
 local cli_choice user_cmd; echo -e "\n${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}             Interactive Bash CLI Runner            ${NC}\n${BOLD}${MAGENTA}====================================================${NC}\n${CYAN}Choose an option:${NC}\n  ${BOLD}${CYAN}1)${NC} Open an interactive Bash shell session ${DIM}(type 'exit' to return to Manager)${NC}\n  ${BOLD}${CYAN}2)${NC} Execute a single Bash command and return\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-2]: " cli_choice; case "$cli_choice" in 1) echo -e "\n${BOLD}${GREEN}Spawning interactive Bash subshell. Type 'exit' to return.${NC}\n"; export PS1="\[\033[01;32m\][MixManager-CLI] \[\033[01;34m\]\w\[\033[00m\]\$ "; bash --norc -i 2>/dev/null || bash -i; echo -e "\n${GREEN}Returned from Bash subshell.${NC}"; sleep 1 ;; 2) echo ""; read -r -p "Enter Bash command to execute: " user_cmd; if [ -n "$user_cmd" ]; then echo -e "\n${BOLD}${YELLOW}Executing:${NC} $user_cmd\n"; eval "$user_cmd"; echo ""; press_enter; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
@@ -5391,7 +5694,7 @@ s4_hdr+="  • Hardware Status       : ${det_badge}\n"
 s4_hdr+="  • MIDI Service Daemon   : ${srv_badge}\n"
 s4_hdr+="  • Audio Player IPC      : ${pl_badge}\n"
 s4_hdr+="  • MIDI Mode Shortcut    : Hold ${BOLD}${YELLOW}SHIFT + BROWSE${NC} (MK1) or ${BOLD}${YELLOW}SHIFT + PREVIEW${NC} (MK2)\n"
-s4_hdr+="  • Supported in v0.4.2   : ${BOLD}${GREEN}Traktor Kontrol S4 Exclusively${NC}\n"
+s4_hdr+="  • Supported in v0.4.3   : ${BOLD}${GREEN}Traktor Kontrol S4 Exclusively${NC}\n"
 local s4_opts=(
 "1|Enable Traktor Kontrol S4 MIDI Mapping Support|(Start Background Service & Save Setting)"
 "2|Disable Traktor Kontrol S4 MIDI Mapping Support|(Stop Background Service & Save Setting)"
@@ -5401,7 +5704,7 @@ local s4_opts=(
 "6|Open Official Native Instruments PDF Manuals|(Controller Editor & S4 MK2 Guides)"
 "0|Return to Previous Menu|(or Esc / q)"
 )
-run_interactive_submenu "TRAKTOR KONTROL S4 MIDI HARDWARE CONTROL & MAPPING (v0.4.2)" "$s4_hdr" s4_opts 0
+run_interactive_submenu "TRAKTOR KONTROL S4 MIDI HARDWARE CONTROL & MAPPING (v0.4.3)" "$s4_hdr" s4_opts 0
 local opt="$REPLY"
 case "$opt" in
 1)
@@ -5853,6 +6156,7 @@ mp_tty_audio_mode_load
 MANAGER_MAIN_PID=$BASHPID
 _cleanup_mix_manager_exit() {
     [ "${BASHPID:-$$}" -ne "${MANAGER_MAIN_PID:-$$}" ] && return 0
+    _nav_mouse_disable
     exit_mix_manager
 }
 trap '_cleanup_mix_manager_exit' EXIT INT TERM HUP

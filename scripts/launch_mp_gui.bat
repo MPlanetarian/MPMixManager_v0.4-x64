@@ -37,14 +37,22 @@ for %%A in (%*) do (
 
 set "CONFIG_DIR=%USERPROFILE%\.config\mix-manager"
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%" >nul 2>&1
+
+:: MP Gui opens at most four windows. A fifth launch focuses one instead.
+set "MP_INSTANCE_STATUS=0"
+"%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" check gui >nul 2>&1
+set "MP_INSTANCE_STATUS=%ERRORLEVEL%"
+if "%MP_INSTANCE_STATUS%"=="3" (
+    "%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" focus gui >nul 2>&1
+    "%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_instance_limit.py" notify gui >nul 2>&1
+    exit /b 0
+)
+
 if "!KEEP_THEME!"=="0" (
     "%PYTHON_BIN%" -c "from pathlib import Path; p=Path.home()/'.config'/'mix-manager'/'theme'; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('retro_linux_memories\n', encoding='utf-8')" >nul 2>&1
 )
 
 "%PYTHON_BIN%" -c "import sys; sys.path.insert(0, r'%BASE_DIR%\scripts'); from desktop_launch_screen import reposition_off_hisense; reposition_off_hisense()" >nul 2>&1
-
-"%PYTHON_BIN%" "%BASE_DIR%\scripts\mp_gui_focus_win.py"
-if not errorlevel 1 exit /b 0
 
 set "BACKEND=opengl"
 set "CONFIG_FILE=%CONFIG_DIR%\config.env"

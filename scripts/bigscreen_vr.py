@@ -515,6 +515,24 @@ def player_command(python: str, player: Path, theme: str) -> list[str]:
     ]
 
 
+def player_launch_allowed(root: Path) -> bool:
+    """VR Mode still obeys the four-window cap on MP Liquid Player."""
+    scripts = Path(root) / "scripts"
+    try:
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        import mp_instance_limit as limiter
+    except Exception:
+        return True
+    try:
+        if limiter.at_limit("player"):
+            limiter.notify_limit("player")
+            return False
+    except Exception:
+        return True
+    return True
+
+
 def _default_spawn(command, env, cwd, log_path: Path):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(log_path, "a", encoding="utf-8")
@@ -708,6 +726,10 @@ def enter_vr_mode(
         sleep(VR_BACKDROP_DELAY)
 
     # 4. The Liquid Player opens centered on the primary desktop, paused.
+    # VR Mode is one of the launch paths, so it obeys the four-window cap too.
+    if not player_launch_allowed(root):
+        print("VR Mode: MP Liquid Player is already open 4 times; close a window first.")
+        return 1
     launched_at = time.time()
     launch(player_command(python, player, VR_THEME), env, root, log_path)
 

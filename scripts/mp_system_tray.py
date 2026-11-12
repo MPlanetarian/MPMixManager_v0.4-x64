@@ -4,7 +4,8 @@
 Right-click the icon to launch any of the three, or to close the console
 manager and everything that belongs to it (the GUI, the Liquid Player,
 playback, and the visualizer). The icon stays while at least one of the
-three is open. A second launch focuses the window that is already open.
+three is open. MP Gui and MP Liquid Player open up to four windows; a fifth
+launch focuses a window that is already open.
 """
 
 from __future__ import annotations
@@ -22,6 +23,13 @@ from pathlib import Path
 ROLE_MANAGER = "manager"
 ROLE_GUI = "gui"
 ROLE_LIQUID = "liquid"
+
+# MP Gui and MP Liquid Player are capped at four windows. The console manager
+# is not: it is one window and the tray only ever focuses it.
+try:
+    import mp_instance_limit as instance_limit
+except ImportError:  # pragma: no cover - the tray lives beside the helper
+    instance_limit = None
 
 MENU_LAUNCH_GUI = "Launch MP Gui"
 MENU_LAUNCH_LIQUID = "Launch MP Liquid Player"
@@ -53,6 +61,10 @@ LIQUID_HOSTS = (
     "MP_Audio_Player_Liquid_Glass_macOS.py",
     "MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py",
 )
+
+# MP Gui and MP Liquid Player may have at most four windows. Launching a fifth
+# focuses a window instead, which also covers the tray menu staying open.
+MAX_CAPPED_INSTANCES = 4
 
 ABSENT_QUIT_SECONDS = 8
 LAUNCH_GRACE_SECONDS = 20
@@ -356,14 +368,70 @@ def manager_pids(
     return found
 
 
+def role_instance_count(
+    role: str,
+    processes: list[ProcessInfo] | None = None,
+    self_pids: set[int] | None = None,
+) -> int:
+    """Live windows for MP Gui or MP Liquid Player, launch claims included.
+
+    The shared limiter is authoritative. The process-table count is the
+    fallback when the helper cannot be imported.
+    """
+    cap_role = {ROLE_GUI: "gui", ROLE_LIQUID: "player"}.get(role)
+    if cap_role is None:
+        return 0
+    if instance_limit is not None:
+        try:
+            return instance_limit.instance_count(cap_role)
+        except Exception:
+            pass
+    table = processes if processes is not None else read_proc_table()
+    by_pid = index_processes(table)
+    return sum(
+        1
+        for proc in table
+        if (proc.pid not in (self_pids or set()))
+        and classify_process(proc, by_pid, self_pids) == role
+    )
+
+
+def capped_role_at_limit(
+    role: str,
+    processes: list[ProcessInfo] | None = None,
+    self_pids: set[int] | None = None,
+    counts: dict[str, int] | None = None,
+) -> bool:
+    if role not in (ROLE_GUI, ROLE_LIQUID):
+        return False
+    if counts is not None:
+        return counts.get(role, 0) >= MAX_CAPPED_INSTANCES
+    return role_instance_count(role, processes, self_pids) >= MAX_CAPPED_INSTANCES
+
+
 def launch_plan(
     role: str,
     base: Path,
     running: set[str],
     platform_name: str | None = None,
+    processes: list[ProcessInfo] | None = None,
+    self_pids: set[int] | None = None,
+    counts: dict[str, int] | None = None,
 ) -> dict[str, object]:
     title = FOCUS_TITLES[role]
-    if role in running:
+    # MP Gui and MP Liquid Player open new windows up to the cap. Only the
+    # fifth launch focuses instead. The console manager is one window, so its
+    # plan stays focus-first.
+    if role in (ROLE_GUI, ROLE_LIQUID):
+        if capped_role_at_limit(role, processes, self_pids, counts):
+            return {
+                "action": "focus",
+                "title": title,
+                "argv": [],
+                "limit": True,
+                "cap": MAX_CAPPED_INSTANCES,
+            }
+    elif role in running:
         return {"action": "focus", "title": title, "argv": []}
     host = platform_name or sys.platform
     if role == ROLE_GUI:
@@ -863,6 +931,36 @@ MENU_BAR_LABEL = "com.mplanetarian.mp-mix-manager-tray"
 _MENU_ACTIONS = {ident for ident, _label in MENU_ENTRIES}
 
 
+def announce_limit(role: str) -> None:
+    """Tell the user four windows are already open."""
+    if instance_limit is not None:
+        cap_role = {ROLE_GUI: "gui", ROLE_LIQUID: "player"}.get(role)
+        if cap_role is not None:
+            try:
+                instance_limit.notify_limit(cap_role)
+                return
+            except Exception:
+                pass
+    print(
+        f"{FOCUS_TITLES[role]} is already open {MAX_CAPPED_INSTANCES} times.",
+        file=sys.stderr,
+    )
+
+
+def _launch_role(base: Path, role: str) -> int:
+    processes = read_proc_table()
+    self_pids = {os.getpid()}
+    running = roles_present(processes, self_pids)
+    plan = launch_plan(role, base, running, processes=processes, self_pids=self_pids)
+    if plan.get("limit"):
+        announce_limit(role)
+    if plan["action"] == "focus":
+        focus_window(str(plan["title"]))
+        return 0
+    spawn_argv(list(plan["argv"]), base, config_dir() / "mp_system_tray.log")
+    return 0
+
+
 def perform_menu_action(base: Path, action_id: str) -> int:
     if action_id not in _MENU_ACTIONS:
         return 2
@@ -874,13 +972,7 @@ def perform_menu_action(base: Path, action_id: str) -> int:
         "launch-liquid": ROLE_LIQUID,
         "launch-manager": ROLE_MANAGER,
     }[action_id]
-    running = roles_present(read_proc_table(), {os.getpid()})
-    plan = launch_plan(role, base, running)
-    if plan["action"] == "focus":
-        focus_window(str(plan["title"]))
-        return 0
-    spawn_argv(list(plan["argv"]), base, config_dir() / "mp_system_tray.log")
-    return 0
+    return _launch_role(base, role)
 
 
 def format_roles(roles: set[str]) -> str:
@@ -1061,7 +1153,7 @@ def macos_tray_bundle_plist() -> str:
         "\t<key>CFBundleInfoDictionaryVersion</key>\n"
         "\t<string>6.0</string>\n"
         "\t<key>CFBundleShortVersionString</key>\n"
-        "\t<string>0.4.2</string>\n"
+        "\t<string>0.4.3</string>\n"
         "\t<key>LSMinimumSystemVersion</key>\n"
         "\t<string>11.0</string>\n"
         "\t<key>LSUIElement</key>\n"
@@ -1332,9 +1424,13 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
             "launch-liquid": ROLE_LIQUID,
             "launch-manager": ROLE_MANAGER,
         }[action_id]
-        running = roles_present(read_proc_table(), {os.getpid()})
-        plan = launch_plan(role, base, running)
+        processes = read_proc_table()
+        self_pids = {os.getpid()}
+        running = roles_present(processes, self_pids)
+        plan = launch_plan(role, base, running, processes=processes, self_pids=self_pids)
         remember_launch()
+        if plan.get("limit"):
+            announce_limit(role)
         if plan["action"] == "focus":
             focus_window(str(plan["title"]))
             return

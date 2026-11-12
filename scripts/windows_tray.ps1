@@ -141,6 +141,47 @@ function Test-MpSuiteRunning {
     return $false
 }
 
+# MP Gui and MP Liquid Player may have at most four windows. The count here
+# matches the launch cap in scripts\mp_instance_limit.py; the .bat launchers
+# and the Liquid Glass hosts enforce the same number.
+$script:maxCappedInstances = 4
+
+function Get-MpRoleCount {
+    param([string]$Role)
+    $hosts = 0
+    foreach ($row in @(Get-MpCommandLines)) {
+        $command = [string]$row.CommandLine
+        if ($command -like "*mp_instance_limit*") { continue }
+        if ($command -like "*--self-test*" -or $command -like "*--embed-check*") { continue }
+        if ($command -like "*--tracklist*") { continue }
+        if ($command -notlike "*MP_Audio_Player_Liquid_Glass*") { continue }
+        if ($Role -eq "gui") {
+            if ($command -like "*--manager*") { $hosts++ }
+        } elseif ($command -notlike "*--manager*") {
+            $hosts++
+        }
+    }
+    return $hosts
+}
+
+function Test-MpRoleAtLimit {
+    param([string]$Role)
+    if ($Role -notin @("gui", "liquid")) { return $false }
+    return (Get-MpRoleCount -Role $Role) -ge $script:maxCappedInstances
+}
+
+function Show-MpLimitBalloon {
+    param([string]$Role)
+    $label = if ($Role -eq "gui") { "MP Gui" } else { "MP Liquid Player" }
+    if ($notify) {
+        try {
+            $notify.ShowBalloonTip(6000, "MP Mix Manager", "$label is already open $($script:maxCappedInstances) times. Close a window first.", [System.Windows.Forms.ToolTipIcon]::Warning)
+        } catch {
+        }
+    }
+    Write-MpTrayLog "$label launch refused: $($script:maxCappedInstances) instances already open"
+}
+
 function Stop-MpSuite {
     foreach ($row in @(Get-MpCommandLines)) {
         $command = $row.CommandLine
@@ -172,7 +213,14 @@ function Start-MpRole {
         liquid = "MP Audio Player (Liquid Glass"
         manager = "MP Mix Archive Manager"
     }
-    if (Show-MpWindow -TitlePart $titles[$Role]) { return }
+    # MP Gui and MP Liquid Player open new windows until four are up. Only
+    # past that does a launch raise the window that is already open.
+    if (Test-MpRoleAtLimit -Role $Role) {
+        Show-MpWindow -TitlePart $titles[$Role] | Out-Null
+        Show-MpLimitBalloon -Role $Role
+        return
+    }
+    if ($Role -eq "manager" -and (Show-MpWindow -TitlePart $titles[$Role])) { return }
     $target = $null
     switch ($Role) {
         "gui" {

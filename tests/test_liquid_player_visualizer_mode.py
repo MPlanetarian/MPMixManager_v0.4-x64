@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -409,6 +410,7 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         renderer._player_bonded_at = 0.0
         renderer._unbonded_window_pos = None
         renderer._last_player_geometry = None
+        renderer._span_role = ""
         renderer.preset = {"id": 0, "key": "first"}
         renderer.window_pos = MagicMock(return_value=(72, 64))
         renderer._set_windowed_size = MagicMock()
@@ -435,15 +437,143 @@ class LiquidPlayerVisualizerModeTests(unittest.TestCase):
         renderer._player_bonded_at = 0.0
         renderer._unbonded_window_pos = (72, 64)
         renderer._last_player_geometry = (510, 385, 1574, 1258)
+        renderer._windowed_size = (680, 140)
+        renderer._restore_size = (1094, 778)
+        renderer._span_role = ""
         renderer._set_bonded_stack = MagicMock()
+        renderer._set_windowed_size = MagicMock()
         renderer.set_window_pos = MagicMock()
         with patch.object(vulkan_vis, "_IS_LINUX", True), \
              patch("liquid_player_visualizer.read_player_visualizer_state", return_value={"active": False}):
             renderer._sync_player_bond()
         self.assertFalse(renderer._player_bonded)
         renderer._set_bonded_stack.assert_called_once_with(False)
+        renderer._set_windowed_size.assert_called_once_with(1094, 778, apply=True)
         renderer.set_window_pos.assert_called_once_with(72, 64)
         self.assertIsNone(renderer._unbonded_window_pos)
+
+    def test_bonded_visualizer_follows_every_player_mode_size(self):
+        """A bonded window takes the player's published size on each mode switch."""
+        renderer = object.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.is_fullscreen = False
+        renderer._player_bonded = True
+        renderer._player_bonded_at = 0.0
+        renderer._unbonded_window_pos = None
+        renderer._last_player_geometry = None
+        renderer._windowed_size = (1574, 1258)
+        renderer._span_role = ""
+        renderer.preset = {"id": 0, "key": "first"}
+        renderer.window_pos = MagicMock(return_value=(510, 385))
+        renderer._set_windowed_size = MagicMock()
+        renderer.set_window_pos = MagicMock()
+        renderer.switch_preset = MagicMock()
+        renderer._set_bonded_stack = MagicMock()
+        sizes = [(510, 385, 1574, 1258), (240, 260, 680, 266), (240, 260, 680, 140)]
+        for geometry in sizes:
+            with patch.object(vulkan_vis, "_IS_LINUX", True), \
+                 patch("liquid_player_visualizer.read_player_visualizer_state", return_value={"active": True}), \
+                 patch("liquid_player_visualizer.read_published_player_window_geometry", return_value=geometry), \
+                 patch("liquid_player_visualizer.visualizer_presets", return_value=[]):
+                renderer._player_bonded_at = 0.0
+                renderer._sync_player_bond()
+            x, y, width, height = geometry
+            renderer._set_windowed_size.assert_called_with(width, height, apply=True)
+            renderer.set_window_pos.assert_called_with(x, y)
+        self.assertEqual(renderer._last_player_geometry, sizes[-1])
+
+    def test_bonded_visualizer_keeps_the_player_corner_after_a_resize(self):
+        """A window manager move during a resize is corrected on the next poll."""
+        renderer = object.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        renderer.is_fullscreen = False
+        renderer._player_bonded = True
+        renderer._player_bonded_at = 0.0
+        renderer._unbonded_window_pos = None
+        renderer._last_player_geometry = (240, 260, 680, 140)
+        renderer._windowed_size = (680, 140)
+        renderer._span_role = ""
+        renderer.preset = {"id": 0, "key": "first"}
+        renderer.window_pos = MagicMock(return_value=(120, 130))
+        renderer._set_windowed_size = MagicMock()
+        renderer.set_window_pos = MagicMock()
+        renderer.switch_preset = MagicMock()
+        renderer._set_bonded_stack = MagicMock()
+        with patch.object(vulkan_vis, "_IS_LINUX", True), \
+             patch("liquid_player_visualizer.read_player_visualizer_state", return_value={"active": True}), \
+             patch("liquid_player_visualizer.read_published_player_window_geometry", return_value=(240, 260, 680, 140)), \
+             patch("liquid_player_visualizer.visualizer_presets", return_value=[]):
+            renderer._sync_player_bond()
+        renderer._set_windowed_size.assert_not_called()
+        renderer.set_window_pos.assert_called_once_with(240, 260)
+
+    def _poll_renderer(self, bonded, windowed_size):
+        renderer = object.__new__(vulkan_vis.LiquidVisualizerVulkanRenderer)
+        glfw = MagicMock()
+        glfw.glfwWindowShouldClose.return_value = 0
+        glfw.glfwGetWindowSize.return_value = None
+        renderer._glfw = glfw
+        renderer._window = MagicMock()
+        renderer.should_close = False
+        renderer.is_fullscreen = False
+        renderer.window_mode = vulkan_vis.WINDOW_MODE_DEFAULT
+        renderer._default_windowed_size = (1574, 1258)
+        renderer._half_windowed_size = (787, 629)
+        renderer._user_selected_window_mode = False
+        renderer._user_toggled_windowed = False
+        renderer._is_4k_cached = False
+        renderer._windowed_size = windowed_size
+        renderer._player_bonded = bonded
+        renderer._span_role = ""
+        renderer._saver_bounds = None
+        renderer._sync_player_bond = MagicMock()
+        renderer._match_player_window = MagicMock()
+        return renderer, glfw
+
+    def test_poll_keeps_a_bonded_window_at_the_player_size(self):
+        """Normal -> Mini -> Micro must not be undone by the default size lock."""
+        renderer, glfw = self._poll_renderer(bonded=True, windowed_size=(680, 140))
+        renderer.poll()
+        self.assertEqual((renderer.width, renderer.height), (680, 140))
+        glfw.glfwSetWindowSize.assert_not_called()
+        renderer._match_player_window.assert_not_called()
+
+    def test_poll_still_locks_an_unbonded_window_to_its_default_size(self):
+        renderer, glfw = self._poll_renderer(bonded=False, windowed_size=(680, 140))
+        renderer.poll()
+        renderer._match_player_window.assert_called_once_with(wait=False)
+        self.assertEqual((renderer.width, renderer.height), (1574, 1258))
+        glfw.glfwSetWindowSize.assert_called_once()
+
+    def test_liquid_host_publishes_geometry_in_mini_and_micro(self):
+        """Mini and Micro are published too, so the visualizer follows the resize."""
+        if str(BASE) not in sys.path:
+            sys.path.insert(0, str(BASE))
+        import MP_Audio_Player_Liquid_Glass_OpenGL as host_mod
+        for mode in ("NORMAL", "MINI", "MICRO"):
+            host = object.__new__(host_mod.GlassHost)
+            host.mode = mode
+            host.renderer = MagicMock()
+            host.renderer.window_pos.return_value = (240, 260)
+            host.renderer.window_size.return_value = (680, 140)
+            host._window_target = (680, 266)
+            host._window_target_until = time.monotonic() + 3.0
+            with patch.object(host_mod.sys, "platform", "linux"), \
+                 patch("liquid_player_visualizer.publish_liquid_player_window_geometry") as publish:
+                host._publish_player_window_geometry()
+            # The size the host asked for wins while the resize is in flight.
+            publish.assert_called_once_with(240, 260, 680, 266)
+            host._window_target_until = 0.0
+            with patch.object(host_mod.sys, "platform", "linux"), \
+                 patch("liquid_player_visualizer.publish_liquid_player_window_geometry") as publish:
+                host._publish_player_window_geometry()
+            publish.assert_called_once_with(240, 260, 680, 140)
+        for mode in ("MANAGER", "TRACKLIST"):
+            host = object.__new__(host_mod.GlassHost)
+            host.mode = mode
+            host.renderer = MagicMock()
+            with patch.object(host_mod.sys, "platform", "linux"), \
+                 patch("liquid_player_visualizer.publish_liquid_player_window_geometry") as publish:
+                host._publish_player_window_geometry()
+            publish.assert_not_called()
 
     def test_missing_linux_companion_is_started_with_the_selected_preset(self):
         env = dict(os.environ)

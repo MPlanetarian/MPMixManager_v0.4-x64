@@ -112,3 +112,15 @@ WAN2GP_Monitor_Log.txt
 MP_MIX_MANAGER_INSTALLERS/
 MP_MIX_MANAGER_INSTALLERS/
 MP_MIX_MANAGER_INSTALLERS/
+
+# Stray scratch files from local test/generation runs.
+# Seen in the repo root as bare numeric filenames (81, 143, 268, ...) plus an
+# "info" file, each 7 bytes containing the literal text "PNGDATA" rather than
+# real image data. Origin is unconfirmed, so these are anchored to the root to
+# avoid hiding a legitimate numeric asset in a subdirectory.
+/[0-9][0-9]
+/[0-9][0-9][0-9]
+/info
+
+# Editor backup copies (the existing *.bak* rule does not match *.bk)
+*.bk

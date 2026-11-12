@@ -134,21 +134,43 @@ class TestLiquidPlayerMpGuiShortcut(unittest.TestCase):
         self.assertIn("G Spek", bottom)
         self.assertNotIn("MP Gui", bottom)
 
-    def test_launch_mp_gui_focuses_an_open_window(self):
+    def test_launch_mp_gui_opens_another_window_below_the_cap(self):
+        # MP Gui allows four windows. An open window no longer blocks a launch.
+        with patch.object(player, "_mp_instance_module") as module, \
+             patch.object(player.subprocess, "run", return_value=MagicMock(returncode=1)), \
+             patch.object(player.subprocess, "Popen", return_value=MagicMock(pid=4321)) as popen:
+            module.return_value.at_limit.return_value = False
+            self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
+        popen.assert_called_once()
+        cmd = popen.call_args.args[0]
+        self.assertTrue(str(cmd[1]).endswith("MP_Gui.sh"))
+
+    def test_launch_mp_gui_focuses_once_four_windows_are_open(self):
         calls = []
 
         def fake_run(cmd, **kwargs):
             calls.append(list(cmd))
             return MagicMock(returncode=0)
 
-        with patch.object(player.subprocess, "run", side_effect=fake_run), \
+        with patch.object(player, "_mp_instance_module") as module, \
+             patch.object(player.subprocess, "run", side_effect=fake_run), \
              patch.object(player.subprocess, "Popen") as popen, \
              patch.object(player.shutil, "which", return_value="/usr/bin/wmctrl"):
+            module.return_value.at_limit.return_value = True
             self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
         popen.assert_not_called()
-        self.assertEqual(calls[0][0], "pgrep")
-        self.assertEqual(calls[1][:2], ["/usr/bin/wmctrl", "-a"])
-        self.assertIn("MP Mix Manager (Liquid Glass", calls[1][2])
+        self.assertEqual(calls[0][:2], ["/usr/bin/wmctrl", "-a"])
+        self.assertIn("MP Mix Manager (Liquid Glass", calls[0][2])
+        module.return_value.notify_limit.assert_called_once_with("gui")
+
+    def test_launch_mp_gui_limit_message_is_not_an_error(self):
+        with patch.object(player, "_mp_instance_module") as module, \
+             patch.object(player, "_focus_mp_gui", return_value=False), \
+             patch.object(player, "_windowed_mp_gui_host", return_value=False), \
+             patch.object(player.subprocess, "Popen") as popen:
+            module.return_value.at_limit.return_value = True
+            self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
+        popen.assert_not_called()
 
     def test_launch_mp_gui_starts_when_only_the_metal_host_is_running(self):
         def fake_run(cmd, **kwargs):
@@ -160,7 +182,8 @@ class TestLiquidPlayerMpGuiShortcut(unittest.TestCase):
                 )
             return MagicMock(returncode=0, stdout="")
 
-        with patch.object(player.subprocess, "run", side_effect=fake_run), \
+        with patch.object(player, "_mp_instance_module", return_value=None), \
+             patch.object(player.subprocess, "run", side_effect=fake_run), \
              patch.object(player.subprocess, "Popen", return_value=MagicMock(pid=4321)) as popen, \
              patch.object(player.shutil, "which", return_value=None):
             self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
@@ -168,21 +191,13 @@ class TestLiquidPlayerMpGuiShortcut(unittest.TestCase):
         cmd = popen.call_args.args[0]
         self.assertTrue(str(cmd[1]).endswith("MP_Gui.sh"))
 
-    def test_launch_mp_gui_does_not_stack_a_windowed_host_without_wmctrl(self):
-        def fake_run(cmd, **kwargs):
-            cmd = list(cmd)
-            if cmd[:2] == ["pgrep", "-fl"]:
-                return MagicMock(
-                    returncode=0,
-                    stdout="77 python MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py --manager\n",
-                )
-            return MagicMock(returncode=0, stdout="")
-
-        with patch.object(player.subprocess, "run", side_effect=fake_run), \
-             patch.object(player.subprocess, "Popen") as popen, \
+    def test_launch_mp_gui_stacks_a_second_window_without_wmctrl(self):
+        with patch.object(player, "_mp_instance_module", return_value=None), \
+             patch.object(player.subprocess, "run", return_value=MagicMock(returncode=1)), \
+             patch.object(player.subprocess, "Popen", return_value=MagicMock(pid=4321)) as popen, \
              patch.object(player.shutil, "which", return_value=None):
             self.assertTrue(player.launch_mp_gui(base_dir=ROOT))
-        popen.assert_not_called()
+        popen.assert_called_once()
 
     def test_launch_mp_gui_starts_mp_gui_sh_without_changing_theme(self):
         with patch.object(player.subprocess, "run", return_value=MagicMock(returncode=1)), \

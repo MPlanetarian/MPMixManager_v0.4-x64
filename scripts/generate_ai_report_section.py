@@ -44,9 +44,40 @@ def _get_app_version() -> str:
                 return cand.read_text(encoding="utf-8").strip()
             except Exception:
                 pass
-    return "0.4.2 Stable (Liquid)"
+    return "0.4.0 Stable"
 
 VERSION = _get_app_version()
+
+# Cheap once-per-day short-circuit, evaluated BEFORE importing matplotlib and
+# reportlab. Those imports cost ~0.8s CPU and ~200MB, and this script is invoked
+# on a scheduler tick, so a repeat run must not pay that cost just to discover
+# it has nothing to do. The full guard in run_ai_reporter() still applies.
+def _early_daily_done() -> bool:
+    if not ({"--daily"} & set(sys.argv[1:])):
+        return False
+    if {"--force", "--check-only", "--section", "--output"} & set(sys.argv[1:]):
+        return False
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        for cand in (Path("/var/home/mplanetarian/MP_REPORTER/tasks/ai_brain_reporter_state.json"),
+                     Path("/var/home/mplanetarian/Documents/BASH_SCRIPTS/ai_brain_reporter_state.json")):
+            if not cand.is_file():
+                continue
+            with open(cand, "r", encoding="utf-8") as fp:
+                state = json.load(fp)
+            if state.get("last_run_date") != today:
+                return False
+            for rep in reversed(state.get("reports_generated", [])):
+                if rep.get("date") == today and Path(rep.get("pdf", "")).exists():
+                    sys.stdout.write(f"Report already generated for today ({today}): {rep['pdf']}\n")
+                    return True
+            return False
+    except Exception:
+        return False
+    return False
+
+if _early_daily_done():
+    sys.exit(0)
 
 # Matplotlib headless backend
 import matplotlib

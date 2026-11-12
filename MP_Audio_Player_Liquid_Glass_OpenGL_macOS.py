@@ -245,6 +245,11 @@ from liquid_player_visualizer import (
     macos_player_grid,
 )
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer
+try:  # The four-window cap ships beside the host; a lone copy still runs.
+    from mp_instance_limit import host_allowed
+except ImportError:
+    def host_allowed(role):
+        return True
 
 os.environ["PYOPENGL_PLATFORM"] = "darwin"
 
@@ -1456,6 +1461,15 @@ def main():
         mode = "MANAGER"
     else:
         mode = "NORMAL"
+    # MP Gui and MP Liquid Player stop at four windows. Helper flags are not
+    # counted; the --manager window is MP Gui.
+    if not host_allowed("gui" if manager else "player"):
+        print(
+            f"{'MP Gui' if manager else 'MP Liquid Player'} is already open 4 times. "
+            "Close a window first (4 is the maximum).",
+            file=sys.stderr,
+        )
+        return 1
     host = OpenGLGlassHost(mode=mode, cli_theme=theme_arg, manager=manager)
     try:
         host.run()

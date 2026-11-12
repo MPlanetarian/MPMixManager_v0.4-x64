@@ -22,6 +22,11 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from liquid_visualizer_session import stop_companion_playback, stop_companion_visualizer  # noqa: E402
+try:  # The four-window cap ships beside the host; a lone copy still runs.
+    from mp_instance_limit import host_allowed  # noqa: E402
+except ImportError:
+    def host_allowed(role):  # type: ignore[misc]
+        return True
 from liquid_glass_metal import (  # noqa: E402
     LiquidGlassRendererMetal,
     check_apple_silicon_support,
@@ -381,7 +386,7 @@ def ensure_random_visualizer_started() -> bool:
 
         with open(log_file, "a") as f:
             subprocess.Popen(
-                [sys.executable, str(vis_script), "--preset", "random"],
+                [sys.executable, str(vis_script), "--preset", "random", "--backend", "auto"],
                 cwd=str(root),
                 stdin=subprocess.DEVNULL,
                 stdout=f,
@@ -409,7 +414,7 @@ def spawn_new_visualizer() -> bool:
         log_dir.mkdir(parents=True, exist_ok=True)
         with open(log_dir / "liquid_visualizer.log", "a") as f:
             subprocess.Popen(
-                [sys.executable, str(vis_script), "--preset", "random"],
+                [sys.executable, str(vis_script), "--preset", "random", "--backend", "auto"],
                 cwd=str(root),
                 stdin=subprocess.DEVNULL,
                 stdout=f,
@@ -499,6 +504,17 @@ def main(argv):
         i += 1
 
     player_gui = not embed and not tracklist_path and "--self-test" not in argv
+    # MP Gui and MP Liquid Player stop at four windows. The tracklist viewer
+    # and the embed check are not counted.
+    if player_gui:
+        counted_role = "gui" if manager else "player"
+        if not host_allowed(counted_role):
+            print(
+                f"{'MP Gui' if manager else 'MP Liquid Player'} is already open 4 times. "
+                "Close a window first (4 is the maximum).",
+                file=sys.stderr,
+            )
+            return 1
     if player_gui and "--no-visualizer" not in argv:
         ensure_random_visualizer_started()
 
