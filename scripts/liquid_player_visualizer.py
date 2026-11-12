@@ -37,6 +37,10 @@ try:
     from visualizer_random_mode import RANDOM_PRESET_INTERVAL, RandomPresetMixin
 except ImportError:
     from scripts.visualizer_random_mode import RANDOM_PRESET_INTERVAL, RandomPresetMixin
+try:
+    from visualizer_window_shape import DEFAULT_CORNER_RADIUS, RoundedWindowShaper
+except ImportError:
+    from scripts.visualizer_window_shape import DEFAULT_CORNER_RADIUS, RoundedWindowShaper
 _CACHE: Dict[str, Any] = {"path": "", "mtime": None, "state": None}
 
 _TEXT_GUARD = """
@@ -1261,6 +1265,8 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
         self._on_key_cb = None
         self._on_mouse_cb = None
         self._on_cursor_cb = None
+        # Same rounded silhouette as the Liquid Player window.
+        self._shaper = RoundedWindowShaper(DEFAULT_CORNER_RADIUS)
 
     # -- identity ---------------------------------------------------------
     @property
@@ -1269,6 +1275,71 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
             f"MP_Liquid_Visualizer OpenGL device: {self.renderer_name} "
             f"(vendor: {self.vendor_name}, version: {self.gl_version}) | "
             f"Preset: {self.preset['name']} | Window: {self.width}x{self.height}"
+        )
+
+    # -- native window handles --------------------------------------------
+    def win32_window(self) -> int:
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if g is None or not w or not sys.platform.startswith("win"):
+            return 0
+        try:
+            return int(g.glfwGetWin32Window(w) or 0)
+        except Exception:
+            return 0
+
+    def cocoa_window(self) -> int:
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if g is None or not w or sys.platform != "darwin":
+            return 0
+        try:
+            return int(g.glfwGetCocoaWindow(w) or 0)
+        except Exception:
+            return 0
+
+    def x11_window(self) -> int:
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if g is None or not w or sys.platform.startswith("win") or sys.platform == "darwin":
+            return 0
+        try:
+            return int(g.glfwGetX11Window(w) or 0)
+        except Exception:
+            return 0
+
+    def x11_display(self):
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if g is None or not w or sys.platform.startswith("win") or sys.platform == "darwin":
+            return None
+        try:
+            return g.glfwGetX11Display(w)
+        except Exception:
+            return None
+
+    def _apply_window_shape(self) -> bool:
+        """Clip the window to the Liquid Player's rounded corners.
+
+        The bonded visualizer sits behind the player at the same size, so an
+        unclipped square window showed black wedges in the player's corners.
+        Fullscreen and screensaver windows stay rectangular.
+        """
+        shaper = getattr(self, "_shaper", None)
+        window = getattr(self, "_window", None)
+        if shaper is None or not window:
+            return False
+        if self.is_fullscreen or getattr(self, "_saver_bounds", None) or self.screensaver:
+            # Fullscreen and screensaver windows fill their area, so keep the
+            # plain rectangle.
+            return shaper.apply(width=1, height=1, enabled=False,
+                                x11_window=self.x11_window(), x11_display=self.x11_display(),
+                                win32_window=self.win32_window(), cocoa_window=self.cocoa_window())
+        width, height = self.window_size()
+        return shaper.apply(
+            width=width,
+            height=height,
+            enabled=True,
+            x11_window=self.x11_window(),
+            x11_display=self.x11_display(),
+            win32_window=self.win32_window(),
+            cocoa_window=self.cocoa_window(),
         )
 
     # -- lifecycle --------------------------------------------------------
@@ -1336,6 +1407,7 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
             pass
         self._init_gl()
         self._alive = True
+        self._apply_window_shape()
         if self.fullscreen_on_start:
             self.toggle_fullscreen()
         if self._span_role == "spawned":
@@ -1397,9 +1469,20 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
         g.glfwSetKeyCallback.argtypes = [c_void_p, c_void_p]
         if hasattr(g, "glfwSetWindowAttrib"):
             g.glfwSetWindowAttrib.argtypes = [c_void_p, c_int, c_int]
-        if not sys.platform.startswith("win") and sys.platform != "darwin":
+        if sys.platform.startswith("win"):
+            if hasattr(g, "glfwGetWin32Window"):
+                g.glfwGetWin32Window.argtypes = [c_void_p]
+                g.glfwGetWin32Window.restype = c_void_p
+        elif sys.platform == "darwin":
+            if hasattr(g, "glfwGetCocoaWindow"):
+                g.glfwGetCocoaWindow.argtypes = [c_void_p]
+                g.glfwGetCocoaWindow.restype = c_void_p
+        else:
             g.glfwGetX11Window.argtypes = [c_void_p]
             g.glfwGetX11Window.restype = c_uint64
+            if hasattr(g, "glfwGetX11Display"):
+                g.glfwGetX11Display.argtypes = [c_void_p]
+                g.glfwGetX11Display.restype = c_void_p
         # Monitor discovery and placement, used by the F10/F11 monitor span.
         from mp_liquid_visualizer_vulkan import GLFWvidmode
         g.glfwGetPrimaryMonitor.restype = c_void_p
@@ -1546,6 +1629,10 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
         fw, fh = self.framebuffer_size()
         if fw < 2 or fh < 2:
             return None
+        # Match the Liquid Player's rounded corners on every resize, window
+        # mode change, and fullscreen toggle. The shaper caches, so the usual
+        # frame pays nothing.
+        self._apply_window_shape()
         state = {
             "active": True,
             "preset_id": int(self.preset.get("id") or 0),

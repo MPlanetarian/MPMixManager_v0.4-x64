@@ -61,6 +61,11 @@ except ImportError:
         pick_random_preset,
     )
 
+try:
+    from visualizer_window_shape import DEFAULT_CORNER_RADIUS, RoundedWindowShaper
+except ImportError:
+    from scripts.visualizer_window_shape import DEFAULT_CORNER_RADIUS, RoundedWindowShaper
+
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
     ROOT = Path(__file__).resolve().parent
@@ -751,6 +756,9 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin, RandomPresetMixin):
         self._wake_event = False
         # R toggles random mode: one new random preset per minute.
         self.init_random_mode()
+        # The window shares the Liquid Player's rounded silhouette, so the
+        # player's corners do not expose square visualizer wedges behind it.
+        self._shaper = RoundedWindowShaper(DEFAULT_CORNER_RADIUS)
         self._unbonded_window_pos = None
         self._last_player_geometry = None
         # Size the window owned before it bonded to the Liquid Player.
@@ -782,6 +790,55 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin, RandomPresetMixin):
     @property
     def summary(self) -> str:
         return f"MP_Liquid_Visualizer Vulkan device: {self.device_name} (vendor 0x{self.vendor_id:04x}, {'discrete' if self.device_type == DISCRETE_GPU else 'gpu'}) | Preset: {self.preset['name']} | Window: {self.width}x{self.height} Fixed Borderless"
+
+    def _apply_window_shape(self) -> bool:
+        """Clip the window to the Liquid Player's rounded corners.
+
+        The bonded window sits exactly behind the player at the same size, so
+        without this the square corners showed as black wedges through the
+        player's rounded ones. Fullscreen and screen-saver windows keep their
+        plain rectangle because they are meant to fill the screen.
+        """
+        shaper = getattr(self, "_shaper", None)
+        window = getattr(self, "_window", None)
+        if shaper is None or not window:
+            return False
+        if (self.is_fullscreen or getattr(self, "_saver_bounds", None)
+                or self.screensaver or _vr_visualizer_side()):
+            # Fullscreen, screensaver, and the VR backdrop fill their area and
+            # keep the plain rectangle.
+            return shaper.apply(width=1, height=1, enabled=False,
+                                x11_window=self.x11_window(), x11_display=self.x11_display(),
+                                win32_window=self.win32_window(), cocoa_window=self.cocoa_window())
+        width, height = self._live_window_size()
+        return shaper.apply(
+            width=width,
+            height=height,
+            enabled=True,
+            x11_window=self.x11_window(),
+            x11_display=self.x11_display(),
+            win32_window=self.win32_window(),
+            cocoa_window=self.cocoa_window(),
+        )
+
+    def _live_window_size(self) -> Tuple[int, int]:
+        """The window's real size from GLFW, not the logical target size.
+
+        ``window_size()`` reports ``_windowed_size`` while windowed, which can
+        be a frame ahead of the window manager. The corner mask has to match
+        the pixels GLFW actually owns.
+        """
+        g, w = getattr(self, "_glfw", None), getattr(self, "_window", None)
+        if g is not None and w:
+            try:
+                lw, lh = c_int(), c_int()
+                g.glfwGetWindowSize(w, byref(lw), byref(lh))
+                if lw.value >= 8 and lh.value >= 8:
+                    return int(lw.value), int(lh.value)
+            except Exception:
+                pass
+        size = getattr(self, "_windowed_size", None) or (self.width, self.height)
+        return max(8, int(size[0])), max(8, int(size[1]))
 
     def _set_windowed_size(self, width: int, height: int, apply: bool = False) -> None:
         width, height = int(width), int(height)
@@ -998,6 +1055,7 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin, RandomPresetMixin):
                 )
             except Exception:
                 pass
+        self._apply_window_shape()
         self._bind_input()
         self._vulkan = load_vulkan_dll()
         self._bind_loader()
@@ -2282,6 +2340,10 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin, RandomPresetMixin):
         fw, fh = self.framebuffer_size()
         if fw < 2 or fh < 2: return None
         if self._resize or (fw, fh) != self._extent: self._recreate_swapchain()
+        # Keep the corner mask in step with every resize, window-mode change,
+        # and fullscreen toggle. The shaper caches, so this is a no-op when
+        # nothing moved.
+        self._apply_window_shape()
         self._write_ubo(bridge)
         return self._render(capture)
 
