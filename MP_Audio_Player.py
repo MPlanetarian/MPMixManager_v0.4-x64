@@ -4080,57 +4080,68 @@ class EqualizerVisualizer:
         hue_base = (now * 0.13 * spd) % 1.0
 
         # 1. Plasma tunnel walls: spiralling interference between the rings.
+        tbl_n = _fx_ansi_table(False)
+        tbl_b = _fx_ansi_table(True)
+        swirl_phase = phase * 11.0 + now * 0.5 * spd
+        hue_base_i = int(hue_base * 360)
+        col_x = [((c - cx) * 0.55) for c in range(cw)]
         for r in range(H):
             y = r - cy
+            row_c, row_col = gc[r], gcol[r]
             for c in range(cw):
-                x = (c - cx) * 0.55
-                rad = math.hypot(x, y) / R
+                x = col_x[c]
+                rad = math.sqrt(x * x + y * y) / R
                 if rad > 1.05:
                     continue
                 th = math.atan2(y, x)
-                swirl = th + 2.4 / (rad + 0.16) + phase * 11.0 + now * 0.5 * spd
+                swirl = th + 2.4 / (rad + 0.16) + swirl_phase
                 f = math.sin(swirl * 3.0) * math.cos(rad * 16.0 - phase * 9.0 + th * 2.0)
                 val = (0.5 + 0.5 * f) * (0.30 + 0.70 * rad) * (1.0 - min(1.0, rad * 0.35))
                 if val < 0.115:
                     continue
-                hue = (hue_base + rad * 0.85 + th / (2.0 * math.pi) * 0.12) % 1.0
+                hue_i = (hue_base_i + int(rad * 0.85 * 360) + int(th / (2.0 * math.pi) * 0.12 * 360)) % 360
                 glyph = "░" if val < 0.36 else ("▒" if val < 0.60 else "▓")
-                lvl = max(2, min(12, 2 + int(val * 8) + int(flash * 2)))
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl))
+                lvl = 2 + int(val * 8) + int(flash * 2)
+                if lvl > 12:
+                    lvl = 12
+                row_c[c] = glyph
+                row_col[c] = tbl_n[hue_i][lvl]
 
         # 2. Nested tunnel rings, each flying toward the viewer.
         n_rings = max(6, min(15, H * 2 + 3))
+        steps = max(56, cw * 2)
+        ring_lut = _fx_ring_lut(steps)
+        n_bands = len(bands)
         for k in range(n_rings):
             frac = ((k + phase) % n_rings) / float(n_rings)
             rr = 0.04 + 0.99 * (frac ** 1.85)
-            band = float(bands[int(min(len(bands) - 1, frac * len(bands)))])
+            band = float(bands[int(min(n_bands - 1, frac * n_bands))])
             peak = float(peaks[int(min(len(peaks) - 1, frac * len(peaks)))])
             depth = frac
-            steps = max(56, cw * 2)
             ring_hue = (hue_base + frac * 0.75 + 0.12 * math.sin(now * 0.9 + k * 1.3)) % 1.0
-            bright = max(2, min(12, 2 + int(depth * 8) + int(band * 3) + int(flash * 2)))
+            ring_hue_i = int(ring_hue * 360)
+            bright = 2 + int(depth * 8) + int(band * 3) + int(flash * 2)
+            bright = min(12, bright)
+            bold = peak > 0.72 or depth > 0.8
             for glow, dglyph, dlevel in ((0.0, None, bright), (0.022, "·", max(2, bright - 3))):
                 rr_g = rr * (1.0 - glow)
                 if rr_g <= 0.0:
                     continue
-                for i in range(steps):
+                table = (tbl_b if (bold and dglyph is None) else tbl_n)
+                rx, ry = rr_g * R, rr_g * R
+                wob_amp = 0.035 + band * 0.035
+                wob_phase = now * 1.7 + k
+                for i, (cos_t, sin_t, octant_glyph) in enumerate(ring_lut):
                     th = 2.0 * math.pi * i / steps
-                    wob = 1.0 + 0.035 * math.sin(th * 3.0 + now * 1.7 + k) + band * 0.035
-                    x = math.cos(th) * rr_g * R * wob
-                    y = math.sin(th) * rr_g * R * wob
-                    r = int(round(cy + y))
-                    c = int(round(cx + x / 0.55))
+                    wob = 1.0 + wob_amp * math.sin(th * 3.0 + wob_phase)
+                    r = int(round(cy + sin_t * ry * wob))
+                    c = int(round(cx + cos_t * rx * wob / 0.55))
                     if not (0 <= r < H and 0 <= c < cw):
                         continue
-                    if dglyph is None:
-                        tx, ty = -math.sin(th) / 0.55, math.cos(th)
-                        octant = int(round((math.atan2(ty, tx) + math.pi) / (math.pi / 4.0))) % 8
-                        glyph = ("─", "╱", "│", "╲", "─", "╱", "│", "╲")[octant]
-                    else:
-                        glyph = dglyph
-                    hue = (ring_hue + th / (2.0 * math.pi) * 0.26) % 1.0
-                    self._fx_put(gc, gcol, r, c, glyph,
-                                 _rainbow_fx_ansi(int(hue * 360), dlevel, dglyph is None and (peak > 0.72 or depth > 0.8)))
+                    glyph = octant_glyph if dglyph is None else dglyph
+                    hue_i = (ring_hue_i + int(i * 0.26 * 360.0 / steps)) % 360
+                    gc[r][c] = glyph
+                    gcol[r][c] = table[hue_i][dlevel]
 
         # 3. Warp spokes: one per spectrum band, radiating from the singularity.
         n_spokes = len(bands)
@@ -4138,20 +4149,22 @@ class EqualizerVisualizer:
             band = float(bands[i])
             ang = i * 2.0 * math.pi / n_spokes + now * 0.35 * spd + hue_base * 2.0 * math.pi
             length = 0.15 + 0.88 * band
-            steps = max(8, int(length * R * 3.2) + 6)
-            for j in range(steps + 1):
-                t = j / float(steps)
+            n_steps = max(8, int(length * R * 3.2) + 6)
+            cos_a, sin_a = math.cos(ang), math.sin(ang)
+            for j in range(n_steps + 1):
+                t = j / float(n_steps)
                 rr = 0.05 + t * length
                 if rr > 1.03:
                     break
-                x = math.cos(ang) * rr * R
-                y = math.sin(ang) * rr * R
-                r = int(round(cy + y))
-                c = int(round(cx + x / 0.55))
-                hue = (hue_base + i / float(n_spokes) + t * 0.4) % 1.0
+                r = int(round(cy + sin_a * rr * R))
+                c = int(round(cx + cos_a * rr * R / 0.55))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
+                hue_i = (hue_base_i + int(i / float(n_spokes) * 360) + int(t * 0.4 * 360)) % 360
                 glyph = "·" if t < 0.5 else ("∙" if t < 0.82 else "✦")
                 lvl = 3 + int(t * 8)
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, t > 0.9))
+                gc[r][c] = glyph
+                gcol[r][c] = (tbl_b if t > 0.9 else tbl_n)[hue_i][lvl]
 
         # 4. Hyperspace motes rushing outward with rainbow trails.
         motes = self._worm_motes
@@ -4178,26 +4191,32 @@ class EqualizerVisualizer:
             self._worm_motes = self._worm_motes[-90:]
         for p in self._worm_motes:
             fade = max(0.0, min(1.0, p["life"] / p["max_life"]))
+            hue_i = (hue_base_i + int(p["hue"] * 360) + int(p["rr"] * 0.4 * 360)) % 360
+            cos_a, sin_a = math.cos(p["angle"]), math.sin(p["angle"])
             for trail in (0.0, -0.05, -0.10, -0.15):
                 rr = p["rr"] + trail
                 if rr <= 0.0:
                     continue
-                x = math.cos(p["angle"]) * rr * R
-                y = math.sin(p["angle"]) * rr * R
-                r = int(round(cy + y))
-                c = int(round(cx + x / 0.55))
-                hue = (hue_base + p["hue"] + p["rr"] * 0.4) % 1.0
+                r = int(round(cy + sin_a * rr * R))
+                c = int(round(cx + cos_a * rr * R / 0.55))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
                 glyph = p["glyph"] if trail == 0.0 else "·"
                 lvl = max(2, int((11 if trail == 0.0 else 6) * fade))
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), lvl, trail == 0.0 and fade > 0.65))
+                gc[r][c] = glyph
+                gcol[r][c] = (tbl_b if trail == 0.0 and fade > 0.65 else tbl_n)[hue_i][lvl]
 
         # 5. Singularity core with an event horizon.
         core_r, core_c = int(round(cy)), int(round(cx))
         horizon = "◉" if beat else ("◎" if pulse > 0.45 else "◌")
         for dr, dc, g, lvl in ((0, 0, horizon, 12), (-1, 0, "·", 8), (1, 0, "·", 8), (0, -1, "·", 8), (0, 1, "·", 8),
                                (-1, -1, "✧", 10), (-1, 1, "✧", 10), (1, -1, "✧", 10), (1, 1, "✧", 10)):
-            hue = (hue_base + now * 0.6 + (dr * 0.11 + dc * 0.07)) % 1.0
-            self._fx_put(gc, gcol, core_r + dr, core_c + dc, g, _rainbow_fx_ansi(int(hue * 360), lvl, True))
+            rr = core_r + dr
+            cc = core_c + dc
+            if 0 <= rr < H and 0 <= cc < cw:
+                hue_i = (hue_base_i + int(now * 0.6 * 360) + dr * 40 + dc * 25) % 360
+                gc[rr][cc] = g
+                gcol[rr][cc] = tbl_b[hue_i][lvl]
 
         header = "── 🌌 RAINBOW WORMHOLE (HYPERSPACE PLASMA TUNNEL) " if inner_w >= 56 else ("── 🌌 WORMHOLE " if inner_w >= 28 else "── 🌌 ")
         footer = ("── VELOCITY %.2fx • RINGS %d • MOTES %d ────" % (flow, n_rings, len(self._worm_motes))) if inner_w >= 52 else "── TUNNEL "
