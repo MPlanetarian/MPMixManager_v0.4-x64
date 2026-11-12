@@ -6,7 +6,7 @@ When a user runs MP Mix Manager or MP Audio Player for the very first time:
 1. Installs four desktop shortcuts: MP Liquid Player, MP Mix Manager, MP Gui,
    and MP Liquid Visualizer.
 2. Sets the Liquid Glass Audio Player as the Default Audio Player in config.
-3. Displays the welcome installer message for 0.4.2 (Liquid) - [Stable Release]
+3. Displays the welcome installer message for 0.4.3 (Liquid) - [Stable Release]
    from MPlanetarian: features added since 0.4.1, five tips, a Mix Archive and
    Music Folder quick start, and a thank-you.
 4. Marks the first-run reward as completed in ~/.config/mix-manager/.liquid_glass_welcomed.
@@ -259,7 +259,7 @@ def show_welcome_message(wait_for_input=True):
 
     w = 78
     title = "✦ WELCOME TO MP MIX MANAGER ✦"
-    version = "0.4.2 (Liquid) - [Stable Release]"
+    version = "0.4.3 (Liquid) - [Stable Release]"
     sub = "Welcome Installer Message from MPlanetarian"
 
     features_since_041 = [

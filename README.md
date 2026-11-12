@@ -1,11 +1,12 @@
-# MP Mix Manager 0.4.2 Stable (Liquid) by Dreamworlds Productions (MPlanetarian)
+# MP Mix Manager 0.4.3 Stable (Liquid) by Dreamworlds Productions (MPlanetarian)
 
-> 📅 **Last Updated:** November 10, 2026 • **Latest Release:** `v0.4.2 Stable (Liquid)`
+> 📅 **Last Updated:** November 12, 2026 • **Latest Release:** `v0.4.3 Stable (Liquid)` — released **November 12, 2026**
 
-[![Last Updated](https://img.shields.io/badge/Last%20Updated-November%2010%2C%202026-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.4.2%20Stable%20(Liquid)-f72585.svg)](VERSION)
+[![Last Updated](https://img.shields.io/badge/Last%20Updated-November%2012%2C%202026-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-0.4.3%20Stable%20(Liquid)-f72585.svg)](VERSION)
 [![Liquid Glass Player](https://img.shields.io/badge/Liquid%20Glass%20Player-OpenGL%20%7C%20Vulkan%20%7C%20Metal-00f0ff.svg)](MP_Audio_Player_Liquid_Glass_OpenGL.py)
-[![MP Liquid Visualizer](https://img.shields.io/badge/MP%20Liquid%20Visualizer-Vulkan%203D%20Audio--Reactive-ff007f.svg)](MP_Liquid_Visualizer.py)
+[![MP Liquid Visualizer](https://img.shields.io/badge/MP%20Liquid%20Visualizer-Vulkan%20%7C%20OpenGL%203D%20Audio--Reactive-ff007f.svg)](MP_Liquid_Visualizer.py)
+[![BigScreen VR](https://img.shields.io/badge/VR%20Mode-Bigscreen%20%2B%20MP%20Liquid%20Player-9146ff.svg)](scripts/bigscreen_vr.py)
 [![MIDI Controller](https://img.shields.io/badge/Hardware%20MIDI-Traktor%20Kontrol%20S4%20hw%3A0%2C0-00ffcc.svg)](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20FreeBSD-00e5ff.svg)](README.md)
 [![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia%20%7C%20Apple%20Silicon%20M1--M4%20%26%20Intel-silver.svg)]()
@@ -21,37 +22,37 @@
 [![Congen](https://img.shields.io/badge/Congen%20v1.1-KDE%20Connect%2018--Theme%20Workstation%20Bridge-1D99F3.svg)](Congen/README.md)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
-![MP Mix Manager 0.4.2 Screenshot (MP Liquid Player) ](004.png)
+![MP Mix Manager 0.4.3 Screenshot (MP Liquid Player) ](004.png)
 
 An enterprise-grade workstation orchestration console and media management suite designed for high-resolution audio production, multi-hour DJ mix archiving, automated 32-bit FLAC mastering, 31,000+ track SMB network streaming, Traktor Pro playlist extraction, live tracklist tracking, YouTube & AI Talking-Head video synthesis, automated multi-period intelligence reporting, system maintenance, and AI workflow control across **Linux (Bazzite / SteamOS / Fedora / Ubuntu)**, **macOS (Latest Sequoia / Sonoma, Apple Silicon M1–M4 & Intel)**, **Microsoft Windows 10 & 11**, and **FreeBSD (14.x / 15-CURRENT)**.
 
-![MP Mix Manager 0.4.2 Screenshot (MP Liquid Player) ](002.png)
+![MP Mix Manager 0.4.3 Screenshot (MP Liquid Player) ](002.png)
 
 > [!TIP]
-> ### 🌟 Welcome to MP Mix Manager v0.4.2 Stable (Liquid)
-> **November 8, 2026. Welcome from MPlanetarian.** This is the stable Liquid release. Thank you for running MP Mix Manager, MP Gui, and the Liquid Transparent Audio Player. The manager, the Liquid Player, and the music library share one glass desktop, and the macOS build in this release is the one on this page.
+> ### 🌟 MP Mix Manager v0.4.3 Stable (Liquid) — Released November 12, 2026
+> **Welcome from MPlanetarian.** 0.4.3 is the largest visualizer update since the Liquid release. The MP Visualizer now runs on **OpenGL as well as Vulkan**, gains **preset 11**, a **desktop screen saver**, **`F10` / `F11` multi-monitor spans**, and stays glued to the player through **Normal, Mini and Micro** modes. **BigScreen VR Mode** turns the whole suite into a headset experience, and a new **package builder** ships amd64 and arm64 Linux packages.
 >
 > New in this release:
-> - 🪟 **[MP Mix Manager GUI](MP_Gui.sh):** The full manager inside the Liquid Glass window. Main menu option **36**, the **MP** row, or `./MP_Gui.sh`. It opens on **Retro Linux Memories** and can sit beside the Liquid Player.
-> - 🖱️ **Shared tray icon:** `./install.sh` starts the icon and keeps it on login. Right-click it to launch MP Mix Manager, MP Gui, or MP Liquid Player. **Close MP Mix Manager (Closes everything)** stops the manager, both windows, playback, and the visualizer.
-> - ⭐ **Favorites, library modes, and clear playlist:** In MP Audio Player, **`1`** is Mix Archive, **`2`** is Music folders, and **`3`** is Favorites. **`H`** marks a mix or track without rewriting the audio file. **`D`** or **Delete** twice clears the open playlist and queue. The files stay on disk.
-> - 🎧 **SMB music playlists that finish:** Playlist refresh lists each share with `rclone` and no longer waits on a mount that does not answer file stats. A named folder playlist stays separate from the combined list.
-> - 🪟 **[MP Liquid Glass Player](MP_Audio_Player_Liquid_Glass_OpenGL.py)** and **[MP Liquid Visualizer](MP_Liquid_Visualizer.py)** remain the desktop player and the 3D visualizer. The desktop shortcut opens on the main screen. The windowed visualizer fits that screen. Closing the player or the Manager GUI closes the visualizer.
-> - 🍏 **macOS in this release:** MP Gui and the Liquid Player open in the OpenGL window (`MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`). The console tab title is written once and locked. Pale glass uses dark ink, playlist marks use Menlo, and MP Liquid Visualizer loads Homebrew MoltenVK before GLFW. The Desktop shortcuts are **MP Liquid Player**, **MP Mix Manager**, **MP Gui**, and **MP Liquid Visualizer**. Full notes: [macOS fixes](#-macos-fixes-in-v042-stable-liquid).
-> - 📅 **Since that November 8 release:** Linux main menu option **37** is the TTY Desktop Switcher and Exit is option **38**. The visualizer window matches the Liquid Player, or MP Gui when MP Gui starts it. The Windows Liquid Player can be dragged, and its tray icon sits on the taskbar. Opening MP Gui or the Liquid Player keeps your volume. Full notes: [Updates since November 8, 2026](#-updates-since-the-november-8-2026-stable-release).
+> - 🥽 **BigScreen VR Mode:** Main menu row **VR**, directly under **MP**. Bigscreen loads first, the visualizer becomes the backdrop, then the Liquid Player opens centred and paused. Music starts only once the player confirms it is centred.
+> - 🔮 **MP Visualizer on OpenGL and Vulkan:** Full parity between both backends, including preset 11 **Dreamworlds (Chromatic Storm)** with twelve morphing sequences, plus **`+` / `-`** to cycle the entire preset library.
+> - 🖥️ **Multi-monitor and screen saver:** **`F10`** spans a visualizer across every other monitor and fullscreens them after two seconds; **`F11`** does the same with a different random preset. The new screen saver tours the presets when the desktop is idle and exits on any key or mouse move.
+> - 🎛️ **Instance cap, banner fix and theme navbars:** MP Gui and MP Liquid Player are limited to **4 instances** from shortcuts, hotkeys and the tray. The player banner has its right edge back and the `Controls:` hint no longer jitters. The navigation bar now paints in the active theme colour.
+> - 📱 **MP Liquid Player (Web):** Five-track scrollable playlist, working **Mix / Music / Favorites** mode buttons, and a layout that fits a 390 px phone.
+> - 📦 **Linux packages for both architectures:** `MP_Package_Dev_Utility.sh` builds `.deb`, `.tar.gz` and optional `.rpm` for **amd64 and arm64**, with `SHA256SUMS`, a build manifest and generated release notes.
 >
-> **👉 [Updates since November 8](#-updates-since-the-november-8-2026-stable-release) • [What's New in v0.4.2](#-whats-new-in-v042-stable-liquid) • [Quick Start by OS](#-quick-start-by-operating-system) • [Read the Full Changelog](CHANGELOG.md)**
+> **👉 [What's New in v0.4.3](#-whats-new-in-v043-stable-liquid) • [Quick Start by OS](#-quick-start-by-operating-system) • [Read the Full Changelog](CHANGELOG.md) • [Previous release: v0.4.2](#-whats-new-in-v042-stable-liquid)**
 
 ---
 
 ## 📑 Table of Contents
 
-![MP Mix Manager 0.4.2 Screenshot (MP Audio CLI Player) ](003.png)
+![MP Mix Manager 0.4.3 Screenshot (MP Audio CLI Player) ](003.png)
 
-- [📅 Updates since the November 8, 2026 stable release](#-updates-since-the-november-8-2026-stable-release)
-- [🚀 What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid)
+- [🚀 What's New in v0.4.3 Stable (Liquid)](#-whats-new-in-v043-stable-liquid)
+- [📅 Updates in the 0.4.2 release window](#-updates-in-the-042-release-window)
+- [🍏 What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid)
 - [🍏 macOS fixes in v0.4.2 Stable (Liquid)](#-macos-fixes-in-v042-stable-liquid)
-- [🎉 Download & Experience v0.4.2 Stable (Liquid)](#-download--experience-v042-stable-liquid)
+- [🎉 Download & Experience v0.4.3 Stable (Liquid)](#-download--experience-v043-stable-liquid)
 - [🚀 What's New in v0.4.0 Stable](#-whats-new-in-v040-stable)
 - [🔥 Core v0.4 Architecture Highlights](#-core-v04-architecture-highlights)
 - [🪟 Spotlight: MP Liquid Glass Audio Player (OpenGL • Vulkan • Apple Silicon Metal)](#-spotlight-mp-liquid-glass-audio-player-opengl--vulkan--apple-silicon-metal)
@@ -71,7 +72,7 @@ An enterprise-grade workstation orchestration console and media management suite
 - [🖥️ KDE Plasma Desktop Shortcuts & Global Keyboard Binder](#️-spotlight-kde-plasma-desktop-shortcuts--global-keyboard-binder)
 - [📢 Unified Multi-Channel Notification Dispatcher](#-spotlight-unified-multi-channel-notification-dispatcher)
 - [🚀 Quick Start by Operating System](#-quick-start-by-operating-system)
-- [🎛️ Master Feature Matrix (3 Sections, Options 0–38)](#️-master-feature-matrix-3-sections-options-038)
+- [🎛️ Master Feature Matrix (3 Sections, Options 0–38, plus the MP and VR rows)](#️-master-feature-matrix-3-sections-options-038-plus-the-mp-and-vr-rows)
 - [💻 Command Line Interface & Direct Shortcuts](#-command-line-interface--direct-shortcuts)
 - [📂 Repository & Codebase Layout](#-repository--codebase-layout)
 - [⚙️ Configuration Guide (`config.env`)](#️-configuration-guide-configenv)
@@ -80,10 +81,55 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ---
 
-## 📅 Updates since the November 8, 2026 stable release
+## 🚀 What's New in v0.4.3 Stable (Liquid)
 
 > [!IMPORTANT]
-> **The version is still `0.4.2 Stable (Liquid)`.** This page was brought up to date on November 10, 2026. The tables below are the features and fixes added after the November 8 notes were published. The November 8 set stays under [What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid).
+> **MP Mix Manager v0.4.3 Stable (Liquid) — released November 12, 2026.** This release completes the visualizer work begun in 0.4.2 and adds BigScreen VR Mode, Linux packaging for both architectures, tracklist HTML/TEXT export, the four-instance cap, and the Web Companion Favorites library. Notes for the previous release remain under [What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid).
+
+### Added
+
+| Feature | Where | What you can do |
+| :--- | :--- | :--- |
+| **BigScreen VR Mode** | Main menu row **VR**, `scripts/bigscreen_vr.py`, `launch_vr_mode.bat` | Bigscreen starts first, the MP Liquid Visualizer opens as a large centred backdrop, and the MP Liquid Player opens centred on the primary desktop in Retro Linux Memories **paused**. Music starts only after the player reports that its centred size has settled (`vr_player_ready.json`); if that never happens, music is not started and the launcher returns an error. Both Liquid Glass hosts read `MP_VR_LAYOUT`, keep the window centred, and clear the ready file on close. The visualizer ignores "match the player" and 4K fullscreen while in VR. The header shows **VR Mode** in magenta. Also `vr`, `vr-mode`, `bigscreen`, `bigscreen-vr`, a Windows installer shortcut and a tray entry; `BIGSCREEN_EXE` handles a custom install. |
+| **MP Visualizer preset 11 — Dreamworlds (Chromatic Storm)** | `--preset 11` | Uses `Pictures/MPlanetarian_Dreamworlds_Lockscreen.png` as the sole environment texture and morphs through **twelve sequences** in one ~95 s loop: Furnace Hull, Fin Cascade, Split Keel, Bead Surge, Ember Wake, Plasma Cocoon, Spine Ring, Shard Bloom, Hull Strata, Twin Vessel, Nozzle Flare and Storm Collapse. Each sequence keeps the bead swarms and graphite wire trails, with per-sequence camera framing and a clamped background ray projection. |
+| **`+` / `-` preset cycling** | MP Visualizer window | Number keys **`1`**–**`9`** map to fixed slots; **`+`** and **`-`** (and the keypad keys) step through the **entire** library in either direction with wrap-around, reaching presets that are not on a number key. `--list-presets` now shows true slot numbers and `--` for cycle-only presets. The MP Liquid Player's own `+`/`-` behaviour is untouched. |
+| **Visualizer desktop screen saver** | Manager **Option 23 → 8**, `scripts/mp_visualizer_idle_saver.py` | `--screensaver` runs fullscreen, tours the whole preset library every `--saver-dwell` seconds, keeps animating with no player running, hides the pointer, and exits on any key or mouse movement. `--saver-preset` locks one theme; `--saver-windowed` runs windowed. The daemon supports `--status`, `--stop`, `--idle`, `--dwell` and `--cooldown`, and never leaves an orphaned visualizer. The menu screen can preview it, start or stop the daemon, show status, adjust the threshold and dwell, and install or remove a login autostart entry. |
+| **Multi-monitor visualizer spans** | **`F10`** / **`F11`** in the MP Visualizer | **`F10`** discovers the monitor layout and spawns a visualizer on every other monitor, then fullscreens them after two seconds. **`F11`** does the same but gives each spawned window a different random preset. Pressing **`F10`** or **`F11`** again closes the extra windows and keeps the one you are using. The window bonded behind the MP Liquid Player is never closed. |
+| **Four-instance cap** | MP Gui, MP Liquid Player, `scripts/mp_instance_limit.py` | A hard ceiling of **4** simultaneous instances of MP Gui and MP Liquid Player, enforced from desktop shortcuts, global hotkeys, the tray icon and the manager. Further launches refuse cleanly instead of overloading the machine. |
+| **Linux packages for amd64 and arm64** | `MP_Package_Dev_Utility.sh`, `tests/test_package_dev_utility.py` | Builds Debian `.deb`, portable `.tar.gz` and optional RPM for **amd64** and **arm64** from one source tree. No cross-compilation is needed because the payload is interpreted Bash and Python, and a native ELF scanner refuses to put an x86-64 binary into an arm64 package unless `--allow-native-binaries` is passed. `--publish` uploads the artifacts, `SHA256SUMS` and release notes with `gh`. |
+| **Tracklist HTML & TEXT export** | **`X`** / **`Y`** in the tracklist viewer | **`X`** writes a self-contained dark/glass HTML page with a track table, remix highlighting, print styles and escaped content. **`Y`** saves the pristine `.txt`. Both land in `TRACKLIST_EXPORTS/` in the program folder you launched. Headless use: `view_tracklist_console.sh --export html\|text`. |
+| **Web Companion Favorites** | MP Liquid Player (Web) | **Favorites** is a third library mode beside Mix and Music, reading the same `favorites.json` the player writes when you press **`H`**. Saved order is preserved, duplicate paths are collapsed, and missing files are skipped so a stale favourite cannot stall the stream. |
+
+### Player, visualizer and menu
+
+| Change | What you see |
+| :--- | :--- |
+| **OpenGL and Vulkan parity** | The visualizer works in both backends. The OpenGL path gains the same preset coverage and in-window layer as Vulkan, so the default `LIQUID_GLASS_BACKEND=opengl` build is no longer the lesser one. |
+| **Visualizer stays attached in Mini and Micro** | Switching the Liquid Player between Normal, Mini and Micro now resizes the bonded visualizer with it, so it never detaches or keeps the Normal geometry. |
+| **Visualizer Z cycle** | **`Z`** steps **fullscreen → half the default size → default size**, repeating. Double-click still toggles plain fullscreen. A windowed size chosen with `Z` is no longer forced back to fullscreen when the window moves to a 4K monitor. |
+| **Player banner right edge** | The mini EQ is decoded from JSON escapes and pinned to a fixed 8-column field, so the panel's right `│` is present on every row and the `Controls:` hint no longer drifts as bars light up. New state files are written as real glyphs (`ensure_ascii=False`); older escaped files still load. |
+| **Theme navbars** | The selected menu row keeps the theme hue instead of a `1;37;40m` foreground painting it black. Row text picks black or white from the hue's luminance, so light palettes stay readable. The player playlist bar uses the theme highlight colour in both console and Liquid Glass. |
+| **MP Harmony starts Ollama** | The assistant row no longer dead-ends when Ollama is silent. It asks before starting, detects a distrobox/podman container (default `ollama-container`), and otherwise uses the systemd user service or a plain `ollama serve`. |
+| **Tracklist viewer viewport** | The viewer draws a fixed viewport instead of printing everything and clearing. **↑/↓**, **PgUp/PgDn**, **Space**, **Home/End** and the mouse wheel scroll it, **`R`** reloads, `WINCH` recomputes the layout, and the alternate screen restores the console on exit. |
+| **Traktor history sync** | `TRAKTOR_SMB_HOST`, `TRAKTOR_SMB_SHARE` and `TRAKTOR_SMB_HISTORY_DIR` are now documented and configurable, with fallback to the music SMB settings. The skip message names the exact missing keys. |
+| **Web Companion playlist** | Five visible tracks in a scrollable 20-entry window, touch scrolling, a themed scrollbar, scroll position preserved across the 15-second refresh, and a parse cache so the ~30 MB combined playlist is not re-read on every tap. |
+| **Web Companion branding** | The dashboard is **MP LIQUID PLAYER (WEB)**, page title **MP Liquid Player (Web) - DJ Booth Remote**. |
+
+### Windows, macOS and FreeBSD
+
+| Change | What you see |
+| :--- | :--- |
+| **VR launcher on Windows** | `launch_vr_mode.bat` and `scripts/enter_vr_mode.bat` wrap the VR entry points, with a **MP Liquid Player VR Mode** shortcut on the Desktop and Start Menu. On Linux the menu row and both scripts refuse with the same message. |
+| **Windows resource metadata** | `FileVersion` and `ProductVersion` report **0.4.3**. |
+| **macOS bundle versions** | `CFBundleShortVersionString` and `CFBundleVersion` report **0.4.3**. |
+| **Version everywhere** | `VERSION` reads `0.4.3 Stable (Liquid)`, and every fallback used when that file is missing matches it. |
+
+---
+
+## 📅 Updates in the 0.4.2 release window
+
+> [!IMPORTANT]
+> **These notes were published during the 0.4.2 window and are kept here as release history.** They cover the features and fixes added after the original November 8, 2026 notes, and are superseded by [What's New in v0.4.3 Stable (Liquid)](#-whats-new-in-v043-stable-liquid).
 
 ### Added
 
@@ -131,7 +177,7 @@ An enterprise-grade workstation orchestration console and media management suite
 ## 🚀 What's New in v0.4.2 Stable (Liquid)
 
 > [!IMPORTANT]
-> **MP Mix Manager v0.4.2 Stable (Liquid) — November 8, 2026.** This release adds the Manager GUI, Retro Linux Memories, Favorites, Mix and Music library switching, and a clear-playlist command. It also fixes SMB playlist generation, the MP Liquid desktop shortcut, the startup loader console, and the visualizer staying open after the player exits. Features added after these notes are under [Updates since the November 8, 2026 stable release](#-updates-since-the-november-8-2026-stable-release). The macOS update in this same release is written out under [macOS fixes in v0.4.2](#-macos-fixes-in-v042-stable-liquid). The previous published notes remain under [What's New in v0.4.0 Stable](#-whats-new-in-v040-stable). `0.4.1 Stable (Liquid)` was an in-tree label and was not published as its own release.
+> **MP Mix Manager v0.4.2 Stable (Liquid) — November 8, 2026.** This release adds the Manager GUI, Retro Linux Memories, Favorites, Mix and Music library switching, and a clear-playlist command. It also fixes SMB playlist generation, the MP Liquid desktop shortcut, the startup loader console, and the visualizer staying open after the player exits. Features added after these notes are under [Updates in the 0.4.2 release window](#-updates-in-the-042-release-window). The macOS update in this same release is written out under [macOS fixes in v0.4.2](#-macos-fixes-in-v042-stable-liquid). The previous published notes remain under [What's New in v0.4.0 Stable](#-whats-new-in-v040-stable). `0.4.1 Stable (Liquid)` was an in-tree label and was not published as its own release.
 
 ### Added
 
@@ -145,7 +191,7 @@ An enterprise-grade workstation orchestration console and media management suite
 | **Skip all mix splits** | Mix conversion, `Make_SOF_FLAC_CONVERSION.sh` | After a conversion, **Enter** still skips splitting for that mix only. **`A`**, **`All`**, or **`2`** skips splitting for that mix and every mix left in the batch. |
 | **Manager row above option 0** | Main menu **MP** | `MP GUI Mix Manager (New)` launches the GUI. Exit is option **38**, after the Linux TTY switcher. |
 | **Drag and drop** | Liquid Player | Drop audio files, or an M3U playlist, onto the Liquid Player. They join the list that is open. |
-| **In-window visualizer** | Liquid Player | The MP Visualizer can draw behind the player text. The separate visualizer window is described under [Updates since November 8](#-updates-since-the-november-8-2026-stable-release). |
+| **In-window visualizer** | Liquid Player | The MP Visualizer can draw behind the player text. The separate visualizer window is described under [Updates in the 0.4.2 release window](#-updates-in-the-042-release-window). |
 | **Pointer follow** | MP Gui, **`L`** | When MP Gui opens the Liquid Player, the pointer moves into that player window. |
 | **Bash on B** | Any manager menu | Press **`B`** with nothing typed to turn that same window into a Bash prompt. The shell loads `~/.bashrc`. Press **`B`** again on an empty line to return. A **`B`** typed after other characters stays in the command. Search mode treats **`B`** as search text. |
 | **Theme menu numbers** | Main menu | Each theme paints its menu numbers, and the selection text, in its own colour. |
@@ -168,7 +214,7 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ### 🍏 macOS fixes in v0.4.2 Stable (Liquid)
 
-Welcome to the macOS side of **0.4.2 Stable (Liquid)**. These are the Mac fixes in the current tree, on top of the features in the tables above.
+Welcome to the macOS side of **0.4.2 Stable (Liquid)**. These are the Mac fixes published with that release, on top of the features in the tables above.
 
 | Area | What macOS does in 0.4.2 |
 | :--- | :--- |
@@ -188,18 +234,19 @@ The [v0.4.0 Stable notes](#-whats-new-in-v040-stable) below still describe the L
 
 ---
 
-## 🎉 Download & Experience v0.4.2 Stable (Liquid)
+## 🎉 Download & Experience v0.4.3 Stable (Liquid)
 
 > [!TIP]
 > ### 🚀 Ready to Experience the Future of High-Resolution Desktop Audio?
-> **MP Mix Manager v0.4.2 Stable (Liquid)** is the current release. It keeps the 32-bit FLAC archive, the SMB music library, and the Liquid Glass desktop, and adds the Manager GUI, Retro Linux Memories, Favorites, and the playlist fixes above.
+> **MP Mix Manager v0.4.3 Stable (Liquid)** was released on **November 12, 2026** and is the current release. It keeps the 32-bit FLAC archive, the SMB music library, the Liquid Glass desktop, the Manager GUI and Favorites, and adds OpenGL/Vulkan visualizer parity, preset 11, the screen saver, multi-monitor spans, BigScreen VR Mode, the four-instance cap, and Linux packages for amd64 and arm64.
 >
-> 💎 **Top 5 Reasons to Download & Run v0.4.2 Today:**
-> 1. 🪟 **MP Mix Manager GUI:** Run the whole manager in the Liquid Glass window, with Retro Linux Memories as the starting theme, beside the Liquid Player.
-> 2. ⭐ **Favorites and library switching:** Mark mixes and tracks with **`H`**, open them with **`3`**, switch Mix Archive and Music with **`1`** and **`2`**, and clear a playlist with **`D`** twice without deleting files.
-> 3. 🎧 **SMB playlists that complete:** Generate a playlist per share plus one combined list. A share that does not answer no longer hangs the refresh or wipes a playlist you already have.
-> 4. 🔮 **MP Liquid Player and Visualizer:** Still-water glass on OpenGL, Vulkan, and Apple Silicon Metal, with the windowed visualizer fitted to the main desktop and closed when you leave the player.
-> 5. 💻 **The same launchers:** `./manager.sh` on Linux, `manager_macos.command` on macOS, and `MP Mix Manager.exe` or `manager.bat` on Windows.
+> 💎 **Top 6 Reasons to Download & Run v0.4.3 Today:**
+> 1. 🔮 **Visualizer on OpenGL and Vulkan:** Both backends share the full preset library, including **Dreamworlds (Chromatic Storm)** with twelve morphing sequences and **`+` / `-`** to reach every preset.
+> 2. 🥽 **BigScreen VR Mode:** Headset backdrop, centred and paused Liquid Player, and music that starts only once the player confirms it is placed.
+> 3. 🖥️ **F10 / F11 multi-monitor:** Fill the other screens with visualizers in two seconds, with a different random preset per window on **`F11`**. The screen saver tours the presets whenever the desktop is idle.
+> 4. 🎛️ **Four-instance cap and a fixed banner:** MP Gui and the Liquid Player refuse a fifth instance, the player banner keeps its right edge, the `Controls:` hint stops drifting, and the navigation bar paints in the theme colour.
+> 5. 📱 **MP Liquid Player (Web):** Five-track scrollable playlist and working **Mix / Music / Favorites** buttons, sized for a phone.
+> 6. 📦 **Both Linux architectures:** `.deb`, `.tar.gz` and optional `.rpm` for amd64 and arm64 from one tree, with checksums and generated release notes.
 >
 > ### ⚡ Quick 3-Step Setup:
 > ```bash
@@ -216,17 +263,18 @@ The [v0.4.0 Stable notes](#-whats-new-in-v040-stable) below still describe the L
 > # On macOS: double-click manager_macos.command
 > ```
 >
-> **🎧 Test Drive v0.4.2 Immediately:**
+> **🎧 Test Drive v0.4.3 Immediately:**
 > - Launch **MP Mix Manager GUI**: Press **`MP`** or option **`36`**, or run `./MP_Gui.sh` or `mix-archive-manager gui`.
 > - Launch **MP Liquid Glass Player**: Press option **`3`**, press **`L`**, or run `mix-archive-manager --liquid`. From the GUI, **`L`** opens the player beside it.
 > - In the player: **`1`** Mix Archive, **`2`** Music, **`3`** Favorites, **`H`** mark or unmark, **`D`** then **`D`** to clear the playlist.
-> - Launch **MP Liquid Visualizer**: Press option **`23`**, press **`Z`**, or run `mix-archive-manager visualizer`. Keys **`1`** through **`9`** select the first nine presets. Preset 10 is `python3 MP_Liquid_Visualizer.py --preset 10`.
+> - Launch **MP Liquid Visualizer**: Press option **`23`**, press **`Z`**, or run `mix-archive-manager visualizer`. Keys **`1`** through **`9`** select the first nine presets. Preset 10 is `python3 MP_Liquid_Visualizer.py --preset 10` and preset 11 is `--preset 11`. **`+`** and **`-`** cycle the whole library.
+> - **Multi-monitor and VR:** In the visualizer, press **`F10`** to span the other screens, or **`F11`** for a random preset per screen. From the main menu, press the **VR** row for BigScreen VR Mode.
 
 ---
 
 ## 🚀 What's New in v0.4.0 Stable
 
-Previous release, October 24, 2026. Current release notes are [What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid). The visualizer window size in that release was a 1400 pixel square. The size in the tree today is under [Updates since November 8, 2026](#-updates-since-the-november-8-2026-stable-release).
+Two releases back, October 24, 2026. Current release notes are [What's New in v0.4.3 Stable (Liquid)](#-whats-new-in-v043-stable-liquid). The visualizer window size in that release was a 1400 pixel square. The size in the tree today is under [Updates in the 0.4.2 release window](#-updates-in-the-042-release-window).
 
 > [!IMPORTANT]
 > **MP Mix Manager v0.4.0 Release (October 24, 2026):** Introduces the groundbreaking **MP Liquid Glass Audio Player** (OpenGL / Vulkan / Apple Silicon Metal) with 86% slimmer bezels and Windows DWM acrylic blur, the native Vulkan **MP Liquid Visualizer** with real-time 3D audio-reactive raymarching across 5 Bandcamp presets (including the new **Stream of Frequency** and **Sensorium Interface**), the global **Stream of Frequency Theme** and animated spectrogram equalizer (`stream_of_frequency_eq`), free celebratory release track & art piece in **`MP_SAMPLES/`** pre-loaded on first run, updated **`MP_loader.mp4`** startup soundtrack, native **Traktor Kontrol S4 Hardware MIDI Controller Support** (`hw:0,0` / `/dev/snd/midiC0D0`), real-time **10-Band Graphic Equalizer**, native **64-bit Windows `.EXE` console launcher** (`MP_Mix_Manager.exe` / `manager.exe`), **Live Lossless WAV Recording** with 3GB auto-rollover (`R` key), **Mix Playback Queue** (`Q` key), **Dynamic Tracklist Theme Synchronization** (`T` key), native file manager audio reveal (`F` key), and responsive auto-rescaling UI.
@@ -236,7 +284,7 @@ Previous release, October 24, 2026. Current release notes are [What's New in v0.
 | **🌊 Stream of Frequency Theme** | **[Global Theme & Equalizer](themes/Stream_of_Frequency_MP_Mix_Manager.theme)** | Cohesive global theme derived from the official *Stream of Frequency* cover art (`Stream_of_Frequency.jpg`) and equalizer effect (`stream_of_frequency_eq`). Selecting Option 20 in Themes globally synchronizes the MP Audio Player, animated dynamic wave spectrogram equalizer, MP Liquid Visualizer, transparent Liquid Glass player, tracklist console, and btop monitor theme. |
 | **🎁 Free Release Track & Art** | **[`MP_SAMPLES/` Folder](MP_SAMPLES/)** | Celebrates the v0.4 release with an exclusive free release track: *MPlanetarian - Ecology of the Earth (Cosmic Dreamworlds Remake)* (pristine 24-bit 48kHz FLAC, 16:54 duration) and original art piece *Cosmic_Dreamworlds_Cover.png*. Automatically preloaded into the player ready at 0:00 on first launch! |
 | **🪟 Liquid Glass Player** | **[MP Audio Player (Liquid Glass Mode)](MP_Audio_Player_Liquid_Glass_OpenGL.py)** | Dedicated translucent still-water glass window hosting MP Audio Player. **86% slimmer bezel border** (reduced from 52px to 7px) across Default (1094x734), Mini (680x266), and Micro (680x140) modes. High-compatibility OpenGL (`MP_Audio_Player_Liquid_Glass_OpenGL.py`) default supporting AMD Radeon, Intel, NVIDIA, and legacy GPUs; configurable Vulkan (`MP_Audio_Player_Liquid_Glass.py`) and Apple Silicon Metal (`MP_Audio_Player_Liquid_Glass_macOS.py`). Features Windows 10 & 11 DWM acrylic blur, double-click top bezel maximize/restore, in-process Mini/Micro modes (`M` key), "Orbital Void Reflux", "Cosmic Dreamworlds", and "Stream of Frequency" skins, "Dynamic Liquid Glass [Rainbow Colours]" breathing transparency, and continuous audio playback across Manager exit. |
-| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Built-from-scratch native **Vulkan 1.x 3D audio-reactive raymarching visualizer** in a fixed 1400x1400 borderless window with **zero text overlay**. Continuously generates and animates 3D procedural geometry from real-time 24-band FFT telemetry while music plays; freezes instantly in-place on pause/stop. Features 10 procedural presets adhering to a strict 1-Bandcamp-cover-per-preset architecture: **Preset 1: Cosmic Dreamworlds (Liquid)**, **Preset 2: Orbital Void Reflux**, **Preset 3: Dreamworlds Ultra (MPlanetarian Biomech)**, **Preset 4: Infinite Complexity**, **Preset 5: Sensorium Interface**, **Preset 6: Infinite Complexity**, **Preset 7: Beyond Dimensions**, **Preset 8: Particle Accelerator**, **Preset 9: Cosmic Universe**, and **Preset 10: Resonant Fluid Dynamics**. Dynamic runtime hotkey switching (`[1]`..`[10]`), GPU texture re-upload, and Manager Option 23 integration. |
+| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Built-from-scratch native **Vulkan 1.x 3D audio-reactive raymarching visualizer** in a fixed 1400x1400 borderless window with **zero text overlay**. Continuously generates and animates 3D procedural geometry from real-time 24-band FFT telemetry while music plays; freezes instantly in-place on pause/stop. Features 10 procedural presets adhering to a strict 1-Bandcamp-cover-per-preset architecture: **Preset 1: Cosmic Dreamworlds (Liquid)**, **Preset 2: Orbital Void Reflux**, **Preset 3: Dreamworlds Ultra (MPlanetarian Biomech)**, **Preset 4: Infinite Complexity**, **Preset 5: Sensorium Interface**, **Preset 6: Infinite Complexity**, **Preset 7: Beyond Dimensions**, **Preset 8: Particle Accelerator**, **Preset 9: Cosmic Universe**, **Preset 10: Resonant Fluid Dynamics**, and **Preset 11: Dreamworlds (Chromatic Storm)**. Dynamic runtime hotkey switching (`[1]`..`[9]` for the numbered slots, plus `+` / `-` to cycle the entire library), GPU texture re-upload, and Manager Option 23 integration. Also runs as a **desktop screen saver** that auto-launches after configurable inactivity, tours the presets and exits on any key or mouse movement. |
 | **🎛️ 10-Band Graphic Equalizer** | **[Equalizer Presets & HUD (`E` Key)](MP_Audio_Player.py)** | Real-time 10-band DSP audio equalizer with tailored electronic music presets: **Flat (Default)**, **Ambient**, **Trance**, **Techno**, **House**, **Progressive**, and **Vapourwave**. Includes interactive in-player Equalizer HUD (`E` key) with visual decibel scale (-12 to +12 dB), band sliders, and custom user preset creation/saving (`S` key). |
 | **🎛️ Hardware MIDI Controller** | **[Traktor Kontrol S4 MIDI Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native ALSA rawmidi integration (`hw:0,0` / `/dev/snd/midiC0D0`) mapping physical controls to MP Audio Player: dual-deck ±20% pitch faders with 0.0% deadband detent snapping, pitch bend (`+`/`-`), SYNC (0% reset / shuffle toggle), PLAY/CUE/CUP transport, BROWSE encoder navigation, LOOP IN/OUT/SIZE, HOTCUES 1..4 jump, channel/master faders, cue mute, and loop recorder controls. |
 | **🤖 Traktor S4 MIDI Daemon** | **[traktor_s4_midi.py & .sh](scripts/traktor_s4_midi.py)** | Lightweight background daemon (`scripts/traktor_s4_midi.py`) with `--start`, `--stop`, `--restart`, `--status`, `--daemon`, `--guide`, and interactive `--monitor` packet analyzer, communicating via IPC to MP Audio Player. |
@@ -271,7 +319,7 @@ Previous release, October 24, 2026. Current release notes are [What's New in v0.
 | Feature Area | Component | Highlights & Capability Summary |
 | :--- | :--- | :--- |
 | **🪟 Liquid Glass Player** | **[MP Audio Player (Liquid Glass)](MP_Audio_Player_Liquid_Glass_OpenGL.py)** | Translucent desktop music player with still-water glass caustics, **86% slimmer bezel border**, tri-engine support (**OpenGL Core 3.3+**, **Vulkan 1.x**, and **Apple Silicon Metal MSL**), Windows 10/11 DWM acrylic blur, double-click maximize/restore, in-process Mini/Micro modes (`M`), "Orbital Void Reflux" & "Cosmic Dreamworlds" skins, dynamic rainbow breathing transparency, and continuous playback across Manager exit. |
-| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Borderless Vulkan 3D audio-reactive raymarching engine with zero text overlay. On Linux the window matches the Liquid Player, or MP Gui when MP Gui starts it. macOS is 1094×734. Windows is 700×700. Animates procedural 3D geometry from live 24-band FFT telemetry, freezes instantly on pause/stop, and has 10 Bandcamp presets. Keys **`1`** through **`9`** select the first nine. Preset 10, Resonant Fluid Dynamics, opens with `--preset 10`. |
+| **🔮 MP Liquid Visualizer** | **[MP_Liquid_Visualizer.py](MP_Liquid_Visualizer.py)** | Borderless Vulkan 3D audio-reactive raymarching engine with zero text overlay. On Linux the window matches the Liquid Player, or MP Gui when MP Gui starts it. macOS is 1094×734. Windows is 700×700. Animates procedural 3D geometry from live 24-band FFT telemetry, freezes instantly on pause/stop, and has **11 Bandcamp presets**. Keys **`1`** through **`9`** select the first nine; preset 10 (Resonant Fluid Dynamics) and preset 11 (Dreamworlds — Chromatic Storm) open with `--preset 10` and `--preset 11`, and **`+` / `-`** cycle the whole library. It runs on both OpenGL and Vulkan, can span every other monitor with **`F10`** (or **`F11`** for a random preset per screen), and doubles as a desktop screen saver. |
 | **🎛️ 10-Band Graphic EQ** | **[Equalizer HUD & Presets](MP_Audio_Player.py)** | Real-time zero-phase FIR audio equalizer with tailored electronic music curves: Flat, Ambient, Trance, Techno, House, Progressive, and Vapourwave. Interactive visual decibel HUD (`E` key) with custom preset saving (`S` key) to disk. |
 | **🎛️ Hardware MIDI Studio** | **[Traktor Kontrol S4 Suite](docs/TRAKTOR_KONTROL_S4_USER_GUIDE.md)** | Native dual-deck hardware MIDI console mapping via ALSA rawmidi (`hw:0,0`), dual-deck pitch controls (-20% to +20%), deadband snapping at 0.0%, pitch nudge/sync, transport/browse mapping, background daemon (`traktor_s4_midi.py`), and Option 18 integration. |
 | **🎙️ Live WAV Recording** | **[In-Player Recording (`R` Key)](MP_Audio_Player.py)** | Live 16-bit stereo PCM WAV recording directly from playback stream, featuring non-blocking queueing, flashing red dot indicator (`● REC`), and automatic **3GB file size rollover** (`*_pt01.wav`, `*_pt02.wav`) ensuring 100% standard RIFF compatibility. |
@@ -341,7 +389,7 @@ Previous release, October 24, 2026. Current release notes are [What's New in v0.
     - Paired with `Cover_WMI_V2.png`.
     - Procedural 3D gravitational singularity core surrounded by fluid reflux satellites, dual-tier relativistic accretion rings, helical axial flux jets, and kinetic polyhedral shards.
     - Features **relativistic gravitational lensing** that warps the cover artwork into concentric photon ring arcs around the singularity.
-  - **Preset 3: "Dreamworlds Ultra (MPlanetarian Biomech)"** (`dreamworlds_ultra_MPlanetarian`):
+  - **Preset 3: "Dreamworlds Ultra (MPlanetarian Biomech)"** (`dreamworlds_ultra_mplanetarian`):
     - Directly inspired by MPlanetarian's seminal visual work on *XINRI D - YAPORIGAMI* and `Start_Menu_Icon.png`.
     - Features an **aerodynamic biomechanical fuselage & engine spine** rendered with frosted pearlescent glass, translucent caustics, and audio-reactive ripple displacement.
     - **Twin High-Intensity Cyan Reactor Rings & Drive Gimbals** orbiting perpendicularly to the spine axis with bass-pulse glow and white-hot laser centers.
@@ -386,7 +434,9 @@ Previous release, October 24, 2026. Current release notes are [What's New in v0.
     - Palette runs from abyssal indigo (`#080711`) and resonant ultramarine (`#160e9e`) through neon orchid (`#e40aa7`), rose quartz, electric mint, and starlight pearl.
     - Open it with `--preset 10` or `--preset resonant_fluid_dynamics`. Keys **`1`** through **`9`** select the first nine presets.
 - ⌨️ **Runtime Preset Hotkey Switching & Texture Re-Upload**:
-  - Press **`[1]`** through **`[9]`** while the visualizer is open to switch among the first nine presets instantly. Preset 10 opens by name, as above.
+  - Press **`[1]`** through **`[9]`** while the visualizer is open to switch among the first nine presets instantly.
+  - Press **`+`** or **`-`** (and the numeric-keypad equivalents) to step forward or backward through the **entire** preset library, wrapping at both ends. These keys are bound **only inside the MP Visualizer window** — the MP Liquid Player already owns `+`/`-` for its own controls.
+  - Run it as a screen saver: `python3 MP_Liquid_Visualizer.py --screensaver` (fullscreen, auto-cycles presets, exits on any input), or start the idle daemon with `scripts/mp_visualizer_idle_saver.py --idle 300`. Both are available from **Manager → 23 → Visual Media Suite → 8**.
   - The Vulkan texture descriptor dynamically re-uploads the corresponding cover art directly to GPU device-local memory without stuttering or reloading shaders.
   - Full CLI flag support: `--preset <name>`, `--set-preset <name>`, `--list-presets`.
 - 🎛️ **Full Suite & Manager Integration**:
@@ -738,7 +788,7 @@ Install recommended utilities using `winget` in PowerShell:
 winget install Gyan.FFmpeg Rclone.Rclone jqlang.jq
 winget install VideoLAN.VLC
 ```
-Download & install MP Mix Manager 0.4.2 (GitHub Only)
+Download & install MP Mix Manager 0.4.3 (GitHub Only)
 1. git clone https://github.com/MPlanetarian/MPMixManager_v0.4-x64.git "MP Mix Manager"
 2. Run MP Mix Manager.exe
 
@@ -801,7 +851,7 @@ chmod +x manager_freebsd.sh install.sh
 
 ---
 
-## 🎛️ Master Feature Matrix (3 Sections, Options 0–38)
+## 🎛️ Master Feature Matrix (3 Sections, Options 0–38, plus the MP and VR rows)
 
 ### ─── [ SECTION 1: Listen to Mixes & Tracks / Convert Audio / Import Mixes / Plus More ] ────
 | # | Operation | Description & Sub-Features |
@@ -835,7 +885,7 @@ chmod +x manager_freebsd.sh install.sh
 | **20**| **Spectrogram Generation & Audio Frequency Analysis** | Acoustic spectrogram suite (`manage_spek_generation` / `generate_spek.sh`): single-file and batch directory 1080p logarithmic Spek generation, native Spek GUI launcher, SPEK_OUTPUTS browser, Sonic Visualiser, SoX multi-colormap spectrograms, and Praat analysis. |
 | **21**| **Morning Alarm Clock & DJ Mix Playback Suite** | Morning wake-up suite (`manage_mix_scheduler` / `mplanetarians-alarm-clock/alarm.sh`): random lossless mix playback with 3-minute volume ramp, mouse motion wake detection, secondary right-monitor browser opening, 3 random Steam games for breakfast, and future mix playback scheduler (`schedule_mix_playback.py`). |
 | **22**| **YouTube Video Suite** | Video production suite (`generate_youtube_video`): encode 4K UHD, 1080p Full HD, and 720p HD videos with NVENC/VideoToolbox/libx264 acceleration and source-matched audio bitrates; Screencast YouTube video generator with NVENC transitions (`generate_screencast_youtube_video.py`); vertical 1080x1920 YouTube Shorts promo video generator (`generate_youtube_short_promo.py`); looping MP4-to-MP4 video generator; and full-resolution YouTube Channel and Shorts downloader (`MP_YouTube_Channel_Downloader.sh`). |
-| **23**| **Visual Media, Cover Art & Companion Video Suite** | Visual media hub (`manage_visual_media_suite`): **MP_Liquid_Visualizer** native Vulkan 1.x 3D audio-reactive raymarching visualizer (borderless window with zero text overlay, smart play/pause freeze, and 10 Bandcamp presets: *Cosmic Dreamworlds Liquid*, *Orbital Void Reflux*, *Dreamworlds Ultra MPlanetarian Biomech*, *Infinite Complexity*, *Sensorium Interface*, *Stream of Frequency*, *Beyond Dimensions*, *Particle Accelerator*, *Cosmic Universe*, and *Resonant Fluid Dynamics*); visualizer preset manager; NFT & MPlanetarian video playlists; start/end video cutter (`Cut_Video.sh`); MP4 video splitter (`Split_Video_File.sh`); cover art converter & 1MB podcast byte targeter (`convert_cover_art.py`); procedural Netpbm P6 PPM gradient generator (`generate_ppm_cover.sh`); Electric Sheep screensaver; GeeXLab demo runner; and synchronized mix-video companion daemon (`sync_video_companion.sh`). On Linux the window matches the Liquid Player, or MP Gui when MP Gui starts it. macOS is 1094×734. Windows is 700×700 and still shrinks to the work area. Fullscreen on a 4K display is unchanged. Keys **`1`** through **`9`** select the first nine presets. Preset 10 opens with `--preset 10`. The visualizer closes when the Liquid Player exits, and the Manager GUI closes it on exit as well. |
+| **23**| **Visual Media, Cover Art & Companion Video Suite** | Visual media hub (`manage_visual_media_suite`): **MP_Liquid_Visualizer** native Vulkan 1.x 3D audio-reactive raymarching visualizer (borderless window with zero text overlay, smart play/pause freeze, and **11 Bandcamp presets**: *Cosmic Dreamworlds Liquid*, *Orbital Void Reflux*, *Dreamworlds Ultra MPlanetarian Biomech*, *Infinite Complexity*, *Sensorium Interface*, *Stream of Frequency*, *Beyond Dimensions*, *Particle Accelerator*, *Cosmic Universe*, *Resonant Fluid Dynamics*, and *Dreamworlds (Chromatic Storm)*); visualizer preset manager; NFT & MPlanetarian video playlists; start/end video cutter (`Cut_Video.sh`); MP4 video splitter (`Split_Video_File.sh`); cover art converter & 1MB podcast byte targeter (`convert_cover_art.py`); procedural Netpbm P6 PPM gradient generator (`generate_ppm_cover.sh`); Electric Sheep screensaver; GeeXLab demo runner; and synchronized mix-video companion daemon (`sync_video_companion.sh`). On Linux the window matches the Liquid Player, or MP Gui when MP Gui starts it. macOS is 1094×734. Windows is 700×700 and still shrinks to the work area. Fullscreen on a 4K display is unchanged. Keys **`1`** through **`9`** select the first nine presets; presets 10 and 11 open with `--preset 10` and `--preset 11`, and **`+` / `-`** cycle every preset. **`F10`** spans the other monitors and **`F11`** does the same with a random preset per window. It runs on both OpenGL and Vulkan, works as a desktop screen saver, and closes when the Liquid Player exits. |
 | **24**| **Record Video of DJ Mix using GPU Screen Recorder (Linux)** | Direct launcher (`launch_gpu_screen_recorder`): launches hardware-accelerated GPU Screen Recorder in a new desktop window (`gpu-screen-recorder-gtk` or Flatpak) and returns cleanly to the menu. |
 | **25**| **Listen to Your Top 5 Tracks Right Now (Special Option)** | Instant music discovery (`manage_top_5_tracks` / `top_5_tracks_manager.py`): unlocks and launches a curated top 5 tracks listening session. |
 
@@ -855,6 +905,7 @@ chmod +x manager_freebsd.sh install.sh
 | **34**| **Dynamic MOTD Banner Manager & Drive Burner** | System utilities (`manage_motd_and_tools`): generates dynamic stylized Message Of The Day ANSI banners highlighting live running kernel (`uname -r`), recent mixes, dates, formats, and technical specs (`update_system_motd.sh`); and writes bootable ISO images directly to USB storage with safety checks (`dd` / `diskutil`). |
 | **35**| **Manager Settings, Themes, Shell CLI & Reboot** | System preferences (`manage_settings_and_system`): switch among the built-in TrueColor themes, including Retro Linux Memories (theme option **22**), MPlanetarian Dreamworlds, Dreamworlds Ultra, Cosmic Supernova, Sensorium Interface, and Stream of Frequency. Press **`C`** on the main menu to cycle the same list as the Liquid Player. The choice is written to `~/.config/mix-manager/theme`. Menu numbers use that theme's colour. Also manages installation paths, snapshot backups, and portable config export/import (`manage_installation_config.sh`); runs an interactive Bash CLI; checks for updates (`update_manager.sh`); and reboots. |
 | **36**| **MP Mix Manager GUI** | Liquid Glass manager (`MP_Gui.sh`, also menu row **MP** and `mix-archive-manager gui`). Same glass, bezel, and VTE terminal as the Liquid Player, started with `--manager`. Opens on Retro Linux Memories unless `--keep-theme` or `--theme NAME` is set. A second launch focuses the existing `MP Mix Manager (Liquid Glass` window. **Escape** on the main menu closes the window. Closing the GUI stops playback and force-closes the MP Liquid Visualizer. A visualizer started from the GUI uses the GUI window's fitted size. **`L`** still opens the Liquid Player beside it. Opening the GUI keeps the volume you already set. **`G`** from the Liquid Player opens this window. |
+| **VR**| **Enter VR Mode with MP Liquid Player (BigScreen)** | Main menu row **VR**, directly under **MP**. Runs `scripts/bigscreen_vr.py`. Bigscreen starts first, the MP Liquid Visualizer opens as a large centred backdrop, and the MP Liquid Player opens centred on the primary desktop in Retro Linux Memories **paused**. Music starts only once the player reports that its centred size has settled (`~/.config/mix-manager/vr_player_ready.json`); if it never reports centred, music is not started and the launcher returns an error. The header shows **VR Mode**. Also `vr`, `vr-mode`, `bigscreen`, `bigscreen-vr`, a Windows shortcut and a tray entry. Linux refuses the row with a clear message. |
 | **37**| **Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)** | Linux only. The row is hidden on macOS, Windows, and FreeBSD. `scripts/MP_Desktop_CLI_Switch.sh` leaves a Plasma session for tty1, or returns from that console to the Plasma login screen. Choosing it from the desktop writes `~/.config/mix-manager/tty_audio_mode` and enables **MP Mix Manager TTY Audio Mode**. `scripts/mp_tty_kiosk.sh` installs `mp-mix-manager-tty.service`, which runs the manager on `/dev/tty1` and restarts it. Ctrl+Alt+F2 stays a login shell. Playback stays in the terminal player. The console is restored on exit (`stty sane`, cursor, echo), including SEGV. The player uses unbuffered output, single-key input, and repaints changed cells. SIGWINCH recalculates the layout. Liquid Glass, MP Gui, the visualizer, cover art, and other desktop windows stay closed. Choosing it again from the TTY turns the mode off, stops the service, and brings the desktop login back. Also: `tty`, `tty-mode`, `desktop-cli`. |
 | **38**| **Exit Manager** | Cleans up temporary session locks and returns cleanly to shell (`q` / `exit`). |
 
@@ -870,7 +921,7 @@ mix-archive-manager --help            # Display full CLI options and flag refere
 mix-archive-manager --version         # Print version and build number
 mix-archive-manager update            # Check for updates and pull latest git revisions
 
-# MP Mix Manager GUI and MP Liquid Glass Player (v0.4.2)
+# MP Mix Manager GUI and MP Liquid Glass Player (v0.4.3)
 ./MP_Gui.sh                                          # Manager inside Liquid Glass (Retro Linux Memories)
 ./MP_Gui.sh --keep-theme                             # GUI without changing the saved theme
 mix-archive-manager gui                              # Same GUI from the command line (also: 36, mp-gui, MP)
@@ -932,7 +983,7 @@ mix-archive-manager --backup          # Run automated multi-cloud backup to Goog
 
 ```
 MPMixManager_v0.4-x64/
-├── Mix_Archive_Manager.sh       # Master interactive console (options 0–38, plus the MP GUI row)
+├── Mix_Archive_Manager.sh       # Master interactive console (options 0–38, plus the MP GUI and VR rows)
 ├── MP_Gui.sh                    # MP Mix Manager GUI — Liquid Glass host with --manager
 ├── .probe_mgr.sh                # Ultra-compact zero-fork telemetry & probe engine (264 lines)
 ├── MP_Mix_Manager.exe           # Native 64-bit Windows PE32+ console executable launcher
@@ -1095,7 +1146,7 @@ MPMixManager_v0.4-x64/
 ├── assets/                      # Artwork templates, promo contact book, publishing calendars
 ├── config.env                   # Active user configuration overrides
 ├── config.env.example           # Configuration template
-├── VERSION                      # Semantic version file (0.4.2 Stable (Liquid))
+├── VERSION                      # Semantic version file (0.4.3 Stable (Liquid))
 ├── README.md                    # System documentation & feature matrix
 └── CHANGELOG.md                 # Complete release history and audit log
 ```

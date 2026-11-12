@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.4.3 Stable (Liquid)] - 2026-11-12
+
+Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
 
 ### Added
+- **BigScreen VR Mode** (`scripts/bigscreen_vr.py`, `scripts/enter_vr_mode.sh`, `scripts/enter_vr_mode.bat`, `launch_vr_mode.bat`, `MP_Audio_Player.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `Mix_Archive_Manager.sh`, `scripts/mp_system_tray.py`, `install.sh`, `tests/test_bigscreen_vr.py`):
+  - Main menu row **VR**, directly under **MP**: *Enter VR Mode with MP Liquid Player (BigScreen)*. Also `vr`, `vr-mode`, `bigscreen`, and `bigscreen-vr`, plus a Windows installer shortcut and a tray entry.
+  - Bigscreen starts first, then the MP Liquid Visualizer opens as a large centred backdrop, then the MP Liquid Player opens centred on the primary desktop in Retro Linux Memories, **paused**.
+  - Music starts only after the player host reports that its centred size has settled, through `~/.config/mix-manager/vr_player_ready.json`. If the player never reports centred, music is not started and the launcher returns an error instead of guessing.
+  - Both Liquid Glass hosts read `MP_VR_LAYOUT`, open on the VR grid, keep the window centred, publish the ready report only once the size holds, and clear it on close. The renderers open directly at the centred position, so there is no corner flash.
+  - The visualizer honours `MP_VR_VISUALIZER_SIZE/X/Y`, ignores "match the player" and 4K fullscreen while in VR, and stays unfocused behind the player.
+  - The header shows **VR Mode** in magenta instead of `CLI Mode` / `TTY CLI Mode`, driven by `MP_VR_MODE=1` and also detected from a live VR player. MP Gui still shows neither label.
+  - `BIGSCREEN_EXE` in `config.env` handles a custom install. On Linux the menu row, `enter_vr_mode.sh`, and `bigscreen_vr.py` refuse with the same message.
 - **MP Package Dev Utility — arm64 and amd64 Linux packages** (`MP_Package_Dev_Utility.sh` in `BASH_SCRIPTS`, `tests/test_package_dev_utility.py`):
   - New packaging utility that turns a MP Mix Manager source tree into published Linux artifacts for **both amd64 (x86_64) and arm64 (aarch64)**.
   - Formats: Debian `.deb`, portable `.tar.gz` bundles, and optional RPM `.rpm` when `rpmbuild` is present.
@@ -18,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Packages install `/opt/mp-mix-manager`, add `mp-mix-manager`, `mp-mix-manager-gui`, `mp-liquid-player`, `mp-audio-player`, `mp-visualizer` and `mp-alarm` to `PATH`, and register desktop entries and hicolor icons.
   - Staging strips `.git`, archives, logs, caches, `config.env` (credentials are never shipped) and broken or out-of-tree symlinks. Portable launchers locate the bundle from their own path, so a bundle can be moved or renamed after extraction.
   - `.deb` output uses `dpkg-deb` when available and falls back to a built-in `ar` + `tar` writer, so packaging works on Fedora/Bazzite/Arch hosts.
-  - Version labels are normalised for packaging: `0.4.2 Stable (Liquid)` becomes `0.4.2`, and pre-release labels use `~` so `0.6.0-rc2` sorts before `0.6.0`.
+  - Version labels are normalised for packaging: `0.4.3 Stable (Liquid)` becomes `0.4.3`, and pre-release labels use `~` so `0.6.0-rc2` sorts before `0.6.0`.
   - Every artifact is accompanied by `SHA256SUMS`, `BUILD-MANIFEST.txt` and `RELEASE_NOTES_<version>.md` in `MP_MIX_MANAGER_INSTALLERS/`.
   - Covered by `tests/test_package_dev_utility.py` (`.deb` structure/metadata, arm64 output, relocatable bundles, checksum verification, dry-run safety, foreign-ELF rejection).
 - **Tracklist Viewer HTML & TEXT export** (`scripts/tracklist_export.py`, `scripts/view_tracklist_console.sh`, `MP_Audio_Player.py`, `tests/test_tracklist_viewer_scroll_export.py`):
@@ -26,8 +36,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Both files are written to **`TRACKLIST_EXPORTS/` inside the MP Mix Manager program folder** the user launched, so they are always easy to find. `TRACKLIST_EXPORTS/` is git-ignored.
   - **Y** saves the pristine `.txt` tracklist; **X** writes a self-contained dark/glass-themed HTML page with a track table, remix highlighting, print styles and HTML-escaped user content.
   - Headless use is supported: `view_tracklist_console.sh --export html|text <tracklist>` and `MP_Audio_Player.py --tracklist-export html|text`.
+- **MP Visualizer — Preset 11: "Dreamworlds (Chromatic Storm)"** (`shaders/mp_liquid_visualizer.frag`, `shaders/mp_liquid_visualizer.frag.spv`, `shaders/presets/p10.frag.spv`, `scripts/mp_liquid_visualizer_vulkan.py`, `assets/dreamworlds_chromatic_storm_cover.png`, `Mix_Archive_Manager.sh`):
+  - Uses **`Pictures/MPlanetarian_Dreamworlds_Lockscreen.png`** as the sole background/environment texture, and takes its animation language from the late sequence of **MPlanetarian "BIFURCATION (2026)"** — elongated teardrop vessels with stacked chrome fins, glowing furnace interiors and trailing bead swarms.
+  - **Twelve distinct animation sequences** that morph continuously in one unbroken ~95 s loop with `smoothstep` crossfades:
+    1. **Furnace Hull** — split teardrop shell with a molten furnace core
+    2. **Fin Cascade** — chrome fins fanning open along the hull spine
+    3. **Split Keel** — twin machined keels baring a plasma channel
+    4. **Bead Surge** — the perforated bead swarm becomes the subject
+    5. **Ember Wake** — vessel coasting on a long fiery wake
+    6. **Plasma Cocoon** — glowing orbital rings laced around the hull
+    7. **Spine Ring** — bare skeleton spine with counter-rotating plate gyros
+    8. **Shard Bloom** — hull shattered into orbiting chrome shards
+    9. **Hull Strata** — hull revealed as sliding horizontal layers
+    10. **Twin Vessel** — mirrored pair joined by a plasma tether
+    11. **Nozzle Flare** — rear three-quarter view venting a plasma cone
+    12. **Storm Collapse** — everything implodes into a hot compressed point
+  - Every sequence carries the video's **bead swarms and graphite wire trails**.
+  - New `chromaticStormPalette()` built from the artwork's pigments, and five dedicated materials: dark anodised hull plate, self-luminous furnace/plasma emission, hot ember wake, polished chrome fin with chromatic edge fringing, matte black beads and graphite wire.
+  - Per-sequence camera framing (distance **and** a yaw bias), so no sequence is ever viewed purely end-on.
+  - New clamped ray projection for the background so the painting never smears at grazing angles.
+- **`+` / `-` preset cycling inside the MP Visualizer** (`scripts/mp_liquid_visualizer_vulkan.py`):
+  - Added `cycle_preset()` plus `KEY_SLOTS` / `presets_by_slot()` / `_key_slot()`. Number keys 1–9 map to a fixed slot list; `+` and `-` (and keypad `+`/`-`) step through the **entire** library in either direction with wrap-around, reaching presets that are not on a number key.
+  - These bindings exist **only in the MP Visualizer window**. The MP Liquid Player keeps its own `+`/`-` behaviour untouched — locked in by a regression test.
+- **MP Visualizer desktop screen saver** (`scripts/mp_liquid_visualizer_vulkan.py`, `scripts/mp_visualizer_idle_saver.py`, `Mix_Archive_Manager.sh`, `tests/test_visualizer_screensaver.py`):
+  - `--screensaver` runs the visualizer fullscreen, tours the whole preset library every `--saver-dwell` seconds, keeps the scene animating with no audio player running, hides the pointer, and **exits on any key press or mouse movement**. `--saver-preset` locks it to one theme; `--saver-windowed` runs it in a window.
+  - New `idle_seconds()` probes desktop inactivity per platform: `xprintidle` on X11, `loginctl` idle hints as a fallback, and `ioreg` on macOS. It reports `0.0` when idle time cannot be determined, so the saver never starts unexpectedly.
+  - New `scripts/mp_visualizer_idle_saver.py` daemon: watches idle time, launches the saver at the threshold, waits for it to close, then applies a cooldown. Supports `--status`, `--stop`, `--idle`, `--dwell`, `--cooldown`, and never leaves an orphaned visualizer.
+  - Manager **Option 23 → 8** gains a full screen-saver screen: preview now, start/stop the daemon, show status, change the idle threshold and preset dwell, and install/remove a login autostart `.desktop` entry.
+- **Web Companion Favorites library** (`scripts/mix_web_companion.py`, `tests/test_web_companion_playlist.py`):
+  - **Favorites** is a third library mode beside Mix and Music, backed by the same `favorites.json` the MP Audio Player writes when **`H`** marks a mix or track. `favorites.m3u8` is the fallback mirror.
+  - `scan_favorite_files()` keeps the player's saved order — the archive and music scans are newest-first, but Favorites order is meaningful. Paths are de-duplicated with the player's own key, and files that no longer exist are skipped so a stale favourite cannot stall the stream.
+  - The companion only ever reads this playlist; the player stays the only writer. An empty Favorites reports empty with a hint instead of borrowing another library, and the empty notice is rendered without the amber fallback warning.
+  - `/api/mode` and `/api/playlist` carry the detail, and `set_library_mode` accepts `fav`, `favs`, `faves`, `favourite`, `favourites`, and `favorite`.
+  - The three segmented buttons fit a 390 px phone without truncation, verified at 390 px and 768 px with no horizontal overflow.
 
 ### Fixed
+- **MP Audio Player banner had no right edge and the Controls hint drifted** (`MP_Audio_Player.py`, `Mix_Archive_Manager.sh`, `tests/test_player_banner_eq_alignment.py`):
+  - Both symptoms had one root cause. `MP_Audio_Player.py` wrote `~/.config/mix-manager/mp_player_state.json` with `json.dumps()` defaults, so the mini EQ was stored as JSON escape text: `"\u2581\u2586\u2584 \u2581   "`. That string is 28 bytes but paints only 8 columns.
+  - Bash measured the raw text, so the EQ row padded to 98 columns instead of 118, ending 20 columns short of the panel border — the right `│` was missing. The number of `\uXXXX` escapes also changes as bars light up, so the padding changed every frame and the `Controls:` hint appeared to jitter.
+  - Added `_json_decode()`, which expands JSON string escapes into real glyphs including UTF-16 surrogate pairs (so emoji in titles work), and `_mp_player_eq_field()`, which pins the EQ to a fixed **8-column** slot so `Controls:` never moves.
+  - The state writer now uses `ensure_ascii=False`, so new state files contain real glyphs; older escaped files still work through the decoder.
+  - `tests/test_player_banner_eq_alignment.py` adds 7 tests covering the decoder, surrogate pairs, the fixed-width EQ field, the state reader, and the UTF-8 writer.
+- **MP Liquid Visualizer came away from the MP Liquid Player in Mini and Micro mode** (`MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `tests/test_liquid_player_visualizer_mode.py`):
+  - Switching to Mini or Micro resized the player window but not the bonded visualizer, so the visualizer stayed at the Normal geometry.
+  - The visualizer now follows every Normal, Mini, and Micro transition and stays attached behind the player in all three modes.
 - **Tracklist Viewer did not start at the top and could not be scrolled** (`scripts/view_tracklist_console.sh`, `MP_Audio_Player_Liquid_Glass.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `tests/test_tracklist_viewer_scroll_export.py`):
   - The viewer printed the entire tracklist and then `clear`'d, so anything taller than the window left the first entries scrolled off the top.
   - It now draws a fixed viewport sized to the terminal: the header, exactly as many tracklist rows as fit, and a footer. Line 1 is always the first thing rendered.
@@ -51,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The skip message now names the exact keys that are missing instead of listing all four.
   - Host, user, and password fall back to `MUSIC_SMB_HOST` / `MUSIC_SMB_USER` / `MUSIC_SMB_PASSWORD` / `SMB_DEFAULT_HOST` when the Traktor-specific keys are empty.
   - Traktor Top 5 Tracks config screen (option 5) gained rows 7-11 for the history sync host, share, user, password (hidden input), and history folder.
+- **Preset specialization never folded the scene** (`scripts/liquid_player_visualizer.py`). `specialize_visualizer_source()` only replaced the `u_preset.x` spelling, but the Vulkan shader uses `u.preset.x`, so every per-preset SPIR-V module was byte-identical to the full library and none of the other scenes were compiled out. Both spellings are now folded, cutting the per-preset modules substantially (e.g. preset 10 is 265 KB against 843 KB for the full shader).
+- **Invalid hollow shell in the plasma-cocoon sequence.** Subtracting one ellipsoid from another produced an invalid distance field that collapsed into a solid glowing blob; the cocoon is now built from genuine torus rings and capsule tendrils.
 
 ### Changed
 - **MP Liquid Visualizer Z key is now a three-step window cycle** (`scripts/mp_liquid_visualizer_vulkan.py`):
@@ -60,13 +114,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Once a windowed size has been chosen with Z, moving the window to another monitor no longer forces it back to fullscreen on a 4K display, and the player-bonding code no longer resizes the window back to the player.
   - Double-click still toggles plain fullscreen.
   - The cycle lives in `cycle_window_mode()`; `toggle_fullscreen()` remains for `--fullscreen`, `--4k`, the screen saver, and double-click.
+- **Web Companion playlist and library switching** (`scripts/mix_web_companion.py`, `tests/test_web_companion_playlist.py`):
+  - The dashboard is renamed **MP LIQUID PLAYER (WEB)**, page title **MP Liquid Player (Web) - DJ Booth Remote**.
+  - The playlist shows **five** tracks in a scrollable 20-entry window with touch scrolling, overscroll containment, a themed scrollbar, and uniform 48 px rows. The offline/fallback notice moved above the list so it cannot push a row out of view.
+  - The window stops at the end of the queue instead of wrapping, and scroll position survives the 15-second refresh.
+  - The combined music playlist (~30 MB, 51k entries) is parsed once and reused until the file changes; queue rebuilds are serialised with a lock; reselecting the active mode is a no-op so it no longer rewinds the stream to track one.
+  - The Mix and Music buttons now show a pending state and a request token keeps the newest tap authoritative, so a stale poll cannot repaint the old mode. `/api/mode` reports `library_fallback` / `library_detail`.
+  - The volume and pitch clusters stack so neither is clipped on a 390 px phone.
+- **MP Harmony starts Ollama from the menu row** (`scripts/launch_mp_harmony.sh`, `Mix_Archive_Manager.sh`, `scripts/show_help.sh`, `tests/test_mp_harmony_menu.py`):
+  - The assistant row no longer dead-ends when Ollama is not answering. The manager asks before starting it, detects a distrobox/podman container (default `ollama-container`), and otherwise uses the systemd user service or a plain `ollama serve`. Answering no returns straight to the menu.
+- **`--list-presets` now prints true keyboard slot numbers**, showing `--` for presets reachable only via the `+`/`-` cycle.
+- `--start-paused` is retained for the player and used by the VR launcher.
+- **Version** is `0.4.3 Stable (Liquid)` in `VERSION` and in the fallback used when that file is missing. Packaging, Windows resource metadata, and the macOS bundle version strings follow the same number.
 
+### Tests
+- `tests/test_bigscreen_vr.py` — 25 tests: launch order, the pause handshake, no music when the player is off-centre, ready-file staleness, and the player/visualizer hooks, plus VR header and shortcut/tray coverage.
+- `tests/test_visualizer_screensaver.py` — 14 tests: full-library cycling with wrap in both directions, number-slot stability, proof the Player does not bind `+`/`-`, screensaver wake/close on key, click and genuine cursor motion (with the initial cursor sample ignored), CLI flag surface, and the idle-saver status/stop plumbing.
+- `tests/test_web_companion_playlist.py` — 41 cases, adding saved-order streaming, de-duplication, missing-file skipping, the `.m3u8` mirror, alias resolution, three advertised modes, the five-row window, scrollable geometry, playlist parse caching, reselect-no-rewind, and the empty-Favorites behaviour.
+- `tests/test_player_banner_eq_alignment.py` — 7 tests for the JSON decoder, surrogate pairs, the fixed-width EQ field, the state reader, and the UTF-8 writer.
+- `tests/test_tracklist_viewer_scroll_export.py` and `tests/test_package_dev_utility.py` cover the new exports and both package architectures.
+
+### Notes
+- The first-run welcome (`scripts/liquid_glass_reward.py`) now greets 0.4.3 (Liquid) - [Stable Release].
+- `0.4.2 Stable (Liquid)` remains under [0.4.2 Stable (Liquid)](#042-stable-liquid---2026-11-08) below, unchanged.
 
 ---
 
 ## [0.4.2 Stable (Liquid)] - 2026-11-08
 
-Current release. `0.4.1 Stable (Liquid)` was the in-tree version label before this release and was not published with its own notes. The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
+Previous release. `0.4.1 Stable (Liquid)` was the in-tree version label before 0.4.2 and was not published with its own notes. Current release notes are under [What's New in v0.4.3 Stable (Liquid)](#-whats-new-in-v043-stable-liquid). The October 24, 2026 feature set remains under [0.4.0 Stable](#040-stable---2026-10-24).
 
 ### Added
 - **MP Harmony AI Assistant** (`scripts/launch_mp_harmony.sh`, `Mix_Archive_Manager.sh`):

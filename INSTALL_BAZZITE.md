@@ -1,6 +1,6 @@
 # Installing Mix Archive Manager on Bazzite Linux (From Scratch)
 
-This document provides an exhaustive, step-by-step guide to installing and configuring the **MP Mix Manager 0.4.2 Stable (Liquid)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
+This document provides an exhaustive, step-by-step guide to installing and configuring the **MP Mix Manager 0.4.3 Stable (Liquid)** on a brand new, clean installation of **Bazzite Linux** (KDE Plasma Edition).
 
 ---
 

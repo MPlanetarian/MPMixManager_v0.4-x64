@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# MP Mix Manager 0.4.2 Stable (Liquid) - Help Usage & Available Options
+# MP Mix Manager 0.4.3 Stable (Liquid) - Help Usage & Available Options
 # Purpose: Display help usage and all available options for mix-archive-manager
 # Usage:
 #   mix-archive-manager --help
@@ -30,7 +30,7 @@ if [ -z "$VERSION" ]; then
     if [ -f "$CODEBASE_DIR/VERSION" ]; then
         VERSION="$(head -n 1 "$CODEBASE_DIR/VERSION" | tr -d '\r\n')"
     else
-        VERSION="0.4.2 Stable (Liquid)"
+        VERSION="0.4.3 Stable (Liquid)"
     fi
 fi
 export VERSION
@@ -184,6 +184,11 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        Press C on the main menu to cycle themes.
   ${BOLD}${CYAN}36${NC}   ${BOLD}MP Mix Manager GUI${NC}
        Same Liquid Glass manager as the MP row. Press G on the main menu. Also: gui, mp-gui, MP_Gui, ./MP_Gui.sh.
+  ${BOLD}${CYAN}VR${NC}   ${BOLD}Enter VR Mode with MP Liquid Player (BigScreen)${NC}
+       Row directly under MP. Bigscreen starts first, the visualizer becomes the
+       centred backdrop, then MP Liquid Player opens centred and paused. Music
+       starts only once the player reports it is centred. Also: vr, vr-mode,
+       bigscreen, bigscreen-vr. Refused on Linux.
   ${BOLD}${CYAN}37${NC}   ${BOLD}Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)${NC}
        Linux only. This row is hidden on macOS, Windows, and FreeBSD.
        Runs scripts/MP_Desktop_CLI_Switch.sh. From Plasma it leaves the desktop for tty1
@@ -196,6 +201,14 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
        MP Gui, the visualizer, and other desktop windows stay closed. Also: tty, tty-mode, desktop-cli.
   ${BOLD}${CYAN}38${NC}   ${BOLD}Exit Manager${NC} (or q / exit)
        Exit the application cleanly.
+
+${BOLD}VISUALIZER KEYS:${NC}
+  ${CYAN}1${NC}-${CYAN}9${NC}        Numbered preset slots.
+  ${CYAN}+${NC} / ${CYAN}-${NC}        Cycle the entire preset library in either direction.
+  ${CYAN}F10${NC}        Span a visualizer across every other monitor, then fullscreen them.
+  ${CYAN}F11${NC}        Same as F10, with a different random preset per spawned window.
+               Press F10 or F11 again to close the extra windows.
+  ${CYAN}Z${NC}          Cycle fullscreen -> half the default size -> default size.
 
 ${BOLD}HEADER SESSION:${NC}
   A desktop Bash terminal shows ${CYAN}CLI Mode${NC} on the right of the main header title.
@@ -227,6 +240,7 @@ ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
     ${CYAN}geexlab${NC}           Launch GeeXLab 3D demos
     ${CYAN}gpu-screen-recorder${NC}  Record a DJ mix with GPU Screen Recorder (Linux)
     ${CYAN}gui${NC} | ${CYAN}mp-gui${NC} | ${CYAN}36${NC}   Open the MP Mix Manager GUI (Liquid Glass)
+    ${CYAN}vr${NC} | ${CYAN}vr-mode${NC} | ${CYAN}bigscreen${NC}   Enter VR Mode with MP Liquid Player (BigScreen)
     ${CYAN}tty${NC} | ${CYAN}37${NC}          Linux TTY Desktop Switcher (MP Mix Manager TTY Audio Mode)
     ${CYAN}visualizer${NC} | ${CYAN}Z${NC}   Launch the MP Liquid Visualizer
     ${CYAN}alarm${NC} | ${CYAN}alarm-clock${NC}   Launch MPlanetarians Alarm Clock (Wake Up Edition)

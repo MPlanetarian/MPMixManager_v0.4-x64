@@ -60,7 +60,7 @@ class TestPackageDevUtility(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, "utility was expected to fail")
         return proc
 
-    def source_tree(self, version="0.4.2 Stable (Liquid)", name="src"):
+    def source_tree(self, version="0.4.3 Stable (Liquid)", name="src"):
         root = self.tmp / name
         if root.exists():
             return root
@@ -73,7 +73,7 @@ class TestPackageDevUtility(unittest.TestCase):
         (root / "MP_Audio_Player.sh").write_text("#!/usr/bin/env bash\necho player\n")
         (root / "MP_Liquid_Visualizer.py").write_text("print('v')\n")
         (root / "LICENSE").write_text("MIT\n")
-        (root / "CHANGELOG.md").write_text("## [0.4.2]\n- note\n")
+        (root / "CHANGELOG.md").write_text("## [0.4.3]\n- note\n")
         (root / "config.env").write_text("SECRET_TOKEN=do-not-ship\n")
         (root / "scripts" / "launch_liquid_glass.sh").write_text("#!/usr/bin/env bash\necho l\n")
         (root / "scripts" / "helper.sh").write_text("#!/usr/bin/env bash\necho h\n")
@@ -100,8 +100,8 @@ class TestPackageDevUtility(unittest.TestCase):
         src = self.source_tree()
         out = self.tmp / "out_version"
         proc = self.run_util("--source", str(src), "--arch", "amd64", "--format", "deb", "--out", str(out))
-        self.assertIn("0.4.2-1", proc.stdout)
-        self.assertTrue((out / "mp-mix-manager_0.4.2-1_amd64.deb").is_file())
+        self.assertIn("0.4.3-1", proc.stdout)
+        self.assertTrue((out / "mp-mix-manager_0.4.3-1_amd64.deb").is_file())
 
     def test_prerelease_version_uses_tilde_ordering(self):
         src = self.source_tree("0.6.0-rc2 Beta", name="src_prerelease")
@@ -124,7 +124,7 @@ class TestPackageDevUtility(unittest.TestCase):
         src = self.source_tree()
         out = self.tmp / "out_deb"
         self.run_util("--source", str(src), "--arch", "amd64", "--format", "deb", "--out", str(out))
-        deb = out / "mp-mix-manager_0.4.2-1_amd64.deb"
+        deb = out / "mp-mix-manager_0.4.3-1_amd64.deb"
         self.assertTrue(deb.is_file())
 
         members = subprocess.run(
@@ -142,7 +142,7 @@ class TestPackageDevUtility(unittest.TestCase):
         ).stdout
         self.assertIn("Package: mp-mix-manager", control)
         self.assertIn("Architecture: amd64", control)
-        self.assertIn("Version: 0.4.2-1", control)
+        self.assertIn("Version: 0.4.3-1", control)
         self.assertIn("Section: sound", control)
         self.assertRegex(control, r"Depends: .*python3")
         self.assertIn("/opt/mp-mix-manager", control)
@@ -170,7 +170,7 @@ class TestPackageDevUtility(unittest.TestCase):
         src = self.source_tree()
         out = self.tmp / "out_arm64"
         self.run_util("--source", str(src), "--arch", "arm64", "--format", "deb", "--out", str(out))
-        deb = out / "mp-mix-manager_0.4.2-1_arm64.deb"
+        deb = out / "mp-mix-manager_0.4.3-1_arm64.deb"
         self.assertTrue(deb.is_file())
 
         work = self.tmp / "arm64_extract"
@@ -192,7 +192,7 @@ class TestPackageDevUtility(unittest.TestCase):
         src = self.source_tree()
         out = self.tmp / "out_tar"
         self.run_util("--source", str(src), "--arch", "arm64", "--format", "tar", "--out", str(out))
-        tarball = out / "MP_Mix_Manager-0.4.2-linux-arm64.tar.gz"
+        tarball = out / "MP_Mix_Manager-0.4.3-linux-arm64.tar.gz"
         self.assertTrue(tarball.is_file())
 
         extract = self.tmp / "tar_extract"
@@ -235,10 +235,10 @@ class TestPackageDevUtility(unittest.TestCase):
         )
         sums = (out / "SHA256SUMS").read_text()
         listed = {line.split("  ", 1)[1] for line in sums.strip().splitlines()}
-        self.assertIn("mp-mix-manager_0.4.2-1_amd64.deb", listed)
-        self.assertIn("mp-mix-manager_0.4.2-1_arm64.deb", listed)
-        self.assertIn("MP_Mix_Manager-0.4.2-linux-x86_64.tar.gz", listed)
-        self.assertIn("MP_Mix_Manager-0.4.2-linux-arm64.tar.gz", listed)
+        self.assertIn("mp-mix-manager_0.4.3-1_amd64.deb", listed)
+        self.assertIn("mp-mix-manager_0.4.3-1_arm64.deb", listed)
+        self.assertIn("MP_Mix_Manager-0.4.3-linux-x86_64.tar.gz", listed)
+        self.assertIn("MP_Mix_Manager-0.4.3-linux-arm64.tar.gz", listed)
 
         # Every checksum must match the file on disk.
         for line in sums.strip().splitlines():
@@ -248,9 +248,9 @@ class TestPackageDevUtility(unittest.TestCase):
             ).stdout.split()[0]
             self.assertEqual(digest, actual, name)
 
-        notes = (out / "RELEASE_NOTES_0.4.2.md").read_text()
+        notes = (out / "RELEASE_NOTES_0.4.3.md").read_text()
         self.assertIn("arm64", notes)
-        self.assertIn("mp-mix-manager_0.4.2-1_arm64.deb", notes)
+        self.assertIn("mp-mix-manager_0.4.3-1_arm64.deb", notes)
 
         manifest = (out / "BUILD-MANIFEST.txt").read_text()
         self.assertIn("Target arches:   amd64 arm64", manifest)
@@ -303,7 +303,7 @@ class TestPackageDevUtility(unittest.TestCase):
                 "--out", str(out), "--allow-native-binaries",
             )
             self.assertIn("Foreign-architecture binaries included", proc.stderr)
-            self.assertTrue((out / "mp-mix-manager_0.4.2-1_arm64.deb").is_file())
+            self.assertTrue((out / "mp-mix-manager_0.4.3-1_arm64.deb").is_file())
         finally:
             (src / "bin" / "native-helper").unlink(missing_ok=True)
 
@@ -311,7 +311,7 @@ class TestPackageDevUtility(unittest.TestCase):
         src = self.source_tree()
         out = self.tmp / "out_secret"
         self.run_util("--source", str(src), "--arch", "amd64", "--format", "tar", "--out", str(out))
-        tarball = out / "MP_Mix_Manager-0.4.2-linux-x86_64.tar.gz"
+        tarball = out / "MP_Mix_Manager-0.4.3-linux-x86_64.tar.gz"
         with tarfile.open(tarball) as tf:
             names = tf.getnames()
         self.assertFalse(any(n.endswith("/config.env") for n in names))
