@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # MP_Mix_Manager_v0.3 - Cross-Platform Automated Installer
-# Supports Linux (Bazzite / SteamOS / Fedora / Ubuntu), macOS, and Windows
+# Supports Linux (Bazzite / SteamOS / Fedora / Ubuntu), macOS, Windows, and FreeBSD
+#
+# Reinstall / factory reset:
+#   ./install.sh --reinstall                  Ask what to keep, then reinstall
+#   ./install.sh --reinstall --yes            Keep everything and reinstall
+#   ./install.sh --reinstall --fresh --yes    Wipe all config and reinstall
 # ==============================================================================
 set -euo pipefail
 
@@ -32,6 +37,82 @@ if [ -z "${VERSION:-}" ]; then
     fi
 fi
 export VERSION
+
+# 0. Optional Reinstall / Factory Reset
+REINSTALL=0
+REINSTALL_ARGS=()
+for _arg in "$@"; do
+    case "$_arg" in
+        --reinstall|--re-install|--factory-reset|--reset)
+            REINSTALL=1
+            ;;
+        --help|-h)
+            echo -e "${BOLD}MP Mix Manager Installer${NC}"
+            echo ""
+            echo "Usage: ./install.sh [options] [-- reinstall options]"
+            echo ""
+            echo "Options:"
+            echo "  --install                 Normal install (default)"
+            echo "  --reinstall               Wipe this user's configuration and reinstall"
+            echo "                            from a first-install state"
+            echo "  --preserve-playlists      Reinstall: keep playlists and favorites"
+            echo "  --preserve-music-folders  Reinstall: keep music folder config"
+            echo "  --preserve-archive-config Reinstall: keep mix archive folder config"
+            echo "  --fresh                   Reinstall: preserve nothing"
+            echo "  --yes, -y                 Reinstall: do not prompt; preserve all"
+            echo "  --dry-run                 Reinstall: show what would change"
+            echo "  -h, --help                Show this help"
+            echo ""
+            echo "Converted audio files are never deleted by a reinstall."
+            echo "Run ./scripts/reinstall_mp_manager.sh --help for the full option list."
+            exit 0
+            ;;
+        *)
+            REINSTALL_ARGS+=("$_arg")
+            ;;
+    esac
+done
+unset _arg
+
+if [ "$REINSTALL" -eq 1 ]; then
+    echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}        MP Mix Archive Manager Reinstall (MP_Mix_Manager_v${VERSION#v})          ${NC}"
+    echo -e "${BOLD}${MAGENTA}          Linux • macOS • Windows 10 & 11 • FreeBSD                              ${NC}"
+    echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
+    echo ""
+    _reinstall_script="$SCRIPT_DIR/scripts/reinstall_mp_manager.sh"
+    if [ ! -f "$_reinstall_script" ]; then
+        echo -e "${RED}Error: scripts/reinstall_mp_manager.sh was not found.${NC}" >&2
+        exit 1
+    fi
+    set +e
+    if [ ${#REINSTALL_ARGS[@]} -gt 0 ]; then
+        MP_REINSTALL_FROM_INSTALLER=1 bash "$_reinstall_script" --root "$SCRIPT_DIR" "${REINSTALL_ARGS[@]}"
+    else
+        MP_REINSTALL_FROM_INSTALLER=1 bash "$_reinstall_script" --root "$SCRIPT_DIR"
+    fi
+    _reinstall_rc=$?
+    set -e
+    if [ "$_reinstall_rc" -eq 10 ]; then
+        echo -e "\n${YELLOW}Reinstall cancelled. The existing installation was left alone.${NC}"
+        exit 0
+    elif [ "$_reinstall_rc" -ne 0 ]; then
+        echo -e "\n${RED}Reinstall stopped. No further changes were made.${NC}" >&2
+        exit 1
+    fi
+    echo -e "${BOLD}${BLUE}Reinstalling the program around the fresh configuration...${NC}"
+    echo ""
+    if [ ${#REINSTALL_ARGS[@]} -gt 0 ]; then
+        for _arg in "${REINSTALL_ARGS[@]}"; do
+            if [ "$_arg" = "--dry-run" ]; then
+                echo -e "${YELLOW}Dry run only: the program was not reinstalled.${NC}"
+                exit 0
+            fi
+        done
+    fi
+    unset _arg
+fi
+unset _reinstall_script _reinstall_rc 2>/dev/null || true
 
 echo -e "${BOLD}${MAGENTA}================================================================================${NC}"
 echo -e "${BOLD}${MAGENTA}        MP Mix Archive Manager Installer (MP_Mix_Manager_v${VERSION#v})           ${NC}"

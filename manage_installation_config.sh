@@ -597,6 +597,68 @@ list_and_restore_backups() {
     press_enter
 }
 
+# ------------------------------------------------------------------------------
+# 6. REINSTALL / FACTORY RESET
+# ------------------------------------------------------------------------------
+reinstall_installation() {
+    clear 2>/dev/null || true
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "${BOLD}${MAGENTA}              Reinstall MP Mix Manager (Factory Reset)                ${NC}"
+    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
+    echo -e "  Active Installation Path: ${BOLD}${GREEN}${SCRIPT_DIR}${NC}"
+    echo -e "  Detected Host OS:         ${CYAN}${OS_TYPE}${NC}"
+    echo -e "${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}"
+    echo -e "This resets MP Mix Manager to the state it had immediately after the"
+    echo -e "first install. Themes, equalizer, window layout, caches, and activity"
+    echo -e "history are cleared. You will be asked what to keep:"
+    echo ""
+    echo -e "  ${BOLD}•${NC} playlists (custom, generated, and favorites)"
+    echo -e "  ${BOLD}•${NC} music folder config (folders and SMB login)"
+    echo -e "  ${BOLD}•${NC} mix archive folder config (archive paths)"
+    echo ""
+    echo -e "${BOLD}${GREEN}Converted audio files are never deleted.${NC}"
+    echo -e "They stay in your archive folders until you remove them yourself."
+    echo ""
+    echo -e "  ${BOLD}${CYAN} 1)${NC} Start the guided reinstall"
+    echo -e "  ${BOLD}${CYAN} 2)${NC} Full factory reset ${DIM}(keep nothing, ask before wiping)${NC}"
+    echo -e "  ${BOLD}${CYAN} 3)${NC} Preview only ${DIM}(dry run, changes nothing)${NC}"
+    echo -e "  ${BOLD}${CYAN} 0)${NC} Cancel & Return"
+    echo ""
+    read -r -p "Select an option [1-3, 0 to cancel]: " reinst_opt
+
+    local install_root="$SCRIPT_DIR"
+    if [ ! -f "$install_root/install.sh" ] && [ -f "$install_root/../install.sh" ]; then
+        install_root="$(cd -P "$install_root/.." >/dev/null 2>&1 && pwd)"
+    fi
+    if [ ! -f "$install_root/install.sh" ]; then
+        echo -e "\n${RED}Error: install.sh was not found beside this installation.${NC}"
+        press_enter
+        return 1
+    fi
+
+    case "$reinst_opt" in
+        1)
+            bash "$install_root/install.sh" --reinstall
+            ;;
+        2)
+            bash "$install_root/install.sh" --reinstall --fresh
+            ;;
+        3)
+            bash "$install_root/install.sh" --reinstall --fresh --dry-run --yes
+            ;;
+        *)
+            echo -e "\n${YELLOW}Reinstall cancelled.${NC}"
+            sleep 1
+            return 0
+            ;;
+    esac
+
+    echo ""
+    echo -e "${BOLD}${GREEN}Reinstall finished.${NC}"
+    echo -e "${DIM}Start the manager again with 'manager' to use the fresh configuration.${NC}"
+    press_enter
+}
+
 # Handle command line arguments if provided
 if [ "${1:-}" = "--backup" ]; then
     backup_current_config
@@ -609,6 +671,10 @@ elif [ "${1:-}" = "--import" ]; then
     exit 0
 elif [ "${1:-}" = "--list" ]; then
     list_and_restore_backups
+    exit 0
+elif [ "${1:-}" = "--reinstall" ] || [ "${1:-}" = "reinstall" ]; then
+    shift
+    reinstall_installation "$@"
     exit 0
 elif [ "${1:-}" = "--update" ] || [ "${1:-}" = "update" ]; then
     if [ -x "$SCRIPT_DIR/update_manager.sh" ]; then
@@ -634,11 +700,12 @@ while true; do
     echo -e "  ${BOLD}${CYAN} 4)${NC} ${BOLD}Import Configuration Bundle${NC} ${GREEN}(Automated Safety Backup & Restore)${NC}"
     echo -e "  ${BOLD}${CYAN} 5)${NC} ${BOLD}List & Restore Historical Backups${NC} ${GREEN}(Rollback to Any Prior Snapshot)${NC}"
     echo -e "  ${BOLD}${CYAN} 6)${NC} ${BOLD}Check & Install System Updates${NC} ${GREEN}(Latest Mix Manager Release & Git Pull)${NC}"
+    echo -e "  ${BOLD}${CYAN} 7)${NC} ${BOLD}Reinstall MP Mix Manager${NC} ${GREEN}(Factory Reset - Ask What to Keep)${NC}"
     echo ""
     echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu ${DIM}(or 'q')${NC}"
     echo -e "${BOLD}${BLUE}──────────────────────────────────────────────────────────────────────${NC}"
     
-    read -r -p "Enter choice [1-6, or 0 to return]: " opt
+    read -r -p "Enter choice [1-7, or 0 to return]: " opt
     case "$opt" in
         1) migrate_installation_path ;;
         2) backup_current_config ;;
@@ -653,6 +720,7 @@ while true; do
             fi
             press_enter
             ;;
+        7) reinstall_installation ;;
         0|q|Q|exit) break ;;
         *)
             echo -e "\n${RED}Invalid option!${NC}"

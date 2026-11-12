@@ -695,6 +695,51 @@ def get_local_ip() -> str:
 
 
 # ------------------------------------------------------------------------------
+# DESKTOP LAUNCH PAD (Linux)
+#
+# The dashboard runs as a user service, so the phone can be the only thing in
+# front of the user. These four buttons start the desktop suite, show whether
+# each app is already live, and close all four without stopping the tray icon
+# or this companion.
+# ------------------------------------------------------------------------------
+try:
+    import mp_suite_control as suite_control
+except ImportError:  # The companion is also importable from the repo root.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import mp_suite_control as suite_control  # type: ignore[no-redef]
+    except ImportError:
+        suite_control = None  # type: ignore[assignment]
+
+
+def launch_pad_status() -> Dict[str, Any]:
+    if suite_control is None:
+        return {"supported": False, "apps": [], "tray_running": False}
+    try:
+        return suite_control.app_status()
+    except Exception as exc:
+        return {"supported": False, "apps": [], "tray_running": False, "detail": str(exc)}
+
+
+def launch_pad_action(role: str) -> Dict[str, Any]:
+    if suite_control is None:
+        return {"success": False, "action": "unsupported", "app": role}
+    try:
+        return suite_control.launch_app(role)
+    except Exception as exc:
+        return {"success": False, "action": "error", "app": role, "detail": str(exc)}
+
+
+def launch_pad_close_all() -> Dict[str, Any]:
+    if suite_control is None:
+        return {"success": False, "action": "unsupported", "remaining": []}
+    try:
+        return suite_control.close_all_apps()
+    except Exception as exc:
+        return {"success": False, "action": "error", "remaining": [], "detail": str(exc)}
+
+
+# ------------------------------------------------------------------------------
 # STREAMING SERVICE STATE
 #
 # This process is an HTTP streamer only. It deliberately contains no IPC to a
@@ -702,17 +747,11 @@ def get_local_ip() -> str:
 # ------------------------------------------------------------------------------
 CONFIG_DIR = Path.home() / ".config" / "mix-manager"
 
-AUDIO_EXTENSIONS = (".flac", ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".aiff", ".wma")
-AUDIO_CONTENT_TYPES = {
-    ".flac": "audio/flac",
-    ".wav": "audio/wav",
-    ".mp3": "audio/mpeg",
-    ".m4a": "audio/mp4",
-    ".aac": "audio/aac",
-    ".ogg": "audio/ogg",
-    ".aiff": "audio/aiff",
-    ".wma": "audio/x-ms-wma",
-}
+try:
+    from audio_formats import AUDIO_EXTENSIONS, AUDIO_MIME_TYPES
+except ImportError:  # imported as scripts.mix_web_companion
+    from scripts.audio_formats import AUDIO_EXTENSIONS, AUDIO_MIME_TYPES
+AUDIO_CONTENT_TYPES = dict(AUDIO_MIME_TYPES)
 RESUME_FILE = CONFIG_DIR / "playback_resume.json"
 PLAYLIST_DIR = CONFIG_DIR / "playlists"
 MUSIC_FOLDERS_FILE = CONFIG_DIR / "music_folders.json"
@@ -1026,7 +1065,8 @@ def _scan_dirs(roots: List[Path]) -> List[str]:
         for root, subdirs, files in os.walk(root_dir):
             subdirs[:] = [d for d in subdirs if not d.startswith(".") and d not in skip]
             for name in files:
-                if not is_audio_file(name):
+                # "._track.flac" is an AppleDouble resource fork, not audio.
+                if name.startswith("._") or not is_audio_file(name):
                     continue
                 full = os.path.join(root, name)
                 if full in seen:
@@ -1098,6 +1138,24 @@ def _archive_dirs() -> List[Path]:
 def scan_archive_files() -> List[str]:
     """Newest-first audio files across the configured archive folders."""
     return _scan_dirs(_archive_dirs())
+
+
+def _archive_dirs_permission_denied() -> str:
+    """First configured archive folder that exists but cannot be listed.
+
+    macOS privacy protection (TCC) refuses a background job access to external
+    volumes, and the failure is a plain PermissionError rather than a missing
+    path. Returning the folder lets the dashboard name the folder to approve.
+    """
+    for folder in _archive_dirs():
+        try:
+            os.listdir(folder)
+            return ""
+        except PermissionError:
+            return str(folder)
+        except OSError:
+            continue
+    return ""
 
 
 # ------------------------------------------------------------------------------
@@ -1184,6 +1242,18 @@ def build_stream_queue() -> List[str]:
         else:
             _queue_source_state.update({"fallback": False, "detail": ""})
             files = scan_archive_files()
+            # A launchd/systemd job on macOS is denied read access to external
+            # volumes until it is approved in Full Disk Access. Without this the
+            # empty scan looks like an empty archive and the phone shows
+            # "No mixes found" instead of the real cause.
+            if not files:
+                blocked = _archive_dirs_permission_denied()
+                if blocked:
+                    _queue_source_state.update({
+                        "fallback": False,
+                        "detail": ("macOS blocked archive access - grant Full Disk Access "
+                                   f"to MP Web Companion.app ({blocked})"),
+                    })
 
         if files and _env_flag("WEB_COMPANION_SHUFFLE", False):
             files = list(files)
@@ -1778,12 +1848,59 @@ def control_player(action: str, params: Optional[Dict[str, List[str]]] = None) -
     return True
 
 
+def render_launch_pad_html() -> str:
+    """Linux-only desktop launch pad. Colours come from the page's CSS vars."""
+    if suite_control is None:
+        return ""
+    try:
+        if not suite_control.is_supported():
+            return ""
+        apps = suite_control.app_definitions()
+    except Exception:
+        return ""
+
+    buttons = []
+    for app in apps:
+        role = html.escape(str(app["id"]), quote=True)
+        label = html.escape(str(app["label"]))
+        icon = html.escape(str(app["icon"]))
+        buttons.append(
+            f'<button type="button" class="launch-btn" data-app="{role}" '
+            f'data-label="{label}" onclick="launchApp(\'{role}\')" '
+            f'aria-pressed="false" title="Launch {label}">'
+            f'<span class="launch-icon" aria-hidden="true">{icon}</span>'
+            f'<span class="launch-label">{label}</span>'
+            f'<span class="launch-state">Off</span>'
+            f'</button>'
+        )
+    return (
+        '<div class="launchpad" id="launchPad">'
+        '<div class="launchpad-head">'
+        '<span>🖥 Desktop Suite</span>'
+        '<span id="launchPadTray" class="launch-state">Tray off</span>'
+        '</div>'
+        '<div class="launchpad-grid" id="launchPadGrid">'
+        + "".join(buttons)
+        + '<button type="button" class="launch-btn launch-close" id="launchCloseAll" '
+          'onclick="closeAllApps()" title="Close all four apps, keep the tray icon">'
+          '<span class="launch-icon" aria-hidden="true">⏻</span>'
+          '<span class="launch-label">Close All</span>'
+          '</button>'
+        '</div>'
+        '<div class="launchpad-note" id="launchPadNote">'
+        'Tap a button to open that app on the computer.'
+        '</div>'
+        '</div>'
+    )
+
+
 # ------------------------------------------------------------------------------
 # DYNAMIC HTML TEMPLATE (SEAMLESS AUDIO STREAMING & SYNCED SEEKING)
 # ------------------------------------------------------------------------------
 def render_html_page(theme: Dict[str, Any]) -> str:
     t = theme
     is_rainbow = t.get("is_dynamic_rainbow", False) or t['id'] == "dynamic_rainbow_liquid_glass"
+    launch_pad_html = render_launch_pad_html()
 
     # Dynamic Liquid Glass [Rainbow Colours]: the body carries a slowly rotating
     # hue while the glass cards breathe, so the whole dashboard cycles through
@@ -2532,6 +2649,148 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             opacity: 0.75;
             padding: 10px 0;
         }}
+        /* Desktop launch pad: only rendered for the Linux host. Themed with the
+           same palette variables as the rest of the dashboard. A running app
+           keeps its button pressed down; an app that is not running sits up. */
+        .launchpad {{
+            width: 100%;
+            max-width: 520px;
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 16px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+        }}
+        .launchpad-head {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.7px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }}
+        .launchpad-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }}
+        .launch-btn {{
+            appearance: none;
+            -webkit-appearance: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            min-width: 0;
+            padding: 10px 4px;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 0.68rem;
+            font-weight: 800;
+            line-height: 1.15;
+            text-align: center;
+            color: var(--text-dim);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--card-border);
+            box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease,
+                        background 0.15s ease, color 0.15s ease;
+            overflow: hidden;
+        }}
+        .launch-btn .launch-icon {{
+            font-size: 1.15rem;
+            line-height: 1;
+        }}
+        .launch-btn .launch-label {{
+            display: block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }}
+        .launch-btn:hover {{
+            color: var(--text-main);
+            border-color: var(--accent-secondary);
+        }}
+        .launch-btn:focus-visible {{
+            outline: 2px solid var(--accent-secondary);
+            outline-offset: 2px;
+        }}
+        /* Pressed down: the button is physically sunk into the panel and lit
+           with the theme's primary/secondary gradient. */
+        .launch-btn.running {{
+            color: #fff;
+            background: var(--btn-gradient);
+            border-color: var(--badge-color);
+            box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.55),
+                        0 0 0 1px var(--badge-color) inset,
+                        0 0 14px -2px var(--accent-primary);
+            transform: translateY(2px);
+        }}
+        .launch-btn.running .launch-state {{
+            color: var(--badge-color);
+        }}
+        .launch-btn:active {{
+            transform: translateY(2px);
+            box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.55);
+        }}
+        .launch-btn.busy {{
+            cursor: progress;
+            opacity: 0.7;
+        }}
+        .launch-state {{
+            font-size: 0.58rem;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            opacity: 0.9;
+        }}
+        .launch-close {{
+            grid-column: 1 / -1;
+            flex-direction: row;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 11px 10px;
+            font-size: 0.76rem;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--accent-crimson);
+            border-color: var(--accent-crimson);
+            box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+        }}
+        .launch-close:hover {{
+            color: #fff;
+            background: var(--accent-crimson);
+            border-color: var(--accent-crimson);
+        }}
+        .launchpad-note {{
+            margin-top: 8px;
+            font-size: 0.66rem;
+            font-weight: 700;
+            color: var(--text-dim);
+            text-align: center;
+        }}
+        .launchpad-note.ok {{
+            color: var(--badge-color);
+        }}
+        @media (max-width: 390px) {{
+            .launchpad-grid {{
+                gap: 6px;
+            }}
+            .launch-btn {{
+                padding: 9px 3px;
+                font-size: 0.62rem;
+            }}
+            .launch-btn .launch-icon {{
+                font-size: 1rem;
+            }}
+        }}
     </style>
 </head>
 <body>
@@ -2658,6 +2917,8 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         </div>
         <ul class="tl-items" id="tlItems"></ul>
     </div>
+
+    {launch_pad_html}
 
     <div class="footer">
         MP Mix Archive Manager v{html.escape(VERSION)} • MPlanetarian (Dreamworlds Productions)
@@ -3317,14 +3578,113 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             }} catch (e) {{}}
         }}
 
+        // ---------------------------------------------------------------------
+        // Desktop launch pad (Linux only). A running app keeps its button
+        // pressed down; an app that is not running sits in the raised state.
+        // ---------------------------------------------------------------------
+        function paintLaunchPad(data) {{
+            if (!data || !data.supported) return;
+            const buttons = document.querySelectorAll('#launchPadGrid .launch-btn[data-app]');
+            buttons.forEach(btn => {{
+                const app = (data.apps || []).find(a => a.id === btn.dataset.app);
+                const running = Boolean(app && app.running);
+                btn.classList.toggle('running', running);
+                btn.setAttribute('aria-pressed', running ? 'true' : 'false');
+                const state = btn.querySelector('.launch-state');
+                if (state) state.innerText = running ? 'Running' : 'Off';
+            }});
+            const tray = document.getElementById('launchPadTray');
+            if (tray) {{
+                tray.innerText = data.tray_running ? 'Tray on' : 'Tray off';
+                tray.classList.toggle('ok', Boolean(data.tray_running));
+            }}
+        }}
+
+        async function fetchLaunchPad() {{
+            const pad = document.getElementById('launchPad');
+            if (!pad) return;
+            try {{
+                const res = await fetch('/api/launchpad');
+                const data = await res.json();
+                if (!data || !data.supported) {{
+                    pad.style.display = 'none';
+                    return;
+                }}
+                pad.style.display = 'block';
+                paintLaunchPad(data);
+            }} catch (e) {{}}
+        }}
+
+        function launchPadNote(text, ok) {{
+            const note = document.getElementById('launchPadNote');
+            if (!note) return;
+            note.innerText = text;
+            note.classList.toggle('ok', Boolean(ok));
+        }}
+
+        async function launchApp(role) {{
+            const btn = document.querySelector('#launchPadGrid .launch-btn[data-app="' + role + '"]');
+            if (!btn || btn.classList.contains('busy')) return;
+            btn.classList.add('busy');
+            launchPadNote('Starting ' + (btn.dataset.label || role) + '…', false);
+            try {{
+                const res = await fetch('/api/launchpad/launch?app=' + encodeURIComponent(role), {{ method: 'POST' }});
+                const data = await res.json();
+                if (data && data.success) {{
+                    const verb = data.action === 'launch' ? 'Launched' : 'Brought forward';
+                    launchPadNote(verb + ' ' + (data.label || btn.dataset.label || role) + ' on the computer.', true);
+                }} else {{
+                    launchPadNote('Could not open ' + (btn.dataset.label || role) + '.', false);
+                }}
+            }} catch (e) {{
+                launchPadNote('Could not reach the computer.', false);
+            }} finally {{
+                btn.classList.remove('busy');
+                // Let the window appear before the pressed state is painted.
+                setTimeout(fetchLaunchPad, 1500);
+                setTimeout(fetchLaunchPad, 4000);
+            }}
+        }}
+
+        async function closeAllApps() {{
+            const btn = document.getElementById('launchCloseAll');
+            if (!btn || btn.classList.contains('busy')) return;
+            btn.classList.add('busy');
+            launchPadNote('Closing the desktop suite…', false);
+            try {{
+                const res = await fetch('/api/launchpad/close', {{ method: 'POST' }});
+                const data = await res.json();
+                const left = (data && data.remaining) || [];
+                const names = left.map(r => {{
+                    const b = document.querySelector('#launchPadGrid .launch-btn[data-app="' + r + '"]');
+                    return b ? b.dataset.label : r;
+                }});
+                if (data && data.success) {{
+                    launchPadNote('All MP apps closed. Tray icon stays up.', true);
+                }} else if (names.length) {{
+                    launchPadNote('Still open: ' + names.join(', '), false);
+                }} else {{
+                    launchPadNote('Close All did not complete.', false);
+                }}
+            }} catch (e) {{
+                launchPadNote('Could not reach the computer.', false);
+            }} finally {{
+                btn.classList.remove('busy');
+                setTimeout(fetchLaunchPad, 600);
+                setTimeout(fetchLaunchPad, 2500);
+            }}
+        }}
+
         setInterval(fetchEq, 100);
         setInterval(fetchStatus, 2000);
         setInterval(fetchTheme, 3000);
         setInterval(fetchMiniPlaylist, 15000);
+        setInterval(fetchLaunchPad, 3000);
         fetchEq();
         fetchStatus();
         fetchTheme();
         fetchMiniPlaylist();
+        fetchLaunchPad();
     </script>
 </body>
 </html>
@@ -3343,7 +3703,8 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.end_headers()
         elif url.path in ("/api/status", "/api/theme", "/api/eq", "/api/autoplay",
-                          "/api/themes", "/api/set_theme", "/api/playlist", "/api/mode"):
+                          "/api/themes", "/api/set_theme", "/api/playlist", "/api/mode",
+                          "/api/launchpad"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3437,6 +3798,14 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
         elif url.path == "/api/playlist":
             payload = get_mini_playlist()
             payload["shuffle"] = bool(load_stream_session().get("shuffle", False))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
+        elif url.path == "/api/launchpad":
+            payload = launch_pad_status()
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -3553,6 +3922,21 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"success": success, "action": action}).encode("utf-8"))
+        elif url.path in ("/api/launchpad/launch", "/api/launchpad/close"):
+            params = urllib.parse.parse_qs(url.query)
+            if url.path.endswith("/close"):
+                payload = launch_pad_close_all()
+            else:
+                payload = launch_pad_action(params.get("app", [""])[0])
+            status = 200 if payload.get("success") else 400
+            if payload.get("action") == "unsupported":
+                status = 501
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
         else:
             self.send_response(404)
             self.end_headers()

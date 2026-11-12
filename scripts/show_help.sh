@@ -86,6 +86,15 @@ ${BOLD}LAUNCH FLAGS & OPTIONS:${NC}
         ${GREEN}--check, -c${NC}    Check for updates without installing
         ${GREEN}--force, -f${NC}    Force re-pull and reinstall from remote repository
 
+  ${BOLD}${GREEN}reinstall, --reinstall${NC}
+      Reset this user's configuration and reinstall from a first-install state.
+      You are asked whether to preserve playlists, music folder config, and mix
+      archive folder config. Always keeps converted audio: delete those yourself.
+      ${DIM}Sub-options:${NC}
+        ${GREEN}--yes, -y${NC}       Preserve all three, no questions
+        ${GREEN}--fresh${NC}         Keep nothing at all
+        ${GREEN}--dry-run${NC}       Show what would change, then stop
+
   ${BOLD}${GREEN}-p, --track, --current-track${NC}
       Print the absolute filesystem path of the currently playing mix track.
 
@@ -142,7 +151,7 @@ ${BOLD}AVAILABLE MENU OPTIONS (INTERACTIVE & DIRECT SHORTCUTS):${NC}
   ${BOLD}${CYAN}16${NC}   ${BOLD}Configure Mix Archive Storage Locations${NC}
        Set the primary mix folder and extra archive drives.
   ${BOLD}${CYAN}17${NC}   ${BOLD}Custom Mix Playlists & Traktor History Suite${NC}
-       Build playlists, read Traktor history, and export Rekordbox XML.
+       Build playlists, read Traktor history, export Favorites for a DJ set, and export Rekordbox XML.
   ${BOLD}${CYAN}18${NC}   ${BOLD}Digital Audio Workstations (DAWs) & Mix Dispatch${NC}
        Launch REAPER, Logic, FL Studio, Ardour, and other installed DAWs.
   ${BOLD}${CYAN}19${NC}   ${BOLD}Studio Hardware, Audio Interfaces & Master Volume Control${NC}

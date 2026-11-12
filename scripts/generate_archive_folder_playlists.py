@@ -32,7 +32,11 @@ CYAN = "\033[0;36m"
 WHITE = "\033[1;37m"
 NC = "\033[0m"
 
-AUDIO_EXTS = {'.flac', '.wav', '.mp3'}
+try:
+    from audio_formats import AUDIO_EXTENSIONS
+except ImportError:  # imported as scripts.generate_archive_folder_playlists
+    from scripts.audio_formats import AUDIO_EXTENSIONS
+AUDIO_EXTS = set(AUDIO_EXTENSIONS)
 
 def get_base_dir():
     # If running from scripts/, return parent directory (app root)
@@ -139,6 +143,11 @@ def scan_dir_mixes(directory):
         if depth > 1 and 'mp3_converted_outputs' not in root.lower():
             continue
         for f in files:
+            # macOS leaves "._name.ext" AppleDouble resource forks beside every
+            # file on a non-HFS volume. They carry the audio extension but are a
+            # few KB of metadata, so they must never enter a playlist.
+            if f.startswith("._"):
+                continue
             ext = os.path.splitext(f)[1].lower()
             if ext in AUDIO_EXTS:
                 if ext == '.mp3' and depth > 0 and 'mp3_converted_outputs' not in root.lower():
