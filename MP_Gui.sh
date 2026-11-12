@@ -77,9 +77,24 @@ fi
 # Git Bash on Windows resolves python3 to the Microsoft Store alias, which
 # prints "No installed Python found!" and never starts the window. The project
 # venv and windows_find_python.cmd are the same search the .bat launchers use.
+#
+# On Linux and macOS the window needs PyGObject. Homebrew's python3 sits first
+# on PATH but has no "gi", so preferring the name python3 made every MP Gui
+# shortcut exit with "No module named 'gi'". mp_gui_python_bin picks the first
+# interpreter that can actually import Gtk.
 _mp_python() {
     if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && [ -f "$BASE_DIR/scripts/ensure_mp_python_env.sh" ]; then
         bash "$BASE_DIR/scripts/ensure_mp_python_env.sh" && return 0
+    fi
+    local resolver="$BASE_DIR/scripts/resolve_mp_python.sh"
+    if [ -f "$resolver" ]; then
+        # shellcheck disable=SC1090
+        source "$resolver"
+        local resolved
+        if resolved="$(mp_gui_python_bin 2>/dev/null)" && [ -n "$resolved" ]; then
+            printf '%s\n' "$resolved"
+            return 0
+        fi
     fi
     if [ -n "${MP_PYTHON:-}" ] && [ -x "${MP_PYTHON}" ]; then
         printf '%s\n' "$MP_PYTHON"
@@ -130,6 +145,7 @@ _mp_python() {
     printf '%s\n' python3
 }
 MP_PY="$(_mp_python)"
+export MP_PY
 
 # Reset the shared equalizer on Linux whenever MP Gui is opened directly.
 if [ "$(uname -s 2>/dev/null)" = "Linux" ] && [ -f "$BASE_DIR/MP_Audio_Player.py" ]; then

@@ -98,8 +98,28 @@ fi
 #    python3 "$BASE_DIR/MP_Audio_Player.py" --vol 100 2>/dev/null || true
 #fi
 
+# Pick the interpreter that can actually build the GTK window. Homebrew's
+# python3 is first on PATH but has no PyGObject, which killed every MP
+# shortcut with "No module named 'gi'".
+PYTHON_BIN=""
+_mp_resolver="$BASE_DIR/scripts/resolve_mp_python.sh"
+[ ! -f "$_mp_resolver" ] && _mp_resolver="$SCRIPT_DIR/resolve_mp_python.sh"
+if [ -f "$_mp_resolver" ]; then
+    # shellcheck disable=SC1090
+    source "$_mp_resolver"
+    PYTHON_BIN="$(mp_gui_python_bin 2>/dev/null || true)"
+fi
+unset _mp_resolver
+if [ -z "$PYTHON_BIN" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    fi
+fi
+
 # If a previous window opened on the Hisense, bring it back to the main screen.
-python3 - "$BASE_DIR" << 'PY' || true
+"$PYTHON_BIN" - "$BASE_DIR" << 'PY' || true
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
@@ -145,7 +165,7 @@ if ! pgrep -f "MP_Liquid_Visualizer|mp_liquid_visualizer_vulkan" >/dev/null 2>&1
     VIS_PY="$BASE_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$VIS_PY" ] && VIS_PY="$BASE_DIR/scripts/mp_liquid_visualizer_vulkan.py"
     if [ -f "$VIS_PY" ]; then
-        nohup python3 "$VIS_PY" --preset random --backend "$VIS_BACKEND" >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
+        nohup "$PYTHON_BIN" "$VIS_PY" --preset random --backend "$VIS_BACKEND" >> "$HOME/.config/mix-manager/liquid_visualizer.log" 2>&1 &
     fi
 fi
 
@@ -156,7 +176,9 @@ if [ -f "$_VTE_BASE/girepository-1.0/Vte-2.91.typelib" ]; then
     export GI_TYPELIB_PATH="${_VTE_BASE}/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
 fi
 cd "$BASE_DIR" || exit 1
-PYTHON_BIN="python3"
+if [ -z "$PYTHON_BIN" ]; then
+    PYTHON_BIN="python3"
+fi
 if [ "$(uname -s)" = "Darwin" ] && [ -f "$BASE_DIR/scripts/ensure_mp_python_env.sh" ]; then
     if _mp_env_python="$(bash "$BASE_DIR/scripts/ensure_mp_python_env.sh")"; then
         PYTHON_BIN="$_mp_env_python"

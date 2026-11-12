@@ -21,6 +21,117 @@ _mp_python_works() {
     "$bin" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)" >/dev/null 2>&1
 }
 
+# True when the interpreter imports every module named on the command line.
+# A missing PyGObject is the usual reason a shortcut dies: Homebrew ships a
+# python3 without "gi", and having it first on PATH used to shadow the system
+# interpreter, so every MP desktop shortcut exited with "No module named 'gi'".
+_mp_python_can_import() {
+    local bin="$1"
+    shift
+    _mp_python_works "$bin" || return 1
+    "$bin" - "$@" >/dev/null 2>&1 <<'PY'
+import importlib, sys
+for name in sys.argv[1:]:
+    importlib.import_module(name)
+PY
+}
+
+# Every interpreter worth trying, best first. System interpreters come before
+# PATH ones so a feature-poor Homebrew/conda python cannot hide a working
+# PyGObject install.
+_mp_python_candidates() {
+    local item
+    [ -n "${MP_PYTHON:-}" ] && printf '%s\n' "$MP_PYTHON"
+    if [ -n "${MP_PYTHON_CANDIDATES:-}" ]; then
+        local raw="${MP_PYTHON_CANDIDATES//;/$'\n'}"
+        while IFS= read -r item || [ -n "$item" ]; do
+            item="${item#"${item%%[![:space:]]*}"}"
+            item="${item%"${item##*[![:space:]]}"}"
+            [ -n "$item" ] && printf '%s\n' "$item"
+        done <<< "$raw"
+    fi
+    if [ -n "${SCRIPT_DIR:-}" ]; then
+        printf '%s\n' \
+            "${SCRIPT_DIR}/venv/bin/python3" \
+            "${SCRIPT_DIR}/venv/bin/python" \
+            "${SCRIPT_DIR}/.venv/bin/python3" \
+            "${SCRIPT_DIR}/.venv/bin/python"
+    fi
+    printf '%s\n' \
+        "${HOME}/.local/share/mp-mix-manager/python-env/bin/python3" \
+        "${HOME}/.local/share/mp-mix-manager/python-env/bin/python" \
+        "/usr/bin/python3" \
+        "/usr/bin/python" \
+        "/usr/local/bin/python3" \
+        "/usr/local/bin/python"
+    for item in python3 python; do
+        item="$(type -p "$item" 2>/dev/null || true)"
+        [ -n "$item" ] && printf '%s\n' "$item"
+    done
+    printf '%s\n' \
+        "/opt/homebrew/bin/python3" \
+        "/home/linuxbrew/.linuxbrew/bin/python3"
+}
+
+_mp_python_use() {
+    MP_PYTHON="$1"
+    export MP_PYTHON
+    _mp_install_python3_shim
+}
+
+# Print the first interpreter that can import the named modules. Returns
+# non-zero when none qualifies so callers can fall back.
+mp_python_with_modules() {
+    local bin
+    [ "$#" -gt 0 ] || return 1
+    local seen=" "
+    while IFS= read -r bin; do
+        [ -n "$bin" ] || continue
+        case "$seen" in
+            *" ${bin} "*) continue ;;
+        esac
+        seen="${seen}${bin} "
+        if _mp_python_can_import "$bin" "$@"; then
+            _mp_python_use "$bin"
+            printf '%s\n' "$bin"
+            return 0
+        fi
+    done <<EOF
+$(_mp_python_candidates)
+EOF
+    return 1
+}
+
+# The Liquid Glass window needs PyGObject (Gtk 3, GdkX11, Vte) and numpy.
+# soundfile stays optional: MP_Audio_Player.py imports it in a try/except.
+# Windows does not use GTK, so it keeps the plain resolver.
+mp_gui_python_bin() {
+    local bin
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) mp_python_bin; return $? ;;
+    esac
+    if bin="$(mp_python_with_modules gi numpy 2>/dev/null)" && [ -n "$bin" ]; then
+        printf '%s\n' "$bin"
+        return 0
+    fi
+    mp_python_bin
+    return $?
+}
+
+# The standalone visualizer only needs numpy and OpenGL.
+mp_visualizer_python_bin() {
+    local bin
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) mp_python_bin; return $? ;;
+    esac
+    if bin="$(mp_python_with_modules numpy OpenGL 2>/dev/null)" && [ -n "$bin" ]; then
+        printf '%s\n' "$bin"
+        return 0
+    fi
+    mp_python_bin
+    return $?
+}
+
 _mp_install_python3_shim() {
     [ -n "${MP_PYTHON:-}" ] || return 0
     python3() { "$MP_PYTHON" "$@"; }

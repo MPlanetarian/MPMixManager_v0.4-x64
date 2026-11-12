@@ -12,13 +12,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 PYTHON_BIN=""
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
-    PYTHON_BIN="python"
-else
-    echo "Error: Python 3 not found in PATH." >&2
-    exit 1
+# Prefer an interpreter that can import the visualizer's dependencies.
+# Homebrew's python3 comes first on PATH but is not the system GTK python.
+_resolver="${SCRIPT_DIR}/resolve_mp_python.sh"
+[ ! -f "$_resolver" ] && _resolver="${PROJECT_ROOT}/scripts/resolve_mp_python.sh"
+if [ -f "$_resolver" ]; then
+    # shellcheck disable=SC1090
+    source "$_resolver"
+    PYTHON_BIN="$(mp_visualizer_python_bin 2>/dev/null || true)"
+fi
+unset _resolver
+if [ -z "$PYTHON_BIN" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    else
+        echo "Error: Python 3 not found in PATH." >&2
+        exit 1
+    fi
 fi
 
 if [[ -f "${PROJECT_ROOT}/MP_Liquid_Visualizer.py" ]]; then
