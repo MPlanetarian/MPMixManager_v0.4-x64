@@ -5753,51 +5753,38 @@ press_enter
 return 0
 fi
 while true; do
-clear
-echo -e "${BOLD}${MAGENTA}${S70}${NC}"
-echo -e "${BOLD}${MAGENTA}      READ A TRACKLIST OUT LOUD WITH THE MP HARMONY AGENT               ${NC}"
-echo -e "${BOLD}${MAGENTA}${S70}${NC}"
-echo -e "  ${DIM}The selected tracklist is sent to the MP Harmony Agent, which narrates it${NC}"
-echo -e "  ${DIM}with its active AI model and speaks it in the chosen MP Harmony voice.${NC}\n"
-echo -e "  ${BOLD}${CYAN}Current Tracklist Files (file name is the title):${NC}\n"
-local idx=1 shown=() tf bname
+local shown=() tf bname idx=1
 for tf in "${ALL_TRACKLIST_FILES[@]}"; do
 bname="${tf##*/}"
-printf "  %2d) %s\n" "$idx" "${bname%.*}"
-shown+=("$tf")
+shown+=("${idx}|${bname%.*}|(Tracklist file)")
 ((idx++))
-if [ "$idx" -gt 60 ]; then
-echo -e "  ${DIM}...and $(( ${#ALL_TRACKLIST_FILES[@]} - 60 )) more (use the Tracklist Management Suite search to narrow the list)${NC}"
-break
-fi
+if [ "$idx" -gt 60 ]; then break; fi
 done
-echo ""
-echo -e "  ${BOLD}${CYAN}  0)${NC} Return to Tracklist Suite\n"
-local sel
-read -r -p "Select a tracklist to read out loud [1-${#shown[@]}, 0 to cancel]: " sel
-if [[ "$sel" =~ ^([qQ]|0)?$ ]]; then return 0; fi
-if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -lt 1 ] || [ "$sel" -gt "${#shown[@]}" ]; then
-echo -e "\n${RED}Invalid selection.${NC}"; sleep 1.2; continue
+shown+=("0|Return to Tracklist Suite|(or Esc / q)")
+run_interactive_submenu "READ A TRACKLIST OUT LOUD WITH THE MP HARMONY AGENT" "The selected tracklist is sent to the MP Harmony Agent, which narrates it with its active AI model and speaks it in the chosen MP Harmony voice." shown 0
+local sel="$REPLY"
+[[ "$sel" =~ ^([qQ]|0)$ ]] && return 0
+if ! [[ "$sel" =~ ^[0-9]+$ ]] || [ "$sel" -lt 1 ] || [ "$sel" -gt "${#ALL_TRACKLIST_FILES[@]}" ] || [ "$sel" -gt 60 ]; then
+continue
 fi
-local chosen_tl="${shown[$((sel - 1))]}"
-clear
-echo -e "${BOLD}${MAGENTA}${S70}${NC}"
-echo -e "${BOLD}${MAGENTA}      CHOOSE THE MP HARMONY VOICE FOR THIS NARRATION                   ${NC}"
-echo -e "${BOLD}${MAGENTA}${S70}${NC}"
-echo -e "  ${DIM}Voices already installed in the MP Harmony Agent:${NC}\n"
-echo -e "  ${BOLD}${CYAN}  1)${NC} Stephen Hawking (Enters the Matrix) ${BOLD}${GREEN}[Default]${NC}"
-echo -e "  ${BOLD}${CYAN}  2)${NC} Morpheus (The Matrix - Master)"
-echo -e "  ${BOLD}${CYAN}  3)${NC} Morpheus (The Construct - 'What is real?')"
-echo -e "  ${BOLD}${CYAN}  4)${NC} Morpheus (Red Pill - 'Rabbit Hole')"
-echo -e "  ${BOLD}${CYAN}  5)${NC} Morpheus (Combat Dojo - 'Free your mind')"
-echo -e "  ${BOLD}${CYAN}  6)${NC} Morpheus (The System - 'Our enemy')"
-echo -e "  ${BOLD}${CYAN}  7)${NC} Agent Smith (The Matrix)"
-echo -e "  ${BOLD}${CYAN}  8)${NC} Neo (The Matrix)"
-echo -e "  ${BOLD}${CYAN}  9)${NC} Trinity (The Matrix)"
-echo -e "  ${BOLD}${CYAN} 10)${NC} The Oracle (The Matrix)"
-echo -e "  ${BOLD}${CYAN} 11)${NC} Zion (Councillor Hamann)\n"
-local v_sel
-read -r -p "Enter voice choice [1-11, Enter = Stephen Hawking]: " v_sel
+local chosen_tl="${ALL_TRACKLIST_FILES[$((sel - 1))]}"
+local -a voice_opts=(
+"1|Stephen Hawking (Enters the Matrix)|(Default voice)"
+"2|Morpheus (The Matrix - Master)|(MP Harmony voice)"
+"3|Morpheus (The Construct - 'What is real?')|(MP Harmony voice)"
+"4|Morpheus (Red Pill - 'Rabbit Hole')|(MP Harmony voice)"
+"5|Morpheus (Combat Dojo - 'Free your mind')|(MP Harmony voice)"
+"6|Morpheus (The System - 'Our enemy')|(MP Harmony voice)"
+"7|Agent Smith (The Matrix)|(MP Harmony voice)"
+"8|Neo (The Matrix)|(MP Harmony voice)"
+"9|Trinity (The Matrix)|(MP Harmony voice)"
+"10|The Oracle (The Matrix)|(MP Harmony voice)"
+"11|Zion (Councillor Hamann)|(MP Harmony voice)"
+"0|Cancel this narration|(or Esc / q)"
+)
+run_interactive_submenu "CHOOSE THE MP HARMONY VOICE FOR THIS NARRATION" "Voices already installed in the MP Harmony Agent. Enter keeps Stephen Hawking." voice_opts 0
+local v_sel="$REPLY"
+[[ "$v_sel" =~ ^([qQ]|0)$ ]] && return 0
 local chosen_voice="stephen_hawking_matrix"
 case "$v_sel" in
 2) chosen_voice="morpheus" ;;
@@ -5847,9 +5834,10 @@ echo -e "  ${BOLD}Transcript:${NC}      ${CYAN}${text_path}${NC}"
 fi
 [ -n "$saved_dir" ] || saved_dir="$voiced_dir"
 echo -e "  ${BOLD}Saved In:${NC}        ${CYAN}${saved_dir}${NC}\n"
-local preview
-read -r -p "Listen to the recorded version in the MP Audio Player (Preview)? [Y/n]: " preview
-if [[ ! "$preview" =~ ^[nN] ]]; then
+local -a preview_opts=("1|Listen to the recording in the MP Audio Player (Preview)|(Default)" "2|Skip preview and continue|(Keep the saved file)")
+run_interactive_submenu "NARRATION SAVED" "Listen to the recorded version now, or keep the file and continue." preview_opts 0
+local preview="$REPLY"
+if [ "$preview" = "1" ]; then
 echo -e "\n${BOLD}${CYAN}Opening the recording in the MP Audio Player (Preview)...${NC}\n"
 SKIP_PLAYING_ASSETS=1 play_audio_file "mp_audio_player" "$audio_path" "" "MIX_ARCHIVE" || {
 echo -e "${YELLOW}The MP Audio Player could not be launched. Opening with the default system player instead.${NC}"
