@@ -183,7 +183,7 @@ An enterprise-grade workstation orchestration console and media management suite
 
 | Feature | Where | What you can do |
 | :--- | :--- | :--- |
-| **MP Mix Manager GUI** | **[MP_Gui.sh](MP_Gui.sh)**, main menu **36**, menu row **MP** | Opens Mix Archive Manager inside the same Liquid Glass window as the player. On macOS the host is `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`. On Linux the host is OpenGL, or Vulkan when `LIQUID_GLASS_BACKEND=vulkan`. The Metal macOS file is the fallback when the OpenGL macOS host is absent, and that fallback is Apple Silicon only. The window title is `MP Mix Manager (Liquid Glass`. Up to **four** MP Gui windows may be open; a fifth launch focuses a mapped window instead (`scripts/mp_instance_limit.py`). Closing it stops playback and closes the MP Liquid Visualizer. `./MP_Gui.sh --keep-theme` leaves the current theme alone. `./MP_Gui.sh --theme NAME` writes another theme. |
+| **MP Mix Manager GUI** | **[MP_Gui.sh](MP_Gui.sh)**, main menu **36**, menu row **MP** | Opens Mix Archive Manager inside the same Liquid Glass window as the player. On macOS the host is `MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py`. On Linux the host is OpenGL, or Vulkan when `LIQUID_GLASS_BACKEND=vulkan`. **Whichever backend that is, the MP Visualizer is drawn behind the terminal text in that window**, and the visualizer window behind it is started on the same backend. The Metal macOS file is the fallback when the OpenGL macOS host is absent, and that fallback is Apple Silicon only. The window title is `MP Mix Manager (Liquid Glass`. Up to **four** MP Gui windows may be open; a fifth launch focuses a mapped window instead (`scripts/mp_instance_limit.py`). Closing it stops playback and closes the MP Liquid Visualizer. `./MP_Gui.sh --keep-theme` leaves the current theme alone. `./MP_Gui.sh --theme NAME` writes another theme. |
 | **Retro Linux Memories** | Theme option **22**, `themes/Retro_Linux_Memories_MP_Mix_Manager.theme` | VeraCrypt-style dark slate glass (`#2d2d2d` field, `#15539e` selection, `#1a1e21` chrome) on the manager, MP Audio Player, OpenGL, Vulkan, and Metal Liquid Glass, the tracklist viewer, Traktor Monitor, the web companion, and btop. `veracrypt` and `charcoal_vault` are names for this same theme. The Manager GUI starts on it. Press **`C`** on the main menu to cycle the same theme list the Liquid Player uses. The choice is saved to `~/.config/mix-manager/theme`. |
 | **Favorites** | MP Audio Player, **`H`**, **`3`**, the Favorites button | Marks the selected mix or music track. Press **`H`** again to remove it. Click the star on a row, or the Favorites button, or press **`3`**, to open the Favorites playlist. The list is stored in `~/.config/mix-manager/favorites.json` and `favorites.m3u8`. Audio-file tags are not rewritten. SMB paths are kept. |
 | **Mix and Music modes** | Player keys **`1`** and **`2`** | **`1`** reloads the Mix Archive playlist. **`2`** reloads the Music Folders playlist. If that playlist has not been generated, the player says so and stays on the current library. |
@@ -1140,6 +1140,11 @@ MPMixManager_v0.4-x64/
 │   └── unblock-internet         # Firewall restore toggle
 │
 ├── scripts/                     # Synchronized canonical script repository
+│   ├── visualizer_backend.py    # Picks the MP Visualizer renderer (auto/OpenGL/Vulkan)
+│   ├── liquid_player_visualizer.py # In-window visualizer layer + standalone OpenGL renderer
+│   ├── liquid_glass_vulkan.py   # Vulkan player host, with the in-window visualizer background
+│   ├── liquid_glass_opengl.py   # OpenGL player host, with the in-window visualizer background
+│   └── mp_liquid_visualizer_vulkan.py # Standalone visualizer renderer + backend selection
 ├── shaders/                     # Vulkan, OpenGL & Metal shader pipelines (GLSL, SPIR-V, MSL)
 ├── tests/
 │   └── run_tests.sh             # Automated verification test suite (243+ tests)
