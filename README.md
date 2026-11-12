@@ -534,6 +534,7 @@ Two releases back, October 24, 2026. Current release notes are [What's New in v0
 - 🎨 **Responsive Dreamworlds UI**: Tailored dark neon palette optimized for OLED mobile displays in low-light DJ booths and studio environments.
 - 🎛️ **Full Remote Control**: Play, pause, skip, seek, mute, adjust master volume, inspect now-playing audio bit depth/sample rate, and browse the mix archive catalog over local Wi-Fi.
 - 🖥️ **Desktop Launch Pad (Linux)**: Four themed buttons at the bottom of the dashboard start **MP Gui**, **MP Mix Manager (CLI)**, **MP Liquid Player**, and **MP Liquid Visualizer** on the computer. A button is shown pressed down while that app is running and raised when it is not, and **Close All** closes all four without stopping the shared tray icon.
+- ▶️ **Start / Stop from the Tray (Linux)**: The tray icon's **Start / Stop MP Web Audio** entry starts or stops this service. It reads **Stop** while the companion is serving and **Start** while it is not. Stopping it tells every connected phone the companion is restarting; each dashboard shows the notice and resumes the mix by itself once the service is back, so nobody has to re-tap the audio gesture mid-set.
 - 🔒 **Local Network Isolation**: Binds securely to your local LAN IP (`http://<WORKSTATION-IP>:8888`) with optional trusted-host verification.
 
 ---

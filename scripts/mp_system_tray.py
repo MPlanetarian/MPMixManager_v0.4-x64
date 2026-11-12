@@ -31,15 +31,25 @@ try:
 except ImportError:  # pragma: no cover - the tray lives beside the helper
     instance_limit = None
 
+try:
+    import mp_web_service as web_service
+except ImportError:  # pragma: no cover - the tray lives beside the helper
+    web_service = None  # type: ignore[assignment]
+
 MENU_LAUNCH_GUI = "Launch MP Gui"
 MENU_LAUNCH_LIQUID = "Launch MP Liquid Player"
 MENU_LAUNCH_MANAGER = "Launch MP Mix Manager"
 MENU_CLOSE_ALL = "Close MP Mix Manager (Closes everything)"
+# Label is filled in from the live service state: Stop while the companion is
+# serving, Start while it is not. Several dashboards may be connected, which is
+# why the label is re-read whenever the menu is opened.
+MENU_WEB_AUDIO = "Start / Stop MP Web Audio"
 
 MENU_ENTRIES = (
     ("launch-gui", MENU_LAUNCH_GUI),
     ("launch-liquid", MENU_LAUNCH_LIQUID),
     ("launch-manager", MENU_LAUNCH_MANAGER),
+    ("web-audio", MENU_WEB_AUDIO),
     ("close-all", MENU_CLOSE_ALL),
 )
 
@@ -989,12 +999,49 @@ def _launch_role(base: Path, role: str) -> int:
     return 0
 
 
+def web_audio_label() -> str:
+    """Live menu label: Stop while serving, Start while not."""
+    if web_service is None:
+        return MENU_WEB_AUDIO
+    try:
+        return web_service.menu_label()
+    except Exception:
+        return MENU_WEB_AUDIO
+
+
+def web_audio_running() -> bool:
+    if web_service is None:
+        return False
+    try:
+        return bool(web_service.companion_running())
+    except Exception:
+        return False
+
+
+def toggle_web_audio() -> dict:
+    """Start or stop the MP Web Companion. Linux only for now."""
+    if web_service is None:
+        return {"supported": False, "action": "unavailable"}
+    try:
+        return web_service.toggle_companion()
+    except Exception as exc:
+        return {"supported": True, "action": "error", "detail": str(exc)}
+
+
 def perform_menu_action(base: Path, action_id: str) -> int:
     if action_id not in _MENU_ACTIONS:
         return 2
     if action_id == "close-all":
         shutdown_suite(base)
         return 0
+    if action_id == "web-audio":
+        result = toggle_web_audio()
+        if not result.get("supported"):
+            print(
+                f"Start/Stop MP Web Audio is not available on {result.get('platform', sys.platform)}.",
+                file=sys.stderr,
+            )
+        return 0 if result.get("supported") else 1
     role = {
         "launch-gui": ROLE_GUI,
         "launch-liquid": ROLE_LIQUID,
@@ -1447,6 +1494,11 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
             shutdown_suite(base)
             app.quit()
             return
+        if action_id == "web-audio":
+            # The label is refreshed in aboutToShow, so this is always the
+            # action the user just read.
+            toggle_web_audio()
+            return
         role = {
             "launch-gui": ROLE_GUI,
             "launch-liquid": ROLE_LIQUID,
@@ -1464,12 +1516,24 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
             return
         spawn_argv(list(plan["argv"]), base, log_path)
 
+    web_audio_action = None
     for action_id, label in MENU_ENTRIES:
         if action_id == "close-all":
             menu.addSeparator()
         action = QAction(label, menu)
         action.triggered.connect(lambda checked=False, ident=action_id: dispatch(ident))
         menu.addAction(action)
+        if action_id == "web-audio":
+            web_audio_action = action
+
+    def refresh_web_audio_label() -> None:
+        # Read the state when the menu opens, so "Stop" is shown only while the
+        # companion is actually serving.
+        if web_audio_action is not None:
+            web_audio_action.setText(web_audio_label())
+
+    menu.aboutToShow.connect(refresh_web_audio_label)
+    refresh_web_audio_label()
 
     tray.setContextMenu(menu)
 
@@ -1560,6 +1624,10 @@ def main(argv: list[str] | None = None) -> int:
     if "--keepalive" in args:
         request_keepalive(config)
         return 0
+    if "--action" in args:
+        index = args.index("--action")
+        action_id = args[index + 1] if index + 1 < len(args) else ""
+        return perform_menu_action(default_base_dir(), action_id)
     lock = TrayLock(lock_path)
     if not lock.acquire():
         return 0

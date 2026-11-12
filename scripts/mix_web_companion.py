@@ -597,6 +597,38 @@ CLI_THEME: Optional[str] = None
 WEB_THEME_FILE = Path.home() / ".config" / "mix-manager" / "web_companion_theme"
 _tracklist_cache: Dict[str, str] = {}
 
+# Every server launch gets a fresh id. A dashboard that sees it change knows
+# the companion was restarted and refreshes so the phone resumes the stream
+# without a manual reload. The tray also posts a notice to /api/announce just
+# before it stops the service, so phones see why they are reconnecting.
+INSTANCE_ID = f"{int(time.time())}-{os.getpid()}"
+_announce_message: Optional[str] = None
+_announce_at = 0.0
+_announce_lock = threading.Lock()
+ANNOUNCE_TTL_SECONDS = 45.0
+ANNOUNCE_MESSAGE_DEFAULT = "MP Audio Web Companion has been restarted"
+
+
+def set_announcement(message: str) -> Optional[Dict[str, Any]]:
+    """Queue a one-shot notice for every connected dashboard."""
+    text = (message or "").strip()
+    if not text:
+        return None
+    global _announce_message, _announce_at
+    with _announce_lock:
+        _announce_message = text
+        _announce_at = time.time()
+    return {"message": text, "instance": INSTANCE_ID}
+
+
+def current_announcement() -> Optional[Dict[str, Any]]:
+    with _announce_lock:
+        if not _announce_message:
+            return None
+        if (time.time() - _announce_at) > ANNOUNCE_TTL_SECONDS:
+            return None
+        return {"message": _announce_message, "at": round(_announce_at, 3)}
+
 
 def get_base_dir() -> Path:
     p = Path(__file__).resolve()
@@ -2294,6 +2326,47 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             color: var(--badge-color);
             border-color: var(--badge-color);
         }}
+        /* Tray start/stop of the companion: the phone shows why it is
+           reconnecting, then reloads itself to resume the stream. */
+        .restart-notice {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 14px;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            text-align: center;
+            color: #fff;
+            background: var(--btn-gradient);
+            border-bottom: 2px solid var(--badge-color);
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7);
+        }}
+        .restart-notice.show {{
+            display: flex;
+        }}
+        .restart-notice .restart-spinner {{
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            flex: 0 0 auto;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            border-top-color: #fff;
+            animation: restartSpin 0.8s linear infinite;
+        }}
+        @keyframes restartSpin {{
+            to {{ transform: rotate(360deg); }}
+        }}
+        @media (prefers-reduced-motion: reduce) {{
+            .restart-notice .restart-spinner {{ animation: none; }}
+        }}
         .autoplay-notice.warn {{
             background: rgba(255, 170, 0, 0.12);
             color: #ffaa00;
@@ -2794,6 +2867,10 @@ def render_html_page(theme: Dict[str, Any]) -> str:
     </style>
 </head>
 <body>
+    <div id="restartNotice" class="restart-notice" role="status" aria-live="polite">
+        <span class="restart-spinner" aria-hidden="true"></span>
+        <span id="restartNoticeText">MP Audio Web Companion has been restarted — reconnecting…</span>
+    </div>
     <!-- Stream Activation Modal to Satisfy Mobile Autoplay Policies -->
     <div id="streamOverlay">
         <div class="overlay-card">
@@ -2935,6 +3012,15 @@ def render_html_page(theme: Dict[str, Any]) -> str:
         let lastAudioSyncAt = 0;
         let lastServerPos = -1.0;
         let audioStreamEngaged = false;
+        // Restart detection. The server reports a fresh instance id on every
+        // launch; a change means the companion was stopped and started again.
+        let serverInstance = "";
+        let restartNoticeShown = false;
+        let statusFailureCount = 0;
+        // Native media errors (the server went away mid-stream) are recovered
+        // by re-attaching to the fresh instance, not by a full page reload.
+        let mediaRecoveryUsed = false;
+        let lastMediaErrorAt = 0;
 
         function audioElIsPlaying() {{
             const audioEl = document.getElementById('mobileAudioStream');
@@ -2969,6 +3055,19 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 // file to serve next instead of waiting for a local player.
                 audioEl.addEventListener('ended', () => {{
                     sendAction('track_ended');
+                }});
+                // The tray stopped the service while this mix was playing. The
+                // URL is dead, so re-attach once to the fresh instance instead
+                // of leaving a silent player behind. A second error means the
+                // stream really is broken and is left to the normal retry.
+                audioEl.addEventListener('error', () => {{
+                    if (!activeAudioFile) return;
+                    const now = performance.now();
+                    if (mediaRecoveryUsed && (now - lastMediaErrorAt) < 5000) return;
+                    mediaRecoveryUsed = true;
+                    lastMediaErrorAt = now;
+                    showRestartNotice('MP Audio Web Companion has been restarted — reconnecting…');
+                    reattachToRestartedServer();
                 }});
             }}
             loadThemeList();
@@ -3480,10 +3579,88 @@ def render_html_page(theme: Dict[str, Any]) -> str:
             if (state.detail) el.title = state.detail;
         }}
 
+        function showRestartNotice(message) {{
+            const el = document.getElementById('restartNotice');
+            const text = document.getElementById('restartNoticeText');
+            if (text && message) text.innerText = message;
+            if (el) el.classList.add('show');
+            restartNoticeShown = true;
+        }}
+
+        function hideRestartNotice() {{
+            const el = document.getElementById('restartNotice');
+            if (el) el.classList.remove('show');
+        }}
+
+        // The tray tells us before it stops the service; show that reason now
+        // rather than waiting for the connection to drop.
+        function observeAnnouncement(message, at) {{
+            if (!message) return;
+            const key = message + '|' + String(at || '');
+            if (window.__lastAnnouncementKey === key) return;
+            window.__lastAnnouncementKey = key;
+            showRestartNotice(message + ' — reconnecting…');
+        }}
+
+        function noteServerGone() {{
+            if (restartNoticeShown) return;
+            showRestartNotice('MP Audio Web Companion is restarting — reconnecting…');
+        }}
+
+        function reloadForFreshInstance() {{
+            try {{
+                window.location.reload();
+            }} catch (e) {{}}
+        }}
+
+        // A restarted server is a new instance, so its stream URL and position
+        // are fresh. Re-point the <audio> element in place; a full reload
+        // would drop the user's tap gesture and force a second "engage stream"
+        // tap, which is exactly what they do not need mid-set.
+        function reattachToRestartedServer() {{
+            const audioEl = document.getElementById('mobileAudioStream');
+            audioStreamConfigured = false;
+            streamAutoStarted = false;
+            activeAudioFile = "";
+            lastServerPos = -1.0;
+            mediaRecoveryUsed = false;
+            lastMediaErrorAt = 0;
+            if (audioEl) {{
+                try {{
+                    audioEl.pause();
+                }} catch (e) {{}}
+                audioEl.removeAttribute('src');
+                try {{
+                    audioEl.load();
+                }} catch (e) {{}}
+            }}
+            fetchStatus();
+            fetchMiniPlaylist();
+            fetchEq();
+        }}
+
         async function fetchStatus() {{
             try {{
                 const res = await fetch('/api/status');
                 const data = await res.json();
+                statusFailureCount = 0;
+
+                observeAnnouncement(data.announcement, data.announcement_at);
+
+                // A new instance id means Stop/Start ran while this page was
+                // open. Resume on the new instance without a reload so the
+                // phone keeps playing after one reconnect.
+                if (data.instance) {{
+                    if (serverInstance && data.instance !== serverInstance) {{
+                        serverInstance = data.instance;
+                        showRestartNotice('MP Audio Web Companion has been restarted — reconnecting…');
+                        reattachToRestartedServer();
+                        setTimeout(() => hideRestartNotice(), 4000);
+                        return;
+                    }}
+                    serverInstance = data.instance;
+                }}
+                if (restartNoticeShown) hideRestartNotice();
 
                 document.getElementById('trackTitle').innerText = data.title || "No Mix Playing";
                 document.getElementById('trackArtist').innerText = data.album ? (data.artist + " • " + data.album) : (data.artist || "MPlanetarian");
@@ -3562,7 +3739,13 @@ def render_html_page(theme: Dict[str, Any]) -> str:
                 }} else {{
                     document.getElementById('tlCard').style.display = 'none';
                 }}
-            }} catch (e) {{}}
+            }} catch (e) {{
+                // The service may be mid-restart. Show the notice once the
+                // connection has failed repeatedly, then keep retrying and
+                // reload as soon as the new instance answers.
+                statusFailureCount += 1;
+                if (statusFailureCount >= 2) noteServerGone();
+            }}
         }}
 
         async function sendAction(act, params = {{}}) {{
@@ -3704,7 +3887,7 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
         elif url.path in ("/api/status", "/api/theme", "/api/eq", "/api/autoplay",
                           "/api/themes", "/api/set_theme", "/api/playlist", "/api/mode",
-                          "/api/launchpad"):
+                          "/api/launchpad", "/api/announce"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3735,6 +3918,11 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
         elif url.path == "/api/status":
             status = get_playback_status(CLI_THEME)
             status["autoplay"] = autoplay_state()
+            status["instance"] = INSTANCE_ID
+            announcement = current_announcement()
+            if announcement:
+                status["announcement"] = announcement["message"]
+                status["announcement_at"] = announcement["at"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -3812,6 +4000,18 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps(payload).encode("utf-8"))
+        elif url.path == "/api/announce":
+            # The tray posts here just before it stops the service; a dashboard
+            # polling this endpoint can show the notice even if /api/status is
+            # already unreachable.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {"announcement": current_announcement()}
+            ).encode("utf-8"))
         elif url.path == "/api/stream":
             file_path = parsed_query.get("file", [""])[0]
             if file_path and os.path.isfile(file_path):
@@ -3922,6 +4122,29 @@ class CompanionHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"success": success, "action": action}).encode("utf-8"))
+        elif url.path == "/api/announce":
+            message = ANNOUNCE_MESSAGE_DEFAULT
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length > 0:
+                try:
+                    body = self.rfile.read(min(length, 4096))
+                    payload = json.loads(body.decode("utf-8"))
+                    if isinstance(payload, dict) and payload.get("message"):
+                        message = str(payload["message"])
+                except (ValueError, UnicodeDecodeError, OSError):
+                    pass
+            queued = set_announcement(message)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {"success": queued is not None, "announcement": queued}
+            ).encode("utf-8"))
         elif url.path in ("/api/launchpad/launch", "/api/launchpad/close"):
             params = urllib.parse.parse_qs(url.query)
             if url.path.endswith("/close"):

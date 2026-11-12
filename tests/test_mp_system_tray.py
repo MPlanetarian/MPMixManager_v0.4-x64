@@ -88,6 +88,7 @@ class TestMenu(unittest.TestCase):
                 "Launch MP Gui",
                 "Launch MP Liquid Player",
                 "Launch MP Mix Manager",
+                "Start / Stop MP Web Audio",
                 "Close MP Mix Manager (Closes everything)",
             ],
         )
@@ -229,6 +230,7 @@ class TestHooks(unittest.TestCase):
         self.assertIn("Launch MP Gui", text)
         self.assertIn("Launch MP Liquid Player", text)
         self.assertIn("Launch MP Mix Manager", text)
+        self.assertIn("Start / Stop MP Web Audio", text)
 
     def test_the_installer_installs_and_starts_the_tray(self):
         install = (ROOT / "install.sh").read_text(encoding="utf-8")
