@@ -69,6 +69,13 @@ MAX_CAPPED_INSTANCES = 4
 ABSENT_QUIT_SECONDS = 8
 LAUNCH_GRACE_SECONDS = 20
 
+# The Web Companion's "Close All" button closes the three apps but must keep
+# the icon up. A tray started by a shortcut (not the autostart entry) normally
+# quits once nothing is open, so the companion drops this marker first and the
+# poll loop below honours it until the dashboard is done with the icon.
+KEEPALIVE_FILE = "mp_system_tray.keepalive"
+KEEPALIVE_SECONDS = 60
+
 _WRAPPERS = {"setsid", "nohup", "nice", "stdbuf", "timeout"}
 _INTERPRETERS = {"bash", "sh", "dash", "python", "python3"}
 
@@ -214,6 +221,27 @@ def config_dir() -> Path:
     if override:
         return Path(override)
     return Path.home() / ".config" / "mix-manager"
+
+
+def keepalive_path(config: Path | None = None) -> Path:
+    return (config or config_dir()) / KEEPALIVE_FILE
+
+
+def request_keepalive(config: Path | None = None) -> Path:
+    """Ask a running tray to stay up even with no app open."""
+    path = keepalive_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"{time.time():.0f}\n", encoding="utf-8")
+    return path
+
+
+def keepalive_active(config: Path | None = None) -> bool:
+    path = keepalive_path(config)
+    try:
+        stamp = float(path.read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return False
+    return (time.time() - stamp) < KEEPALIVE_SECONDS
 
 
 def icon_file(base: Path) -> Path:
@@ -1462,6 +1490,11 @@ def run_tray(base: Path, config: Path, stay: bool = False) -> int:
         if running:
             state["absent_since"] = None
             return
+        # A Close All from the Web Companion closes the apps on purpose and
+        # wants the icon to remain for relaunching them.
+        if keepalive_active(config):
+            state["absent_since"] = None
+            return
         now = time.time()
         if state["absent_since"] is None:
             state["absent_since"] = now
@@ -1499,6 +1532,9 @@ def main_darwin(args: list[str]) -> int:
         return perform_menu_action(base, action_id)
     if "--install" in args:
         return install_macos_tray(base)
+    if "--keepalive" in args:
+        request_keepalive(config)
+        return 0
     return run_macos_tray(base, config, stay="--stay" in args)
 
 
@@ -1521,6 +1557,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if TrayLock.held(lock_path) else 1
     if "--install" in args:
         return install_tray(default_base_dir())
+    if "--keepalive" in args:
+        request_keepalive(config)
+        return 0
     lock = TrayLock(lock_path)
     if not lock.acquire():
         return 0
