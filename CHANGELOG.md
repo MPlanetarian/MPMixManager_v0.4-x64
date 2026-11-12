@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **In-window MP Visualizer on the Vulkan backend** (`scripts/liquid_glass_vulkan.py`, `MP_Audio_Player_Liquid_Glass.py`, `tests/test_visualizer_backend_parity.py`):
+  - The visualizer used to appear behind the terminal text only on the OpenGL player host. Choosing `LIQUID_GLASS_BACKEND=vulkan` silently lost the background and showed plain glass.
+  - Added `VisualizerBackground`, the Vulkan counterpart of `liquid_player_visualizer.PlayerVisualizerLayer`. It runs the same preset shader and the same telemetry bridge over the glass swapchain, so a preset looks the same on either backend.
+  - `LiquidGlassRenderer` now exposes `draw_player_visualizer_background()` and `sync_player_visualizer_opacity()`, matching the OpenGL host API, and `draw()` swaps the glass pipeline for the visualizer pipeline while the visualizer is active. An active visualizer replaces the glass pass rather than drawing over it, which is what the OpenGL host already did.
+  - The preset pipeline is rebuilt on preset change and the cover art is re-uploaded into device-local memory, so all 11 presets work in-window on both backends. The Manager GUI and the tracklist viewer stay plain glass on both, as before.
+- **Backend selection for the standalone MP Visualizer** (`scripts/visualizer_backend.py`, `scripts/mp_liquid_visualizer_vulkan.py`, `MP_Liquid_Visualizer.py`, `MP_Gui.sh`, `scripts/launch_liquid_glass.sh`, `scripts/launch-liquid-glass`, the four Liquid Glass hosts, `config.env.example`, `tests/test_visualizer_backend_parity.py`):
+  - The standalone visualizer now runs on **either** backend. `LiquidVisualizerOpenGLRenderer` (`scripts/liquid_player_visualizer.py`) is the OpenGL twin of the Vulkan renderer: same preset shader, same telemetry bridge, same window sizing, same freeze-on-pause behaviour, plus F10/F11 monitor spans.
+  - New `--backend auto|opengl|vulkan` flag, and a new optional `VISUALIZER_BACKEND` setting. `auto` follows `LIQUID_GLASS_BACKEND`, then prefers Vulkan when a working driver and at least one physical device are present, and falls back to OpenGL when they are not.
+  - Every launcher forwards the backend it chose, so the window behind MP Gui and the window behind the player use the same GPU path as the window in front of them.
+
+### Fixed
+- **MP Visualizer had no OpenGL path** (`scripts/liquid_player_visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`): selecting OpenGL previously still ran the standalone visualizer on Vulkan, so a machine without a Vulkan driver had no visualizer at all. It now falls back to OpenGL, and `--self-test` verifies whichever backend it selected.
+
+---
+
 ## [0.4.3 Stable (Liquid)] - 2026-11-12
 
 Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.

@@ -179,12 +179,17 @@ def _proc_table_from_windows() -> list[tuple[int, str]]:
 
 
 def process_table() -> list[tuple[int, str]]:
-    if sys.platform == "win32":
-        return _proc_table_from_windows()
-    found = _proc_table_from_proc()
-    if found:
-        return found
-    return _proc_table_from_ps()
+    try:
+        if sys.platform == "win32":
+            return _proc_table_from_windows()
+        found = _proc_table_from_proc()
+        if found:
+            return found
+        return _proc_table_from_ps()
+    except Exception:
+        # Counting must never keep a window from opening. An unreadable
+        # process table reports no live hosts.
+        return []
 
 
 def role_pids(role: str, table: list[tuple[int, str]] | None = None) -> set[int]:
@@ -285,7 +290,7 @@ def instance_count(role: str, exclude_pid: int | None = None) -> int:
     try:
         with _state_lock(role):
             claims = _live_claims(role, hosts)
-    except TimeoutError:
+    except (TimeoutError, OSError):
         claims = set()
     return len(hosts | claims)
 
