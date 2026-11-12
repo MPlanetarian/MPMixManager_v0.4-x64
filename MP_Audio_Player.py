@@ -137,6 +137,53 @@ _RAINBOW_ANSI_FAINT = tuple(f"\033[38;2;{max(20, int(r*0.35))};{max(20, int(g*0.
 
 _FX_WHITE_HOT = "\033[1;38;2;255;255;255m"
 
+# A unit circle sampled once, so the full-field effects do no trigonometry for
+# ring and spiral points. 1440 steps divides the common step counts evenly.
+_FX_RING_RES = 1440
+_FX_COS_T = tuple(math.cos(2.0 * math.pi * i / _FX_RING_RES) for i in range(_FX_RING_RES))
+_FX_SIN_T = tuple(math.sin(2.0 * math.pi * i / _FX_RING_RES) for i in range(_FX_RING_RES))
+_FX_OCTANT = ("─", "╱", "│", "╲", "─", "╱", "│", "╲")
+
+
+@functools.lru_cache(maxsize=8)
+def _fx_glyph_set(glyphs: Tuple[str, ...]) -> Dict[str, str]:
+    """Console-safe versions of a glyph set, mapped once per render."""
+    return {g: console_symbol(g) for g in glyphs}
+
+
+@functools.lru_cache(maxsize=4)
+def _fx_ansi_table(bold: bool = False) -> Tuple[Tuple[str, ...], ...]:
+    """[hue 0..359][brightness 0..12] TrueColor escapes, built once.
+
+    The full-field effects colour every lit cell every frame. A table lookup
+    costs two list indexes instead of a colorsys call and an f-string.
+    """
+    table = []
+    for r, g, b in _RAINBOW_RGB_TABLE:
+        row = []
+        for q in range(13):
+            v = q / 12.0
+            rr, gg, bb = int(round(r * v)), int(round(g * v)), int(round(b * v))
+            row.append(f"\033[{'1;' if bold else ''}38;2;{rr};{gg};{bb}m")
+        table.append(tuple(row))
+    return tuple(table)
+
+
+@functools.lru_cache(maxsize=32)
+def _fx_ring_lut(steps: int) -> Tuple[Tuple[float, float, str], ...]:
+    """(cos, sin, octant glyph) for a ring of `steps` points, cached."""
+    steps = max(4, int(steps))
+    trig = tuple(
+        (_FX_COS_T[(i * _FX_RING_RES) // steps % _FX_RING_RES],
+         _FX_SIN_T[(i * _FX_RING_RES) // steps % _FX_RING_RES],
+         _FX_OCTANT[int(round((math.atan2(_FX_SIN_T[(i * _FX_RING_RES) // steps % _FX_RING_RES],
+                                          _FX_COS_T[(i * _FX_RING_RES) // steps % _FX_RING_RES]) + math.pi)
+                             / (math.pi / 4.0))) % 8])
+        for i in range(steps)
+    )
+    return trig
+
+
 @functools.lru_cache(maxsize=16384)
 def _rainbow_fx_ansi(hue_idx: int, value_q: int, bold: bool = False) -> str:
     """Cached TrueColor rainbow ANSI for a hue and a 0..12 brightness level.
@@ -3776,7 +3823,7 @@ class EqualizerVisualizer:
     @staticmethod
     def _fx_put(gc, gcol, r: int, c: int, glyph: str, ansi: str):
         if 0 <= r < len(gc) and 0 <= c < len(gc[0]):
-            gc[r][c] = console_symbol(glyph)
+            gc[r][c] = _FX_SAFE_MAP.get(glyph, glyph) if _LIMITED_GLYPHS else glyph
             gcol[r][c] = ansi
 
     def _fx_lines(self, gc, gcol, inner_w: int, header: str, footer: str) -> List[str]:
@@ -3858,28 +3905,30 @@ class EqualizerVisualizer:
 
         # 2. Spectrum rings: one per frequency band group, pulsing with the music.
         n_rings = max(5, min(13, H * 2))
+        steps = max(56, cw * 2)
+        ring_lut = _fx_ring_lut(steps)
+        tbl_n = _fx_ansi_table(False)
+        tbl_b = _fx_ansi_table(True)
+        hue_step = 0.22
         for k in range(n_rings):
             band = float(bands[(k * 5 + 1) % len(bands)])
             rr = 0.16 + 0.84 * ((k + 1) / float(n_rings)) + band * 0.055
             if rr > 1.06:
                 continue
-            steps = max(56, cw * 2)
             ring_hue = (hue_base + 0.30 * math.cos(k * 0.9 + now * 0.5) + 0.45 * k / max(1, n_rings)) % 1.0
             bright = 4 + int(band * 8) + (1 if pulse > 0.55 else 0)
-            for i in range(steps):
-                th = 2.0 * math.pi * i / steps
-                x = math.cos(th) * rr * R
-                y = math.sin(th) * rr * R
-                r = int(round(cy + y))
-                c = int(round(cx + x / 0.55))
+            bold = band > 0.55
+            table = tbl_b if bold else tbl_n
+            rx, ry = rr * R, rr * R
+            ring_hue_i = int(ring_hue * 360)
+            for i, (cos_t, sin_t, glyph) in enumerate(ring_lut):
+                r = int(round(cy + sin_t * ry))
+                c = int(round(cx + cos_t * rx / 0.55))
                 if not (0 <= r < H and 0 <= c < cw):
                     continue
-                tx, ty = -math.sin(th) / 0.55, math.cos(th)
-                ang = math.atan2(ty, tx)
-                octant = int(round((ang + math.pi) / (math.pi / 4.0))) % 8
-                glyph = ("─", "╱", "│", "╲", "─", "╱", "│", "╲")[octant]
-                hue = (ring_hue + th / (2.0 * math.pi) * 0.22) % 1.0
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), bright, band > 0.55))
+                hue_i = (ring_hue_i + int(i * hue_step * 360.0 / steps)) % 360
+                gc[r][c] = glyph
+                gcol[r][c] = table[hue_i][bright]
 
         # 3. Rotating kaleidoscopic petals, lengths driven by the spectrum.
         for p in range(petals):
@@ -3887,36 +3936,46 @@ class EqualizerVisualizer:
             peak = float(peaks[(p * 5) % len(peaks)])
             ang = p * 2.0 * math.pi / petals + now * 0.24 * spd + hue_base * 2.0 * math.pi
             length = 0.26 + 0.66 * band + 0.06 * pulse
-            steps = max(10, int(length * R * 4.0) + 8)
-            for i in range(steps + 1):
-                t = i / float(steps)
+            steps_p = max(10, int(length * R * 4.0) + 8)
+            cos_a, sin_a = math.cos(ang), math.sin(ang)
+            p_hue_off = int((hue_base + p / float(petals)) * 360)
+            end_glyph = "✺" if peak > 0.85 else ("✦" if peak > 0.55 else "✧")
+            for i in range(steps_p + 1):
+                t = i / float(steps_p)
                 rr = 0.08 + t * length
                 if rr > 0.99:
                     break
-                x = math.cos(ang) * rr * R
-                y = math.sin(ang) * rr * R
-                r = int(round(cy + y))
-                c = int(round(cx + x / 0.55))
-                hue = (hue_base + p / float(petals) + t * 0.32) % 1.0
+                r = int(round(cy + sin_a * rr * R))
+                c = int(round(cx + cos_a * rr * R / 0.55))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
+                hue_i = (p_hue_off + int(t * 0.32 * 360)) % 360
                 bright = 4 + int(t * 8)
                 glyph = "·" if t < 0.25 else ("∙" if t < 0.55 else "✦")
+                table = tbl_n
                 if t > 0.94:
-                    glyph = "✺" if peak > 0.85 else ("✦" if peak > 0.55 else "✧")
-                    bright = 12
-                self._fx_put(gc, gcol, r, c, glyph, _rainbow_fx_ansi(int(hue * 360), bright, t > 0.85))
+                    glyph, bright, table = end_glyph, 12, tbl_b
+                elif t > 0.85:
+                    table = tbl_b
+                gc[r][c] = glyph
+                gcol[r][c] = table[hue_i][bright]
 
         # 4. Chromatic double spiral winding through the petals.
-        for i in range(max(90, cw * 3)):
-            t = i / float(max(90, cw * 3))
+        spiral_n = max(90, cw * 3)
+        for i in range(spiral_n):
+            t = i / float(spiral_n)
             rr = t * 0.97
             ang = hue_base * 2.0 * math.pi + now * 1.05 * spd + rr * 8.5
-            for side in (0.0, math.pi):
-                x = math.cos(ang + side) * rr * R
-                y = math.sin(ang + side) * rr * R
-                r = int(round(cy + y))
-                c = int(round(cx + x / 0.55))
-                hue = (hue_base + rr * 0.8 + (0.5 if side else 0.0)) % 1.0
-                self._fx_put(gc, gcol, r, c, "·" if t < 0.6 else "∙", _rainbow_fx_ansi(int(hue * 360), 5))
+            cos_a, sin_a = math.cos(ang), math.sin(ang)
+            glyph = "·" if t < 0.6 else "∙"
+            for side_half, hue_off in ((1.0, 0), (-1.0, 180)):
+                r = int(round(cy + sin_a * side_half * rr * R))
+                c = int(round(cx + cos_a * side_half * rr * R / 0.55))
+                if not (0 <= r < H and 0 <= c < cw):
+                    continue
+                hue_i = (int(hue_base * 360) + int(rr * 0.8 * 360) + hue_off) % 360
+                gc[r][c] = glyph
+                gcol[r][c] = tbl_n[hue_i][5]
 
         # 5. Orbiting sparks: update, draw, and spawn from the loudest bands.
         sparks = self._mandala_sparks
