@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+
+## [0.4.3 Stable (Liquid)] - 2026-11-12
+
+Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
 
 ### Added
 - **In-window MP Visualizer on the Vulkan backend** (`scripts/liquid_glass_vulkan.py`, `MP_Audio_Player_Liquid_Glass.py`, `tests/test_visualizer_backend_parity.py`):
@@ -19,17 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The standalone visualizer now runs on **either** backend. `LiquidVisualizerOpenGLRenderer` (`scripts/liquid_player_visualizer.py`) is the OpenGL twin of the Vulkan renderer: same preset shader, same telemetry bridge, same window sizing, same freeze-on-pause behaviour, plus F10/F11 monitor spans.
   - New `--backend auto|opengl|vulkan` flag, and a new optional `VISUALIZER_BACKEND` setting. `auto` follows `LIQUID_GLASS_BACKEND`, then prefers Vulkan when a working driver and at least one physical device are present, and falls back to OpenGL when they are not.
   - Every launcher forwards the backend it chose, so the window behind MP Gui and the window behind the player use the same GPU path as the window in front of them.
-
-### Fixed
-- **MP Visualizer had no OpenGL path** (`scripts/liquid_player_visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`): selecting OpenGL previously still ran the standalone visualizer on Vulkan, so a machine without a Vulkan driver had no visualizer at all. It now falls back to OpenGL, and `--self-test` verifies whichever backend it selected.
-
----
-
-## [0.4.3 Stable (Liquid)] - 2026-11-12
-
-Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
-
-### Added
 - **BigScreen VR Mode** (`scripts/bigscreen_vr.py`, `scripts/enter_vr_mode.sh`, `scripts/enter_vr_mode.bat`, `launch_vr_mode.bat`, `MP_Audio_Player.py`, `MP_Audio_Player_Liquid_Glass_OpenGL.py`, `MP_Audio_Player_Liquid_Glass.py`, `Mix_Archive_Manager.sh`, `scripts/mp_system_tray.py`, `install.sh`, `tests/test_bigscreen_vr.py`):
   - Main menu row **VR**, directly under **MP**: *Enter VR Mode with MP Liquid Player (BigScreen)*. Also `vr`, `vr-mode`, `bigscreen`, and `bigscreen-vr`, plus a Windows installer shortcut and a tray entry.
   - Bigscreen starts first, then the MP Liquid Visualizer opens as a large centred backdrop, then the MP Liquid Player opens centred on the primary desktop in Retro Linux Memories, **paused**.
@@ -113,6 +105,7 @@ Released November 12, 2026. This release finishes the visualizer work started in
   - `python3 scripts/mp_instance_limit.py status` shows the live count for both roles. `check`, `claim`, `release`, `notify`, and `focus` are the other subcommands.
 
 ### Fixed
+- **MP Visualizer had no OpenGL path** (`scripts/liquid_player_visualizer.py`, `scripts/mp_liquid_visualizer_vulkan.py`): selecting OpenGL previously still ran the standalone visualizer on Vulkan, so a machine without a Vulkan driver had no visualizer at all. It now falls back to OpenGL, and `--self-test` verifies whichever backend it selected.
 - **Screensaver cursor hiding segfaulted.** `glfwSetInputMode` was called without ctypes argtypes, so the window pointer passed through varargs and corrupted the call inside libglfw. It is now bound explicitly before use.
 - **Missing `_upload_solid` on `PlayerVisualizerLayer`.** The OpenGL fallback texture uploader had drifted out of its class, so every standalone OpenGL draw raised `AttributeError` and the screensaver window aborted. Restored as a layer method.
 - **Owner window opened at the wrong size in screensaver mode.** The window was created before the per-screen bounds were known; it is now resized and moved in place via `apply_saver_geometry()` once the monitors are enumerated, and `poll()` no longer snaps it back to the default size.
@@ -178,6 +171,7 @@ Released November 12, 2026. This release finishes the visualizer work started in
 - `tests/test_web_companion_playlist.py` — 41 cases, adding saved-order streaming, de-duplication, missing-file skipping, the `.m3u8` mirror, alias resolution, three advertised modes, the five-row window, scrollable geometry, playlist parse caching, reselect-no-rewind, and the empty-Favorites behaviour.
 - `tests/test_player_banner_eq_alignment.py` — 7 tests for the JSON decoder, surrogate pairs, the fixed-width EQ field, the state reader, and the UTF-8 writer.
 - `tests/test_tracklist_viewer_scroll_export.py` and `tests/test_package_dev_utility.py` cover the new exports and both package architectures.
+- `tests/test_visualizer_backend_parity.py` — 23 tests: the Vulkan in-window background matches the OpenGL layer, preset and cover re-upload on change, the standalone renderer resolves auto/OpenGL/Vulkan, and every launcher forwards the chosen backend.
 - `tests/test_rainbow_fx_visualizers.py` — 17 tests: style registration, alias resolution, distinctness from Stream of Frequency, glyph safety on limited consoles, and per-style rendering for all three new rainbow effects.
 - `tests/test_visualizer_random_mode.py` — 17 tests: toggling random mode on and off, the 60-second dwell, never repeating the current preset, the empty-pool guard, and identical behaviour across both backends.
 - `tests/test_visualizer_monitor_span.py` — 23 tests: monitor enumeration, excluding the owner's screen, the two-second fullscreen handshake, random-preset assignment without repeating the owner's preset, the bonded-player window surviving teardown, owner-death cleanup, and cross-window F10/F11 teardown requests.
