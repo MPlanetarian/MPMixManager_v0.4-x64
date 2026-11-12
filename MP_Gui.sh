@@ -198,6 +198,8 @@ fi
 unset _LIMIT_SH
 
 if [ -f "$BASE_DIR/scripts/mp_gui_focus.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$BASE_DIR/scripts/mp_gui_focus.sh"
     mp_gui_stop_windowless_hosts
 fi
 
