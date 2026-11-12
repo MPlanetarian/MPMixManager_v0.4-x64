@@ -154,6 +154,52 @@ if [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
 fi
 echo ""
 
+# 4b. Check the Python GTK stack used by MP Gui, the Liquid Glass players,
+#     and the MP Liquid Visualizer. Installer scripts cannot always install
+#     these, so report exactly what is missing and which command fixes it.
+echo -e "${BOLD}${BLUE}[4/7] Checking Python GTK / GPU Stack (MP Gui & Liquid Glass)...${NC}"
+if command -v python3 >/dev/null 2>&1; then
+    MP_GTK_MISSING="$(python3 - <<'PY' 2>/dev/null
+import importlib
+missing = []
+for mod, label in (("gi", "PyGObject"), ("numpy", "NumPy")):
+    try:
+        importlib.import_module(mod)
+    except Exception:
+        missing.append(label)
+print(", ".join(missing))
+PY
+)"
+    if [ -n "${MP_GTK_MISSING:-}" ]; then
+        echo -e "      [${RED}MISSING${NC}] ${BOLD}${MP_GTK_MISSING}${NC} for the python3 on PATH"
+        echo -e "${YELLOW}      MP Gui and MP Liquid Player will not open until this is installed.${NC}"
+        if [ "$HOST_OS" = "macos" ]; then
+            echo -e "${CYAN}      brew install pygobject3 numpy${NC}"
+        elif [ "$HOST_OS" = "freebsd" ]; then
+            echo -e "${CYAN}      pkg install -y py311-gobject3 py311-numpy vte3${NC}"
+        elif [ "$HOST_OS" = "windows" ] || [ "$HOST_OS" = "wsl" ]; then
+            echo -e "${CYAN}      python -m pip install PyGObject numpy${NC}"
+            echo -e "${DIM}      PyGObject on Windows also needs the GTK3 runtime from gvsbuild.${NC}"
+        else
+            echo -e "${CYAN}      Fedora/Bazzite: sudo dnf install python3-gobject python3-numpy vte291-gtk4${NC}"
+            echo -e "${CYAN}      Debian/Ubuntu: sudo apt install python3-gi python3-numpy gir1.2-vte-2.91${NC}"
+            echo -e "${DIM}      Arch: sudo pacman -S python-gobject python-numpy vte3${NC}"
+        fi
+    else
+        echo -e "      [${GREEN}FOUND${NC}] PyGObject and NumPy for the python3 on PATH"
+    fi
+    # VTE is what puts a live terminal inside the glass window.
+    if command -v python3 >/dev/null 2>&1 && ! python3 -c "import gi; gi.require_version('Vte','2.91')" >/dev/null 2>&1; then
+        echo -e "      [${YELLOW}OPTIONAL${NC}] VTE 2.91 typelib not found. The glass window still opens,"
+        echo -e "                 but the embedded terminal falls back to a plain pane."
+        echo -e "${DIM}                 Fedora/Bazzite: sudo dnf install vte291-gtk4${NC}"
+        echo -e "${DIM}                 Debian/Ubuntu: sudo apt install gir1.2-vte-2.91${NC}"
+    fi
+else
+    echo -e "      [${RED}MISSING${NC}] python3 was not found on PATH"
+fi
+echo ""
+
 # 5. User Configuration Setup
 echo -e "${BOLD}${BLUE}[5/7] Checking Configuration File...${NC}"
 if [ ! -f "$SCRIPT_DIR/config.env" ]; then
