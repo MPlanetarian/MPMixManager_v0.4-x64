@@ -1176,6 +1176,25 @@ class GlassHost:
             renderer.close()
 
 
+def _visualizer_env() -> dict:
+    """Environment for a spawned visualizer process.
+
+    _import_gtk() forces two GTK/X11-specific variables so the glass window can
+    be parented by XID: GDK_BACKEND=x11 and PYOPENGL_PLATFORM=glx. Both are
+    correct for this GTK host but fatal for the visualizer child, which uses
+    GLFW and its own GL context:
+
+      GDK_BACKEND=x11        -> "libdecor-gtk-WARNING: Failed to initialize GTK"
+      PYOPENGL_PLATFORM=glx  -> PyOpenGL binds GLX, gets no context, and raises
+                                "Attempt to retrieve context when no valid context"
+
+    The child then dies before drawing and no window ever appears. Strip both so
+    it negotiates Wayland/EGL itself.
+    """
+    return {k: v for k, v in os.environ.items()
+            if k not in ("GDK_BACKEND", "PYOPENGL_PLATFORM")}
+
+
 def spawn_new_visualizer() -> bool:
     """Open a new MP Liquid Visualizer window. Pressing Z must always show one.
 
@@ -1189,10 +1208,19 @@ def spawn_new_visualizer() -> bool:
             return False
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
+        if sys.platform != "win32":
+            extra_kw["env"] = _visualizer_env()
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+            f.write(f"\n--- spawn_new_visualizer: {vis_script.name} ---\n")
+            f.flush()
             subprocess.Popen([sys.executable, str(vis_script), "--preset", "random", "--backend", "opengl"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True
-    except Exception:
+    except Exception as exc:
+        try:
+            with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
+                f.write(f"[spawn_new_visualizer] failed: {exc!r}\n")
+        except Exception:
+            pass
         return False
 
 
@@ -1219,6 +1247,8 @@ def ensure_random_visualizer_started() -> bool:
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         extra_kw = {"creationflags": 0x00000208} if sys.platform == "win32" else {"start_new_session": True}
+        if sys.platform != "win32":
+            extra_kw["env"] = _visualizer_env()
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
             subprocess.Popen([sys.executable, str(vis_script), "--preset", "random", "--backend", "opengl"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **extra_kw)
         return True

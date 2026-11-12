@@ -132,6 +132,44 @@ class TestAutoStartVisualizerOnLiquidPlayer(unittest.TestCase):
             self.assertTrue(callable(getattr(module, "spawn_new_visualizer", None)),
                             f"{module.__name__} has no spawn_new_visualizer")
 
+    def test_z_spawn_strips_gtk_x11_vars_that_kill_the_visualizer(self):
+        """Z must not hand GDK_BACKEND/PYOPENGL_PLATFORM to the visualizer child.
+
+        The GTK glass host pins GDK_BACKEND=x11 and PYOPENGL_PLATFORM=glx so its
+        window can be parented by XID. On a Wayland session those two variables
+        make the spawned GLFW visualizer die before it draws:
+
+            libdecor-gtk-WARNING: Failed to initialize GTK
+            OpenGL.error.Error: Attempt to retrieve context when no valid context
+
+        Pressing Z then returns success while no window ever appears. Both Linux
+        hosts must strip them from the child environment.
+        """
+        with patch.dict(os.environ, {"GDK_BACKEND": "x11",
+                                     "PYOPENGL_PLATFORM": "glx"}, clear=False):
+            for module in (opengl_glass, vulkan_glass):
+                env = module._visualizer_env()
+                self.assertNotIn("GDK_BACKEND", env,
+                                 f"{module.__name__} leaks GDK_BACKEND to the visualizer")
+                self.assertNotIn("PYOPENGL_PLATFORM", env,
+                                 f"{module.__name__} leaks PYOPENGL_PLATFORM to the visualizer")
+                # Unrelated variables must survive the filter.
+                self.assertIn("PATH", env)
+
+    def test_z_spawn_passes_filtered_env_to_popen(self):
+        """The filtered environment must actually reach subprocess.Popen."""
+        with patch.dict(os.environ, {"GDK_BACKEND": "x11",
+                                     "PYOPENGL_PLATFORM": "glx"}, clear=False):
+            for module in (opengl_glass, vulkan_glass):
+                with patch("subprocess.Popen") as popen:
+                    popen.return_value = MagicMock(pid=999)
+                    self.assertTrue(module.spawn_new_visualizer())
+                kwargs = popen.call_args[1]
+                self.assertIn("env", kwargs,
+                              f"{module.__name__} spawns without an env= override")
+                self.assertNotIn("GDK_BACKEND", kwargs["env"])
+                self.assertNotIn("PYOPENGL_PLATFORM", kwargs["env"])
+
     def test_launch_scripts_contain_random_visualizer_spawn(self):
         """Check launch_liquid_glass.sh and Mix_Archive_Manager.sh for visualizer spawn logic."""
         launch_script = ROOT_DIR / "scripts" / "launch_liquid_glass.sh"

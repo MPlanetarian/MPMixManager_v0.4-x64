@@ -804,6 +804,19 @@ def ensure_random_visualizer_started() -> bool:
         return False
 
 
+def _visualizer_env() -> dict:
+    """Env for a spawned visualizer.
+
+    _import_gtk() pins GDK_BACKEND=x11 and this module pins PYOPENGL_PLATFORM to
+    the X11 GLX platform so the glass window can be parented by XID. The spawned
+    visualizer uses GLFW with its own context, so inheriting either makes it die
+    with "Attempt to retrieve context when no valid context" (plus
+    "libdecor-gtk-WARNING: Failed to initialize GTK") and no window appears.
+    """
+    return {k: v for k, v in os.environ.items()
+            if k not in ("GDK_BACKEND", "PYOPENGL_PLATFORM")}
+
+
 def spawn_new_visualizer() -> bool:
     try:
         vis_script = next((p for p in (ROOT / "MP_Liquid_Visualizer.py", ROOT / "scripts" / "mp_liquid_visualizer_vulkan.py") if p.is_file()), None)
@@ -811,6 +824,8 @@ def spawn_new_visualizer() -> bool:
             return False
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         kw = {"creationflags": 0x00000208} if IS_WIN else {"start_new_session": True}
+        if not IS_WIN:
+            kw["env"] = _visualizer_env()
         with open(CONFIG_DIR / "liquid_visualizer.log", "a") as f:
             subprocess.Popen([sys.executable, str(vis_script), "--preset", "random", "--backend", "vulkan"], cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=f, stderr=f, **kw)
         return True
