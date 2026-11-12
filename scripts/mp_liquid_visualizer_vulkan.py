@@ -48,6 +48,19 @@ except ImportError:
         write_span_session,
     )
 
+try:
+    from visualizer_random_mode import (
+        RANDOM_PRESET_INTERVAL,
+        RandomPresetMixin,
+        pick_random_preset,
+    )
+except ImportError:
+    from scripts.visualizer_random_mode import (
+        RANDOM_PRESET_INTERVAL,
+        RandomPresetMixin,
+        pick_random_preset,
+    )
+
 ROOT = Path(__file__).resolve().parent.parent
 if not (ROOT / "shaders").is_dir() and (Path(__file__).resolve().parent / "shaders").is_dir():
     ROOT = Path(__file__).resolve().parent
@@ -516,6 +529,8 @@ GLFW_CLIENT_API, GLFW_RESIZABLE, GLFW_VISIBLE, GLFW_DECORATED = 0x00022001, 0x00
 GLFW_FOCUSED, GLFW_AUTO_ICONIFY, GLFW_FLOATING, GLFW_ICONIFIED = 0x00020001, 0x00020006, 0x00020007, 0x00020002
 GLFW_FOCUS_ON_SHOW, GLFW_PLATFORM, GLFW_PLATFORM_X11, GLFW_DONT_CARE = 0x0002000C, 0x00050003, 0x00060004, -1
 GLFW_KEY_ESCAPE, GLFW_KEY_Q, GLFW_KEY_Z, GLFW_KEY_SPACE = 256, 81, 90, 32
+# R toggles random mode: a new random preset every RANDOM_PRESET_INTERVAL secs.
+GLFW_KEY_R = 82
 GLFW_KEY_1, GLFW_KEY_2, GLFW_KEY_3, GLFW_KEY_4, GLFW_KEY_5, GLFW_KEY_6, GLFW_KEY_7, GLFW_KEY_8, GLFW_KEY_9 = range(49, 58)
 # Preset cycle keys. GLFW reports the "=" key as 61 (shifted it produces "+"),
 # 45 is "-", and the numeric keypad sends 334 ("+") / 333 ("-").
@@ -666,7 +681,7 @@ def saver_screen_plan(monitors: List[Tuple[str, Tuple[int, int, int, int]]]) -> 
     return plan
 
 
-class LiquidVisualizerVulkanRenderer(MonitorSpanMixin):
+class LiquidVisualizerVulkanRenderer(MonitorSpanMixin, RandomPresetMixin):
     width = WINDOW_WIDTH
     height = WINDOW_HEIGHT
 
@@ -734,6 +749,8 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin):
         # Screensaver mode: any key or mouse input wakes and closes the window.
         self.screensaver = False
         self._wake_event = False
+        # R toggles random mode: one new random preset per minute.
+        self.init_random_mode()
         self._unbonded_window_pos = None
         self._last_player_geometry = None
         # Size the window owned before it bonded to the Liquid Player.
@@ -1191,6 +1208,13 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin):
         elif key == GLFW_KEY_Z:
             # Z cycles: fullscreen -> half size -> default size.
             self._cycle_window_mode_for_user()
+        elif key == GLFW_KEY_R:
+            # R toggles random mode: switch to a new random preset every
+            # RANDOM_PRESET_INTERVAL seconds. Pressing it again stops the
+            # rotation and leaves the current preset on screen.
+            forward = self.toggle_random_mode()
+            print(f"[LiquidVisualizer] Random mode {'on' if forward else 'off'}",
+                  file=sys.stderr)
         elif key == 75 and (_mods & 1):
             if _IS_WIN:
                 subprocess.run('taskkill /F /FI "WINDOWTITLE eq MP Audio Player*" >nul 2>&1', shell=True)
@@ -2252,6 +2276,9 @@ class LiquidVisualizerVulkanRenderer(MonitorSpanMixin):
 
     def draw(self, bridge: AudioTelemetryBridge, capture: bool = False):
         if not self.poll(): return None
+        # Random mode advances here so it follows the real render clock and
+        # never fires while the window is hidden or the screensaver is up.
+        self.poll_random_mode()
         fw, fh = self.framebuffer_size()
         if fw < 2 or fh < 2: return None
         if self._resize or (fw, fh) != self._extent: self._recreate_swapchain()

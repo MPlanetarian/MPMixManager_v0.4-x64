@@ -219,6 +219,11 @@ ${BOLD}SYSTEM TRAY:${NC}
   Right-click it for ${CYAN}Launch MP Gui${NC}, ${CYAN}Launch MP Liquid Player${NC}, and ${CYAN}Launch MP Mix Manager${NC}.
   ${CYAN}Close MP Mix Manager (Closes everything)${NC} stops the console manager, MP Gui, MP Liquid Player, playback, and the visualizer.
 
+${BOLD}INSTANCE CAP:${NC}
+  MP Gui and MP Liquid Player open at most ${BOLD}4${NC} windows each, from the desktop shortcuts, the global
+  hotkeys, and the tray icon. The shortcuts open a new window until four are up; a fifth launch brings an
+  open window forward and says so. The console manager, the tracklist viewer, and the visualizer are not capped.
+
 ${BOLD}DIRECT COMMAND SHORTCUTS:${NC}
   You can execute these shortcuts directly from the command line:
     ${CYAN}split-flac${NC}        Split continuous FLAC audio via CUE sheet or track boundaries

@@ -4334,6 +4334,9 @@ class EqualizerVisualizer:
         pl, pr = np.array(status.get("peaks_left", pk)), np.array(status.get("peaks_right", pk))
         rms, pdb, s = float(status.get("rms_level", 0.0)), float(status.get("peak_db", -60.0)), self.style
         if s == "stream_of_frequency_eq": lines = self.render_stream_of_frequency(status, width, height)
+        elif s == "rainbow_mandala_eq": lines = self.render_rainbow_mandala_eq(status, width, height)
+        elif s == "rainbow_wormhole_eq": lines = self.render_rainbow_wormhole_eq(status, width, height)
+        elif s == "rainbow_aurora_eq": lines = self.render_rainbow_aurora_eq(status, width, height)
         elif s == "neon_prism_eq": lines = self.render_neon_prism_eq(ll, lr, pl, pr, width, height, rms, pdb)
         elif s == "stardust_particles_eq": lines = self.render_stardust_particles_eq(ll, lr, pl, pr, width, height, rms, pdb)
         elif s == "master_spectrum": lines = self.render_master_spectrum(lv, pk, width=width, height=height)
@@ -6587,7 +6590,9 @@ class TerminalPlayerUI:
         state = st.get("state", "stopped")
         badge = f"{bold_s}\033[38;2;0;255;127m▶{NC}" if state == "playing" else (f"{bold_s}\033[38;2;255;191;0m⏸{NC}" if state == "paused" else f"{bold_s}\033[38;2;255;64;64m⏹{NC}")
         cs, lv = self.visualizer.style, np.array(st.get("levels", [0.0] * 24))
-        if cs == "stream_of_frequency_eq":
+        if cs in ("rainbow_mandala_eq", "rainbow_wormhole_eq", "rainbow_aurora_eq"):
+            m_str = self.visualizer._fx_micro_meter(cs, t_now, lv)
+        elif cs == "stream_of_frequency_eq":
             p_chars = []
             for i in range(14):
                 v = float(lv[i % len(lv)]) if len(lv) else 0.0

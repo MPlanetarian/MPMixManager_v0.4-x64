@@ -33,6 +33,10 @@ try:
     from visualizer_monitor_span import MonitorSpanMixin
 except ImportError:
     from scripts.visualizer_monitor_span import MonitorSpanMixin
+try:
+    from visualizer_random_mode import RANDOM_PRESET_INTERVAL, RandomPresetMixin
+except ImportError:
+    from scripts.visualizer_random_mode import RANDOM_PRESET_INTERVAL, RandomPresetMixin
 _CACHE: Dict[str, Any] = {"path": "", "mtime": None, "state": None}
 
 _TEXT_GUARD = """
@@ -1200,7 +1204,7 @@ class PlayerVisualizerLayer:
         self._target_size = (0, 0)
 
 
-class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin):
+class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin, RandomPresetMixin):
     """Standalone MP Visualizer window drawn with OpenGL instead of Vulkan.
 
     This is the OpenGL twin of ``LiquidVisualizerVulkanRenderer``. It exists
@@ -1226,6 +1230,8 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin):
         self.is_fullscreen = False
         self.screensaver = False
         self._wake_event = False
+        # R toggles random mode: one new random preset per minute.
+        self.init_random_mode()
         self._saver_render = None
         self._saver_bounds = None
         self._saver_cursor_primed = False
@@ -1457,6 +1463,8 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin):
             self.request_close()
         elif key == 90:  # Z
             self.cycle_window_mode()
+        elif key == 82:  # R: toggle random mode
+            self.toggle_random_mode()
         elif 49 <= key <= 57:  # 1..9
             from mp_liquid_visualizer_vulkan import presets_by_slot
             slots = presets_by_slot()
@@ -1533,6 +1541,8 @@ class LiquidVisualizerOpenGLRenderer(MonitorSpanMixin):
         from OpenGL import GL
         if not self.poll():
             return None
+        # Random mode advances here so it follows the real render clock.
+        self.poll_random_mode()
         fw, fh = self.framebuffer_size()
         if fw < 2 or fh < 2:
             return None

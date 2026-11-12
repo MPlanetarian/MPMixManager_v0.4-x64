@@ -264,6 +264,7 @@ def show_welcome_message(wait_for_input=True):
 
     features_since_041 = [
         "Shared system tray. One icon for MP Mix Manager, MP Gui, and MP Liquid Player. Right-click it to launch any of them, or choose Close MP Mix Manager to close all of them.",
+        "Instance cap. MP Gui and MP Liquid Player open at most 4 windows each, from the shortcuts, hotkeys, and the tray. A fifth launch brings an open window forward instead.",
         "Favorites. Press H to mark or unmark the selected mix or track. Press 3, or the Favorites button, to open the Favorites playlist. The audio files are not rewritten.",
         "Drag and drop. Drop audio files, or an M3U playlist, onto the Liquid Player and they join the list that is open.",
         "In-window visualizer. The MP Visualizer can draw behind the player text. The separate visualizer window uses the Liquid Player size. When MP Gui starts it, that window uses MP Gui's fitted size.",
