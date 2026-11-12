@@ -557,7 +557,10 @@ _nav_push_front() { _nav_pending="${1}${_nav_pending}"; }
 # the terminal's native text selection.
 _NAV_MOUSE_ON=0
 _nav_mouse_supported() {
-    [ "${MP_MANAGER_MOUSE:-1}" = "1" ] || return 1
+    # MP_MANAGER_MOUSE accepts 1/true/yes/on as "enabled" (the default).
+    case "${MP_MANAGER_MOUSE:-1}" in
+        0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    esac
     [ -t 0 ] && [ -t 1 ] || return 1
     return 0
 }
@@ -1047,7 +1050,7 @@ _menu_handle_mouse() {
         *)  return 0 ;;
     esac
     _menu_mouse_row_to_idx "$row" idx || return 0
-    [ "${selectable_map[$idx]:-(-1)}" -lt 0 ] && return 0
+    [ "${selectable_map[$idx]:--1}" -lt 0 ] 2>/dev/null && return 0
     local now="${EPOCHREALTIME:-0}"
     now="${now//[.,]/}"
     local prev="${_LAST_MOUSE_AT:-0}"
@@ -1662,6 +1665,11 @@ if [ -f "$SCRIPT_DIR/scripts/resolve_mp_python.sh" ]; then
     # shellcheck disable=SC1091
     source "$SCRIPT_DIR/scripts/resolve_mp_python.sh"
     resolve_mp_python >/dev/null || true
+    # Windows keeps the plain resolver; the GTK hosts need PyGObject.
+    # MP_PY_BIN is the absolute path for engines and background spawns.
+    MP_PY_BIN="$(mp_gui_python_bin 2>/dev/null || true)"
+    [ -n "$MP_PY_BIN" ] || MP_PY_BIN="$(mp_python_bin 2>/dev/null || echo python3)"
+    export MP_PY_BIN
 fi
 OS_TYPE="linux"; case "$UNAME_S" in Darwin*) OS_TYPE="macos"; ;; CYGWIN*|MINGW*|MSYS*) OS_TYPE="windows" ;; FreeBSD*) OS_TYPE="freebsd"; ;; Linux*) if grep -qi microsoft /proc/version 2>/dev/null; then OS_TYPE="wsl"; else OS_TYPE="linux"; fi ;; *) case "${OSTYPE:-}" in msys*|cygwin*|win32*) OS_TYPE="windows" ;; darwin*) OS_TYPE="macos" ;; freebsd*) OS_TYPE="freebsd" ;; *) OS_TYPE="linux" ;; esac ;; esac; export OS_TYPE
 if [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/scripts/ensure_mp_python_env.sh" ]; then
@@ -1886,7 +1894,7 @@ return 0; fi; done; fi; open_path "$target"
 }
 open_tracklist_window() {
 local target="$1" audio_arg="${2:-}"; [ -z "$target" ] || [ ! -f "$target" ] && return 1; [ -n "$audio_arg" ] && export MP_TRACKLIST_AUDIO_FILE="$audio_arg"; [ -n "${CURRENT_THEME:-}" ] && export CURRENT_THEME MP_TRACKLIST_THEME="$CURRENT_THEME"; local viewer_sh="$SCRIPT_DIR/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/scripts/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$SCRIPT_DIR/view_tracklist_console.sh"; [ ! -f "$viewer_sh" ] && viewer_sh="$PWD/view_tracklist_console.sh"; local tl_title="Mix Tracklist Viewer"; local viewer="${TRACKLIST_VIEWER:-console}"; if [ "$viewer" != "console" ] && [ "$viewer" != "auto" ] && [ -n "$viewer" ] && [ "$viewer" != "liquid_glass" ] && [ "$viewer" != "glass" ]; then if command -v "$viewer" &>/dev/null; then "$viewer" "$target" &>/dev/null &
-return 0; fi; fi; if [ "${MP_LIQUID_GLASS:-0}" = "1" ] || [ "$viewer" = "liquid_glass" ] || [ "$viewer" = "glass" ]; then local lg_py=""; local lg_back="${MP_LIQUID_GLASS_BACKEND:-${LIQUID_GLASS_BACKEND:-opengl}}"; if [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"; elif [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"; elif [ "$lg_back" = "vulkan" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; fi; if [ -n "$lg_py" ]; then python3 "$lg_py" --tracklist "$target" ${audio_arg:+"--audio" "$audio_arg"} ${CURRENT_THEME:+"--theme" "$CURRENT_THEME"} &>/dev/null &
+return 0; fi; fi; if [ "${MP_LIQUID_GLASS:-0}" = "1" ] || [ "$viewer" = "liquid_glass" ] || [ "$viewer" = "glass" ]; then local lg_py=""; local lg_back="${MP_LIQUID_GLASS_BACKEND:-${LIQUID_GLASS_BACKEND:-opengl}}"; if [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL_macOS.py"; elif [ "$OS_TYPE" = "macos" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_macOS.py"; elif [ "$lg_back" = "vulkan" ] && [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass_OpenGL.py"; elif [ -f "$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py" ]; then lg_py="$SCRIPT_DIR/MP_Audio_Player_Liquid_Glass.py"; fi; if [ -n "$lg_py" ]; then "${MP_PY_BIN:-python3}" "$lg_py" --tracklist "$target" ${audio_arg:+"--audio" "$audio_arg"} ${CURRENT_THEME:+"--theme" "$CURRENT_THEME"} &>/dev/null &
 return 0; fi; fi; if [ "$OS_TYPE" = "linux" ] || [ "$OS_TYPE" = "freebsd" ]; then ensure_bazzite_borderless_kwin_rule; if command -v konsole &>/dev/null; then konsole --hide-menubar --hide-tabbar --separate --qwindowtitle "$tl_title" -p tabtitle="$tl_title" -p TerminalMargin=0 -p TerminalColumns=95 -p TerminalRows=35 -e bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
 (sleep 0.15; command -v xprop &>/dev/null && xprop -name "$tl_title" -f _MOTIF_WM_HINTS 32c -set _MOTIF_WM_HINTS "0x2, 0x0, 0x0, 0x0, 0x0" 2>/dev/null || true) &
 return 0; elif command -v gnome-terminal &>/dev/null; then gnome-terminal --title="$tl_title" --hide-menubar -- bash "$viewer_sh" "$target" ${audio_arg:+"$audio_arg"} &>/dev/null &
@@ -2513,7 +2521,10 @@ launch_mp_audio_player_liquid_glass() {
 
     mkdir -p "$HOME/.config/mix-manager" 2>/dev/null || true
     local py_bin
-    py_bin="$(mp_python_bin)"
+    # The Liquid Glass window needs PyGObject. mp_python_bin can return the
+    # Homebrew python3, which is first on PATH but has no "gi".
+    py_bin="$(mp_gui_python_bin 2>/dev/null || true)"
+    [ -n "$py_bin" ] || py_bin="$(mp_python_bin)"
 
     local -a py_args=()
     [ -n "$audio_file" ] && py_args=("--play" "$audio_file")
@@ -2812,193 +2823,107 @@ manage_mp_liquid_visualizer_presets() {
     local vis_py="$SCRIPT_DIR/MP_Liquid_Visualizer.py"
     [ ! -f "$vis_py" ] && vis_py="$SCRIPT_DIR/scripts/mp_liquid_visualizer_vulkan.py"
     while true; do
-        clear
         local active_key="cosmic_dreamworlds_liquid"
         [ -f "$HOME/.config/mix-manager/visualizer_preset" ] && active_key="$(cat "$HOME/.config/mix-manager/visualizer_preset" 2>/dev/null || echo "cosmic_dreamworlds_liquid")"
-        local p1_mark="  "
-        local p2_mark="  "
-        local p3_mark="  "
-        local p4_mark="  "
-        local p5_mark="  "
-        local p6_mark="  "
-        local p7_mark="  "
-        local p8_mark="  "
-        local p9_mark="  "
-        local p10_mark="  "
-        local pr_mark="  "
-        if [ "$active_key" = "orbital_void_reflux" ]; then
-            p2_mark="★ "
-        elif [ "$active_key" = "dreamworlds_ultra_mplanetarian" ]; then
-            p3_mark="★ "
-        elif [ "$active_key" = "infinite_complexity" ]; then
-            p4_mark="★ "
-        elif [ "$active_key" = "sensorium_interface" ]; then
-            p5_mark="★ "
-        elif [ "$active_key" = "stream_of_frequency" ]; then
-            p6_mark="★ "
-        elif [ "$active_key" = "beyond_dimensions" ]; then
-            p7_mark="★ "
-        elif [ "$active_key" = "particle_accelerator" ]; then
-            p8_mark="★ "
-        elif [ "$active_key" = "cosmic_universe" ]; then
-            p9_mark="★ "
-        elif [ "$active_key" = "dreamworlds_chromatic_storm" ]; then
-            p10_mark="★ "
-        elif [ "$active_key" = "random" ]; then
-            pr_mark="★ "
-        else
-            p1_mark="★ "
+        local p1_mark="  " p2_mark="  " p3_mark="  " p4_mark="  " p5_mark="  " p6_mark="  "
+        local p7_mark="  " p8_mark="  " p9_mark="  " p10_mark="  " pr_mark="  "
+        if [ "$active_key" = "orbital_void_reflux" ]; then p2_mark="★ "
+        elif [ "$active_key" = "dreamworlds_ultra_mplanetarian" ]; then p3_mark="★ "
+        elif [ "$active_key" = "infinite_complexity" ]; then p4_mark="★ "
+        elif [ "$active_key" = "sensorium_interface" ]; then p5_mark="★ "
+        elif [ "$active_key" = "stream_of_frequency" ]; then p6_mark="★ "
+        elif [ "$active_key" = "beyond_dimensions" ]; then p7_mark="★ "
+        elif [ "$active_key" = "particle_accelerator" ]; then p8_mark="★ "
+        elif [ "$active_key" = "cosmic_universe" ]; then p9_mark="★ "
+        elif [ "$active_key" = "dreamworlds_chromatic_storm" ]; then p10_mark="★ "
+        elif [ "$active_key" = "random" ]; then pr_mark="★ "
+        else p1_mark="★ "
         fi
-
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-        echo -e "${BOLD}${MAGENTA}         MP_LIQUID_VISUALIZER — NATIVE VULKAN 3D PRESET SUITE         ${NC}"
-        echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-        echo -e "  ${BOLD}${CYAN}Engine:${NC}            Vulkan 1.x Native 3D Raymarching & Liquid Glass"
-        echo -e "  ${BOLD}${CYAN}Window:${NC}            1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere (fixed borderless • Esc/q to Close)"
-        echo -e "  ${BOLD}${CYAN}Multi-Monitor:${NC}     F10 fills every other monitor with this visualizer (fullscreen after 2s); F11 does it with a different random preset per screen; F10/F11 again closes the extras"
-        echo -e "  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped"
-        echo -e "  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
-        echo -e "${BOLD}Available Visualizer Presets (9 on number keys, + more on +/- keys):${NC}"
-        echo -e "  ${BOLD}${CYAN}1)${NC} ${BOLD}${GREEN}${p1_mark}Cosmic Dreamworlds (Liquid)${NC}        ${DIM}[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]${NC}"
-        echo -e "  ${BOLD}${CYAN}2)${NC} ${BOLD}${GREEN}${p2_mark}Orbital Void Reflux${NC}                ${DIM}[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]${NC}"
-        echo -e "  ${BOLD}${CYAN}3)${NC} ${BOLD}${GREEN}${p3_mark}Dreamworlds Ultra (MPlanetarian Biomech)${NC} ${DIM}[MPlanetarian Xinri D & Start_Menu_Icon.png]${NC}"
-        echo -e "  ${BOLD}${CYAN}4)${NC} ${BOLD}${GREEN}${p4_mark}Infinite Complexity${NC}                 ${DIM}[MPlanetarian Mirrored Madness & Cover_v4.png]${NC}"
-        echo -e "  ${BOLD}${CYAN}5)${NC} ${BOLD}${GREEN}${p5_mark}Sensorium Interface${NC}                 ${DIM}[MPlanetarian Earth Flipper & Sensorium_Interface.jpeg]${NC}"
-        echo -e "  ${BOLD}${CYAN}6)${NC} ${BOLD}${GREEN}${p6_mark}Stream of Frequency${NC}                 ${DIM}[MPlanetarian - Stream of Frequency (Official Cover)]${NC}"
-        echo -e "  ${BOLD}${CYAN}7)${NC} ${BOLD}${GREEN}${p7_mark}Beyond Dimensions${NC}                   ${DIM}[MPlanetarian Beyond Basel 2023 & Cotangent Dimensions]${NC}"
-        echo -e "  ${BOLD}${CYAN}8)${NC} ${BOLD}${GREEN}${p8_mark}Particle Accelerator${NC}                ${DIM}[MPlanetarian TOROID & Vortex Sync (Mateh's Version)]${NC}"
-        echo -e "  ${BOLD}${CYAN}9)${NC} ${BOLD}${GREEN}${p9_mark}Cosmic Universe${NC}                     ${DIM}[MPlanetarian Constellation & The Cosmological Horizon]${NC}"
-        echo -e "  ${BOLD}${CYAN}+)${NC} ${BOLD}${GREEN}${p10_mark}Dreamworlds (Chromatic Storm)${NC}        ${DIM}[Dreamworlds Lockscreen & XI-N vessel sequence — 12 animations]${NC}"
-        echo -e "  ${BOLD}${CYAN}r)${NC} ${BOLD}${GREEN}${pr_mark}Random Preset Mode${NC}                  ${DIM}[Randomly Selects a Visualizer Preset on Each Run]${NC}"
-        echo -e "  ${BOLD}${CYAN}l)${NC} Launch MP_Liquid_Visualizer Now (1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless Vulkan Window)"
-        echo -e "  ${BOLD}${CYAN}0)${NC} Return\n"
-        read -r -p "Select option [0-9, +, r, l]: " vp_choice
-        case "$vp_choice" in
-            1)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"
-                echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Dreamworlds (Liquid)${NC}"
-                sleep 1
-                ;;
-            2)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Orbital Void Reflux"
-                echo -e "\n${GREEN}✔ Active Preset set to: Orbital Void Reflux${NC}"
-                sleep 1
-                ;;
-            3)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds Ultra (MPlanetarian Biomech)"
-                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (MPlanetarian Biomech)${NC}"
-                sleep 1
-                ;;
-            4)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Infinite Complexity"
-                echo -e "\n${GREEN}✔ Active Preset set to: Infinite Complexity${NC}"
-                sleep 1
-                ;;
-            5)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Sensorium Interface"
-                echo -e "\n${GREEN}✔ Active Preset set to: Sensorium Interface${NC}"
-                sleep 1
-                ;;
-            6)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Stream of Frequency"
-                echo -e "\n${GREEN}✔ Active Preset set to: Stream of Frequency${NC}"
-                sleep 1
-                ;;
-            7)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Beyond Dimensions"
-                echo -e "\n${GREEN}✔ Active Preset set to: Beyond Dimensions${NC}"
-                sleep 1
-                ;;
-            8)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Particle Accelerator"
-                echo -e "\n${GREEN}✔ Active Preset set to: Particle Accelerator${NC}"
-                sleep 1
-                ;;
-            9)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Universe"
-                echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Universe${NC}"
-                sleep 1
-                ;;
-            +|chromatic|storm)
-                [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds (Chromatic Storm)"
-                echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds (Chromatic Storm)${NC}"
-                sleep 1
-                ;;
-            r|R|rand|random)
-                mkdir -p "$HOME/.config/mix-manager" 2>/dev/null
-                echo "random" > "$HOME/.config/mix-manager/visualizer_preset"
-                echo -e "\n${GREEN}✔ Active Preset set to: Random Mode${NC}"
-                sleep 1
-                ;;
-            l|L|z|Z)
-                launch_mp_liquid_visualizer
-                sleep 1
-                return 0
-                ;;
-            0|[qQ]|ESC)
-                return 0
-                ;;
-            *)
-                echo -e "\n${RED}Invalid selection.${NC}"
-                sleep 1
-                ;;
+        local hdr
+        hdr="  ${BOLD}${CYAN}Engine:${NC}            Vulkan 1.x Native 3D Raymarching & Liquid Glass\n"
+        hdr+="  ${BOLD}${CYAN}Window:${NC}            1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere (fixed borderless • Esc/q to Close)\n"
+        hdr+="  ${BOLD}${CYAN}Multi-Monitor:${NC}     F10 fills every other monitor with this visualizer (fullscreen after 2s); F11 does it with a different random preset per screen; F10/F11 again closes the extras\n"
+        hdr+="  ${BOLD}${CYAN}Audio Sync:${NC}        Continually generates 3D to playing music; freezes when paused/stopped\n"
+        hdr+="  ${BOLD}${CYAN}Customization:${NC}     Preset selection only (1 Bandcamp Cover per Preset)\n"
+        local opts=(
+            "1|${p1_mark}Cosmic Dreamworlds (Liquid)|[MPlanetarian - Cosmic Dreamworlds Deluxe Edition]"
+            "2|${p2_mark}Orbital Void Reflux|[MPlanetarian - Orbital Void Reflux (Cover_WMI_V2.png)]"
+            "3|${p3_mark}Dreamworlds Ultra (MPlanetarian Biomech)|[MPlanetarian Xinri D & Start_Menu_Icon.png]"
+            "4|${p4_mark}Infinite Complexity|[MPlanetarian Mirrored Madness & Cover_v4.png]"
+            "5|${p5_mark}Sensorium Interface|[MPlanetarian Earth Flipper & Sensorium_Interface.jpeg]"
+            "6|${p6_mark}Stream of Frequency|[MPlanetarian - Stream of Frequency (Official Cover)]"
+            "7|${p7_mark}Beyond Dimensions|[MPlanetarian Beyond Basel 2023 & Cotangent Dimensions]"
+            "8|${p8_mark}Particle Accelerator|[MPlanetarian TOROID & Vortex Sync (Mateh's Version)]"
+            "9|${p9_mark}Cosmic Universe|[MPlanetarian Constellation & The Cosmological Horizon]"
+            "+|${p10_mark}Dreamworlds (Chromatic Storm)|[Dreamworlds Lockscreen & XI-N vessel sequence — 12 animations]"
+            "r|${pr_mark}Random Preset Mode|[Randomly Selects a Visualizer Preset on Each Run]"
+            "l|Launch MP_Liquid_Visualizer Now|(1094x734 on macOS, the Liquid Player size on Linux, 700x700 elsewhere Borderless Vulkan Window)"
+            "0|Return to Previous Menu|(or Esc / q)"
+        )
+        run_interactive_submenu "MP_LIQUID_VISUALIZER — NATIVE VULKAN 3D PRESET SUITE" "$hdr" opts 0
+        case "$REPLY" in
+            1) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Dreamworlds (Liquid)"; echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Dreamworlds (Liquid)${NC}"; sleep 1 ;;
+            2) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Orbital Void Reflux"; echo -e "\n${GREEN}✔ Active Preset set to: Orbital Void Reflux${NC}"; sleep 1 ;;
+            3) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds Ultra (MPlanetarian Biomech)"; echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds Ultra (MPlanetarian Biomech)${NC}"; sleep 1 ;;
+            4) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Infinite Complexity"; echo -e "\n${GREEN}✔ Active Preset set to: Infinite Complexity${NC}"; sleep 1 ;;
+            5) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Sensorium Interface"; echo -e "\n${GREEN}✔ Active Preset set to: Sensorium Interface${NC}"; sleep 1 ;;
+            6) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Stream of Frequency"; echo -e "\n${GREEN}✔ Active Preset set to: Stream of Frequency${NC}"; sleep 1 ;;
+            7) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Beyond Dimensions"; echo -e "\n${GREEN}✔ Active Preset set to: Beyond Dimensions${NC}"; sleep 1 ;;
+            8) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Particle Accelerator"; echo -e "\n${GREEN}✔ Active Preset set to: Particle Accelerator${NC}"; sleep 1 ;;
+            9) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Cosmic Universe"; echo -e "\n${GREEN}✔ Active Preset set to: Cosmic Universe${NC}"; sleep 1 ;;
+            +|chromatic|storm) [ -f "$vis_py" ] && python3 "$vis_py" --set-preset "Dreamworlds (Chromatic Storm)"; echo -e "\n${GREEN}✔ Active Preset set to: Dreamworlds (Chromatic Storm)${NC}"; sleep 1 ;;
+            r|R|rand|random) mkdir -p "$HOME/.config/mix-manager" 2>/dev/null; echo "random" > "$HOME/.config/mix-manager/visualizer_preset"; echo -e "\n${GREEN}✔ Active Preset set to: Random Mode${NC}"; sleep 1 ;;
+            l|L|z|Z) launch_mp_liquid_visualizer; sleep 1; return 0 ;;
+            0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+            *) echo -e "\n${RED}Invalid selection.${NC}"; sleep 1 ;;
         esac
     done
 }
 configure_liquid_glass_backend() {
-while true; do
-clear
 local cur="${LIQUID_GLASS_BACKEND:-opengl}"
-cur="$(echo "$cur" | tr '[:upper:]' '[:lower:]')"
-local og_mark="" vk_mark=""
-[ "$cur" = "opengl" ] && og_mark="${GREEN}★ ACTIVE (DEFAULT)${NC}"
-[ "$cur" = "vulkan" ] && vk_mark="${GREEN}★ ACTIVE${NC}"
-echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-echo -e "${BOLD}${MAGENTA}       CONFIGURE STANDALONE LIQUID GLASS PLAYER BACKEND        ${NC}"
-echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-echo -e "  Current Active Backend: ${BOLD}${GREEN}${cur^^}${NC}\n"
-echo -e "  ${BOLD}Select Backend Engine:${NC}"
-echo -e "  ${BOLD}${CYAN} 1)${NC} ${BOLD}OpenGL${NC} (Recommended / Default) ${og_mark}"
-echo -e "      ${DIM}Broad compatibility: AMD Radeon, Intel HD/Iris/Arc, NVIDIA, Mesa & older GPUs${NC}"
-echo -e "  ${BOLD}${CYAN} 2)${NC} ${BOLD}Vulkan${NC} (Hardware Acceleration) ${vk_mark}"
-echo -e "      ${DIM}Direct Vulkan pipeline (Requires NVIDIA discrete GPU and libvulkan)${NC}"
-echo -e "  ${BOLD}${CYAN} 3)${NC} Toggle between OpenGL & Vulkan"
-echo -e "  ${BOLD}${CYAN} 0)${NC} Return to Previous Menu\n"
-read -r -p "Enter choice [0-3]: " lg_choice
-case "$lg_choice" in
-1|opengl|OpenGL|gl|GL)
-LIQUID_GLASS_BACKEND="opengl"
-save_config_setting "LIQUID_GLASS_BACKEND" "opengl"
-echo -e "\n${GREEN}✓ Liquid Glass backend set to 'opengl' (Default - AMD/Intel/NVIDIA/Older Cards) and saved!${NC}"
-sleep 1
-return 0
-;;
-2|vulkan|Vulkan|vk|VK)
-LIQUID_GLASS_BACKEND="vulkan"
-save_config_setting "LIQUID_GLASS_BACKEND" "vulkan"
-echo -e "\n${GREEN}✓ Liquid Glass backend set to 'vulkan' (NVIDIA Vulkan Hardware) and saved!${NC}"
-sleep 1
-return 0
-;;
-3|toggle)
-if [ "$cur" = "opengl" ]; then
-LIQUID_GLASS_BACKEND="vulkan"
-else
-LIQUID_GLASS_BACKEND="opengl"
-fi
-save_config_setting "LIQUID_GLASS_BACKEND" "$LIQUID_GLASS_BACKEND"
-echo -e "\n${GREEN}✓ Liquid Glass backend toggled to: ${LIQUID_GLASS_BACKEND^^} and saved!${NC}"
-sleep 1
-return 0
-;;
-0|[qQ]|ESC)
-return 0
-;;
-*)
-echo -e "\n${RED}Invalid choice!${NC}"
-sleep 1
-;;
-esac
+while true; do
+    cur="${LIQUID_GLASS_BACKEND:-opengl}"
+    cur="$(echo "$cur" | tr '[:upper:]' '[:lower:]')"
+    local og_mark="" vk_mark="" hdr
+    [ "$cur" = "opengl" ] && og_mark="  ${GREEN}★ ACTIVE (DEFAULT)${NC}"
+    [ "$cur" = "vulkan" ] && vk_mark="  ${GREEN}★ ACTIVE${NC}"
+    hdr="  Current Active Backend: ${BOLD}${GREEN}${cur^^}${NC}\n"
+    local opts=("1|OpenGL (Recommended / Default)|Broad compatibility: AMD Radeon, Intel HD/Iris/Arc, NVIDIA, Mesa & older GPUs${og_mark}" "2|Vulkan (Hardware Acceleration)|Direct Vulkan pipeline (Requires NVIDIA discrete GPU and libvulkan)${vk_mark}" "3|Toggle between OpenGL & Vulkan|" "0|Return to Previous Menu|(or Esc / q)")
+    run_interactive_submenu "CONFIGURE STANDALONE LIQUID GLASS PLAYER BACKEND" "$hdr" opts 0
+    case "$REPLY" in
+        1|opengl|OpenGL|gl|GL)
+            LIQUID_GLASS_BACKEND="opengl"
+            save_config_setting "LIQUID_GLASS_BACKEND" "opengl"
+            echo -e "\n${GREEN}✓ Liquid Glass backend set to 'opengl' (Default - AMD/Intel/NVIDIA/Older Cards) and saved!${NC}"
+            sleep 1
+            return 0
+            ;;
+        2|vulkan|Vulkan|vk|VK)
+            LIQUID_GLASS_BACKEND="vulkan"
+            save_config_setting "LIQUID_GLASS_BACKEND" "vulkan"
+            echo -e "\n${GREEN}✓ Liquid Glass backend set to 'vulkan' (NVIDIA Vulkan Hardware) and saved!${NC}"
+            sleep 1
+            return 0
+            ;;
+        3|toggle)
+            if [ "$cur" = "opengl" ]; then
+                LIQUID_GLASS_BACKEND="vulkan"
+            else
+                LIQUID_GLASS_BACKEND="opengl"
+            fi
+            save_config_setting "LIQUID_GLASS_BACKEND" "$LIQUID_GLASS_BACKEND"
+            echo -e "\n${GREEN}✓ Liquid Glass backend toggled to: ${LIQUID_GLASS_BACKEND^^} and saved!${NC}"
+            sleep 1
+            return 0
+            ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC)
+            return 0
+            ;;
+        *)
+            echo -e "\n${RED}Invalid choice!${NC}"
+            sleep 1
+            ;;
+    esac
 done
 }
 if [ -f "$SCRIPT_DIR/config.env" ]; then source "$SCRIPT_DIR/config.env"; elif [ -f "$HOME/.config/mix-manager/config.env" ]; then source "$HOME/.config/mix-manager/config.env"; fi; OUTPUT_DIR="${OUTPUT_DIR:-FLAC_CONVERTED_OUTPUTS}"; ARCHIVE_DIR="${ARCHIVE_DIR:-CONVERTED_WAV_FILES}"; MP3_OUTPUT_DIR="${MP3_OUTPUT_DIR:-MP3_CONVERTED_OUTPUTS}"; WAV_OUTPUT_DIR="${WAV_OUTPUT_DIR:-WAV_CONVERTED_OUTPUTS}"; MP4_OUTPUT_DIR="${MP4_OUTPUT_DIR:-MP4_CONVERTED_OUTPUTS}"; EXTRA_MIX_ARCHIVE_DIRS="${EXTRA_MIX_ARCHIVE_DIRS:-${MIX_ARCHIVE_DIRS:-}}"; export OUTPUT_DIR ARCHIVE_DIR MP3_OUTPUT_DIR WAV_OUTPUT_DIR MP4_OUTPUT_DIR EXTRA_MIX_ARCHIVE_DIRS
@@ -3417,20 +3342,35 @@ view_cover() {
 echo -e "\n${BOLD}${BLUE}=== VIEW COVER ART BY MIX NUMBER ===${NC}"; read -r -p "Enter the mix/episode number (e.g. 037, 063): " mix_num; if [ -z "$mix_num" ]; then echo -e "${RED}Error: Mix number cannot be empty.${NC}"; return; fi; shopt -s nullglob nocaseglob; local matches=(COVERS/*"${mix_num}"*.png COVERS/*"${mix_num}"*.jpg COVERS/*"${mix_num}"*.jpeg); if [ ${#matches[@]} -eq 0 ]; then echo -e "${YELLOW}No matching cover art found in COVERS/ for mix number '${mix_num}'.${NC}"; return; fi; echo -e "${GREEN}Found match(es):${NC}"; local i=1; for m in "${matches[@]}"; do echo "  $i) $(basename "$m")"; ((i++)); done; local choice=1; if [ ${#matches[@]} -gt 1 ]; then read -r -p "Select which file to view [1-$((i-1))]: " choice; fi; local target_index=$((choice - 1)); local selected_cover="${matches[$target_index]}"; if [ -f "$selected_cover" ]; then echo -e "${CYAN}Launching external image viewer for $(basename "$selected_cover")...${NC}"; open_path "$selected_cover"; else echo -e "${RED}Error: Selected file does not exist.${NC}"; fi
 }
 generate_youtube_video() {
-clear
-echo -e "
-${BOLD}${MAGENTA}======================================================================${NC}"
-echo -e "${BOLD}${MAGENTA}       YOUTUBE VIDEO GENERATION SUITE (4K UHD / 1080p / 720p)         ${NC}"
-echo -e "${BOLD}${MAGENTA}======================================================================${NC}
-"
-echo -e "  Encodes video with hardware acceleration (NVENC / VideoToolbox / libx264)"
-echo -e "  and studio-grade 320kbps AAC audio with smooth 5-second audio fading.
-"
-echo -e "  ${BOLD}Select Video Generation Option:${NC}\n  ${BOLD}${CYAN}1)${NC} 4K UHD (3840x2160 @ 30fps) - ${GREEN}Ultra High Definition (Still Cover Art + Audio)${NC}\n  ${BOLD}${CYAN}2)${NC} 1080p Full HD (1920x1080 @ 30fps) - ${GREEN}Standard High Definition (Still Cover Art + Audio)${NC}\n  ${BOLD}${CYAN}3)${NC} 720p HD (1280x720 @ 30fps) - ${YELLOW}Fast Export & Compact File Size (Still Cover Art + Audio)${NC}\n  ${BOLD}${CYAN}4)${NC} Looping MP4-to-MP4 Video Creator (${GREEN}Loop MP4 with Segment Fades, Audio & Thumbnails${NC})\n  ${BOLD}${CYAN}5)${NC} Launch Universal Video Generator Wizard (${GREEN}generate_youtube_video.sh${NC})\n  ${BOLD}${CYAN}6)${NC} Download YouTube Videos & Shorts in 1080p (${GREEN}Single URL, 1/3/6 Mo, All Videos/Shorts - MP_YouTube_Channel_Downloader.sh${NC})\n  ${BOLD}${CYAN}7)${NC} Generate YouTube Shorts Promo Video (${GREEN}1080x1920 Vertical 42s Dreamworlds Promo - generate_youtube_short_promo.py${NC})"
-echo -e "  ${BOLD}${CYAN}8)${NC} Cancel & Return to Main Menu
-"
-read -r -p "Enter choice [1-8, default: 2]: " v_choice; local res="1080p"; case "$v_choice" in 1) res="4k" ;; 2) res="1080p" ;; 3) res="720p" ;; 4) echo -e "\n${BOLD}${CYAN}--- MP4 to MP4 Looping Video Creator ---${NC}\n"; read -r -p "Enter Audio file path (.wav / .flac): " mp4_audio; read -r -p "Enter Input Video file path (.mp4 / .mkv): " mp4_video; read -r -p "Enter Intro/Outro Thumbnail image (optional, leave blank for auto): " mp4_thumb; read -r -p "Enter Output directory or target file path (default: $MP4_OUTPUT_DIR): " mp4_out; [ -z "$mp4_out" ] && mp4_out="$MP4_OUTPUT_DIR"; run_sub_script "Make_SOF_Episode_From_MP4_Audio_Output_MP4_1080p_Video.sh" "$mp4_audio" "$mp4_video" "$mp4_thumb" "$mp4_out" "1080p"; press_enter; return 0; ;; 5) run_sub_script "generate_youtube_video.sh"; press_enter; return 0 ;; 6) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter; return 0; ;; 7|short|shorts) echo -e "\n${BOLD}${CYAN}--- YouTube Shorts Promo Video Generator (1080x1920) ---${NC}\n"; python3 "$SCRIPT_DIR/scripts/generate_youtube_short_promo.py"; press_enter; return 0; ;; 8|[qQ]) return 0 ;; *) res="1080p"; ;; esac; local flac_list=(); local search_dirs=(); [ -d "$OUTPUT_DIR" ] && search_dirs+=("$OUTPUT_DIR"); [ -d "$WAV_OUTPUT_DIR" ] && search_dirs+=("$WAV_OUTPUT_DIR"); [ -d "$ARCHIVE_DIR" ] && search_dirs+=("$ARCHIVE_DIR"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS" ] && search_dirs+=("$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/WAV_CONVERTED_OUTPUTS" ] && search_dirs+=("$MIX_ARCHIVE_DIR/WAV_CONVERTED_OUTPUTS"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/CONVERTED_WAV_FILES" ] && search_dirs+=("$MIX_ARCHIVE_DIR/CONVERTED_WAV_FILES"); [ -d "$SCRIPT_DIR/FLAC_CONVERTED_OUTPUTS" ] && search_dirs+=("$SCRIPT_DIR/FLAC_CONVERTED_OUTPUTS"); search_dirs+=("$PWD"); local patterns=(); for sdir in "${search_dirs[@]}"; do patterns+=("$sdir"/*.flac "$sdir"/*.wav); done; local seen_stems="|"; local f; while IFS= read -r f; do if [ -n "$f" ] && [ -f "$f" ]; then local bname stem stem_lower preferred_f; bname=$(basename "$f"); stem="${bname%.*}"; stem_lower=$(echo "$stem" | tr '[:upper:]' '[:lower:]'); if [[ "$seen_stems" != *"|$stem_lower|"* ]]; then seen_stems="${seen_stems}${stem_lower}|"
-preferred_f="$f"; if [[ "$f" == *.wav ]] || [[ "$f" == *.WAV ]]; then local flac_companion="${f%.*}.flac"; [ -f "$flac_companion" ] && preferred_f="$flac_companion"; fi; flac_list+=("$preferred_f"); fi; fi; done < <(ls -td "${patterns[@]}" 2>/dev/null); local flac_input=""; if [ ${#flac_list[@]} -gt 0 ]; then echo -e "\n${BOLD}${CYAN}Available Mixes in Archive (Showing Latest 10 Mixes):${NC}"; local limit=10; [ ${#flac_list[@]} -lt $limit ] && limit=${#flac_list[@]}; for ((i=0; i<limit; i++)); do printf "  %2d) %s\n" "$((i + 1))" "$(basename "${flac_list[$i]}")"; done; echo ""; read -r -p "Select mix number [1-${limit}] or enter custom filename: " chosen_mix; if [[ "$chosen_mix" =~ ^[0-9]+$ ]] && [ "$chosen_mix" -ge 1 ] && [ "$chosen_mix" -le "$limit" ]; then flac_input="${flac_list[$((chosen_mix - 1))]}"; elif [ -n "$chosen_mix" ]; then flac_input="$chosen_mix"; fi; fi; if [ -z "$flac_input" ]; then read -r -p "Enter filename/path of the audio file (.flac / .wav): " flac_input; fi; flac_input=$(echo "$flac_input" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"); [ -z "$flac_input" ] && { echo -e "${RED}Error: Audio file is required.${NC}"; return; }; read -r -p "Enter Cover PNG path (leave blank for auto-detect / Cover.png): " cover_input; cover_input=$(echo "$cover_input" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"); case "$res" in 4k) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_4K_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR" ;; 720p) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_720p_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR"; ;; *) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_1080p_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR" ;; esac
+local yt_hdr="  Encodes video with hardware acceleration (NVENC / VideoToolbox / libx264)\n  and studio-grade 320kbps AAC audio with smooth 5-second audio fading.\n"
+local opts=("1|4K UHD (3840x2160 @ 30fps)|Ultra High Definition (Still Cover Art + Audio)" "2|1080p Full HD (1920x1080 @ 30fps)|Standard High Definition (Still Cover Art + Audio)" "3|720p HD (1280x720 @ 30fps)|Fast Export & Compact File Size (Still Cover Art + Audio)" "4|Looping MP4-to-MP4 Video Creator|(Loop MP4 with Segment Fades, Audio & Thumbnails)" "5|Launch Universal Video Generator Wizard|(generate_youtube_video.sh)" "6|Download YouTube Videos & Shorts in 1080p|(Single URL, 1/3/6 Mo, All Videos/Shorts - MP_YouTube_Channel_Downloader.sh)" "7|Generate YouTube Shorts Promo Video|(1080x1920 Vertical 42s Dreamworlds Promo - generate_youtube_short_promo.py)" "0|Cancel & Return to Main Menu|(or Esc / q)")
+run_interactive_submenu "YOUTUBE VIDEO GENERATION SUITE (4K UHD / 1080p / 720p)" "$yt_hdr" opts 0
+local res="1080p"; local v_choice="$REPLY"
+case "$v_choice" in 1) res="4k" ;; 2) res="1080p" ;; 3) res="720p" ;;
+4) echo -e "\n${BOLD}${CYAN}--- MP4 to MP4 Looping Video Creator ---${NC}\n"; read -r -p "Enter Audio file path (.wav / .flac): " mp4_audio; read -r -p "Enter Input Video file path (.mp4 / .mkv): " mp4_video; read -r -p "Enter Intro/Outro Thumbnail image (optional, leave blank for auto): " mp4_thumb; read -r -p "Enter Output directory or target file path (default: $MP4_OUTPUT_DIR): " mp4_out; [ -z "$mp4_out" ] && mp4_out="$MP4_OUTPUT_DIR"; run_sub_script "Make_SOF_Episode_From_MP4_Audio_Output_MP4_1080p_Video.sh" "$mp4_audio" "$mp4_video" "$mp4_thumb" "$mp4_out" "1080p"; press_enter; return 0 ;;
+5) run_sub_script "generate_youtube_video.sh"; press_enter; return 0 ;;
+6) run_sub_script "MP_YouTube_Channel_Downloader.sh"; press_enter; return 0 ;;
+7|short|shorts) echo -e "\n${BOLD}${CYAN}--- YouTube Shorts Promo Video Generator (1080x1920) ---${NC}\n"; python3 "$SCRIPT_DIR/scripts/generate_youtube_short_promo.py"; press_enter; return 0 ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) res="1080p" ;;
+esac
+local flac_list=(); local search_dirs=(); [ -d "$OUTPUT_DIR" ] && search_dirs+=("$OUTPUT_DIR"); [ -d "$WAV_OUTPUT_DIR" ] && search_dirs+=("$WAV_OUTPUT_DIR"); [ -d "$ARCHIVE_DIR" ] && search_dirs+=("$ARCHIVE_DIR"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS" ] && search_dirs+=("$MIX_ARCHIVE_DIR/FLAC_CONVERTED_OUTPUTS"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/WAV_CONVERTED_OUTPUTS" ] && search_dirs+=("$MIX_ARCHIVE_DIR/WAV_CONVERTED_OUTPUTS"); [ -n "${MIX_ARCHIVE_DIR:-}" ] && [ -d "$MIX_ARCHIVE_DIR/CONVERTED_WAV_FILES" ] && search_dirs+=("$MIX_ARCHIVE_DIR/CONVERTED_WAV_FILES"); [ -d "$SCRIPT_DIR/FLAC_CONVERTED_OUTPUTS" ] && search_dirs+=("$SCRIPT_DIR/FLAC_CONVERTED_OUTPUTS"); search_dirs+=("$PWD"); local patterns=(); for sdir in "${search_dirs[@]}"; do patterns+=("$sdir"/*.flac "$sdir"/*.wav); done; local seen_stems="|"; local f; while IFS= read -r f; do if [ -n "$f" ] && [ -f "$f" ]; then local bname stem stem_lower preferred_f; bname=$(basename "$f"); stem="${bname%.*}"; stem_lower=$(echo "$stem" | tr '[:upper:]' '[:lower:]'); if [[ "$seen_stems" != *"|$stem_lower|"* ]]; then seen_stems="${seen_stems}${stem_lower}|"; preferred_f="$f"; if [[ "$f" == *.wav ]] || [[ "$f" == *.WAV ]]; then local flac_companion="${f%.*}.flac"; [ -f "$flac_companion" ] && preferred_f="$flac_companion"; fi; flac_list+=("$preferred_f"); fi; fi; done < <(ls -td "${patterns[@]}" 2>/dev/null)
+local flac_input=""
+if [ ${#flac_list[@]} -gt 0 ]; then
+    local limit=10; [ ${#flac_list[@]} -lt $limit ] && limit=${#flac_list[@]}
+    local mix_opts=() i
+    for ((i=0; i<limit; i++)); do mix_opts+=("$((i + 1))|$(basename "${flac_list[$i]}")|"); done
+    mix_opts+=("0|Enter a custom filename instead|(or Esc / q)")
+    run_interactive_submenu "AVAILABLE MIXES IN ARCHIVE (LATEST ${limit} MIXES)" "" mix_opts 0
+    local chosen_mix="$REPLY"
+    if [[ "$chosen_mix" =~ ^[0-9]+$ ]] && [ "$chosen_mix" -ge 1 ] && [ "$chosen_mix" -le "$limit" ]; then
+        flac_input="${flac_list[$((chosen_mix - 1))]}"
+    elif [ -n "$chosen_mix" ] && [ "$chosen_mix" != "0" ] && [ "$chosen_mix" != "ESC" ] && [ "$chosen_mix" != "q" ] && [ "$chosen_mix" != "Q" ]; then
+        flac_input="$chosen_mix"
+    fi
+fi
+if [ -z "$flac_input" ]; then read -r -p "Enter filename/path of the audio file (.flac / .wav): " flac_input; fi
+flac_input=$(echo "$flac_input" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"); [ -z "$flac_input" ] && { echo -e "${RED}Error: Audio file is required.${NC}"; return; }; read -r -p "Enter Cover PNG path (leave blank for auto-detect / Cover.png): " cover_input; cover_input=$(echo "$cover_input" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"); case "$res" in 4k) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_4K_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR" ;; 720p) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_720p_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR"; ;; *) run_sub_script "Make_SOF_Episode_From_PNG_FLAC_Output_MP4_1080p_Video.sh" "$flac_input" "$cover_input" "$MP4_OUTPUT_DIR" ;; esac
 }
 cut_video_clip() {
 echo -e "\n${BOLD}${BLUE}=== CUT VIDEO FILE (.MP4 / .MKV) ===${NC}\n"; run_sub_script "Cut_Video.sh" "$@"
@@ -3452,8 +3392,65 @@ monitor_cliamp_live() {
 echo -e "\n${BOLD}${YELLOW}Starting Real-Time cliamp Monitor (Press 'q' or Ctrl+C to exit)...${NC}\n"; sleep 0.5; trap 'break' INT; while true; do if ! get_cliamp_track_info 2>/dev/null; then clear; echo -e "${BOLD}${MAGENTA}=== CLIAMP LIVE TRACKLIST MONITOR ===${NC}\n\n${YELLOW}cliamp is currently idle or no active track is playing.${NC}\n${DIM}Waiting for playback... (Press 'q' to quit)${NC}"; read -r -t 1 -n 1 key 2>/dev/null || true; if [[ "$key" == "q" || "$key" == "Q" ]]; then break; fi; continue; fi; clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}           CLIAMP LIVE REAL-TIME MONITOR          ${NC}\n${BOLD}${MAGENTA}==================================================${NC}\n"; local st_badge; case "$CLIAMP_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${CLIAMP_STATE}${NC}" ;; esac; local bar_len=32; local filled_len=$(( CLIAMP_PROGRESS_PCT * bar_len / 100 )); local empty_len=$(( bar_len - filled_len )); local bar=""; for ((i=0; i<filled_len; i++)); do bar="${bar}="; done; if [ $filled_len -lt $bar_len ]; then bar="${bar}>"; empty_len=$((empty_len - 1)); fi; for ((i=0; i<empty_len; i++)); do bar="${bar}-"; done; echo -e "  Status:        ${st_badge}\n  Title:         ${BOLD}${YELLOW}${CLIAMP_TITLE}${NC}\n  Artist:        ${BOLD}${WHITE}${CLIAMP_ARTIST}${NC}\n  Position:      ${BOLD}${CYAN}${CLIAMP_POS_FMT} / ${CLIAMP_DUR_FMT}${NC} [${bar}] (${CLIAMP_PROGRESS_PCT}%)"; echo ""; echo -e "  ${BOLD}${GREEN}Current File:${NC}  ${BOLD}${CYAN}${CLIAMP_RESOLVED_PATH}${NC}"; if [ "$CLIAMP_FILE_EXISTS" -eq 1 ]; then echo -e "  File Size:     ${GREEN}${CLIAMP_FILE_SIZE}${NC}"; else echo -e "  File Status:   ${RED}File not found at path${NC}"; fi; echo ""; echo -e "${DIM}Shortcuts: [p] Play/Pause  [n] Next  [b] Prev  [c] Copy Path  [o] Open Folder  [q] Exit${NC}"; read -r -t 1 -n 1 key 2>/dev/null || true; case "$key" in c|C) copy_to_clipboard "$CLIAMP_RESOLVED_PATH" || true ;; o|O) open_path "$(dirname "$CLIAMP_RESOLVED_PATH")"; ;; p|P) cliamp toggle 2>/dev/null || true ;; n|N) cliamp next 2>/dev/null || true ;; b|B) cliamp prev 2>/dev/null || true ;; q|Q) break ;; esac; done; trap 'exit_mix_manager' INT
 }
 manage_cliamp() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}       CLIAMP MUSIC PLAYER & NOW PLAYING INFO     ${NC}\n${BOLD}${MAGENTA}==================================================${NC}"; echo ""; if ! get_cliamp_track_info 2>/dev/null; then local cliamp_pids; cliamp_pids=$(pgrep -x cliamp 2>/dev/null); if [ -z "$cliamp_pids" ]; then echo -e "  Player Status:  ${BOLD}${RED}○ NOT RUNNING${NC}"; else echo -e "  Player Status:  ${BOLD}${YELLOW}● RUNNING (Idle / No Active Track)${NC} (PID: ${cliamp_pids})"; fi; echo ""; echo -e "${BOLD}Options:${NC}\n  ${BOLD}${CYAN}1)${NC} Launch cliamp in New Terminal Window\n  ${BOLD}${CYAN}2)${NC} Resume / Start Playback (${GREEN}cliamp play${NC})\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-2]: " c_opt; case "$c_opt" in 1) launch_cliamp; break ;; 2) cliamp play 2>/dev/null; sleep 0.5 ;; 0|q|Q|"") break ;; *) echo -e "${RED}Invalid option!${NC}"; sleep 1 ;; esac; continue; fi; local pids; pids=$(pgrep -x cliamp 2>/dev/null | tr '\n' ' '); local st_badge; case "$CLIAMP_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${CLIAMP_STATE}${NC}" ;; esac; local bar_len=30; local filled_len=$(( CLIAMP_PROGRESS_PCT * bar_len / 100 )); local empty_len=$(( bar_len - filled_len )); local bar=""; for ((i=0; i<filled_len; i++)); do bar="${bar}="; done; if [ $filled_len -lt $bar_len ]; then bar="${bar}>"; empty_len=$((empty_len - 1)); fi; for ((i=0; i<empty_len; i++)); do bar="${bar}-"; done; echo -e "  Player Status:  ${st_badge} (PID: ${pids})\n  Current Track:  ${BOLD}${YELLOW}${CLIAMP_TITLE}${NC}\n  Artist:         ${BOLD}${WHITE}${CLIAMP_ARTIST}${NC}\n  Playback Time:  ${BOLD}${CYAN}${CLIAMP_POS_FMT} / ${CLIAMP_DUR_FMT}${NC} [${bar}] (${CLIAMP_PROGRESS_PCT}%)"; echo ""; echo -e "  ${BOLD}${GREEN}Current Track File Path:${NC}\n  ${BOLD}${CYAN}${CLIAMP_RESOLVED_PATH}${NC}"; if [ "$CLIAMP_RAW_PATH" != "$CLIAMP_RESOLVED_PATH" ]; then echo -e "  ${DIM}(Raw cliamp Path: ${CLIAMP_RAW_PATH})${NC}"; fi; if [ "$CLIAMP_FILE_EXISTS" -eq 1 ]; then echo -e "  File Status:    ${GREEN}✓ File exists on disk${NC} (${CLIAMP_FILE_SIZE})"; local cli_spec; cli_spec=$(get_playing_audio_spec_summary "$CLIAMP_RESOLVED_PATH"); [ -n "$cli_spec" ] && echo -e "  Audio Specs:    ${BOLD}${GREEN}${cli_spec}${NC}"; else echo -e "  File Status:    ${RED}✗ File not found at resolved location${NC}"; fi; echo ""; echo -e "${BOLD}Select an operation:${NC}\n  ${BOLD}${CYAN} 1)${NC} Copy File Path to Clipboard (${GREEN}System Clipboard${NC})\n  ${BOLD}${CYAN} 2)${NC} Open Containing Folder in File Browser (${GREEN}File Manager${NC})\n  ${BOLD}${CYAN} 3)${NC} View Spek Spectrogram of Current Track\n  ${BOLD}${CYAN} 4)${NC} View Tracklist Text File of Current Track\n  ${BOLD}${CYAN} 5)${NC} View Full Audio File Specifications & Stream Analysis (${GREEN}inspect_audio${NC})\n  ${BOLD}${CYAN} 6)${NC} Play / Pause Toggle (${GREEN}cliamp toggle${NC})\n  ${BOLD}${CYAN} 7)${NC} Skip to Next Track (${GREEN}cliamp next${NC})\n  ${BOLD}${CYAN} 8)${NC} Skip to Previous Track (${GREEN}cliamp prev${NC})\n  ${BOLD}${CYAN} 9)${NC} Launch / Bring Up cliamp Terminal Window\n  ${BOLD}${CYAN}10)${NC} Live Real-Time Monitor (Updates Every Second)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-10 or c/o/s/t/i/p/n/b/l/w/Enter]: " c_opt; case "$c_opt" in 1|[cC]) if copy_to_clipboard "$CLIAMP_RESOLVED_PATH"; then echo -e "\n${GREEN}✓ File path copied to clipboard!${NC}"; else echo -e "\n${YELLOW}Clipboard utility not available.${NC}"
-fi; sleep 1.2; ;; 2|[oO]) local folder_dir; folder_dir=$(dirname "$CLIAMP_RESOLVED_PATH"); if [ -d "$folder_dir" ]; then echo -e "\n${GREEN}Opening $folder_dir in file manager...${NC}"; open_path "$folder_dir"; else echo -e "\n${RED}Directory $folder_dir does not exist!${NC}"; fi; sleep 1.2 ;; 3|[sS]) local bname_no_ext; bname_no_ext=$(basename "$CLIAMP_RESOLVED_PATH"); bname_no_ext="${bname_no_ext%.*}"; shopt -s nullglob nocaseglob; local spek_matches=(SPEK_OUTPUTS/*"${bname_no_ext}"*.png SPEK_OUTPUTS/*"${CLIAMP_TITLE}"*.png); shopt -u nullglob nocaseglob; if [ ${#spek_matches[@]} -gt 0 ] && [ -f "${spek_matches[0]}" ]; then echo -e "\n${GREEN}Opening spectrogram: $(basename "${spek_matches[0]}")...${NC}"; open_path "${spek_matches[0]}"; else echo -e "\n${YELLOW}No matching spectrogram found for '${bname_no_ext}' in SPEK_OUTPUTS/.${NC}"; fi; sleep 1.5; ;; 4|[tT]) local bname_no_ext; bname_no_ext=$(basename "$CLIAMP_RESOLVED_PATH"); bname_no_ext="${bname_no_ext%.*}"; shopt -s nullglob nocaseglob; local tl_matches=("${OUTPUT_DIR}/${bname_no_ext}.txt" "${bname_no_ext}.txt" "${OUTPUT_DIR}/*${CLIAMP_TITLE}*.txt"); shopt -u nullglob nocaseglob; local found_tl=""; for tm in "${tl_matches[@]}"; do if [ -f "$tm" ]; then found_tl="$tm"; break; fi; done; if [ -n "$found_tl" ]; then echo -e "\n${BOLD}${CYAN}=== TRACKLIST: $(basename "$found_tl") ===${NC}\n"; cat "$found_tl"; press_enter; else echo -e "\n${YELLOW}No tracklist .txt file found for '${bname_no_ext}'.${NC}"; sleep 1.5; fi; ;; 5|[iI]) inspect_playing_audio_file "$CLIAMP_RESOLVED_PATH" ;; 6|[pP]) cliamp toggle 2>/dev/null || true; sleep 0.4 ;; 7|[nN]) cliamp next 2>/dev/null || true; sleep 0.5 ;; 8|[bB]) cliamp prev 2>/dev/null || true; sleep 0.5 ;; 9|[lL]) launch_cliamp; break ;; 10|[wW]) monitor_cliamp_live; ;; 0|q|Q|"") break ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1 ;; esac; done
+while true; do
+    if ! get_cliamp_track_info 2>/dev/null; then
+        local cliamp_pids; cliamp_pids=$(pgrep -x cliamp 2>/dev/null)
+        local hdr="  Player Status:  "
+        if [ -z "$cliamp_pids" ]; then hdr+="${BOLD}${RED}○ NOT RUNNING${NC}\n"; else hdr+="${BOLD}${YELLOW}● RUNNING (Idle / No Active Track)${NC} (PID: ${cliamp_pids})\n"; fi
+        local opts=("1|Launch cliamp in New Terminal Window|" "2|Resume / Start Playback|(cliamp play)" "0|Return to Main Menu|(or Esc / q)")
+        run_interactive_submenu "CLIAMP MUSIC PLAYER & NOW PLAYING INFO" "$hdr" opts 0
+        case "$REPLY" in 1) launch_cliamp; break ;; 2) cliamp play 2>/dev/null; sleep 0.5 ;; 0|q|Q|[eE][xX][iI][tT]|ESC) break ;; *) echo -e "${RED}Invalid option!${NC}"; sleep 1 ;; esac
+        continue
+    fi
+    local pids; pids=$(pgrep -x cliamp 2>/dev/null | tr '\n' ' ')
+    local st_badge; case "$CLIAMP_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${CLIAMP_STATE}${NC}" ;; esac
+    local bar_len=30 filled_len=$(( CLIAMP_PROGRESS_PCT * bar_len / 100 )) empty_len=$(( bar_len - filled_len )) bar="" i
+    for ((i=0; i<filled_len; i++)); do bar="${bar}="; done
+    if [ $filled_len -lt $bar_len ]; then bar="${bar}>"; empty_len=$((empty_len - 1)); fi
+    for ((i=0; i<empty_len; i++)); do bar="${bar}-"; done
+    local hdr
+    hdr="  Player Status:  ${st_badge} (PID: ${pids})\n"
+    hdr+="  Current Track:  ${BOLD}${YELLOW}${CLIAMP_TITLE}${NC}\n"
+    hdr+="  Artist:         ${BOLD}${WHITE}${CLIAMP_ARTIST}${NC}\n"
+    hdr+="  Playback Time:  ${BOLD}${CYAN}${CLIAMP_POS_FMT} / ${CLIAMP_DUR_FMT}${NC} [${bar}] (${CLIAMP_PROGRESS_PCT}%)\n"
+    hdr+="  ${BOLD}${GREEN}Current Track File Path:${NC} ${BOLD}${CYAN}${CLIAMP_RESOLVED_PATH}${NC}\n"
+    [ "$CLIAMP_RAW_PATH" != "$CLIAMP_RESOLVED_PATH" ] && hdr+="  ${DIM}(Raw cliamp Path: ${CLIAMP_RAW_PATH})${NC}\n"
+    if [ "$CLIAMP_FILE_EXISTS" -eq 1 ]; then
+        hdr+="  File Status:    ${GREEN}✓ File exists on disk${NC} (${CLIAMP_FILE_SIZE})\n"
+        local cli_spec; cli_spec=$(get_playing_audio_spec_summary "$CLIAMP_RESOLVED_PATH")
+        [ -n "$cli_spec" ] && hdr+="  Audio Specs:    ${BOLD}${GREEN}${cli_spec}${NC}\n"
+    else
+        hdr+="  File Status:    ${RED}✗ File not found at resolved location${NC}\n"
+    fi
+    local opts=(
+        "1|Copy File Path to Clipboard|(System Clipboard)"
+        "2|Open Containing Folder in File Browser|(File Manager)"
+        "3|View Spek Spectrogram of Current Track|"
+        "4|View Tracklist Text File of Current Track|"
+        "5|View Full Audio File Specifications & Stream Analysis|(inspect_audio)"
+        "6|Play / Pause Toggle|(cliamp toggle)"
+        "7|Skip to Next Track|(cliamp next)"
+        "8|Skip to Previous Track|(cliamp prev)"
+        "9|Launch / Bring Up cliamp Terminal Window|"
+        "10|Live Real-Time Monitor|(Updates Every Second)"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "CLIAMP MUSIC PLAYER & NOW PLAYING INFO" "$hdr" opts 0
+    case "$REPLY" in
+        1|[cC]) if copy_to_clipboard "$CLIAMP_RESOLVED_PATH"; then echo -e "\n${GREEN}✓ File path copied to clipboard!${NC}"; else echo -e "\n${YELLOW}Clipboard utility not available.${NC}"; fi; sleep 1.2 ;;
+        2|[oO]) local folder_dir; folder_dir=$(dirname "$CLIAMP_RESOLVED_PATH"); if [ -d "$folder_dir" ]; then echo -e "\n${GREEN}Opening $folder_dir in file manager...${NC}"; open_path "$folder_dir"; else echo -e "\n${RED}Directory $folder_dir does not exist!${NC}"; fi; sleep 1.2 ;;
+        3|[sS]) local bname_no_ext; bname_no_ext=$(basename "$CLIAMP_RESOLVED_PATH"); bname_no_ext="${bname_no_ext%.*}"; shopt -s nullglob nocaseglob; local spek_matches=(SPEK_OUTPUTS/*"${bname_no_ext}"*.png SPEK_OUTPUTS/*"${CLIAMP_TITLE}"*.png); shopt -u nullglob nocaseglob; if [ ${#spek_matches[@]} -gt 0 ] && [ -f "${spek_matches[0]}" ]; then echo -e "\n${GREEN}Opening spectrogram: $(basename "${spek_matches[0]}")...${NC}"; open_path "${spek_matches[0]}"; else echo -e "\n${YELLOW}No matching spectrogram found for '${bname_no_ext}' in SPEK_OUTPUTS/.${NC}"; fi; sleep 1.5 ;;
+        4|[tT]) local bname_no_ext; bname_no_ext=$(basename "$CLIAMP_RESOLVED_PATH"); bname_no_ext="${bname_no_ext%.*}"; shopt -s nullglob nocaseglob; local tl_matches=("${OUTPUT_DIR}/${bname_no_ext}.txt" "${bname_no_ext}.txt" "${OUTPUT_DIR}/*${CLIAMP_TITLE}*.txt"); shopt -u nullglob nocaseglob; local found_tl=""; for tm in "${tl_matches[@]}"; do if [ -f "$tm" ]; then found_tl="$tm"; break; fi; done; if [ -n "$found_tl" ]; then echo -e "\n${BOLD}${CYAN}=== TRACKLIST: $(basename "$found_tl") ===${NC}\n"; cat "$found_tl"; press_enter; else echo -e "\n${YELLOW}No tracklist .txt file found for '${bname_no_ext}'.${NC}"; sleep 1.5; fi ;;
+        5|[iI]) inspect_playing_audio_file "$CLIAMP_RESOLVED_PATH" ;;
+        6|[pP]) cliamp toggle 2>/dev/null || true; sleep 0.4 ;;
+        7|[nN]) cliamp next 2>/dev/null || true; sleep 0.5 ;;
+        8|[bB]) cliamp prev 2>/dev/null || true; sleep 0.5 ;;
+        9|[lL]) launch_cliamp; break ;;
+        10|[wW]) monitor_cliamp_live ;;
+        0|q|Q|[eE][xX][iI][tT]|ESC) break ;;
+        *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1 ;;
+    esac
+done
 }
 launch_video_playlists() {
 while true; do local opts=("1|Play NFT Videos Playlist in VLC|(NFT_VIDEOS.xspf)" "2|Regenerate NFT Playlist from /run/media/mplanetarian/DATA/NFT_VIDEOS|" "0|Return to Main Menu|(or Esc / q)"); run_interactive_submenu "LAUNCH VIDEO PLAYLISTS (VLC)" "" opts 0; case "$REPLY" in 1) if [ -x "$HOME/.local/bin/update-nft-playlist" ]; then "$HOME/.local/bin/update-nft-playlist" --quiet; fi; local nft_pl="$HOME/Desktop/DESKTOP/NFT_VIDEOS.xspf"; [ ! -f "$nft_pl" ] && nft_pl="$HOME/Desktop/NFT_VIDEOS.xspf"; [ ! -f "$nft_pl" ] && nft_pl="$HOME/Desktop/DESKTOP/NFT_VIDEOS.m3u"; [ ! -f "$nft_pl" ] && nft_pl="$HOME/Desktop/NFT_VIDEOS.m3u"; if [ -f "$nft_pl" ]; then echo -e "${GREEN}Launching VLC with NFT Videos playlist...${NC}"; nohup vlc "$nft_pl" &>/dev/null &
@@ -4132,8 +4129,52 @@ _control_net_service() {
 local action="$1"; local target="$2"; if command -v systemctl &>/dev/null; then case "$target" in all) sudo systemctl "$action" sshd smb nmb wsdd vsftpd 2>/dev/null || true ;; ssh) sudo systemctl "$action" sshd ;; smb) sudo systemctl "$action" smb nmb wsdd ;; ftp) sudo systemctl "$action" vsftpd ;; esac; elif [ "$OS_TYPE" = "freebsd" ] || command -v service &>/dev/null; then case "$target" in all) sudo service sshd "$action" 2>/dev/null || true; sudo service samba_server "$action" 2>/dev/null || sudo service smbd "$action" 2>/dev/null || true; sudo service vsftpd "$action" 2>/dev/null || sudo service ftpd "$action" 2>/dev/null || true ;; ssh) sudo service sshd "$action" 2>/dev/null || true ;; smb) sudo service samba_server "$action" 2>/dev/null || sudo service smbd "$action" 2>/dev/null || true ;; ftp) sudo service vsftpd "$action" 2>/dev/null || sudo service ftpd "$action" 2>/dev/null || true ;; esac; elif [ "$OS_TYPE" = "macos" ]; then case "$target" in all) sudo systemsetup -setremotelogin "$([ "$action" = "stop" ] && echo "off" || echo "on")" 2>/dev/null || true; if [ "$action" = "start" ]; then sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null || true; elif [ "$action" = "stop" ]; then sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null || true; fi ;; ssh) if [ "$action" = "start" ]; then sudo systemsetup -setremotelogin on 2>/dev/null || sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null; elif [ "$action" = "stop" ]; then sudo systemsetup -setremotelogin off 2>/dev/null || sudo launchctl unload -w /System/Library/LaunchDaemons/ssh.plist 2>/dev/null; else sudo launchctl stop com.openssh.sshd 2>/dev/null; sudo launchctl start com.openssh.sshd 2>/dev/null; fi; ;; smb) if [ "$action" = "start" ]; then sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null; elif [ "$action" = "stop" ]; then sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null; else sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null; sleep 0.5; sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.smbd.plist 2>/dev/null; fi ;; ftp) echo -e "${YELLOW}macOS does not provide a built-in FTP daemon in modern versions.${NC}"; ;; esac; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then if command -v powershell.exe &>/dev/null; then local ps_action="Start-Service"; [ "$action" = "stop" ] && ps_action="Stop-Service"; [ "$action" = "restart" ] && ps_action="Restart-Service"; case "$target" in all) powershell.exe -NoProfile -Command "$ps_action -Name 'sshd','LanmanServer' -ErrorAction SilentlyContinue" 2>/dev/null || true ;; ssh) powershell.exe -NoProfile -Command "$ps_action -Name 'sshd' -ErrorAction SilentlyContinue" 2>/dev/null || true ;; smb) powershell.exe -NoProfile -Command "$ps_action -Name 'LanmanServer' -ErrorAction SilentlyContinue" 2>/dev/null || true ;; ftp) powershell.exe -NoProfile -Command "$ps_action -Name 'ftpsvc' -ErrorAction SilentlyContinue" 2>/dev/null || true ;; esac; else echo -e "${YELLOW}Please manage Windows Services using services.msc.${NC}"; fi; else echo -e "${RED}No supported service manager found (systemctl or service).${NC}"; fi
 }
 manage_network_services() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}\n${BOLD}${MAGENTA}          NETWORK SERVICES MANAGER                ${NC}\n${BOLD}${MAGENTA}       (SSH, Samba File Sharing, vsftpd FTP)      ${NC}\n${BOLD}${MAGENTA}==================================================${NC}"; echo ""; local ssh_status="${BOLD}${RED}○ STOPPED${NC}"; if (command -v systemctl &>/dev/null && systemctl is-active --quiet sshd 2>/dev/null) || pgrep -x sshd >/dev/null; then local ssh_pids; ssh_pids=$(pgrep -x sshd | tr '\n' ' '); ssh_status="${BOLD}${GREEN}● RUNNING${NC} (Port 22, PID: ${ssh_pids})"; fi; local smb_status="${BOLD}${RED}○ STOPPED${NC}"; if (command -v systemctl &>/dev/null && systemctl is-active --quiet smb 2>/dev/null) || pgrep -x smbd >/dev/null; then local smb_pids; smb_pids=$(pgrep -x smbd | tr '\n' ' '); smb_status="${BOLD}${GREEN}● RUNNING${NC} (Ports 139, 445, PID: ${smb_pids})"; fi; local ftp_status="${BOLD}${RED}○ STOPPED${NC}"; if (command -v systemctl &>/dev/null && systemctl is-active --quiet vsftpd 2>/dev/null) || pgrep -x vsftpd >/dev/null || pgrep -x ftpd >/dev/null; then local ftp_pids; ftp_pids=$( (pgrep -x vsftpd 2>/dev/null || pgrep -x ftpd 2>/dev/null) | tr '\n' ' '); ftp_status="${BOLD}${GREEN}● RUNNING${NC} (Port 21, PID: ${ftp_pids})"; fi; echo -e "  SSH Server (sshd):          ${ssh_status}\n  Samba Share (smbd/wsdd):    ${smb_status}\n  FTP Server (vsftpd/ftpd):   ${ftp_status}"; echo ""; echo -e "${BOLD}Bulk Actions (All Services):${NC}\n  ${BOLD}${CYAN}1)${NC} ${GREEN}Start All Services${NC}   (SSH, SMB, FTP)\n  ${BOLD}${CYAN}2)${NC} ${RED}Stop All Services${NC}    (SSH, SMB, FTP)\n  ${BOLD}${CYAN}3)${NC} ${YELLOW}Restart All Services${NC} (SSH, SMB, FTP)"; echo ""; echo -e "${BOLD}Individual Service Controls:${NC}\n  ${BOLD}${CYAN}4)${NC} Start SSH               ${BOLD}${CYAN}7)${NC} Start Samba (SMB)        ${BOLD}${CYAN}10)${NC} Start FTP\n  ${BOLD}${CYAN}5)${NC} Stop SSH                ${BOLD}${CYAN}8)${NC} Stop Samba (SMB)         ${BOLD}${CYAN}11)${NC} Stop FTP\n  ${BOLD}${CYAN}6)${NC} Restart SSH             ${BOLD}${CYAN}9)${NC} Restart Samba (SMB)      ${BOLD}${CYAN}12)${NC} Restart FTP"; echo ""; echo -e "  ${BOLD}${CYAN}13)${NC} View Detailed Service Status\n  ${BOLD}${CYAN}14)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-14]: " s_choice; case $s_choice in 1) echo -e "\n${BOLD}${GREEN}Starting all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "start" "all"; sleep 1; press_enter ;; 2) echo -e "\n${BOLD}${RED}Stopping all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "stop" "all"; sleep 1; press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Restarting all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "restart" "all"; sleep 1; press_enter ;; 4) echo -e "\n${BOLD}${GREEN}Starting SSH Server (sshd)...${NC}\n"; _control_net_service "start" "ssh"; sleep 1; press_enter ;; 5) echo -e "\n${BOLD}${RED}Stopping SSH Server (sshd)...${NC}\n"; _control_net_service "stop" "ssh"; sleep 1; press_enter ;; 6) echo -e "\n${BOLD}${YELLOW}Restarting SSH Server (sshd)...${NC}\n"
-_control_net_service "restart" "ssh"; sleep 1; press_enter ;; 7) echo -e "\n${BOLD}${GREEN}Starting Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "start" "smb"; sleep 1; press_enter ;; 8) echo -e "\n${BOLD}${RED}Stopping Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "stop" "smb"; sleep 1; press_enter ;; 9) echo -e "\n${BOLD}${YELLOW}Restarting Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "restart" "smb"; sleep 1; press_enter ;; 10) echo -e "\n${BOLD}${GREEN}Starting FTP Server (vsftpd)...${NC}\n"; _control_net_service "start" "ftp"; sleep 1; press_enter ;; 11) echo -e "\n${BOLD}${RED}Stopping FTP Server (vsftpd)...${NC}\n"; _control_net_service "stop" "ftp"; sleep 1; press_enter ;; 12) echo -e "\n${BOLD}${YELLOW}Restarting FTP Server (vsftpd)...${NC}\n"; _control_net_service "restart" "ftp"; sleep 1; press_enter ;; 13) echo -e "\n${BOLD}${BLUE}=== DETAILED NETWORK SERVICES STATUS ===${NC}\n"; if command -v systemctl &>/dev/null; then systemctl status sshd smb wsdd vsftpd --no-pager -l; elif [ "$OS_TYPE" = "freebsd" ] || command -v service &>/dev/null; then echo -e "${CYAN}--- SSH Server ---${NC}"; service sshd status 2>/dev/null || true; echo -e "\n${CYAN}--- Samba File Sharing ---${NC}"; service samba_server status 2>/dev/null || service smbd status 2>/dev/null || true; echo -e "\n${CYAN}--- FTP Server ---${NC}"; service vsftpd status 2>/dev/null || service ftpd status 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then echo -e "${CYAN}--- SSH Server ---${NC}"; sudo systemsetup -getremotelogin 2>/dev/null || launchctl list | grep ssh || true; echo -e "\n${CYAN}--- Samba File Sharing ---${NC}"; launchctl list | grep smbd || true; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then if command -v powershell.exe &>/dev/null; then powershell.exe -NoProfile -Command "Get-Service -Name 'sshd','LanmanServer','ftpsvc' -ErrorAction SilentlyContinue | Format-Table -AutoSize" 2>/dev/null || true; fi; fi; echo ""; press_enter ;; 14) return 0; ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5; ;; esac; done
+while true; do
+    local ssh_status="${BOLD}${RED}○ STOPPED${NC}" smb_status="${BOLD}${RED}○ STOPPED${NC}" ftp_status="${BOLD}${RED}○ STOPPED${NC}"
+    if (command -v systemctl &>/dev/null && systemctl is-active --quiet sshd 2>/dev/null) || pgrep -x sshd >/dev/null; then local ssh_pids; ssh_pids=$(pgrep -x sshd | tr '\n' ' '); ssh_status="${BOLD}${GREEN}● RUNNING${NC} (Port 22, PID: ${ssh_pids})"; fi
+    if (command -v systemctl &>/dev/null && systemctl is-active --quiet smb 2>/dev/null) || pgrep -x smbd >/dev/null; then local smb_pids; smb_pids=$(pgrep -x smbd | tr '\n' ' '); smb_status="${BOLD}${GREEN}● RUNNING${NC} (Ports 139, 445, PID: ${smb_pids})"; fi
+    if (command -v systemctl &>/dev/null && systemctl is-active --quiet vsftpd 2>/dev/null) || pgrep -x vsftpd >/dev/null || pgrep -x ftpd >/dev/null; then local ftp_pids; ftp_pids=$( (pgrep -x vsftpd 2>/dev/null || pgrep -x ftpd 2>/dev/null) | tr '\n' ' '); ftp_status="${BOLD}${GREEN}● RUNNING${NC} (Port 21, PID: ${ftp_pids})"; fi
+    local hdr
+    hdr="  SSH Server (sshd):          ${ssh_status}\n"
+    hdr+="  Samba Share (smbd/wsdd):    ${smb_status}\n"
+    hdr+="  FTP Server (vsftpd/ftpd):   ${ftp_status}\n"
+    local opts=(
+        "1|${GREEN}Start All Services${NC}|(SSH, SMB, FTP)"
+        "2|${RED}Stop All Services${NC}|(SSH, SMB, FTP)"
+        "3|${YELLOW}Restart All Services${NC}|(SSH, SMB, FTP)"
+        "SEP|SEP|"
+        "4|Start SSH|"
+        "5|Stop SSH|"
+        "6|Restart SSH|"
+        "7|Start Samba (SMB)|"
+        "8|Stop Samba (SMB)|"
+        "9|Restart Samba (SMB)|"
+        "10|Start FTP|"
+        "11|Stop FTP|"
+        "12|Restart FTP|"
+        "SEP|SEP|"
+        "13|View Detailed Service Status|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "NETWORK SERVICES MANAGER (SSH, SAMBA & FTP)" "$hdr" opts 0
+    case "$REPLY" in
+        1) echo -e "\n${BOLD}${GREEN}Starting all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "start" "all"; sleep 1; press_enter ;;
+        2) echo -e "\n${BOLD}${RED}Stopping all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "stop" "all"; sleep 1; press_enter ;;
+        3) echo -e "\n${BOLD}${YELLOW}Restarting all network services (SSH, SMB, FTP)...${NC}\n"; _control_net_service "restart" "all"; sleep 1; press_enter ;;
+        4) echo -e "\n${BOLD}${GREEN}Starting SSH Server (sshd)...${NC}\n"; _control_net_service "start" "ssh"; sleep 1; press_enter ;;
+        5) echo -e "\n${BOLD}${RED}Stopping SSH Server (sshd)...${NC}\n"; _control_net_service "stop" "ssh"; sleep 1; press_enter ;;
+        6) echo -e "\n${BOLD}${YELLOW}Restarting SSH Server (sshd)...${NC}\n"; _control_net_service "restart" "ssh"; sleep 1; press_enter ;;
+        7) echo -e "\n${BOLD}${GREEN}Starting Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "start" "smb"; sleep 1; press_enter ;;
+        8) echo -e "\n${BOLD}${RED}Stopping Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "stop" "smb"; sleep 1; press_enter ;;
+        9) echo -e "\n${BOLD}${YELLOW}Restarting Samba Server (smb, nmb, wsdd)...${NC}\n"; _control_net_service "restart" "smb"; sleep 1; press_enter ;;
+        10) echo -e "\n${BOLD}${GREEN}Starting FTP Server (vsftpd)...${NC}\n"; _control_net_service "start" "ftp"; sleep 1; press_enter ;;
+        11) echo -e "\n${BOLD}${RED}Stopping FTP Server (vsftpd)...${NC}\n"; _control_net_service "stop" "ftp"; sleep 1; press_enter ;;
+        12) echo -e "\n${BOLD}${YELLOW}Restarting FTP Server (vsftpd)...${NC}\n"; _control_net_service "restart" "ftp"; sleep 1; press_enter ;;
+        13) echo -e "\n${BOLD}${BLUE}=== DETAILED NETWORK SERVICES STATUS ===${NC}\n"; if command -v systemctl &>/dev/null; then systemctl status sshd smb wsdd vsftpd --no-pager -l; elif [ "$OS_TYPE" = "freebsd" ] || command -v service &>/dev/null; then echo -e "${CYAN}--- SSH Server ---${NC}"; service sshd status 2>/dev/null || true; echo -e "\n${CYAN}--- Samba File Sharing ---${NC}"; service samba_server status 2>/dev/null || service smbd status 2>/dev/null || true; echo -e "\n${CYAN}--- FTP Server ---${NC}"; service vsftpd status 2>/dev/null || service ftpd status 2>/dev/null || true; elif [ "$OS_TYPE" = "macos" ]; then echo -e "${CYAN}--- SSH Server ---${NC}"; sudo systemsetup -getremotelogin 2>/dev/null || launchctl list | grep ssh || true; echo -e "\n${CYAN}--- Samba File Sharing ---${NC}"; launchctl list | grep smbd || true; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then if command -v powershell.exe &>/dev/null; then powershell.exe -NoProfile -Command "Get-Service -Name 'sshd','LanmanServer','ftpsvc' -ErrorAction SilentlyContinue | Format-Table -AutoSize" 2>/dev/null || true; fi; fi; echo ""; press_enter ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5 ;;
+    esac
+done
 }
 launch_system_process_monitor() {
 local refresh="${1:-10}"; local mon="$SCRIPT_DIR/scripts/MP_Monitor_Bash.sh"; [ ! -f "$mon" ] && mon="$SCRIPT_DIR/MP_Monitor_Bash.sh"; if [ ! -f "$mon" ]; then echo -e "\n${RED}Monitor script not found: MP_Monitor_Bash.sh${NC}"; press_enter; return 1; fi; local mon_q dir_q run_cmd; mon_q="$(printf '%q' "$mon")"; dir_q="$(printf '%q' "$SCRIPT_DIR")"; run_cmd="cd ${dir_q} && exec bash ${mon_q} --refresh ${refresh}"; echo -e "\n${BOLD}${GREEN}Opening Monitor System Processes and Bash Commands with System Info in a new terminal tab...${NC}\n"; if launch_in_terminal "Monitor System Processes and Bash Commands with System Info" "$run_cmd" "tab"; then echo -e "${GREEN}✓ Monitor is running in a new tab of this Terminal. This menu stays here.${NC}\n${DIM}Refresh interval: ${refresh}s. History log: ${SCRIPT_DIR}/running_history.log${NC}"; sleep 1.2; else echo -e "${YELLOW}No separate terminal tab was available. Running the monitor here. Ctrl+C returns to the menu.${NC}\n"; sleep 0.6; trap ':' INT; bash "$mon" --refresh "$refresh"; trap 'exit_mix_manager' INT; press_enter; fi
@@ -4142,19 +4183,122 @@ manage_process_and_bash_monitor() {
 local opts=("1|Launch Monitor|(refresh every 10 seconds)" "2|Launch Monitor|(refresh every 5 seconds)" "3|Launch Monitor|(refresh every 2 seconds)" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "MONITOR SYSTEM PROCESSES & BASH COMMANDS" "  ${DIM}macOS and Linux. Opens in a new tab of the terminal running Mix Manager.${NC}\n  ${DIM}Snapshots append to running_history.log and are never cleared.${NC}\n" opts 0; case "$REPLY" in 1) launch_system_process_monitor 10 ;; 2) launch_system_process_monitor 5 ;; 3) launch_system_process_monitor 2 ;; 4|0|[qQ]|[eE][xX][iI][tT]|ESC|back) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;; esac; done
 }
 manage_system_maintenance() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}==================================================${NC}"; if [ "$OS_TYPE" = "macos" ]; then echo -e "${BOLD}${MAGENTA}         macOS SYSTEM MAINTENANCE & CLEANUP       ${NC}"; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then echo -e "${BOLD}${MAGENTA}       WINDOWS 10/11 MAINTENANCE & CLEANUP        ${NC}"; elif [ "$OS_TYPE" = "freebsd" ]; then echo -e "${BOLD}${MAGENTA}        FreeBSD SYSTEM MAINTENANCE & CLEANUP      ${NC}"; else echo -e "${BOLD}${MAGENTA}           SYSTEM MAINTENANCE & CLEANUP           ${NC}"; fi; echo -e "${BOLD}${MAGENTA}==================================================${NC}"; echo ""; if [ "$OS_TYPE" = "macos" ]; then local brew_count="N/A"; local brew_formulae="N/A"; if command -v brew &>/dev/null; then brew_count=$(brew list --cask 2>/dev/null | wc -l | tr -d ' '); brew_formulae=$(brew list --formula 2>/dev/null | wc -l | tr -d ' '); echo -e "  Homebrew Packages Installed: ${CYAN}${brew_formulae} formulae, ${brew_count} casks${NC}"; fi; echo -e "  macOS Version:               ${GREEN}$(sw_vers -productVersion 2>/dev/null || uname -r)${NC}"; echo ""; echo -e "${BOLD}Select a maintenance operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]\n  ${BOLD}${CYAN}2)${NC} Open macOS Software Update Window (${GREEN}System Settings / Software Update${NC})\n  ${BOLD}${CYAN}3)${NC} Clean Homebrew Caches & Old Packages (${GREEN}brew cleanup -s && brew autoremove${NC})\n  ${BOLD}${CYAN}4)${NC} Full Homebrew Package Upgrade (${GREEN}brew update && brew upgrade${NC})\n  ${BOLD}${CYAN}5)${NC} Purge Inactive System RAM Memory (${GREEN}sudo purge${NC})\n  ${BOLD}${CYAN}6)${NC} Clear User Caches & Temporary Files (${GREEN}rm -rf ~/Library/Caches/*${NC})\n  ${BOLD}${CYAN}7)${NC} ${BOLD}${YELLOW}Run Complete macOS Maintenance Suite${NC}\n  ${BOLD}${CYAN}8)${NC} Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}\n  ${BOLD}${CYAN}9)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-9, or m]: " m_choice; case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter ;; 2) echo -e "\n${BOLD}${YELLOW}Opening macOS Software Update Window in System Settings...${NC}\n"; open "x-apple.systempreferences:com.apple.preferences.softwareupdate" 2>/dev/null || open /System/Library/PreferencePanes/SoftwareUpdate.prefPane 2>/dev/null || true; echo -e "${GREEN}✓ macOS Software Update settings opened.${NC}"; press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Cleaning Homebrew...${NC}\n"; brew cleanup -s && brew autoremove; press_enter; ;; 4) echo -e "\n${BOLD}${YELLOW}Updating Homebrew & packages...${NC}\n"; brew update && brew upgrade; press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Purging inactive memory...${NC}\n"; sudo purge 2>/dev/null || purge 2>/dev/null || echo "Purge completed."; press_enter; ;; 6) echo -e "\n${BOLD}${YELLOW}Clearing user caches...${NC}\n"; rm -rf ~/Library/Caches/* 2>/dev/null || true
-echo -e "${GREEN}✓ User caches cleared.${NC}"; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE macOS CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/4] Opening Software Update window...${NC}"; open "x-apple.systempreferences:com.apple.preferences.softwareupdate" 2>/dev/null || open /System/Library/PreferencePanes/SoftwareUpdate.prefPane 2>/dev/null || true; echo -e "${BOLD}${BLUE}[2/4] Cleaning Homebrew caches...${NC}"; command -v brew &>/dev/null && brew cleanup -s && brew autoremove; echo -e "${BOLD}${BLUE}[3/4] Clearing user caches...${NC}"; rm -rf ~/Library/Caches/* 2>/dev/null || true; echo -e "${BOLD}${BLUE}[4/4] Purging inactive RAM...${NC}"; sudo purge 2>/dev/null || true; echo -e "${GREEN}✓ Cleanup suite finished!${NC}"; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then local win_disp="Windows 10/11"; if [[ "$UNAME_S" =~ MINGW.*NT-([0-9.]+) ]]; then win_disp="Windows NT ${BASH_REMATCH[1]}"; fi; echo -e "  Windows Edition:             ${GREEN}${win_disp}${NC}"; echo ""; echo -e "${BOLD}Select a maintenance operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]\n  ${BOLD}${CYAN}2)${NC} Open Windows Update Window (${GREEN}ms-settings:windowsupdate${NC})\n  ${BOLD}${CYAN}3)${NC} Upgrade All Installed Packages (${GREEN}winget upgrade --all${NC})\n  ${BOLD}${CYAN}4)${NC} Clear Windows Temporary Files (${GREEN}%TEMP% & System Temp${NC})\n  ${BOLD}${CYAN}5)${NC} Empty Windows Recycle Bin (${GREEN}Clear-RecycleBin${NC})\n  ${BOLD}${CYAN}6)${NC} Optimize / TRIM Primary Drive C: (${GREEN}Optimize-Volume${NC})\n  ${BOLD}${CYAN}7)${NC} ${BOLD}${YELLOW}Run Complete Windows Maintenance Suite${NC}\n  ${BOLD}${CYAN}8)${NC} Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}\n  ${BOLD}${CYAN}9)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-9, or m]: " m_choice; case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter; ;; 2) echo -e "\n${BOLD}${YELLOW}Opening Windows Update Window in Settings...${NC}\n"; cmd.exe /c "start ms-settings:windowsupdate" 2>/dev/null || powershell.exe -Command "Start-Process 'ms-settings:windowsupdate'" 2>/dev/null || true; echo -e "${GREEN}✓ Windows Update window opened.${NC}"; press_enter; ;; 3) echo -e "\n${BOLD}${YELLOW}Upgrading packages via winget...${NC}\n"; cmd.exe /c "winget upgrade --all" 2>/dev/null || echo -e "${RED}winget not found.${NC}"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Clearing Windows temp directory...${NC}\n"; powershell.exe -Command "Remove-Item -Path \$env:TEMP\* -Recurse -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${GREEN}✓ Temporary files removed.${NC}"
-press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Emptying Recycle Bin...${NC}\n"; powershell.exe -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${GREEN}✓ Recycle bin emptied.${NC}"; press_enter ;; 6) echo -e "\n${BOLD}${YELLOW}Optimizing C: drive...${NC}\n"; powershell.exe -Command "Optimize-Volume -DriveLetter C -Verbose" 2>/dev/null || true; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE WINDOWS CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/5] Opening Windows Update window...${NC}"; cmd.exe /c "start ms-settings:windowsupdate" 2>/dev/null || powershell.exe -Command "Start-Process 'ms-settings:windowsupdate'" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[2/5] Clearing temporary files...${NC}"; powershell.exe -Command "Remove-Item -Path \$env:TEMP\* -Recurse -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[3/5] Emptying Recycle Bin...${NC}"; powershell.exe -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[4/5] Upgrading installed applications via winget...${NC}"; cmd.exe /c "winget upgrade --all" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[5/5] Optimizing C: drive...${NC}"; powershell.exe -Command "Optimize-Volume -DriveLetter C -Verbose" 2>/dev/null || true; echo -e "${GREEN}✓ Windows maintenance suite finished!${NC}"; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; elif [ "$OS_TYPE" = "freebsd" ]; then local pkg_count="N/A"; if command -v pkg &>/dev/null; then pkg_count=$(pkg info 2>/dev/null | wc -l | tr -d ' '); fi; echo -e "  FreeBSD Version:             ${GREEN}$(uname -r) ($(uname -m))${NC}\n  Packages Installed (pkg):    ${CYAN}${pkg_count}${NC}"; echo ""; echo -e "${BOLD}Select a maintenance operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]\n  ${BOLD}${CYAN}2)${NC} Clean Package Caches & Old Deps (${GREEN}pkg clean -a && pkg autoremove${NC})\n  ${BOLD}${CYAN}3)${NC} Full FreeBSD Package Upgrade (${GREEN}pkg upgrade${NC})\n  ${BOLD}${CYAN}4)${NC} Audit Installed Packages for Vulnerabilities (${GREEN}pkg audit -F${NC})\n  ${BOLD}${CYAN}5)${NC} Clear User Caches & /tmp (${GREEN}rm -rf ~/.cache/* /tmp/*${NC})\n  ${BOLD}${CYAN}6)${NC} ${BOLD}${YELLOW}Run Complete FreeBSD Maintenance Suite${NC}\n  ${BOLD}${CYAN}7)${NC} Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}\n  ${BOLD}${CYAN}8)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-8, or m]: " m_choice; case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter; ;; 2) echo -e "\n${BOLD}${YELLOW}Cleaning pkg caches...${NC}\n"; sudo pkg clean -a -y && sudo pkg autoremove -y || pkg clean -a -y
-press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Upgrading FreeBSD packages...${NC}\n"; sudo pkg upgrade || pkg upgrade; press_enter; ;; 4) echo -e "\n${BOLD}${YELLOW}Auditing FreeBSD packages...${NC}\n"; pkg audit -F; press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Clearing user cache and /tmp...${NC}\n"; rm -rf ~/.cache/* 2>/dev/null || true; echo -e "${GREEN}✓ User caches cleared.${NC}"; press_enter ;; 6) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE FreeBSD CLEANUP SUITE ===${NC}\n"; sudo pkg clean -a -y 2>/dev/null || true; sudo pkg autoremove -y 2>/dev/null || true; pkg audit -F 2>/dev/null || true; rm -rf ~/.cache/* 2>/dev/null || true; echo -e "${GREEN}✓ FreeBSD maintenance suite finished!${NC}"; press_enter; ;; 7|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 8|0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; else local journal_usage; journal_usage=$(journalctl --disk-usage 2>/dev/null | grep -o '[0-9.]*[KMGT]B*' || echo "N/A"); echo -e "  System Journal Log Usage:   ${CYAN}${journal_usage}${NC}"; if command -v free &>/dev/null; then local ram_info; ram_info=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2 " used, " $6 " cached, " $7 " avail"}'); [ -n "$ram_info" ] && echo -e "  System Memory (RAM):        ${CYAN}${ram_info}${NC}"; fi; local distro_desc=""; if [ -f /etc/os-release ]; then distro_desc=$(grep -E '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"'); fi; [ -z "$distro_desc" ] && distro_desc="Linux ($(uname -r))"; if command -v rpm-ostree &>/dev/null; then local ostree_status; ostree_status=$(rpm-ostree status 2>/dev/null | grep -E '^\*? State:' | head -n 1 | awk '{print $2}' || echo "idle"); [ -z "$ostree_status" ] && ostree_status="idle"; echo -e "  Operating System:           ${GREEN}${distro_desc}${NC} (rpm-ostree: ${ostree_status})"; else echo -e "  Operating System:           ${GREEN}${distro_desc}${NC}"; fi; echo ""; local clean_label="Clean System (Package Caches, Unused Runtimes)"; local update_label="Full System & Package Update"; if command -v ujust &>/dev/null; then
-clean_label="Clean System (${GREEN}ujust clean-system${NC}) [Podman, Flatpak, ostree, Brew]"; update_label="Full System & Package Update (${GREEN}ujust update${NC}) [OS, Flatpaks, Brew]"; elif command -v dnf5 &>/dev/null; then clean_label="Clean System (${GREEN}sudo dnf5 clean all && autoremove${NC}) [DNF caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo dnf5 upgrade --refresh${NC}) [Fedora packages, Flatpaks]"; elif command -v dnf &>/dev/null; then clean_label="Clean System (${GREEN}sudo dnf clean all && autoremove${NC}) [DNF caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo dnf upgrade --refresh${NC}) [Fedora / RHEL packages, Flatpaks]"; elif command -v rpm-ostree &>/dev/null; then clean_label="Clean System (${GREEN}rpm-ostree cleanup -m${NC}) [ostree, Flatpaks]"; update_label="Full System & Package Update (${GREEN}rpm-ostree upgrade${NC}) [Atomic OS, Flatpaks]"; elif command -v apt-get &>/dev/null; then clean_label="Clean System (${GREEN}sudo apt autoremove && clean${NC}) [APT caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo apt update && upgrade${NC}) [Debian/Ubuntu packages, Flatpaks]"; elif command -v pacman &>/dev/null; then clean_label="Clean System (${GREEN}sudo pacman -Sc${NC}) [Pacman caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo pacman -Syu${NC}) [Arch packages, Flatpaks]"; elif command -v zypper &>/dev/null; then clean_label="Clean System (${GREEN}sudo zypper clean -a${NC}) [Zypper caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo zypper refresh && update${NC}) [openSUSE packages]"; fi; echo -e "${BOLD}Select a maintenance operation:${NC}\n  ${BOLD}${CYAN}1)${NC} Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]\n  ${BOLD}${CYAN}2)${NC} ${clean_label}\n  ${BOLD}${CYAN}3)${NC} ${update_label}\n  ${BOLD}${CYAN}4)${NC} Vacuum System Logs (${GREEN}sudo journalctl --vacuum-size=200M${NC})\n  ${BOLD}${CYAN}5)${NC} Optimize & Trim SSD Storage (${GREEN}sudo fstrim -av${NC})\n  ${BOLD}${CYAN}6)${NC} Clear System Memory & Page Cache (${GREEN}sudo sync && drop_caches=3${NC})\n  ${BOLD}${CYAN}7)${NC} ${BOLD}${YELLOW}Run Complete Cleanup Suite${NC} (Clean System + Drop RAM Cache + Vacuum Logs + SSD Trim)\n  ${BOLD}${CYAN}8)${NC} Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}\n  ${BOLD}${CYAN}9)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [1-9, or m]: " m_choice; case $m_choice in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else
+while true; do
+    local m_hdr=""
+    if [ "$OS_TYPE" = "macos" ]; then
+        local brew_count="N/A" brew_formulae="N/A"
+        if command -v brew &>/dev/null; then brew_count=$(brew list --cask 2>/dev/null | wc -l | tr -d ' '); brew_formulae=$(brew list --formula 2>/dev/null | wc -l | tr -d ' '); m_hdr+="  Homebrew Packages Installed: ${CYAN}${brew_formulae} formulae, ${brew_count} casks${NC}\n"; fi
+        m_hdr+="  macOS Version:               ${GREEN}$(sw_vers -productVersion 2>/dev/null || uname -r)${NC}\n"
+    local -a m_opts=(
+        "1|Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]|"
+        "2|Open macOS Software Update Window (${GREEN}System Settings / Software Update${NC})|"
+        "3|Clean Homebrew Caches & Old Packages (${GREEN}brew cleanup -s && brew autoremove${NC})|"
+        "4|Full Homebrew Package Upgrade (${GREEN}brew update && brew upgrade${NC})|"
+        "5|Purge Inactive System RAM Memory (${GREEN}sudo purge${NC})|"
+        "6|Clear User Caches & Temporary Files (${GREEN}rm -rf ~/Library/Caches/*${NC})|"
+        "7|${BOLD}${YELLOW}Run Complete macOS Maintenance Suite${NC}|"
+        "8|Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+        run_interactive_submenu "macOS SYSTEM MAINTENANCE & CLEANUP" "$m_hdr" m_opts 0
+        m_choice="$REPLY"
+case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter ;; 2) echo -e "\n${BOLD}${YELLOW}Opening macOS Software Update Window in System Settings...${NC}\n"; open "x-apple.systempreferences:com.apple.preferences.softwareupdate" 2>/dev/null || open /System/Library/PreferencePanes/SoftwareUpdate.prefPane 2>/dev/null || true; echo -e "${GREEN}✓ macOS Software Update settings opened.${NC}"; press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Cleaning Homebrew...${NC}\n"; brew cleanup -s && brew autoremove; press_enter; ;; 4) echo -e "\n${BOLD}${YELLOW}Updating Homebrew & packages...${NC}\n"; brew update && brew upgrade; press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Purging inactive memory...${NC}\n"; sudo purge 2>/dev/null || purge 2>/dev/null || echo "Purge completed."; press_enter; ;; 6) echo -e "\n${BOLD}${YELLOW}Clearing user caches...${NC}\n"; rm -rf ~/Library/Caches/* 2>/dev/null || true
+echo -e "${GREEN}✓ User caches cleared.${NC}"; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE macOS CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/4] Opening Software Update window...${NC}"; open "x-apple.systempreferences:com.apple.preferences.softwareupdate" 2>/dev/null || open /System/Library/PreferencePanes/SoftwareUpdate.prefPane 2>/dev/null || true; echo -e "${BOLD}${BLUE}[2/4] Cleaning Homebrew caches...${NC}"; command -v brew &>/dev/null && brew cleanup -s && brew autoremove; echo -e "${BOLD}${BLUE}[3/4] Clearing user caches...${NC}"; rm -rf ~/Library/Caches/* 2>/dev/null || true; echo -e "${BOLD}${BLUE}[4/4] Purging inactive RAM...${NC}"; sudo purge 2>/dev/null || true; echo -e "${GREEN}✓ Cleanup suite finished!${NC}"; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]|[eE][xX][iI][tT]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
+    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
+        local win_disp="Windows 10/11"
+        if [[ "$UNAME_S" =~ MINGW.*NT-([0-9.]+) ]]; then win_disp="Windows NT ${BASH_REMATCH[1]}"; fi
+        m_hdr="  Windows Edition:             ${GREEN}${win_disp}${NC}\n"
+    local -a m_opts=(
+        "1|Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]|"
+        "2|Open Windows Update Window (${GREEN}ms-settings:windowsupdate${NC})|"
+        "3|Upgrade All Installed Packages (${GREEN}winget upgrade --all${NC})|"
+        "4|Clear Windows Temporary Files (${GREEN}%TEMP% & System Temp${NC})|"
+        "5|Empty Windows Recycle Bin (${GREEN}Clear-RecycleBin${NC})|"
+        "6|Optimize / TRIM Primary Drive C: (${GREEN}Optimize-Volume${NC})|"
+        "7|${BOLD}${YELLOW}Run Complete Windows Maintenance Suite${NC}|"
+        "8|Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+        run_interactive_submenu "WINDOWS 10/11 MAINTENANCE & CLEANUP" "$m_hdr" m_opts 0
+        m_choice="$REPLY"
+case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter; ;; 2) echo -e "\n${BOLD}${YELLOW}Opening Windows Update Window in Settings...${NC}\n"; cmd.exe /c "start ms-settings:windowsupdate" 2>/dev/null || powershell.exe -Command "Start-Process 'ms-settings:windowsupdate'" 2>/dev/null || true; echo -e "${GREEN}✓ Windows Update window opened.${NC}"; press_enter; ;; 3) echo -e "\n${BOLD}${YELLOW}Upgrading packages via winget...${NC}\n"; cmd.exe /c "winget upgrade --all" 2>/dev/null || echo -e "${RED}winget not found.${NC}"; press_enter ;; 4) echo -e "\n${BOLD}${YELLOW}Clearing Windows temp directory...${NC}\n"; powershell.exe -Command "Remove-Item -Path \$env:TEMP\* -Recurse -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${GREEN}✓ Temporary files removed.${NC}"
+press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Emptying Recycle Bin...${NC}\n"; powershell.exe -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${GREEN}✓ Recycle bin emptied.${NC}"; press_enter ;; 6) echo -e "\n${BOLD}${YELLOW}Optimizing C: drive...${NC}\n"; powershell.exe -Command "Optimize-Volume -DriveLetter C -Verbose" 2>/dev/null || true; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE WINDOWS CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/5] Opening Windows Update window...${NC}"; cmd.exe /c "start ms-settings:windowsupdate" 2>/dev/null || powershell.exe -Command "Start-Process 'ms-settings:windowsupdate'" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[2/5] Clearing temporary files...${NC}"; powershell.exe -Command "Remove-Item -Path \$env:TEMP\* -Recurse -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[3/5] Emptying Recycle Bin...${NC}"; powershell.exe -Command "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[4/5] Upgrading installed applications via winget...${NC}"; cmd.exe /c "winget upgrade --all" 2>/dev/null || true; echo -e "${BOLD}${BLUE}[5/5] Optimizing C: drive...${NC}"; powershell.exe -Command "Optimize-Volume -DriveLetter C -Verbose" 2>/dev/null || true; echo -e "${GREEN}✓ Windows maintenance suite finished!${NC}"; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]|[eE][xX][iI][tT]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
+    elif [ "$OS_TYPE" = "freebsd" ]; then
+        local pkg_count="N/A"
+        if command -v pkg &>/dev/null; then pkg_count=$(pkg info 2>/dev/null | wc -l | tr -d ' '); fi
+        m_hdr="  FreeBSD Version:             ${GREEN}$(uname -r) ($(uname -m))${NC}\n  Packages Installed (pkg):    ${CYAN}${pkg_count}${NC}\n"
+    local -a m_opts=(
+        "1|Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]|"
+        "2|Clean Package Caches & Old Deps (${GREEN}pkg clean -a && pkg autoremove${NC})|"
+        "3|Full FreeBSD Package Upgrade (${GREEN}pkg upgrade${NC})|"
+        "4|Audit Installed Packages for Vulnerabilities (${GREEN}pkg audit -F${NC})|"
+        "5|Clear User Caches & /tmp (${GREEN}rm -rf ~/.cache/* /tmp/*${NC})|"
+        "6|${BOLD}${YELLOW}Run Complete FreeBSD Maintenance Suite${NC}|"
+        "7|Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+        run_interactive_submenu "FreeBSD SYSTEM MAINTENANCE & CLEANUP" "$m_hdr" m_opts 0
+        m_choice="$REPLY"
+case "$m_choice" in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter; ;; 2) echo -e "\n${BOLD}${YELLOW}Cleaning pkg caches...${NC}\n"; sudo pkg clean -a -y && sudo pkg autoremove -y || pkg clean -a -y
+press_enter ;; 3) echo -e "\n${BOLD}${YELLOW}Upgrading FreeBSD packages...${NC}\n"; sudo pkg upgrade || pkg upgrade; press_enter; ;; 4) echo -e "\n${BOLD}${YELLOW}Auditing FreeBSD packages...${NC}\n"; pkg audit -F; press_enter ;; 5) echo -e "\n${BOLD}${YELLOW}Clearing user cache and /tmp...${NC}\n"; rm -rf ~/.cache/* 2>/dev/null || true; echo -e "${GREEN}✓ User caches cleared.${NC}"; press_enter ;; 6) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE FreeBSD CLEANUP SUITE ===${NC}\n"; sudo pkg clean -a -y 2>/dev/null || true; sudo pkg autoremove -y 2>/dev/null || true; pkg audit -F 2>/dev/null || true; rm -rf ~/.cache/* 2>/dev/null || true; echo -e "${GREEN}✓ FreeBSD maintenance suite finished!${NC}"; press_enter; ;; 7|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 8|0|[qQ]|[eE][xX][iI][tT]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac
+    else
+        local journal_usage
+        journal_usage=$(journalctl --disk-usage 2>/dev/null | grep -o '[0-9.]*[KMGT]B*' || echo "N/A")
+        m_hdr="  System Journal Log Usage:   ${CYAN}${journal_usage}${NC}\n"
+        if command -v free &>/dev/null; then local ram_info; ram_info=$(free -h 2>/dev/null | awk '/^Mem:/ {print $3 "/" $2 " used, " $6 " cached, " $7 " avail"}'); [ -n "$ram_info" ] && m_hdr+="  System Memory (RAM):        ${CYAN}${ram_info}${NC}\n"; fi
+        local distro_desc=""
+        if [ -f /etc/os-release ]; then distro_desc=$(grep -E '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"'); fi
+        [ -z "$distro_desc" ] && distro_desc="Linux ($(uname -r))"
+        if command -v rpm-ostree &>/dev/null; then local ostree_status; ostree_status=$(rpm-ostree status 2>/dev/null | grep -E '^\*? State:' | head -n 1 | awk '{print $2}' || echo "idle"); [ -z "$ostree_status" ] && ostree_status="idle"; m_hdr+="  Operating System:           ${GREEN}${distro_desc}${NC} (rpm-ostree: ${ostree_status})\n"; else m_hdr+="  Operating System:           ${GREEN}${distro_desc}${NC}\n"; fi
+        local clean_label="Clean System (Package Caches, Unused Runtimes)"
+        local update_label="Full System & Package Update"
+        if command -v ujust &>/dev/null; then
+            clean_label="Clean System (${GREEN}ujust clean-system${NC}) [Podman, Flatpak, ostree, Brew]"; update_label="Full System & Package Update (${GREEN}ujust update${NC}) [OS, Flatpaks, Brew]"
+        elif command -v dnf5 &>/dev/null; then
+            clean_label="Clean System (${GREEN}sudo dnf5 clean all && autoremove${NC}) [DNF caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo dnf5 upgrade --refresh${NC}) [Fedora packages, Flatpaks]"
+        elif command -v dnf &>/dev/null; then
+            clean_label="Clean System (${GREEN}sudo dnf clean all && autoremove${NC}) [DNF caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo dnf upgrade --refresh${NC}) [Fedora / RHEL packages, Flatpaks]"
+        elif command -v rpm-ostree &>/dev/null; then
+            clean_label="Clean System (${GREEN}rpm-ostree cleanup -m${NC}) [ostree, Flatpaks]"; update_label="Full System & Package Update (${GREEN}rpm-ostree upgrade${NC}) [Atomic OS, Flatpaks]"
+        elif command -v apt-get &>/dev/null; then
+            clean_label="Clean System (${GREEN}sudo apt autoremove && clean${NC}) [APT caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo apt update && upgrade${NC}) [Debian/Ubuntu packages, Flatpaks]"
+        elif command -v pacman &>/dev/null; then
+            clean_label="Clean System (${GREEN}sudo pacman -Sc${NC}) [Pacman caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo pacman -Syu${NC}) [Arch packages, Flatpaks]"
+        elif command -v zypper &>/dev/null; then
+            clean_label="Clean System (${GREEN}sudo zypper clean -a${NC}) [Zypper caches, Flatpaks]"; update_label="Full System & Package Update (${GREEN}sudo zypper refresh && update${NC}) [openSUSE packages]"
+        fi
+    local -a m_opts=(
+        "1|Check Drive Space Statistics (${GREEN}Get_All_Drive_Space.sh${NC}) [Mounted & Unmounted]|"
+        "2|${clean_label}|"
+        "3|${update_label}|"
+        "4|Vacuum System Logs (${GREEN}sudo journalctl --vacuum-size=200M${NC})|"
+        "5|Optimize & Trim SSD Storage (${GREEN}sudo fstrim -av${NC})|"
+        "6|Clear System Memory & Page Cache (${GREEN}sudo sync && drop_caches=3${NC})|"
+        "7|${BOLD}${YELLOW}Run Complete Cleanup Suite${NC} (Clean System + Drop RAM Cache + Vacuum Logs + SSD Trim)|"
+        "8|Monitor System Processes and Bash Commands with System Info ${GREEN}(MP_Monitor_Bash.sh, new Terminal tab)${NC}|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+        run_interactive_submenu "SYSTEM MAINTENANCE & CLEANUP" "$m_hdr" m_opts 0
+        m_choice="$REPLY"
+case $m_choice in 1) local drive_sh="$SCRIPT_DIR/Get_All_Drive_Space.sh"; [ ! -f "$drive_sh" ] && drive_sh="$SCRIPT_DIR/scripts/Get_All_Drive_Space.sh"; if [ -f "$drive_sh" ]; then echo ""; bash "$drive_sh"; else
 echo -e "\n${RED}Drive space script not found: $drive_sh${NC}"; fi; echo ""; press_enter; ;; 2) echo -e "\n${BOLD}${YELLOW}=== RUNNING SYSTEM CLEANUP ===${NC}\n"; if command -v ujust &>/dev/null; then echo -e "${BOLD}${CYAN}» Running ujust clean-system...${NC}"; ujust clean-system; else if command -v dnf5 &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning dnf5 caches & unused packages...${NC}"; sudo dnf5 clean all && sudo dnf5 autoremove -y || true; elif command -v dnf &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning dnf caches & unused packages...${NC}"; sudo dnf clean all && sudo dnf autoremove -y || true; elif command -v apt-get &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning APT caches & unused packages...${NC}"; sudo apt-get autoremove -y && sudo apt-get clean || true; elif command -v pacman &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning Pacman caches...${NC}"; sudo pacman -Sc --noconfirm || true; elif command -v zypper &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning Zypper caches...${NC}"; sudo zypper clean -a || true; fi; if command -v rpm-ostree &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning ostree metadata...${NC}"; rpm-ostree cleanup -m 2>/dev/null || true; fi; if command -v flatpak &>/dev/null; then echo -e "${BOLD}${CYAN}» Uninstalling unused Flatpak runtimes...${NC}"; flatpak uninstall --unused -y 2>/dev/null || true; fi; if command -v podman &>/dev/null; then echo -e "${BOLD}${CYAN}» Pruning unused podman images & containers...${NC}"; podman system prune -f 2>/dev/null || true; elif command -v docker &>/dev/null; then echo -e "${BOLD}${CYAN}» Pruning unused docker images & containers...${NC}"; docker system prune -f 2>/dev/null || true; fi; if command -v brew &>/dev/null; then echo -e "${BOLD}${CYAN}» Cleaning Homebrew packages...${NC}"; brew cleanup -s 2>/dev/null && brew autoremove 2>/dev/null || true; fi; fi; echo -e "${BOLD}${CYAN}» Clearing user thumbnails & cache...${NC}"; rm -rf "$HOME/.cache/thumbnails"/* 2>/dev/null || true; echo -e "\n${GREEN}[✓] System cleanup completed successfully.${NC}"; echo ""; press_enter; ;; 3) echo -e "\n${BOLD}${YELLOW}=== DOWNLOADING & APPLYING SYSTEM UPDATES ===${NC}\n"; local updated=0; if command -v ujust &>/dev/null; then echo -e "${BOLD}${CYAN}» Running ujust update (Bazzite / Universal Blue)...${NC}"; ujust update && updated=1; elif command -v rpm-ostree &>/dev/null; then echo -e "${BOLD}${CYAN}» Upgrading ostree deployment (rpm-ostree upgrade)...${NC}"; rpm-ostree upgrade && updated=1; elif command -v dnf5 &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating Fedora packages (dnf5 upgrade)...${NC}"
 sudo dnf5 upgrade --refresh -y && updated=1; elif command -v dnf &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating Fedora / RHEL packages (dnf upgrade)...${NC}"; sudo dnf upgrade --refresh -y && updated=1; elif command -v apt-get &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating APT packages (apt update && apt upgrade)...${NC}"; sudo apt-get update && sudo apt-get upgrade -y && updated=1; elif command -v pacman &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating Pacman packages (pacman -Syu)...${NC}"; sudo pacman -Syu --noconfirm && updated=1; elif command -v zypper &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating Zypper packages...${NC}"; sudo zypper refresh && sudo zypper update -y && updated=1; elif command -v apk &>/dev/null; then echo -e "${BOLD}${CYAN}» Updating Alpine packages (apk upgrade)...${NC}"; sudo apk update && sudo apk upgrade && updated=1; fi; if command -v flatpak &>/dev/null; then echo -e "\n${BOLD}${CYAN}» Updating Flatpak applications and runtimes...${NC}"; flatpak update -y && updated=1; fi; if command -v snap &>/dev/null; then echo -e "\n${BOLD}${CYAN}» Refreshing Snap packages...${NC}"; sudo snap refresh 2>/dev/null && updated=1; fi; if command -v brew &>/dev/null; then echo -e "\n${BOLD}${CYAN}» Updating Homebrew on Linux...${NC}"; brew update && brew upgrade && updated=1; fi; if [ "$updated" -eq 1 ]; then echo -e "\n${GREEN}[✓] System update completed successfully.${NC}"; else echo -e "\n${RED}No supported package manager found to update.${NC}"; fi; echo ""; press_enter; ;; 4) echo -e "\n${BOLD}${YELLOW}Vacuuming system logs down to 200MB...${NC}\n"; sudo journalctl --vacuum-size=200M 2>/dev/null || true; echo ""; journalctl --disk-usage 2>/dev/null || true; echo ""; press_enter; ;; 5) echo -e "\n${BOLD}${YELLOW}Trimming and optimizing SSD storage (fstrim)...${NC}\n"; sudo fstrim -av 2>/dev/null || true; echo ""; press_enter; ;; 6) echo -e "\n${BOLD}${YELLOW}=== CLEAR SYSTEM MEMORY (RAM & PAGE CACHE) ===${NC}\n"; if command -v free &>/dev/null; then echo -e "${BOLD}Memory status before cleanup:${NC}"; free -h; echo ""; fi; echo -e "${CYAN}Syncing filesystem buffers to disk...${NC}"; sync; echo -e "${CYAN}Dropping pagecache, dentries, and inodes (drop_caches=3)...${NC}"; if echo 3 | sudo tee /proc/sys/vm/drop_caches &>/dev/null; then echo -e "${GREEN}✓ PageCache, dentries, and inodes successfully cleared!${NC}"; elif sudo sysctl -w vm.drop_caches=3 &>/dev/null; then echo -e "${GREEN}✓ PageCache, dentries, and inodes successfully cleared via sysctl!${NC}"; else echo -e "${RED}Failed to drop caches (sudo permissions required).${NC}"; fi; local swap_used_kb=0; if [ -f /proc/meminfo ]; then swap_used_kb=$(awk '/SwapTotal:/ {st=$2} /SwapFree:/ {sf=$2} END {print (st - sf)}' /proc/meminfo 2>/dev/null || echo 0); fi; if [ "$swap_used_kb" -gt 51200 ]; then local swap_used_human
 swap_used_human=$(awk '/SwapTotal:/ {st=$2} /SwapFree:/ {sf=$2} END {printf "%.1f MB", (st - sf)/1024}' /proc/meminfo 2>/dev/null || echo "Swap in use")
-echo ""; echo -e "Swap memory currently in use: ${YELLOW}${swap_used_human}${NC}"; read -r -p "Would you also like to flush swap memory back into RAM? [y/N]: " swap_choice; case "$swap_choice" in [yY]|[yY][eE][sS]) echo -e "${CYAN}Flushing swap back to RAM (sudo swapoff -a && sudo swapon -a)...${NC}"; if sudo swapoff -a && sudo swapon -a; then echo -e "${GREEN}✓ Swap memory flushed successfully!${NC}"; else echo -e "${RED}Warning: Could not cycle swap.${NC}"; fi ;; *) echo -e "${DIM}Skipping swap flush.${NC}"; ;; esac; fi; echo ""; if command -v free &>/dev/null; then echo -e "${BOLD}Memory status after cleanup:${NC}"; free -h; fi; echo ""; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/4] Running System Cleanup...${NC}"; if command -v ujust &>/dev/null; then ujust clean-system; else if command -v dnf5 &>/dev/null; then sudo dnf5 clean all && sudo dnf5 autoremove -y || true; elif command -v dnf &>/dev/null; then sudo dnf clean all && sudo dnf autoremove -y || true; elif command -v apt-get &>/dev/null; then sudo apt-get autoremove -y && sudo apt-get clean || true; elif command -v pacman &>/dev/null; then sudo pacman -Sc --noconfirm || true; elif command -v zypper &>/dev/null; then sudo zypper clean -a || true; fi; if command -v rpm-ostree &>/dev/null; then rpm-ostree cleanup -m 2>/dev/null || true; fi; if command -v flatpak &>/dev/null; then flatpak uninstall --unused -y 2>/dev/null || true; fi; if command -v podman &>/dev/null; then podman system prune -f 2>/dev/null || true; fi; rm -rf "$HOME/.cache/thumbnails"/* 2>/dev/null || true; fi; echo ""; echo -e "${BOLD}${BLUE}[2/4] Clearing System Memory (RAM Cache)...${NC}"; sync; echo 3 | sudo tee /proc/sys/vm/drop_caches &>/dev/null || sudo sysctl -w vm.drop_caches=3 &>/dev/null || true; echo -e "${GREEN}✓ System RAM cache cleared.${NC}"; echo ""; echo -e "${BOLD}${BLUE}[3/4] Vacuuming system logs to 200MB...${NC}"; sudo journalctl --vacuum-size=200M 2>/dev/null || true; echo ""; echo -e "${BOLD}${BLUE}[4/4] Trimming SSD filesystems (fstrim)...${NC}"; sudo fstrim -av 2>/dev/null || true; echo ""; echo -e "${BOLD}${GREEN}[✓] Complete cleanup finished!${NC}"; journalctl --disk-usage 2>/dev/null || true; if command -v free &>/dev/null; then echo ""; free -h; fi; echo ""; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5; ;; esac; fi; done
+echo ""; echo -e "Swap memory currently in use: ${YELLOW}${swap_used_human}${NC}"; read -r -p "Would you also like to flush swap memory back into RAM? [y/N]: " swap_choice; case "$swap_choice" in [yY]|[yY][eE][sS]) echo -e "${CYAN}Flushing swap back to RAM (sudo swapoff -a && sudo swapon -a)...${NC}"; if sudo swapoff -a && sudo swapon -a; then echo -e "${GREEN}✓ Swap memory flushed successfully!${NC}"; else echo -e "${RED}Warning: Could not cycle swap.${NC}"; fi ;; *) echo -e "${DIM}Skipping swap flush.${NC}"; ;; esac; fi; echo ""; if command -v free &>/dev/null; then echo -e "${BOLD}Memory status after cleanup:${NC}"; free -h; fi; echo ""; press_enter; ;; 7) echo -e "\n${BOLD}${GREEN}=== RUNNING COMPLETE CLEANUP SUITE ===${NC}\n\n${BOLD}${BLUE}[1/4] Running System Cleanup...${NC}"; if command -v ujust &>/dev/null; then ujust clean-system; else if command -v dnf5 &>/dev/null; then sudo dnf5 clean all && sudo dnf5 autoremove -y || true; elif command -v dnf &>/dev/null; then sudo dnf clean all && sudo dnf autoremove -y || true; elif command -v apt-get &>/dev/null; then sudo apt-get autoremove -y && sudo apt-get clean || true; elif command -v pacman &>/dev/null; then sudo pacman -Sc --noconfirm || true; elif command -v zypper &>/dev/null; then sudo zypper clean -a || true; fi; if command -v rpm-ostree &>/dev/null; then rpm-ostree cleanup -m 2>/dev/null || true; fi; if command -v flatpak &>/dev/null; then flatpak uninstall --unused -y 2>/dev/null || true; fi; if command -v podman &>/dev/null; then podman system prune -f 2>/dev/null || true; fi; rm -rf "$HOME/.cache/thumbnails"/* 2>/dev/null || true; fi; echo ""; echo -e "${BOLD}${BLUE}[2/4] Clearing System Memory (RAM Cache)...${NC}"; sync; echo 3 | sudo tee /proc/sys/vm/drop_caches &>/dev/null || sudo sysctl -w vm.drop_caches=3 &>/dev/null || true; echo -e "${GREEN}✓ System RAM cache cleared.${NC}"; echo ""; echo -e "${BOLD}${BLUE}[3/4] Vacuuming system logs to 200MB...${NC}"; sudo journalctl --vacuum-size=200M 2>/dev/null || true; echo ""; echo -e "${BOLD}${BLUE}[4/4] Trimming SSD filesystems (fstrim)...${NC}"; sudo fstrim -av 2>/dev/null || true; echo ""; echo -e "${BOLD}${GREEN}[✓] Complete cleanup finished!${NC}"; journalctl --disk-usage 2>/dev/null || true; if command -v free &>/dev/null; then echo ""; free -h; fi; echo ""; press_enter; ;; 8|m|monitor|mp-monitor) manage_process_and_bash_monitor ;; 9|0|[qQ]|[eE][xX][iI][tT]|ESC) return 0; ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.5; ;; esac
+    fi
+done
 }
 launch_ai_session() {
 local target_arg="$1"; local title="$2"; local agy_bin
-if command -v agy &>/dev/null; then agy_bin="agy"; elif [ -x "$HOME/.local/bin/agy.bin" ]; then agy_bin="$HOME/.local/bin/agy.bin"; else agy_bin="agy"; fi; local run_cmd="\"$agy_bin\""; if [ -n "$target_arg" ]; then if [[ "$target_arg" =~ ^-- ]]; then run_cmd="\"$agy_bin\" $target_arg"; else run_cmd="\"$agy_bin\" --model \"$target_arg\""; fi; fi; if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then echo -e "\n${BOLD}${YELLOW}No GUI display detected; launching ${title} in current terminal...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi; echo ""; echo -e "${BOLD}Select launch target for ${title}:${NC}\n  ${BOLD}${CYAN}1)${NC} New Terminal Tab (Default - keeps Manager running in background)\n  ${BOLD}${CYAN}2)${NC} New Standalone Terminal Window\n  ${BOLD}${CYAN}3)${NC} Current Terminal Window (Returns to Manager upon exit)"; read -r -p "Enter choice [1-3, default: 1]: " t_choice; case "$t_choice" in 2) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new window...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close window...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "window"; then echo -e "${GREEN}✓ ${title} launched in a new window.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;; 3) echo -e "\n${BOLD}${YELLOW}Launching ${title} in current terminal (Type /exit or Ctrl+D twice to return)...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter ;; *) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new terminal tab...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close tab...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "tab"; then echo -e "${GREEN}✓ ${title} launched in a new terminal tab.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;; esac
+if command -v agy &>/dev/null; then agy_bin="agy"; elif [ -x "$HOME/.local/bin/agy.bin" ]; then agy_bin="$HOME/.local/bin/agy.bin"; else agy_bin="agy"; fi; local run_cmd="\"$agy_bin\""; if [ -n "$target_arg" ]; then if [[ "$target_arg" =~ ^-- ]]; then run_cmd="\"$agy_bin\" $target_arg"; else run_cmd="\"$agy_bin\" --model \"$target_arg\""; fi; fi; if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then echo -e "\n${BOLD}${YELLOW}No GUI display detected; launching ${title} in current terminal...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi
+local opts=("1|New Terminal Tab (Default)|keeps the Manager running in the background" "2|New Standalone Terminal Window|" "3|Current Terminal Window|(Returns to the Manager when the session ends)" "0|Cancel|(or Esc / q)")
+run_interactive_submenu "SELECT LAUNCH TARGET FOR ${title}" "" opts 0
+case "$REPLY" in
+2) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new window...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close window...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "window"; then echo -e "${GREEN}✓ ${title} launched in a new window.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;;
+3) echo -e "\n${BOLD}${YELLOW}Launching ${title} in current terminal (Type /exit or Ctrl+D twice to return)...${NC}\n"; sleep 0.8; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${BOLD}${GREEN}Launching ${title} in a new terminal tab...${NC}\n"; local full_cmd="$run_cmd; echo ''; echo 'Session ended. Press [Enter] to close tab...'; read -r"; if launch_in_terminal "$title" "$full_cmd" "tab"; then echo -e "${GREEN}✓ ${title} launched in a new terminal tab.${NC}"; sleep 1.2; else echo -e "${YELLOW}No external terminal emulator found; launching in current window...${NC}"; sleep 0.5; trap ':' INT; eval "$run_cmd"; trap 'exit_mix_manager' INT; press_enter; return 0; fi ;;
+esac
 }
 manage_ai_models() {
 local ai_opts=(
@@ -4306,17 +4450,73 @@ if [ "$OS_TYPE" != "macos" ]; then echo -e "\n${BOLD}${RED}⚠️  Apple Podcast
 echo -e "${GREEN}✓ Apple Podcasts launched.${NC}"; sleep 1.2; return 0
 }
 open_mix_in_daw() {
-clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}            OPEN MIX AUDIO FILE (WAV/FLAC) IN DAW                     ${NC}\n${BOLD}${MAGENTA}   (REAPER, Apple Logic Pro, GarageBand, FL Studio, Audacity, etc.)   ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; shopt -s nullglob nocaseglob; local wav_candidates=("${ARCHIVE_DIR}"/*.wav "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/CONVERTED_WAV_FILES"/*.wav "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"/*.wav "${OUTPUT_DIR}"/*.flac "$PWD"/*.flac); shopt -u nullglob nocaseglob; local selected_file=""; echo -e "${BOLD}How would you like to select the mix to open?${NC}\n  ${BOLD}${CYAN}1)${NC} Search mix by keyword or episode number (e.g., 033, 041, Who am I)\n  ${BOLD}${CYAN}2)${NC} Select from mixes currently in archiver (${#wav_candidates[@]} available)\n  ${BOLD}${CYAN}3)${NC} Enter custom audio file path manually\n  ${BOLD}${CYAN}0)${NC} Cancel and return\n"; read -r -p "Enter choice [0-3]: " s_method; case "$s_method" in 1) read -r -p "Enter search query: " query; [ -z "$query" ] && return 0; local matches=(); for f in "${wav_candidates[@]}"; do if echo "$(basename "$f")" | grep -qi "$query"; then matches+=("$f"); fi; done; if [ ${#matches[@]} -eq 0 ]; then echo -e "\n${RED}No mixes found matching '${query}'.${NC}"; press_enter; return 1; fi; echo -e "\n${BOLD}Matching Mixes:${NC}"; for i in "${!matches[@]}"; do echo -e "  ${CYAN}$((i + 1)))${NC} $(basename "${matches[$i]}")"; done; read -r -p "Select mix number [1-${#matches[@]}]: " pick; if [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#matches[@]}" ]; then selected_file="${matches[$((pick - 1))]}"; else echo -e "${RED}Invalid selection.${NC}"; sleep 1; return 1; fi ;; 2) if [ ${#wav_candidates[@]} -eq 0 ]; then echo -e "\n${YELLOW}No audio files found in archive directories.${NC}"; press_enter; return 1; fi; echo -e "\n${BOLD}Available Mixes in Archiver:${NC}"; local max_show=30; for i in "${!wav_candidates[@]}"; do [ "$i" -ge "$max_show" ] && break; echo -e "  ${CYAN}$((i + 1)))${NC} $(basename "${wav_candidates[$i]}")"; done; read -r -p "Select mix number [1-${#wav_candidates[@]}]: " pick; if [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#wav_candidates[@]}" ]; then selected_file="${wav_candidates[$((pick - 1))]}"; else echo -e "${RED}Invalid selection.${NC}"; sleep 1; return 1; fi; ;; 3) read -r -p "Enter absolute path to WAV or FLAC file: " selected_file; if [ ! -f "$selected_file" ]; then echo -e "${RED}Error: File does not exist!${NC}"; press_enter; return 1; fi; ;; 0|[qQ]) return 0 ;; *) echo -e "${RED}Invalid choice!${NC}"; sleep 1; return 1; ;; esac; [ -z "$selected_file" ] && return 0; echo -e "\n${BOLD}Selected Mix:${NC} ${GREEN}$(basename "$selected_file")${NC}"; echo -e "Full Path:    ${CYAN}${selected_file}${NC}\n\n${BOLD}Select target DAW / Audio Editor to open this mix in:${NC}\n  ${BOLD}${CYAN}1)${NC} Cockos REAPER DAW          ${DIM}(Cross-Platform: Linux, macOS, Windows, FreeBSD)${NC}\n  ${BOLD}${CYAN}2)${NC} Apple Logic Pro             ${DIM}(macOS Exclusive)${NC}\n  ${BOLD}${CYAN}3)${NC} Apple GarageBand            ${DIM}(macOS Exclusive)${NC}\n  ${BOLD}${CYAN}4)${NC} Image-Line FL Studio (Fruity Loops) ${DIM}(macOS, Windows, Linux via Wine)${NC}\n  ${BOLD}${CYAN}5)${NC} Audacity Audio Editor       ${DIM}(Cross-Platform: Linux, macOS, Windows, FreeBSD)${NC}\n  ${BOLD}${CYAN}6)${NC} Ardour Digital Audio Workstation\n  ${BOLD}${CYAN}7)${NC} Bitwig Studio\n  ${BOLD}${CYAN}0)${NC} Cancel\n"; read -r -p "Enter choice [0-7]: " daw_pick; case "$daw_pick" in 1) echo -e "\n${BOLD}${YELLOW}Opening mix in Cockos REAPER...${NC}\n"; if [ "$OS_TYPE" = "macos" ]; then open -a "REAPER" "$selected_file" &>/dev/null &
-elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then local win_p; win_p="$(cygpath -w "$selected_file" 2>/dev/null || wslpath -w "$selected_file" 2>/dev/null || echo "$selected_file")"; cmd.exe /c start "" "reaper.exe" "$win_p" &>/dev/null &
-elif command -v reaper &>/dev/null; then nohup reaper "$selected_file" &>/dev/null &
-elif _has_flatpak "fm.reaper.Reaper"; then nohup flatpak run fm.reaper.Reaper "$selected_file" &>/dev/null &
-else echo -e "${RED}REAPER is not installed.${NC}"; press_enter; return 1; fi; echo -e "${GREEN}✓ Mix dispatched to REAPER.${NC}"; sleep 1.2 ;; 2) launch_logic_pro "$selected_file"; ;; 3) launch_garageband "$selected_file" ;; 4) launch_fl_studio "$selected_file"; ;; 5) echo -e "\n${BOLD}${YELLOW}Opening mix in Audacity...${NC}\n"; play_audio_file "audacity" "$selected_file"; echo -e "${GREEN}✓ Mix dispatched to Audacity.${NC}"; sleep 1.2; ;; 6) if [ "$OS_TYPE" = "macos" ]; then open -a "Ardour" "$selected_file" 2>/dev/null &
-elif command -v ardour &>/dev/null; then nohup ardour "$selected_file" &>/dev/null &
-elif _has_flatpak "org.ardour.Ardour"; then nohup flatpak run org.ardour.Ardour "$selected_file" &>/dev/null &
-fi; echo -e "${GREEN}✓ Mix dispatched to Ardour.${NC}"; sleep 1.2 ;; 7) if [ "$OS_TYPE" = "macos" ]; then open -a "Bitwig Studio" "$selected_file" 2>/dev/null &
-elif command -v bitwig-studio &>/dev/null; then nohup bitwig-studio "$selected_file" &>/dev/null &
-elif _has_flatpak "com.bitwig.BitwigStudio"; then nohup flatpak run com.bitwig.BitwigStudio "$selected_file" &>/dev/null &
-fi; echo -e "${GREEN}✓ Mix dispatched to Bitwig Studio.${NC}"; sleep 1.2 ;; 0|[qQ]) return 0; ;; *) echo -e "${RED}Invalid choice!${NC}"; sleep 1; ;; esac
+shopt -s nullglob nocaseglob
+local wav_candidates=("${ARCHIVE_DIR}"/*.wav "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/CONVERTED_WAV_FILES"/*.wav "${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"/*.wav "${OUTPUT_DIR}"/*.flac "$PWD"/*.flac)
+shopt -u nullglob nocaseglob
+local selected_file=""
+local opts=("1|Search mix by keyword or episode number|(e.g. 033, 041, Who am I)" "2|Select from mixes currently in archive|(${#wav_candidates[@]} available)" "3|Enter custom audio file path manually|" "0|Cancel and return|(or Esc / q)")
+run_interactive_submenu "OPEN MIX AUDIO FILE (WAV/FLAC) IN DAW" "  ${BOLD}${CYAN}Supported:${NC} REAPER, Apple Logic Pro, GarageBand, FL Studio, Audacity, Ardour, Bitwig Studio\n" opts 0
+case "$REPLY" in
+1) read -r -p "Enter search query: " query
+    [ -z "$query" ] && return 0
+    local matches=()
+    for f in "${wav_candidates[@]}"; do if echo "$(basename "$f")" | grep -qi "$query"; then matches+=("$f"); fi; done
+    if [ ${#matches[@]} -eq 0 ]; then echo -e "\n${RED}No mixes found matching '${query}'.${NC}"; press_enter; return 1; fi
+    local m_opts=() i
+    for i in "${!matches[@]}"; do m_opts+=("$((i + 1))|$(basename "${matches[$i]}")|"); done
+    m_opts+=("0|Cancel|(or Esc / q)")
+    run_interactive_submenu "MATCHING MIXES" "" m_opts 0
+    local pick="$REPLY"
+    if [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#matches[@]}" ]; then selected_file="${matches[$((pick - 1))]}"; else echo -e "${RED}Invalid selection.${NC}"; sleep 1; return 1; fi ;;
+2) if [ ${#wav_candidates[@]} -eq 0 ]; then echo -e "\n${YELLOW}No audio files found in archive directories.${NC}"; press_enter; return 1; fi
+    local w_opts=() i max_show=30
+    for i in "${!wav_candidates[@]}"; do [ "$i" -ge "$max_show" ] && break; w_opts+=("$((i + 1))|$(basename "${wav_candidates[$i]}")|"); done
+    w_opts+=("0|Cancel|(or Esc / q)")
+    run_interactive_submenu "AVAILABLE MIXES IN ARCHIVE" "" w_opts 0
+    local pick="$REPLY"
+    if [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#wav_candidates[@]}" ]; then selected_file="${wav_candidates[$((pick - 1))]}"; else echo -e "${RED}Invalid selection.${NC}"; sleep 1; return 1; fi ;;
+3) read -r -p "Enter absolute path to WAV or FLAC file: " selected_file
+    if [ ! -f "$selected_file" ]; then echo -e "${RED}Error: File does not exist!${NC}"; press_enter; return 1; fi ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "${RED}Invalid choice!${NC}"; sleep 1; return 1 ;;
+esac
+[ -z "$selected_file" ] && return 0
+local daw_opts=(
+    "1|Cockos REAPER DAW|(Cross-Platform: Linux, macOS, Windows, FreeBSD)"
+    "2|Apple Logic Pro|(macOS Exclusive)"
+    "3|Apple GarageBand|(macOS Exclusive)"
+    "4|Image-Line FL Studio (Fruity Loops)|(macOS, Windows, Linux via Wine)"
+    "5|Audacity Audio Editor|(Cross-Platform: Linux, macOS, Windows, FreeBSD)"
+    "6|Ardour Digital Audio Workstation|"
+    "7|Bitwig Studio|"
+    "0|Cancel|(or Esc / q)"
+)
+run_interactive_submenu "SELECT TARGET DAW / AUDIO EDITOR" "  ${BOLD}Selected Mix:${NC} ${GREEN}$(basename "$selected_file")${NC}\n  ${BOLD}Full Path:${NC}    ${CYAN}${selected_file}${NC}\n" daw_opts 0
+case "$REPLY" in
+1) echo -e "\n${BOLD}${YELLOW}Opening mix in Cockos REAPER...${NC}\n"
+    if [ "$OS_TYPE" = "macos" ]; then open -a "REAPER" "$selected_file" &>/dev/null &
+    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then local win_p; win_p="$(cygpath -w "$selected_file" 2>/dev/null || wslpath -w "$selected_file" 2>/dev/null || echo "$selected_file")"; cmd.exe /c start "" "reaper.exe" "$win_p" &>/dev/null &
+    elif command -v reaper &>/dev/null; then nohup reaper "$selected_file" &>/dev/null &
+    elif _has_flatpak "fm.reaper.Reaper"; then nohup flatpak run fm.reaper.Reaper "$selected_file" &>/dev/null &
+    else echo -e "${RED}REAPER is not installed.${NC}"; press_enter; return 1; fi
+    echo -e "${GREEN}✓ Mix dispatched to REAPER.${NC}"; sleep 1.2 ;;
+2) launch_logic_pro "$selected_file" ;;
+3) launch_garageband "$selected_file" ;;
+4) launch_fl_studio "$selected_file" ;;
+5) echo -e "\n${BOLD}${YELLOW}Opening mix in Audacity...${NC}\n"; play_audio_file "audacity" "$selected_file"; echo -e "${GREEN}✓ Mix dispatched to Audacity.${NC}"; sleep 1.2 ;;
+6) if [ "$OS_TYPE" = "macos" ]; then open -a "Ardour" "$selected_file" 2>/dev/null &
+    elif command -v ardour &>/dev/null; then nohup ardour "$selected_file" &>/dev/null &
+    elif _has_flatpak "org.ardour.Ardour"; then nohup flatpak run org.ardour.Ardour "$selected_file" &>/dev/null &
+    fi
+    echo -e "${GREEN}✓ Mix dispatched to Ardour.${NC}"; sleep 1.2 ;;
+7) if [ "$OS_TYPE" = "macos" ]; then open -a "Bitwig Studio" "$selected_file" 2>/dev/null &
+    elif command -v bitwig-studio &>/dev/null; then nohup bitwig-studio "$selected_file" &>/dev/null &
+    elif _has_flatpak "com.bitwig.BitwigStudio"; then nohup flatpak run com.bitwig.BitwigStudio "$selected_file" &>/dev/null &
+    fi
+    echo -e "${GREEN}✓ Mix dispatched to Bitwig Studio.${NC}"; sleep 1.2 ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "${RED}Invalid choice!${NC}"; sleep 1 ;;
+esac
 }
 generate_spek_single_file() {
 echo -e "\n${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}   GENERATE SPECTROGRAM USING SPEK FOR WAV/MP3/FLAC (SINGLE FILE)     ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n${CYAN}Please enter the full path to the .FLAC, MP3 or WAV audio mix file:${NC}"; read -e -r -p "Audio Mix Path: " raw_path; local audio_path; audio_path="$(echo "$raw_path" | sed -e "s/^['\"]//" -e "s/['\"]$//" | xargs 2>/dev/null || echo "$raw_path")"; if [ -z "$audio_path" ]; then echo -e "${YELLOW}Operation cancelled.${NC}"; press_enter; return 0; fi; if [[ "$audio_path" == "~"* ]]; then audio_path="${HOME}${audio_path:1}"; fi; if [ "$OS_TYPE" = "wsl" ] && command -v wslpath &>/dev/null; then if [[ "$audio_path" =~ ^[A-Za-z]: ]]; then audio_path="$(wslpath -u "$audio_path" 2>/dev/null || echo "$audio_path")"; fi; elif [ "$OS_TYPE" = "windows" ] && command -v cygpath &>/dev/null; then audio_path="$(cygpath -u "$audio_path" 2>/dev/null || echo "$audio_path")"; fi; if [ ! -f "$audio_path" ]; then echo -e "\n${RED}Error: Audio mix file not found at '$audio_path'!${NC}"; press_enter; return 1; fi; local script="$SCRIPT_DIR/generate_spek.sh"; [ ! -f "$script" ] && script="./generate_spek.sh"; [ ! -f "$script" ] && script="$SCRIPT_DIR/scripts/generate_spek.sh"; if [ -f "$script" ]; then bash "$script" --single-file "$audio_path"; else local dir_path; dir_path="$(cd "$(dirname "$audio_path")" 2>/dev/null && pwd || dirname "$audio_path")"; local base_name; base_name="$(basename "$audio_path")"; local stem="${base_name%.*}"; local out_spek="${dir_path}/${stem}.spek"; local out_spek_png="${dir_path}/${stem}.spek.png"; echo -e "\n${BOLD}${CYAN}Generating Spek spectrogram...${NC}\n  • ${BOLD}Input Audio:${NC}   ${GREEN}${base_name}${NC}\n  • ${BOLD}Location:${NC}      ${dir_path}\n  • ${BOLD}Output File:${NC}   ${stem}.spek"; if ! command -v ffmpeg &>/dev/null; then echo -e "${RED}Error: ffmpeg is required to generate spectrograms.${NC}"; press_enter; return 1; fi; local start_time; start_time=${EPOCHSECONDS:-$(printf "%(%s)T" -1)}; ffmpeg -hide_banner -loglevel error -y -i "$audio_path" -lavfi "showspectrumpic=s=1920x1080:mode=combined:color=intensity:scale=log:legend=1:saturation=1.2" -frames:v 1 "$out_spek_png"; if [ $? -eq 0 ] && [ -f "$out_spek_png" ]; then cp -f "$out_spek_png" "$out_spek"; local sz; sz=$(du -h "$out_spek_png" | cut -f1); local end_time; end_time=${EPOCHSECONDS:-$(printf "%(%s)T" -1)}; local elapsed=$((end_time - start_time)); echo -e "\n${BOLD}${GREEN}${S70}${NC}\n${BOLD}${GREEN}✓ Spek Spectrogram Generated Successfully!${NC}\n  • ${BOLD}Spek File:${NC}      ${GREEN}${out_spek}${NC}\n  • ${BOLD}Image File:${NC}     ${GREEN}${out_spek_png}${NC}\n  • ${BOLD}Saved to:${NC}       ${dir_path}\n  • ${BOLD}Size / Time:${NC}    ${sz} (completed in ${elapsed}s)\n${BOLD}${GREEN}${S70}${NC}\n"; read -r -p "Do you want to view the Spek file after it has been fully generated? [Y/n]: " view_ask; if [[ "$view_ask" =~ ^[Yy]?$ ]] || [ -z "$view_ask" ]; then echo -e "${CYAN}Displaying Spek file in image viewer...${NC}"; open_path "$out_spek_png"; fi; else echo -e "\n${RED}✗ Failed to generate Spek spectrogram for '$base_name'.${NC}"; fi; fi; press_enter
@@ -4331,9 +4531,74 @@ manage_spectral_analyzers() {
 local script="$1"; local opts=("1|Launch Sonic Visualiser|(Open mix in Spectrogram pane)" "2|Generate SoX High-Resolution Spectrogram|(Viridis, Magma, Rainbow, Mono)" "3|Launch Praat / Kwave / Audacity Spectral Analyzer|" "0|Back to Spek Menu|(or Esc / q)"); while true; do run_interactive_submenu "ADVANCED SPECTRAL ANALYZERS & SOX SUITE" "" opts 0; case "$REPLY" in 1) read -e -r -p "Enter path to audio mix (or press Enter): " sfile; bash "$script" -i "$sfile" --gui 2>/dev/null || bash "$script"; press_enter; ;; 2) read -e -r -p "Enter path to audio mix: " sxfile; bash "$script" -i "$sxfile" -c "magma"; press_enter ;; 3) read -e -r -p "Enter path to audio mix: " prfile; bash "$script" -i "$prfile" --gui 2>/dev/null || true; press_enter; ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;; esac; done
 }
 manage_daws() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}     DIGITAL AUDIO WORKSTATIONS (DAWs) & EDITORS    ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; local current_datetime; current_datetime=$(date "+%A, %B %d, %Y  •  %T %Z"); echo -e "       ${BOLD}${CYAN}📅 ${current_datetime}${NC}"; echo ""; local reaper_badge="${RED}[NOT INSTALLED]${NC}"; local audacity_badge="${RED}[NOT INSTALLED]${NC}"; local ardour_badge="${YELLOW}[AVAILABLE]${NC}"; local lmms_badge="${YELLOW}[AVAILABLE]${NC}"; local bitwig_badge="${YELLOW}[AVAILABLE]${NC}"; local bespoke_badge="${YELLOW}[AVAILABLE]${NC}"; local logic_badge="${YELLOW}[macOS Only]${NC}"; local garage_badge="${YELLOW}[macOS Only]${NC}"; local fl_badge="${YELLOW}[AVAILABLE]${NC}"; local traktor_badge="${YELLOW}[macOS & Windows Only]${NC}"; is_app_installed "reaper" "fm.reaper.Reaper" "REAPER" "REAPER (x64)/reaper.exe" && reaper_badge="${GREEN}✓ INSTALLED${NC}"; is_app_installed "audacity" "org.audacityteam.Audacity" "Audacity" "Audacity/Audacity.exe" && audacity_badge="${GREEN}✓ INSTALLED${NC}"; is_app_installed "ardour" "org.ardour.Ardour" "Ardour" "Ardour/bin/ardour.exe" && ardour_badge="${GREEN}✓ INSTALLED${NC}"; is_app_installed "lmms" "io.lmms.LMMS" "LMMS" "LMMS/lmms.exe" && lmms_badge="${GREEN}✓ INSTALLED${NC}"; is_app_installed "bitwig-studio" "com.bitwig.BitwigStudio" "Bitwig Studio" "Bitwig Studio/bin/BitwigStudio.exe" && bitwig_badge="${GREEN}✓ INSTALLED${NC}"; is_app_installed "bespokesynth" "com.bespokesynth.BespokeSynth" "BespokeSynth" "BespokeSynth/BespokeSynth.exe" && bespoke_badge="${GREEN}✓ INSTALLED${NC}"; if [ "$OS_TYPE" = "macos" ]; then if [ -d "/Applications/Logic Pro.app" ] || [ -d "/Applications/Logic Pro X.app" ] || osascript -e 'id of application "Logic Pro"' &>/dev/null; then logic_badge="${GREEN}✓ INSTALLED${NC}"; else logic_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/GarageBand.app" ] || osascript -e 'id of application "GarageBand"' &>/dev/null; then garage_badge="${GREEN}✓ INSTALLED${NC}"; else
-garage_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/Native Instruments/Traktor Pro 3/Traktor.app" ] || [ -d "/Applications/Native Instruments/Traktor Pro 4/Traktor.app" ] || [ -d "/Applications/Traktor Pro 4.app" ] || [ -d "/Applications/Traktor Pro 3.app" ] || [ -d "/Applications/Traktor.app" ] || osascript -e 'id of application "Traktor"' &>/dev/null; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${RED}[NOT INSTALLED]${NC}"; fi; if [ -d "/Applications/FL Studio 2024.app" ] || [ -d "/Applications/FL Studio 21.app" ] || [ -d "/Applications/FL Studio.app" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then if [ -f "/c/Program Files/Native Instruments/Traktor Pro 4/Traktor.exe" ] || [ -f "/c/Program Files/Native Instruments/Traktor Pro 3/Traktor.exe" ]; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${YELLOW}[AVAILABLE]${NC}"; fi; if [ -f "/c/Program Files/Image-Line/FL Studio 2024/FL64.exe" ] || [ -f "/c/Program Files/Image-Line/FL Studio 21/FL64.exe" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi; fi; echo -e "${BOLD}Select a DAW or Audio Editor to launch (or install):${NC}\n  ${BOLD}${CYAN} 1)${NC} Launch REAPER DAW (${reaper_badge}${NC})\n  ${BOLD}${CYAN} 2)${NC} Launch Audacity Audio Editor (${audacity_badge}${NC})\n  ${BOLD}${CYAN} 3)${NC} Launch / Install Ardour DAW (${ardour_badge}${NC})\n  ${BOLD}${CYAN} 4)${NC} Launch / Install LMMS Studio (${lmms_badge}${NC})\n  ${BOLD}${CYAN} 5)${NC} Launch / Install Bitwig Studio (${bitwig_badge}${NC})\n  ${BOLD}${CYAN} 6)${NC} Launch / Install Bespoke Synth (${bespoke_badge}${NC})\n  ${BOLD}${CYAN} 7)${NC} Launch Apple Logic Pro (${logic_badge}${NC})\n  ${BOLD}${CYAN} 8)${NC} Launch Apple GarageBand (${garage_badge}${NC})\n  ${BOLD}${CYAN} 9)${NC} Launch Image-Line FL Studio / Fruity Loops (${fl_badge}${NC})\n  ${BOLD}${CYAN}10)${NC} Launch Native Instruments Traktor Pro (${traktor_badge}${NC})\n  ${BOLD}${CYAN}11)${NC} Launch Traktor Live Monitor & Audio Recorder (${GREEN}New Window - CPU, Decks, Recording, Audio I/O${NC})"; if [ "$OS_TYPE" = "macos" ]; then local t_ver; t_ver="$(get_traktor_version_mac 2>/dev/null || echo "3")"; if [ -n "$t_ver" ] && [ "$t_ver" != "3" ]; then echo -e "  ${BOLD}${CYAN}12)${NC} Generate Playlist from History Files on Traktor 3 (${GREEN}v${t_ver} Key Sorted / Decks Ready${NC})"; else echo -e "  ${BOLD}${CYAN}12)${NC} Generate Playlist from History Files on Traktor 3 (${GREEN}Key Sorted / Decks Ready${NC})"; fi; echo -e "  ${BOLD}${BLUE}────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}13)${NC} ${BOLD}${GREEN}Open Mix WAV/FLAC Audio File in DAW...${NC} (Reaper, Logic Pro, FL Studio)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-13]: " d_choice; else echo -e "  ${BOLD}${BLUE}────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}12)${NC} ${BOLD}${GREEN}Open Mix WAV/FLAC Audio File in DAW...${NC} (Reaper, Logic Pro, FL Studio)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-12]: " d_choice; fi; case "$d_choice" in 1) launch_gui_app "REAPER" "reaper" "fm.reaper.Reaper" "REAPER" "reaper" "REAPER (x64)/reaper.exe" "Cockos.REAPER"; ;; 2) launch_audacity ;; 3) launch_gui_app "Ardour" "ardour" "org.ardour.Ardour" "Ardour" "ardour" "Ardour/bin/ardour.exe" ""; ;; 4) launch_gui_app "LMMS" "lmms" "io.lmms.LMMS" "LMMS" "lmms" "LMMS/lmms.exe" "LMMS.LMMS" ;; 5) launch_gui_app "Bitwig Studio" "bitwig-studio" "com.bitwig.BitwigStudio" "Bitwig Studio" "bitwig-studio" "Bitwig Studio/bin/BitwigStudio.exe" "Bitwig.BitwigStudio"; ;; 6) launch_gui_app "Bespoke Synth" "bespokesynth" "com.bespokesynth.BespokeSynth" "BespokeSynth" "bespoke-synth" "BespokeSynth/BespokeSynth.exe" "" ;; 7) launch_logic_pro; ;; 8) launch_garageband ;; 9) launch_fl_studio
-;; 10) launch_traktor ;; 11) launch_traktor_monitor_window; ;; 12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;; 13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; ;; esac; done
+while true; do
+    local current_datetime; current_datetime=$(date "+%A, %B %d, %Y  •  %T %Z")
+    local reaper_badge="${RED}[NOT INSTALLED]${NC}" audacity_badge="${RED}[NOT INSTALLED]${NC}"
+    local ardour_badge="${YELLOW}[AVAILABLE]${NC}" lmms_badge="${YELLOW}[AVAILABLE]${NC}" bitwig_badge="${YELLOW}[AVAILABLE]${NC}"
+    local bespoke_badge="${YELLOW}[AVAILABLE]${NC}" logic_badge="${YELLOW}[macOS Only]${NC}" garage_badge="${YELLOW}[macOS Only]${NC}"
+    local fl_badge="${YELLOW}[AVAILABLE]${NC}" traktor_badge="${YELLOW}[macOS & Windows Only]${NC}"
+    is_app_installed "reaper" "fm.reaper.Reaper" "REAPER" "REAPER (x64)/reaper.exe" && reaper_badge="${GREEN}✓ INSTALLED${NC}"
+    is_app_installed "audacity" "org.audacityteam.Audacity" "Audacity" "Audacity/Audacity.exe" && audacity_badge="${GREEN}✓ INSTALLED${NC}"
+    is_app_installed "ardour" "org.ardour.Ardour" "Ardour" "Ardour/bin/ardour.exe" && ardour_badge="${GREEN}✓ INSTALLED${NC}"
+    is_app_installed "lmms" "io.lmms.LMMS" "LMMS" "LMMS/lmms.exe" && lmms_badge="${GREEN}✓ INSTALLED${NC}"
+    is_app_installed "bitwig-studio" "com.bitwig.BitwigStudio" "Bitwig Studio" "Bitwig Studio/bin/BitwigStudio.exe" && bitwig_badge="${GREEN}✓ INSTALLED${NC}"
+    is_app_installed "bespokesynth" "com.bespokesynth.BespokeSynth" "BespokeSynth" "BespokeSynth/BespokeSynth.exe" && bespoke_badge="${GREEN}✓ INSTALLED${NC}"
+    if [ "$OS_TYPE" = "macos" ]; then
+        if [ -d "/Applications/Logic Pro.app" ] || [ -d "/Applications/Logic Pro X.app" ] || osascript -e 'id of application "Logic Pro"' &>/dev/null; then logic_badge="${GREEN}✓ INSTALLED${NC}"; else logic_badge="${RED}[NOT INSTALLED]${NC}"; fi
+        if [ -d "/Applications/GarageBand.app" ] || osascript -e 'id of application "GarageBand"' &>/dev/null; then garage_badge="${GREEN}✓ INSTALLED${NC}"; else garage_badge="${RED}[NOT INSTALLED]${NC}"; fi
+        if [ -d "/Applications/Native Instruments/Traktor Pro 3/Traktor.app" ] || [ -d "/Applications/Native Instruments/Traktor Pro 4/Traktor.app" ] || [ -d "/Applications/Traktor Pro 4.app" ] || [ -d "/Applications/Traktor Pro 3.app" ] || [ -d "/Applications/Traktor.app" ] || osascript -e 'id of application "Traktor"' &>/dev/null; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${RED}[NOT INSTALLED]${NC}"; fi
+        if [ -d "/Applications/FL Studio 2024.app" ] || [ -d "/Applications/FL Studio 21.app" ] || [ -d "/Applications/FL Studio.app" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi
+    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
+        if [ -f "/c/Program Files/Native Instruments/Traktor Pro 4/Traktor.exe" ] || [ -f "/c/Program Files/Native Instruments/Traktor Pro 3/Traktor.exe" ]; then traktor_badge="${GREEN}✓ INSTALLED${NC}"; else traktor_badge="${YELLOW}[AVAILABLE]${NC}"; fi
+        if [ -f "/c/Program Files/Image-Line/FL Studio 2024/FL64.exe" ] || [ -f "/c/Program Files/Image-Line/FL Studio 21/FL64.exe" ]; then fl_badge="${GREEN}✓ INSTALLED${NC}"; fi
+    fi
+    local hdr="       ${BOLD}${CYAN}📅 ${current_datetime}${NC}\n"
+    local opts=(
+        "1|Launch REAPER DAW|${reaper_badge}"
+        "2|Launch Audacity Audio Editor|${audacity_badge}"
+        "3|Launch / Install Ardour DAW|${ardour_badge}"
+        "4|Launch / Install LMMS Studio|${lmms_badge}"
+        "5|Launch / Install Bitwig Studio|${bitwig_badge}"
+        "6|Launch / Install Bespoke Synth|${bespoke_badge}"
+        "7|Launch Apple Logic Pro|${logic_badge}"
+        "8|Launch Apple GarageBand|${garage_badge}"
+        "9|Launch Image-Line FL Studio / Fruity Loops|${fl_badge}"
+        "10|Launch Native Instruments Traktor Pro|${traktor_badge}"
+        "11|Launch Traktor Live Monitor & Audio Recorder|(New Window - CPU, Decks, Recording, Audio I/O)"
+    )
+    if [ "$OS_TYPE" = "macos" ]; then
+        local t_ver; t_ver="$(get_traktor_version_mac 2>/dev/null || echo "3")"
+        if [ -n "$t_ver" ] && [ "$t_ver" != "3" ]; then
+            opts+=("12|Generate Playlist from History Files on Traktor 3|(v${t_ver} Key Sorted / Decks Ready)")
+        else
+            opts+=("12|Generate Playlist from History Files on Traktor 3|(Key Sorted / Decks Ready)")
+        fi
+        opts+=("SEP|SEP|")
+        opts+=("13|Open Mix WAV/FLAC Audio File in DAW...|(Reaper, Logic Pro, FL Studio)")
+    else
+        opts+=("SEP|SEP|")
+        opts+=("12|Open Mix WAV/FLAC Audio File in DAW...|(Reaper, Logic Pro, FL Studio)")
+    fi
+    opts+=("0|Return to Main Menu|(or Esc / q)")
+    run_interactive_submenu "DIGITAL AUDIO WORKSTATIONS (DAWs) & EDITORS" "$hdr" opts 0
+    case "$REPLY" in
+        1) launch_gui_app "REAPER" "reaper" "fm.reaper.Reaper" "REAPER" "reaper" "REAPER (x64)/reaper.exe" "Cockos.REAPER" ;;
+        2) launch_audacity ;;
+        3) launch_gui_app "Ardour" "ardour" "org.ardour.Ardour" "Ardour" "ardour" "Ardour/bin/ardour.exe" "" ;;
+        4) launch_gui_app "LMMS" "lmms" "io.lmms.LMMS" "LMMS" "lmms" "LMMS/lmms.exe" "LMMS.LMMS" ;;
+        5) launch_gui_app "Bitwig Studio" "bitwig-studio" "com.bitwig.BitwigStudio" "Bitwig Studio" "bitwig-studio" "Bitwig Studio/bin/BitwigStudio.exe" "Bitwig.BitwigStudio" ;;
+        6) launch_gui_app "Bespoke Synth" "bespokesynth" "com.bespokesynth.BespokeSynth" "BespokeSynth" "bespoke-synth" "BespokeSynth/BespokeSynth.exe" "" ;;
+        7) launch_logic_pro ;;
+        8) launch_garageband ;;
+        9) launch_fl_studio ;;
+        10) launch_traktor ;;
+        11) launch_traktor_monitor_window ;;
+        12) if [ "$OS_TYPE" = "macos" ]; then generate_traktor_playlist_from_history; else open_mix_in_daw; fi ;;
+        13) if [ "$OS_TYPE" = "macos" ]; then open_mix_in_daw; else echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2; fi ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;;
+    esac
+done
 }
 play_audio_file() {
     local player="${1:-${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}}"
@@ -4760,27 +5025,292 @@ PY
 fi; return 0
 }
 configure_audio_player_and_startup() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}      DEFAULT AUDIO PLAYER & STARTUP AUTOPLAY CONFIGURATION           ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; local audacious_st="Not Installed"; (command -v audacious &>/dev/null || _has_flatpak "org.atheme.audacious") && audacious_st="${GREEN}Installed${NC}"; local cliamp_st="Not Installed"; (command -v cliamp &>/dev/null || [ -x "$SCRIPT_DIR/bin/cliamp" ] || [ -x "$HOME/.local/bin/cliamp" ]) && cliamp_st="${GREEN}Installed${NC}"; local straw_st="Not Installed"; (command -v strawberry &>/dev/null || _has_flatpak "org.strawberrymusicplayer.strawberry") && straw_st="${GREEN}Installed${NC}"; local vlc_st="Not Installed"; (command -v vlc &>/dev/null || _has_flatpak "org.videolan.VLC") && vlc_st="${GREEN}Installed${NC}"; local haruna_st="Not Installed"; (command -v haruna &>/dev/null || _has_flatpak "org.kde.haruna") && haruna_st="${GREEN}Installed${NC}"; local kodi_st="Not Installed"; (command -v kodi &>/dev/null || _has_flatpak "tv.kodi.Kodi") && kodi_st="${GREEN}Installed${NC}"; local audacity_st="Not Installed"; (command -v audacity &>/dev/null || _has_flatpak "org.audacityteam.Audacity") && audacity_st="${GREEN}Installed${NC}"; local mpv_st="Not Installed"; command -v mpv &>/dev/null && mpv_st="${GREEN}Installed${NC}"; local foobar_st="Not Installed"; (command -v foobar2000 &>/dev/null || [ -d "/Applications/foobar2000.app" ] || [ -f "/c/Program Files/foobar2000/foobar2000.exe" ]) && foobar_st="${GREEN}Installed${NC}"; local winamp_st="Not Installed"; ([ -f "/c/Program Files (x86)/Winamp/winamp.exe" ] || [ -f "/c/Program Files/Winamp/winamp.exe" ] || command -v winamp &>/dev/null) && winamp_st="${GREEN}Installed${NC}"; local music_st="Not Installed"; ([ "$OS_TYPE" = "macos" ] && osascript -e 'id of application "Music"' &>/dev/null) && music_st="${GREEN}Installed${NC}"; echo -e "  ${BOLD}Current Settings:${NC}\n  • Default Audio Player:          ${BOLD}${GREEN}${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}${NC}"; local ap_badge="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ] && ap_badge="${GREEN}ENABLED${NC}"; echo -e "  • Auto-Play Mix on Startup:      ${ap_badge}"; local cov_badge="${RED}DISABLED${NC}"; [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ] && cov_badge="${GREEN}ENABLED${NC}"; echo -e "  • Auto-Show Cover Art on Boot:   ${cov_badge}"
-echo -e "  • Tracklist Window Viewer:       ${BOLD}${CYAN}${TRACKLIST_VIEWER:-console}${NC} (Dedicated Window)\n  • Startup Mix Selection Mode:    ${BOLD}${CYAN}${AUTO_PLAY_MIX_SELECTION:-latest}${NC} (Newest converted mix, or Random)\n  • Default Video Player:          ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}"; local yt_badge="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && yt_badge="${GREEN}ENABLED${NC}"; echo -e "  • Startup YouTube Autoplay:      ${yt_badge} ${DIM}(Plays only when mix audio is playing)${NC}"; if [ -n "${STARTUP_YOUTUBE_URL:-}" ]; then echo -e "  • Startup YouTube URL:           ${CYAN}${STARTUP_YOUTUBE_URL}${NC}"; fi; local w_badge="${RED}DISABLED${NC}"; [ "${WEATHER_ENABLED:-true}" = "true" ] && w_badge="${GREEN}ENABLED${NC}"; echo -e "  • Live Weather Banner:           ${w_badge} ${DIM}(${WEATHER_LOCATION:-Swansea, UK})${NC}"; local lg_backend_display="${LIQUID_GLASS_BACKEND:-opengl}"; lg_backend_display="$(echo "$lg_backend_display" | tr '[:lower:]' '[:upper:]')"; local lg_info="[OpenGL Default • AMD Radeon / Intel / NVIDIA / Older Cards]"; [ "$lg_backend_display" = "VULKAN" ] && lg_info="[NVIDIA Vulkan Hardware Pipeline]"; echo -e "  • Liquid Glass Mode Backend:     ${BOLD}${CYAN}${lg_backend_display}${NC} ${DIM}${lg_info}${NC}\n  • Config File Location:          ${DIM}${SCRIPT_DIR}/config.env${NC}\n\n${BOLD}Select Player or Setting to Change:${NC}\n  ${BOLD}${CYAN} 1)${NC} Set Default Player to: ${BOLD}MP Liquid Glass Audio Player${NC} (Liquid Transparent Glass Mode) [${GREEN}Installed • Default${NC}]\n  ${BOLD}${CYAN} 2)${NC} Set Default Player to: ${BOLD}MP Audio Player${NC} (Built-in Console Player, Animated EQ) [${GREEN}Installed${NC}]\n  ${BOLD}${CYAN} 3)${NC} Set Default Player to: ${BOLD}Audacious${NC} (Audio Player) [${audacious_st}]\n  ${BOLD}${CYAN} 4)${NC} Set Default Player to: ${BOLD}cliamp${NC} (Retro Terminal Player) [${cliamp_st}]\n  ${BOLD}${CYAN} 5)${NC} Set Default Player to: ${BOLD}Strawberry${NC} (Music Player) [${straw_st}]\n  ${BOLD}${CYAN} 6)${NC} Set Default Player to: ${BOLD}VLC Media Player${NC} [${vlc_st}]\n  ${BOLD}${CYAN} 7)${NC} Set Default Player to: ${BOLD}Haruna Media Player${NC} [${haruna_st}]\n  ${BOLD}${CYAN} 8)${NC} Set Default Player to: ${BOLD}Kodi Entertainment Center${NC} [${kodi_st}]\n  ${BOLD}${CYAN} 9)${NC} Set Default Player to: ${BOLD}foobar2000${NC} (macOS & Windows) [${foobar_st}]\n  ${BOLD}${CYAN}10)${NC} Set Default Player to: ${BOLD}Winamp${NC} (Windows) [${winamp_st}]\n  ${BOLD}${CYAN}11)${NC} Set Default Player to: ${BOLD}Apple Music${NC} (macOS) [${music_st}]\n  ${BOLD}${CYAN}12)${NC} Set Default Player to: ${BOLD}Audacity Audio Editor${NC} [${audacity_st}]\n  ${BOLD}${CYAN}13)${NC} Set Default Player to: ${BOLD}mpv Video/Audio Player${NC} [${mpv_st}]\n  ${BOLD}${CYAN}14)${NC} Set Custom Audio Player Command / Binary\n  ${BOLD}${BLUE}──────────────────────────────────────────────────────────────────${NC}\n  ${BOLD}${CYAN}15)${NC} Toggle Auto-Play Mix on Startup (${ap_badge})\n  ${BOLD}${CYAN}16)${NC} Toggle Auto-Show Cover Art on Startup (${cov_badge})\n  ${BOLD}${CYAN}17)${NC} Toggle Startup Mix Selection (Latest vs Random)\n  ${BOLD}${CYAN}18)${NC} Test-Play Latest Mix Right Now in Default Player (${DEFAULT_AUDIO_PLAYER})\n  ${BOLD}${CYAN}19)${NC} Configure Tracklist Window Viewer (${BOLD}${TRACKLIST_VIEWER:-console}${NC})\n  ${BOLD}${CYAN}20)${NC} Configure Default Video Player (${BOLD}${DEFAULT_VIDEO_PLAYER:-vlc}${NC})\n  ${BOLD}${CYAN}21)${NC} Configure Startup YouTube URL & Autoplay (${yt_badge})\n  ${BOLD}${CYAN}22)${NC} Configure Live Weather Banner & Location (${BOLD}${WEATHER_LOCATION:-Swansea, UK}${NC})\n  ${BOLD}${CYAN}23)${NC} Configure Liquid Glass Backend (${BOLD}${lg_backend_display}${NC} • OpenGL [Default] / Vulkan)\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu\n"; read -r -p "Enter choice [0-23]: " set_choice; case "$set_choice" in 1|liquid|glass|mp_liquid_glass|liquid_glass) DEFAULT_AUDIO_PLAYER="mp_liquid_glass"
-save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_liquid_glass"; echo -e "\n${GREEN}✓ Default audio player set to 'mp_liquid_glass' (MP Liquid Glass Audio Player) and saved to config.env!${NC}"; sleep 1 ;; 2|mp|mp_player|mpplayer|p|P) DEFAULT_AUDIO_PLAYER="mp_audio_player"
-save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_audio_player"; echo -e "\n${GREEN}✓ Default audio player set to 'mp_audio_player' (MP Audio Player) and saved to config.env!${NC}"; sleep 1 ;; 3|audacious) DEFAULT_AUDIO_PLAYER="audacious"; save_config_setting "DEFAULT_AUDIO_PLAYER" "audacious"; echo -e "\n${GREEN}✓ Default audio player set to 'audacious' and saved to config.env!${NC}"; sleep 1 ;; 4|cliamp) DEFAULT_AUDIO_PLAYER="cliamp"; save_config_setting "DEFAULT_AUDIO_PLAYER" "cliamp"; echo -e "\n${GREEN}✓ Default audio player set to 'cliamp' and saved to config.env!${NC}"; sleep 1 ;; 5|strawberry) DEFAULT_AUDIO_PLAYER="strawberry"; save_config_setting "DEFAULT_AUDIO_PLAYER" "strawberry"; echo -e "\n${GREEN}✓ Default audio player set to 'strawberry' and saved to config.env!${NC}"; sleep 1 ;; 6|vlc) DEFAULT_AUDIO_PLAYER="vlc"; save_config_setting "DEFAULT_AUDIO_PLAYER" "vlc"; echo -e "\n${GREEN}✓ Default audio player set to 'vlc' and saved to config.env!${NC}"; sleep 1 ;; 7|haruna) DEFAULT_AUDIO_PLAYER="haruna"; save_config_setting "DEFAULT_AUDIO_PLAYER" "haruna"; echo -e "\n${GREEN}✓ Default audio player set to 'haruna' and saved to config.env!${NC}"; sleep 1 ;; 8|kodi) DEFAULT_AUDIO_PLAYER="kodi"; save_config_setting "DEFAULT_AUDIO_PLAYER" "kodi"; echo -e "\n${GREEN}✓ Default audio player set to 'kodi' and saved to config.env!${NC}"; sleep 1 ;; 9|foobar|foobar2000) DEFAULT_AUDIO_PLAYER="foobar2000"; save_config_setting "DEFAULT_AUDIO_PLAYER" "foobar2000"; echo -e "\n${GREEN}✓ Default audio player set to 'foobar2000' and saved to config.env!${NC}"; sleep 1 ;; 10|winamp) DEFAULT_AUDIO_PLAYER="winamp"; save_config_setting "DEFAULT_AUDIO_PLAYER" "winamp"; echo -e "\n${GREEN}✓ Default audio player set to 'winamp' and saved to config.env!${NC}"; sleep 1 ;;
-11|music|"apple music")
-DEFAULT_AUDIO_PLAYER="music"; save_config_setting "DEFAULT_AUDIO_PLAYER" "music"; echo -e "\n${GREEN}✓ Default audio player set to 'music' (Apple Music) and saved to config.env!${NC}"; sleep 1; ;; 12|audacity) DEFAULT_AUDIO_PLAYER="audacity"; save_config_setting "DEFAULT_AUDIO_PLAYER" "audacity"; echo -e "\n${GREEN}✓ Default audio player set to 'audacity' and saved to config.env!${NC}"; sleep 1; ;; 13|mpv) DEFAULT_AUDIO_PLAYER="mpv"; save_config_setting "DEFAULT_AUDIO_PLAYER" "mpv"; echo -e "\n${GREEN}✓ Default audio player set to 'mpv' and saved to config.env!${NC}"; sleep 1; ;; 14) read -r -p "Enter custom audio player executable command: " cust_p; if [ -n "$cust_p" ]; then DEFAULT_AUDIO_PLAYER="$cust_p"; save_config_setting "DEFAULT_AUDIO_PLAYER" "$cust_p"; echo -e "\n${GREEN}✓ Default audio player set to '${cust_p}' and saved to config.env!${NC}"; sleep 1.2; fi ;; 15) if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then AUTO_PLAY_ON_STARTUP="false"; else AUTO_PLAY_ON_STARTUP="true"; fi; save_config_setting "AUTO_PLAY_ON_STARTUP" "$AUTO_PLAY_ON_STARTUP"; echo -e "\n${GREEN}✓ Startup autoplay toggled to: ${AUTO_PLAY_ON_STARTUP}!${NC}"; sleep 1 ;; 16) if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then AUTO_SHOW_COVER_ON_STARTUP="false"; else AUTO_SHOW_COVER_ON_STARTUP="true"; fi; save_config_setting "AUTO_SHOW_COVER_ON_STARTUP" "$AUTO_SHOW_COVER_ON_STARTUP"; echo -e "\n${GREEN}✓ Auto-show cover art toggled to: ${AUTO_SHOW_COVER_ON_STARTUP}!${NC}"; sleep 1 ;; 17) if [ "${AUTO_PLAY_MIX_SELECTION:-latest}" = "latest" ]; then AUTO_PLAY_MIX_SELECTION="random"; else AUTO_PLAY_MIX_SELECTION="latest"; fi; save_config_setting "AUTO_PLAY_MIX_SELECTION" "$AUTO_PLAY_MIX_SELECTION"; echo -e "\n${GREEN}✓ Startup mix selection toggled to: ${AUTO_PLAY_MIX_SELECTION}!${NC}"
-sleep 1 ;; 17) echo -e "\n${BOLD}${YELLOW}Testing startup playback right now with player: ${DEFAULT_AUDIO_PLAYER}...${NC}\n"; execute_startup_autoplay; press_enter; ;; 18) clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}             CONFIGURE DEDICATED TRACKLIST WINDOW VIEWER              ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  Current Viewer: ${BOLD}${GREEN}${TRACKLIST_VIEWER:-console}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} ${BOLD}console${NC} (Default OS Console • Entirely Borderless Window on Bazzite Linux)\n  ${BOLD}${CYAN} 2)${NC} ${BOLD}auto${NC} (External GUI Editor: KWrite/Kate on KDE, TextEdit on macOS, Notepad on Windows)\n  ${BOLD}${CYAN} 3)${NC} ${BOLD}kwrite${NC} (KDE Lightweight Dedicated Editor Window)\n  ${BOLD}${CYAN} 4)${NC} ${BOLD}kate${NC} (KDE Advanced Text Editor - New Window)\n  ${BOLD}${CYAN} 5)${NC} ${BOLD}gedit${NC} (GNOME Text Editor - New Window)\n  ${BOLD}${CYAN} 6)${NC} ${BOLD}mousepad${NC} (XFCE Lightweight Text Editor)\n  ${BOLD}${CYAN} 7)${NC} ${BOLD}konsole${NC} (Standard Konsole Window with less viewer)\n  ${BOLD}${CYAN} 8)${NC} ${BOLD}xdg-open${NC} (Desktop Environment Default MIME Handler)\n  ${BOLD}${CYAN} 9)${NC} Custom Text Viewer / Editor Executable Command\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-9]: " tv_choice; case "$tv_choice" in 1) TRACKLIST_VIEWER="console" ;; 2) TRACKLIST_VIEWER="auto" ;; 3) TRACKLIST_VIEWER="kwrite" ;; 4) TRACKLIST_VIEWER="kate" ;; 5) TRACKLIST_VIEWER="gedit" ;; 6) TRACKLIST_VIEWER="mousepad" ;; 7) TRACKLIST_VIEWER="konsole" ;; 8) TRACKLIST_VIEWER="xdg-open" ;; 9) read -r -p "Enter custom text viewer command: " cust_tv; [ -n "$cust_tv" ] && TRACKLIST_VIEWER="$cust_tv" ;; *) ;; esac; save_config_setting "TRACKLIST_VIEWER" "$TRACKLIST_VIEWER"; echo -e "\n${GREEN}✓ Tracklist window viewer set to '${TRACKLIST_VIEWER}' and saved to config.env!${NC}"; sleep 1.2 ;; 19) clear
-echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}                CONFIGURE DEFAULT VIDEO PLAYER                        ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n\n  Current Video Player: ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} ${BOLD}vlc${NC} (VLC Media Player • Recommended)\n  ${BOLD}${CYAN} 2)${NC} ${BOLD}mpv${NC} (High-performance minimalist player)\n  ${BOLD}${CYAN} 3)${NC} ${BOLD}haruna${NC} (KDE Qt/QML Video Player)\n  ${BOLD}${CYAN} 4)${NC} ${BOLD}kodi${NC} (Kodi Media Center)\n  ${BOLD}${CYAN} 5)${NC} Custom video player command / executable\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-5]: " vp_choice; case "$vp_choice" in 1) DEFAULT_VIDEO_PLAYER="vlc" ;; 2) DEFAULT_VIDEO_PLAYER="mpv" ;; 3) DEFAULT_VIDEO_PLAYER="haruna" ;; 4) DEFAULT_VIDEO_PLAYER="kodi" ;; 5) read -r -p "Enter custom video player command: " cust_vp; [ -n "$cust_vp" ] && DEFAULT_VIDEO_PLAYER="$cust_vp"; ;; *) ;; esac; save_config_setting "DEFAULT_VIDEO_PLAYER" "$DEFAULT_VIDEO_PLAYER"; echo -e "\n${GREEN}✓ Default video player set to '${DEFAULT_VIDEO_PLAYER}' and saved to config.env!${NC}"; sleep 1.2; ;; 20) clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}        CONFIGURE STARTUP CUSTOM YOUTUBE VIDEO AUTOPLAY               ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; local cur_yt="${RED}DISABLED${NC}"; [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && cur_yt="${GREEN}ENABLED${NC}"; echo -e "  • Startup YouTube Autoplay: ${cur_yt}\n  • Note: Autoplays ONLY if a mix is playing already in a music player!\n\n  Current YouTube URL: ${CYAN}${STARTUP_YOUTUBE_URL:-None}${NC}\n\n  ${BOLD}${CYAN} 1)${NC} Toggle Autoplay on/off\n  ${BOLD}${CYAN} 2)${NC} Set / Change Custom YouTube Video URL\n  ${BOLD}${CYAN} 3)${NC} Clear YouTube URL & Disable Autoplay\n  ${BOLD}${CYAN} 0)${NC} Cancel\n"; read -r -p "Enter choice [0-3]: " yt_choice; case "$yt_choice" in 1) if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ]; then AUTO_PLAY_YOUTUBE_ON_STARTUP="false"; else AUTO_PLAY_YOUTUBE_ON_STARTUP="true"; fi; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "$AUTO_PLAY_YOUTUBE_ON_STARTUP"; echo -e "\n${GREEN}✓ Startup YouTube autoplay set to: ${AUTO_PLAY_YOUTUBE_ON_STARTUP}!${NC}"; sleep 1; ;; 2) echo ""; read -r -p "Enter YouTube video URL (e.g. https://www.youtube.com/watch?v=...): " new_yt; if [ -n "$new_yt" ]; then STARTUP_YOUTUBE_URL="$new_yt"; AUTO_PLAY_YOUTUBE_ON_STARTUP="true"; save_config_setting "STARTUP_YOUTUBE_URL" "$STARTUP_YOUTUBE_URL"; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "true"; echo -e "\n${GREEN}✓ Startup YouTube URL updated and enabled!${NC}"; sleep 1.2; fi; ;; 3) STARTUP_YOUTUBE_URL=""; AUTO_PLAY_YOUTUBE_ON_STARTUP="false"; save_config_setting "STARTUP_YOUTUBE_URL" ""; save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "false"; echo -e "\n${YELLOW}✓ Startup YouTube URL cleared and disabled.${NC}"; sleep 1.2; ;; *) ;; esac ;; 21) manage_weather_menu; ;; 22|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;; esac; done
+while true; do
+    local audacious_st="Not Installed" cliamp_st="Not Installed" straw_st="Not Installed" vlc_st="Not Installed"
+    local haruna_st="Not Installed" kodi_st="Not Installed" audacity_st="Not Installed" mpv_st="Not Installed"
+    local foobar_st="Not Installed" winamp_st="Not Installed" music_st="Not Installed"
+    (command -v audacious &>/dev/null || _has_flatpak "org.atheme.audacious") && audacious_st="${GREEN}Installed${NC}"
+    (command -v cliamp &>/dev/null || [ -x "$SCRIPT_DIR/bin/cliamp" ] || [ -x "$HOME/.local/bin/cliamp" ]) && cliamp_st="${GREEN}Installed${NC}"
+    (command -v strawberry &>/dev/null || _has_flatpak "org.strawberrymusicplayer.strawberry") && straw_st="${GREEN}Installed${NC}"
+    (command -v vlc &>/dev/null || _has_flatpak "org.videolan.VLC") && vlc_st="${GREEN}Installed${NC}"
+    (command -v haruna &>/dev/null || _has_flatpak "org.kde.haruna") && haruna_st="${GREEN}Installed${NC}"
+    (command -v kodi &>/dev/null || _has_flatpak "tv.kodi.Kodi") && kodi_st="${GREEN}Installed${NC}"
+    (command -v audacity &>/dev/null || _has_flatpak "org.audacityteam.Audacity") && audacity_st="${GREEN}Installed${NC}"
+    command -v mpv &>/dev/null && mpv_st="${GREEN}Installed${NC}"
+    (command -v foobar2000 &>/dev/null || [ -d "/Applications/foobar2000.app" ] || [ -f "/c/Program Files/foobar2000/foobar2000.exe" ]) && foobar_st="${GREEN}Installed${NC}"
+    ([ -f "/c/Program Files (x86)/Winamp/winamp.exe" ] || [ -f "/c/Program Files/Winamp/winamp.exe" ] || command -v winamp &>/dev/null) && winamp_st="${GREEN}Installed${NC}"
+    ([ "$OS_TYPE" = "macos" ] && osascript -e 'id of application "Music"' &>/dev/null) && music_st="${GREEN}Installed${NC}"
+    local ap_badge="${RED}DISABLED${NC}" cov_badge="${RED}DISABLED${NC}" yt_badge="${RED}DISABLED${NC}" w_badge="${RED}DISABLED${NC}"
+    [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ] && ap_badge="${GREEN}ENABLED${NC}"
+    [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ] && cov_badge="${GREEN}ENABLED${NC}"
+    [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && yt_badge="${GREEN}ENABLED${NC}"
+    [ "${WEATHER_ENABLED:-true}" = "true" ] && w_badge="${GREEN}ENABLED${NC}"
+    local lg_backend_display="${LIQUID_GLASS_BACKEND:-opengl}"
+    lg_backend_display="$(echo "$lg_backend_display" | tr '[:lower:]' '[:upper:]')"
+    local lg_info="[OpenGL Default • AMD Radeon / Intel / NVIDIA / Older Cards]"
+    [ "$lg_backend_display" = "VULKAN" ] && lg_info="[NVIDIA Vulkan Hardware Pipeline]"
+    local hdr
+    hdr="  ${BOLD}Current Settings:${NC}\n"
+    hdr+="  • Default Audio Player:          ${BOLD}${GREEN}${DEFAULT_AUDIO_PLAYER:-mp_liquid_glass}${NC}\n"
+    hdr+="  • Auto-Play Mix on Startup:      ${ap_badge}\n"
+    hdr+="  • Auto-Show Cover Art on Boot:   ${cov_badge}\n"
+    hdr+="  • Tracklist Window Viewer:       ${BOLD}${CYAN}${TRACKLIST_VIEWER:-console}${NC} (Dedicated Window)\n"
+    hdr+="  • Startup Mix Selection Mode:    ${BOLD}${CYAN}${AUTO_PLAY_MIX_SELECTION:-latest}${NC} (Newest converted mix, or Random)\n"
+    hdr+="  • Default Video Player:          ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}\n"
+    hdr+="  • Startup YouTube Autoplay:      ${yt_badge} ${DIM}(Plays only when mix audio is playing)${NC}\n"
+    [ -n "${STARTUP_YOUTUBE_URL:-}" ] && hdr+="  • Startup YouTube URL:           ${CYAN}${STARTUP_YOUTUBE_URL}${NC}\n"
+    hdr+="  • Live Weather Banner:           ${w_badge} ${DIM}(${WEATHER_LOCATION:-Swansea, UK})${NC}\n"
+    hdr+="  • Liquid Glass Mode Backend:     ${BOLD}${CYAN}${lg_backend_display}${NC} ${DIM}${lg_info}${NC}\n"
+    hdr+="  • Config File Location:          ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
+    local opts=(
+        "1|Set Default Player to: MP Liquid Glass Audio Player|(Liquid Transparent Glass Mode) [${GREEN}Installed • Default${NC}]"
+        "2|Set Default Player to: MP Audio Player|(Built-in Console Player, Animated EQ) [${GREEN}Installed${NC}]"
+        "3|Set Default Player to: Audacious|(Audio Player) [${audacious_st}]"
+        "4|Set Default Player to: cliamp|(Retro Terminal Player) [${cliamp_st}]"
+        "5|Set Default Player to: Strawberry|(Music Player) [${straw_st}]"
+        "6|Set Default Player to: VLC Media Player|[${vlc_st}]"
+        "7|Set Default Player to: Haruna Media Player|[${haruna_st}]"
+        "8|Set Default Player to: Kodi Entertainment Center|[${kodi_st}]"
+        "9|Set Default Player to: foobar2000|(macOS & Windows) [${foobar_st}]"
+        "10|Set Default Player to: Winamp|(Windows) [${winamp_st}]"
+        "11|Set Default Player to: Apple Music|(macOS) [${music_st}]"
+        "12|Set Default Player to: Audacity Audio Editor|[${audacity_st}]"
+        "13|Set Default Player to: mpv Video/Audio Player|[${mpv_st}]"
+        "14|Set Custom Audio Player Command / Binary|"
+        "SEP|SEP|"
+        "15|Toggle Auto-Play Mix on Startup|currently ${AUTO_PLAY_ON_STARTUP:-true}"
+        "16|Toggle Auto-Show Cover Art on Startup|currently ${AUTO_SHOW_COVER_ON_STARTUP:-false}"
+        "17|Toggle Startup Mix Selection (Latest vs Random)|currently ${AUTO_PLAY_MIX_SELECTION:-latest}"
+        "18|Test-Play Latest Mix Right Now in Default Player|(${DEFAULT_AUDIO_PLAYER})"
+        "19|Configure Tracklist Window Viewer|currently ${TRACKLIST_VIEWER:-console}"
+        "20|Configure Default Video Player|currently ${DEFAULT_VIDEO_PLAYER:-vlc}"
+        "21|Configure Startup YouTube URL & Autoplay|currently ${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}"
+        "22|Configure Live Weather Banner & Location|currently ${WEATHER_LOCATION:-Swansea, UK}"
+        "23|Configure Liquid Glass Backend|currently ${lg_backend_display} • OpenGL [Default] / Vulkan"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "DEFAULT AUDIO PLAYER & STARTUP AUTOPLAY CONFIGURATION" "$hdr" opts 0
+    case "$REPLY" in
+        1|liquid|glass|mp_liquid_glass|liquid_glass) DEFAULT_AUDIO_PLAYER="mp_liquid_glass"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_liquid_glass"
+            echo -e "\n${GREEN}✓ Default audio player set to 'mp_liquid_glass' (MP Liquid Glass Audio Player) and saved to config.env!${NC}"
+            sleep 1 ;;
+        2|mp|mp_player|mpplayer|p|P) DEFAULT_AUDIO_PLAYER="mp_audio_player"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "mp_audio_player"
+            echo -e "\n${GREEN}✓ Default audio player set to 'mp_audio_player' (MP Audio Player) and saved to config.env!${NC}"
+            sleep 1 ;;
+        3|audacious) DEFAULT_AUDIO_PLAYER="audacious"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "audacious"
+            echo -e "\n${GREEN}✓ Default audio player set to 'audacious' and saved to config.env!${NC}"
+            sleep 1 ;;
+        4|cliamp) DEFAULT_AUDIO_PLAYER="cliamp"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "cliamp"
+            echo -e "\n${GREEN}✓ Default audio player set to 'cliamp' and saved to config.env!${NC}"
+            sleep 1 ;;
+        5|strawberry) DEFAULT_AUDIO_PLAYER="strawberry"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "strawberry"
+            echo -e "\n${GREEN}✓ Default audio player set to 'strawberry' and saved to config.env!${NC}"
+            sleep 1 ;;
+        6|vlc) DEFAULT_AUDIO_PLAYER="vlc"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "vlc"
+            echo -e "\n${GREEN}✓ Default audio player set to 'vlc' and saved to config.env!${NC}"
+            sleep 1 ;;
+        7|haruna) DEFAULT_AUDIO_PLAYER="haruna"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "haruna"
+            echo -e "\n${GREEN}✓ Default audio player set to 'haruna' and saved to config.env!${NC}"
+            sleep 1 ;;
+        8|kodi) DEFAULT_AUDIO_PLAYER="kodi"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "kodi"
+            echo -e "\n${GREEN}✓ Default audio player set to 'kodi' and saved to config.env!${NC}"
+            sleep 1 ;;
+        9|foobar|foobar2000) DEFAULT_AUDIO_PLAYER="foobar2000"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "foobar2000"
+            echo -e "\n${GREEN}✓ Default audio player set to 'foobar2000' and saved to config.env!${NC}"
+            sleep 1 ;;
+        10|winamp) DEFAULT_AUDIO_PLAYER="winamp"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "winamp"
+            echo -e "\n${GREEN}✓ Default audio player set to 'winamp' and saved to config.env!${NC}"
+            sleep 1 ;;
+        11|music|"apple music")
+            DEFAULT_AUDIO_PLAYER="music"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "music"
+            echo -e "\n${GREEN}✓ Default audio player set to 'music' (Apple Music) and saved to config.env!${NC}"
+            sleep 1
+            ;;
+        12|audacity) DEFAULT_AUDIO_PLAYER="audacity"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "audacity"
+            echo -e "\n${GREEN}✓ Default audio player set to 'audacity' and saved to config.env!${NC}"
+            sleep 1
+            ;;
+        13|mpv) DEFAULT_AUDIO_PLAYER="mpv"
+            save_config_setting "DEFAULT_AUDIO_PLAYER" "mpv"
+            echo -e "\n${GREEN}✓ Default audio player set to 'mpv' and saved to config.env!${NC}"
+            sleep 1
+            ;;
+        14) read -r -p "Enter custom audio player executable command: " cust_p
+            if [ -n "$cust_p" ]; then
+                DEFAULT_AUDIO_PLAYER="$cust_p"
+                save_config_setting "DEFAULT_AUDIO_PLAYER" "$cust_p"
+                echo -e "\n${GREEN}✓ Default audio player set to '${cust_p}' and saved to config.env!${NC}"
+                sleep 1.2
+            fi ;;
+        15) if [ "${AUTO_PLAY_ON_STARTUP:-true}" = "true" ]; then AUTO_PLAY_ON_STARTUP="false"; else AUTO_PLAY_ON_STARTUP="true"; fi
+            save_config_setting "AUTO_PLAY_ON_STARTUP" "$AUTO_PLAY_ON_STARTUP"
+            echo -e "\n${GREEN}✓ Startup autoplay toggled to: ${AUTO_PLAY_ON_STARTUP}!${NC}"
+            sleep 1 ;;
+        16) if [ "${AUTO_SHOW_COVER_ON_STARTUP:-false}" = "true" ]; then AUTO_SHOW_COVER_ON_STARTUP="false"; else AUTO_SHOW_COVER_ON_STARTUP="true"; fi
+            save_config_setting "AUTO_SHOW_COVER_ON_STARTUP" "$AUTO_SHOW_COVER_ON_STARTUP"
+            echo -e "\n${GREEN}✓ Auto-show cover art toggled to: ${AUTO_SHOW_COVER_ON_STARTUP}!${NC}"
+            sleep 1 ;;
+        17) if [ "${AUTO_PLAY_MIX_SELECTION:-latest}" = "latest" ]; then AUTO_PLAY_MIX_SELECTION="random"; else AUTO_PLAY_MIX_SELECTION="latest"; fi
+            save_config_setting "AUTO_PLAY_MIX_SELECTION" "$AUTO_PLAY_MIX_SELECTION"
+            echo -e "\n${GREEN}✓ Startup mix selection toggled to: ${AUTO_PLAY_MIX_SELECTION}!${NC}"
+            sleep 1 ;;
+        18) echo -e "\n${BOLD}${YELLOW}Testing startup playback right now with player: ${DEFAULT_AUDIO_PLAYER}...${NC}\n"
+            execute_startup_autoplay
+            press_enter
+            ;;
+        19) configure_tracklist_viewer ;;
+        20) configure_default_video_player ;;
+        21) configure_startup_youtube ;;
+        22) manage_weather_menu ;;
+        23|liquid-backend|glass-backend) configure_liquid_glass_backend ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;;
+    esac
+done
+}
+configure_tracklist_viewer() {
+local opts=("1|console|(Default OS Console • Entirely Borderless Window on Bazzite Linux)" "2|auto|(External GUI Editor: KWrite/Kate on KDE, TextEdit on macOS, Notepad on Windows)" "3|kwrite|(KDE Lightweight Dedicated Editor Window)" "4|kate|(KDE Advanced Text Editor - New Window)" "5|gedit|(GNOME Text Editor - New Window)" "6|mousepad|(XFCE Lightweight Text Editor)" "7|konsole|(Standard Konsole Window with less viewer)" "8|xdg-open|(Desktop Environment Default MIME Handler)" "9|Custom Text Viewer / Editor Executable Command|" "0|Cancel|(or Esc / q)")
+run_interactive_submenu "CONFIGURE DEDICATED TRACKLIST WINDOW VIEWER" "  Current Viewer: ${BOLD}${GREEN}${TRACKLIST_VIEWER:-console}${NC}\n" opts 0
+case "$REPLY" in 1) TRACKLIST_VIEWER="console" ;; 2) TRACKLIST_VIEWER="auto" ;; 3) TRACKLIST_VIEWER="kwrite" ;; 4) TRACKLIST_VIEWER="kate" ;; 5) TRACKLIST_VIEWER="gedit" ;; 6) TRACKLIST_VIEWER="mousepad" ;; 7) TRACKLIST_VIEWER="konsole" ;; 8) TRACKLIST_VIEWER="xdg-open" ;; 9) read -r -p "Enter custom text viewer command: " cust_tv; [ -n "$cust_tv" ] && TRACKLIST_VIEWER="$cust_tv" ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) return 0 ;; esac
+save_config_setting "TRACKLIST_VIEWER" "$TRACKLIST_VIEWER"
+echo -e "\n${GREEN}✓ Tracklist window viewer set to '${TRACKLIST_VIEWER}' and saved to config.env!${NC}"
+sleep 1.2
+}
+configure_default_video_player() {
+local opts=("1|vlc|(VLC Media Player • Recommended)" "2|mpv|(High-performance minimalist player)" "3|haruna|(KDE Qt/QML Video Player)" "4|kodi|(Kodi Media Center)" "5|Custom video player command / executable|" "0|Cancel|(or Esc / q)")
+run_interactive_submenu "CONFIGURE DEFAULT VIDEO PLAYER" "  Current Video Player: ${BOLD}${GREEN}${DEFAULT_VIDEO_PLAYER:-vlc}${NC}\n" opts 0
+case "$REPLY" in 1) DEFAULT_VIDEO_PLAYER="vlc" ;; 2) DEFAULT_VIDEO_PLAYER="mpv" ;; 3) DEFAULT_VIDEO_PLAYER="haruna" ;; 4) DEFAULT_VIDEO_PLAYER="kodi" ;; 5) read -r -p "Enter custom video player command: " cust_vp; [ -n "$cust_vp" ] && DEFAULT_VIDEO_PLAYER="$cust_vp" ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) return 0 ;; esac
+save_config_setting "DEFAULT_VIDEO_PLAYER" "$DEFAULT_VIDEO_PLAYER"
+echo -e "\n${GREEN}✓ Default video player set to '${DEFAULT_VIDEO_PLAYER}' and saved to config.env!${NC}"
+sleep 1.2
+}
+configure_startup_youtube() {
+while true; do
+    local cur_yt="${RED}DISABLED${NC}"
+    [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ] && cur_yt="${GREEN}ENABLED${NC}"
+    local hdr="  • Startup YouTube Autoplay: ${cur_yt}\n  • Note: Autoplays ONLY if a mix is playing already in a music player!\n\n  Current YouTube URL: ${CYAN}${STARTUP_YOUTUBE_URL:-None}${NC}\n"
+    local opts=("1|Toggle Autoplay On / Off|currently ${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" "2|Set / Change Custom YouTube Video URL|" "3|Clear YouTube URL & Disable Autoplay|" "0|Cancel|(or Esc / q)")
+    run_interactive_submenu "CONFIGURE STARTUP CUSTOM YOUTUBE VIDEO AUTOPLAY" "$hdr" opts 0
+    case "$REPLY" in
+        1) if [ "${AUTO_PLAY_YOUTUBE_ON_STARTUP:-false}" = "true" ]; then AUTO_PLAY_YOUTUBE_ON_STARTUP="false"; else AUTO_PLAY_YOUTUBE_ON_STARTUP="true"; fi
+            save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "$AUTO_PLAY_YOUTUBE_ON_STARTUP"
+            echo -e "\n${GREEN}✓ Startup YouTube autoplay set to: ${AUTO_PLAY_YOUTUBE_ON_STARTUP}!${NC}"
+            sleep 1
+            ;;
+        2) echo ""
+            read -r -p "Enter YouTube video URL (e.g. https://www.youtube.com/watch?v=...): " new_yt
+            if [ -n "$new_yt" ]; then
+                STARTUP_YOUTUBE_URL="$new_yt"
+                AUTO_PLAY_YOUTUBE_ON_STARTUP="true"
+                save_config_setting "STARTUP_YOUTUBE_URL" "$STARTUP_YOUTUBE_URL"
+                save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "true"
+                echo -e "\n${GREEN}✓ Startup YouTube URL updated and enabled!${NC}"
+                sleep 1.2
+            fi
+            ;;
+        3) STARTUP_YOUTUBE_URL=""
+            AUTO_PLAY_YOUTUBE_ON_STARTUP="false"
+            save_config_setting "STARTUP_YOUTUBE_URL" ""
+            save_config_setting "AUTO_PLAY_YOUTUBE_ON_STARTUP" "false"
+            echo -e "\n${YELLOW}✓ Startup YouTube URL cleared and disabled.${NC}"
+            sleep 1.2
+            ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) return 0 ;;
+    esac
+done
 }
 manage_bluetooth_audio() {
 local bt_py="$SCRIPT_DIR/scripts/monitor_bluetooth_audio.py"; [ ! -f "$bt_py" ] && bt_py="$SCRIPT_DIR/monitor_bluetooth_audio.py"; if [ ! -f "$bt_py" ]; then echo -e "${RED}Error: monitor_bluetooth_audio.py not found!${NC}"; press_enter; return 1; fi; local status_hdr; status_hdr="$(python3 "$bt_py" --status 2>/dev/null || true)"; local opts=("1|Intelligently Route / Switch to Bluetooth Audio Now|" "2|Revert Audio to Primary Fallback Output|(HDMI / Speakers)" "3|Run Live Bluetooth Audio Monitor in Terminal|" "0|Return to Previous Menu|(or Esc / q)"); while true; do run_interactive_submenu "BLUETOOTH AUDIO & INTELLIGENT STREAM ROUTER" "${status_hdr:+${status_hdr}\n}" opts 0; case "$REPLY" in 1) python3 "$bt_py" --route; status_hdr="$(python3 "$bt_py" --status 2>/dev/null || true)"; press_enter; ;; 2) python3 "$bt_py" --revert; status_hdr="$(python3 "$bt_py" --status 2>/dev/null || true)"; press_enter; ;; 3) python3 "$bt_py" --monitor ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) return 0 ;; esac; done
 }
 manage_audio_players() {
-while true; do clear; echo -e "${BOLD}${MAGENTA}====================================================${NC}\n${BOLD}${MAGENTA}             AUDIO PLAYERS & PLAYBACK SUITE         ${NC}\n${BOLD}${MAGENTA}====================================================${NC}"; local current_datetime; current_datetime=$(date "+%A, %B %d, %Y  •  %T %Z"); echo -e "       ${BOLD}${CYAN}📅 ${current_datetime}${NC}"; echo ""; if get_mp_audio_player_track_info 2>/dev/null; then local st_badge; case "$MP_PLAYER_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${MP_PLAYER_STATE^^}${NC}" ;; esac; local m_badge=""; [ "$MP_PLAYER_MODE" = "MUSIC" ] && m_badge=" ${BOLD}${GREEN}[MUSIC MODE - DJ TRACKS]${NC}"; local rec_badge=""; [ "${MP_PLAYER_RECORDING:-false}" = "true" ] && rec_badge=" ${BOLD}${RED}● REC${NC}"; echo -e "  MP Audio Player:   ${st_badge}${m_badge}${rec_badge} [${MP_PLAYER_POS_FMT} / ${MP_PLAYER_DUR_FMT}] (${MP_PLAYER_PROGRESS_PCT}%) ${CYAN}${MP_PLAYER_MINI_EQ}${NC}\n  Current Track:     ${BOLD}${YELLOW}${MP_PLAYER_TITLE}${NC}"; [ -n "$MP_PLAYER_RESOLVED_PATH" ] && echo -e "  Active File Path:  ${BOLD}${CYAN}${MP_PLAYER_RESOLVED_PATH}${NC}"; echo -e "  --------------------------------------------------"; elif get_audacious_track_info 2>/dev/null; then local st_badge; case "$AUDACIOUS_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${AUDACIOUS_STATE^^}${NC}" ;; esac; echo -e "  Audacious Player:  ${st_badge} [${AUDACIOUS_POS_FMT} / ${AUDACIOUS_DUR_FMT}] (${AUDACIOUS_PROGRESS_PCT}%)\n  Current Track:     ${BOLD}${YELLOW}${AUDACIOUS_TITLE}${NC}${AUDACIOUS_ARTIST:+ - $AUDACIOUS_ARTIST}"; [ -n "$AUDACIOUS_RESOLVED_PATH" ] && echo -e "  Active File Path:  ${BOLD}${CYAN}${AUDACIOUS_RESOLVED_PATH}${NC}"; echo -e "  --------------------------------------------------"; elif get_cliamp_track_info 2>/dev/null; then local st_badge; case "$CLIAMP_STATE" in
-playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${CLIAMP_STATE}${NC}" ;; esac; echo -e "  cliamp Player:     ${st_badge} [${CLIAMP_POS_FMT} / ${CLIAMP_DUR_FMT}] (${CLIAMP_PROGRESS_PCT}%)\n  Current Track:     ${BOLD}${YELLOW}${CLIAMP_TITLE}${NC} - ${CLIAMP_ARTIST}\n  Active File Path:  ${BOLD}${CYAN}${CLIAMP_RESOLVED_PATH}${NC}\n  --------------------------------------------------"; fi; local fb_badge="${YELLOW}[macOS & Windows]${NC}"; local wa_badge="${YELLOW}[Windows Only]${NC}"; local am_badge="${YELLOW}[macOS Only]${NC}"; local ap_badge="${YELLOW}[macOS Only]${NC}"; if [ "$OS_TYPE" = "macos" ]; then [ -d "/Applications/foobar2000.app" ] && fb_badge="${GREEN}✓ INSTALLED${NC}"; am_badge="${GREEN}✓ macOS APP${NC}"; ap_badge="${GREEN}✓ macOS APP${NC}"; elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then ([ -f "/c/Program Files/foobar2000/foobar2000.exe" ] || command -v foobar2000.exe &>/dev/null) && fb_badge="${GREEN}✓ INSTALLED${NC}"; ([ -f "/c/Program Files (x86)/Winamp/winamp.exe" ] || [ -f "/c/Program Files/Winamp/winamp.exe" ] || command -v winamp.exe &>/dev/null) && wa_badge="${GREEN}✓ INSTALLED${NC}"; fi; echo -e "${BOLD}Select an Audio Player to launch / manage:${NC}\n  ${BOLD}${CYAN} 1)${NC} Play Mix/Audio File (MP Audio Player) (${GREEN}Built-in Audio Player, Animated EQ${NC})\n  ${BOLD}${CYAN} 2)${NC} Launch Audacious Audio Player (New Window) (${GREEN}audacious / org.atheme.audacious${NC})\n  ${BOLD}${CYAN} 3)${NC} Cliamp Music Player & Current Track Info (${GREEN}Now Playing Path, Controls & Launch${NC})\n  ${BOLD}${CYAN} 4)${NC} Launch VLC Media Player (${GREEN}vlc / org.videolan.VLC${NC})\n  ${BOLD}${CYAN} 5)${NC} Launch Haruna Media Player (${GREEN}org.kde.haruna${NC})\n  ${BOLD}${CYAN} 6)${NC} Launch Kodi Entertainment Center (${GREEN}tv.kodi.Kodi${NC})\n  ${BOLD}${CYAN} 7)${NC} Launch Strawberry Music Player (Legacy) (${GREEN}strawberry${NC})\n  ${BOLD}${CYAN} 8)${NC} Launch foobar2000 Player (${fb_badge})\n  ${BOLD}${CYAN} 9)${NC} Launch Winamp Player (${wa_badge})\n  ${BOLD}${CYAN}10)${NC} Launch Apple Music Player (${am_badge})\n  ${BOLD}${CYAN}11)${NC} Launch Apple Podcasts App (${ap_badge})\n  ${BOLD}${CYAN}12)${NC} Launch Audacity Audio Editor (${GREEN}audacity${NC})\n  ${BOLD}${CYAN}13)${NC} Show Connected USB MIDI Devices (${GREEN}list-midi-devices${NC})\n  ${BOLD}${CYAN}14)${NC} Configure Default Audio Player & Startup Autoplay (${GREEN}Current: ${DEFAULT_AUDIO_PLAYER:-mp_audio_player}${NC})\n  ${BOLD}${CYAN}15)${NC} View Playing Mix Audio Specifications & Stream Metadata (${GREEN}Bit Depth, Sample Rate, Codec, Title${NC})\n  ${BOLD}${CYAN}16)${NC} Manage Bluetooth Audio & Auto Stream Routing (${GREEN}Intelligent BT Monitor, Auto-Switch${NC})\n  ${BOLD}${CYAN}17)${NC} Configure Standalone Liquid Glass Player Backend (${GREEN}Current: ${LIQUID_GLASS_BACKEND:-opengl^^}${NC})\n  ${BOLD}${CYAN} 0)${NC} Return to Main Menu"; echo ""; read -r -p "Enter choice [0-17]: " p_choice; case "$p_choice" in 1|mp|mp_player|mpplayer|p|P) manage_mp_audio_player ;; 2|audacious) launch_audacious; ;; 3|cliamp) manage_cliamp ;; 4|vlc) launch_vlc; ;; 5|haruna) launch_haruna ;; 6|kodi) launch_kodi; ;; 7|strawberry) launch_strawberry ;; 8|foobar|foobar2000) launch_foobar2000; ;; 9|winamp) launch_winamp ;;
-10|music|"apple music")
-launch_apple_music ;;
-11|podcasts|"apple podcasts")
-launch_apple_podcasts ;; 12|audacity) launch_audacity; ;; 13|midi) list_usb_midi_devices ;; 14|config|setup) configure_audio_player_and_startup; ;; 15|meta|metadata) inspect_playing_audio_file ;;
-16|bt|bluetooth|"bluetooth audio")
-manage_bluetooth_audio ;; 17|liquid|glass|backend) configure_liquid_glass_backend ;; 0|[qQ]) return 0; ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.5; ;; esac; done
+while true; do
+    local current_datetime; current_datetime=$(date "+%A, %B %d, %Y  •  %T %Z")
+    local hdr="       ${BOLD}${CYAN}📅 ${current_datetime}${NC}\n\n"
+    if get_mp_audio_player_track_info 2>/dev/null; then
+        local st_badge; case "$MP_PLAYER_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${MP_PLAYER_STATE^^}${NC}" ;; esac
+        local m_badge=""; [ "$MP_PLAYER_MODE" = "MUSIC" ] && m_badge=" ${BOLD}${GREEN}[MUSIC MODE - DJ TRACKS]${NC}"
+        local rec_badge=""; [ "${MP_PLAYER_RECORDING:-false}" = "true" ] && rec_badge=" ${BOLD}${RED}● REC${NC}"
+        hdr+="  MP Audio Player:   ${st_badge}${m_badge}${rec_badge} [${MP_PLAYER_POS_FMT} / ${MP_PLAYER_DUR_FMT}] (${MP_PLAYER_PROGRESS_PCT}%) ${CYAN}${MP_PLAYER_MINI_EQ}${NC}\n"
+        hdr+="  Current Track:     ${BOLD}${YELLOW}${MP_PLAYER_TITLE}${NC}\n"
+        [ -n "$MP_PLAYER_RESOLVED_PATH" ] && hdr+="  Active File Path:  ${BOLD}${CYAN}${MP_PLAYER_RESOLVED_PATH}${NC}\n"
+        hdr+="  --------------------------------------------------\n"
+    elif get_audacious_track_info 2>/dev/null; then
+        local st_badge; case "$AUDACIOUS_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${AUDACIOUS_STATE^^}${NC}" ;; esac
+        hdr+="  Audacious Player:  ${st_badge} [${AUDACIOUS_POS_FMT} / ${AUDACIOUS_DUR_FMT}] (${AUDACIOUS_PROGRESS_PCT}%)\n"
+        hdr+="  Current Track:     ${BOLD}${YELLOW}${AUDACIOUS_TITLE}${NC}${AUDACIOUS_ARTIST:+ - $AUDACIOUS_ARTIST}\n"
+        [ -n "$AUDACIOUS_RESOLVED_PATH" ] && hdr+="  Active File Path:  ${BOLD}${CYAN}${AUDACIOUS_RESOLVED_PATH}${NC}\n"
+        hdr+="  --------------------------------------------------\n"
+    elif get_cliamp_track_info 2>/dev/null; then
+        local st_badge; case "$CLIAMP_STATE" in playing) st_badge="${BOLD}${GREEN}▶ PLAYING${NC}" ;; paused)  st_badge="${BOLD}${YELLOW}⏸ PAUSED${NC}" ;; stopped) st_badge="${BOLD}${RED}⏹ STOPPED${NC}" ;; *)       st_badge="${BOLD}${CYAN}${CLIAMP_STATE}${NC}" ;; esac
+        hdr+="  cliamp Player:     ${st_badge} [${CLIAMP_POS_FMT} / ${CLIAMP_DUR_FMT}] (${CLIAMP_PROGRESS_PCT}%)\n"
+        hdr+="  Current Track:     ${BOLD}${YELLOW}${CLIAMP_TITLE}${NC} - ${CLIAMP_ARTIST}\n"
+        hdr+="  Active File Path:  ${BOLD}${CYAN}${CLIAMP_RESOLVED_PATH}${NC}\n"
+        hdr+="  --------------------------------------------------\n"
+    fi
+    local fb_badge="${YELLOW}[macOS & Windows]${NC}" wa_badge="${YELLOW}[Windows Only]${NC}" am_badge="${YELLOW}[macOS Only]${NC}" ap_badge="${YELLOW}[macOS Only]${NC}"
+    if [ "$OS_TYPE" = "macos" ]; then
+        [ -d "/Applications/foobar2000.app" ] && fb_badge="${GREEN}✓ INSTALLED${NC}"
+        am_badge="${GREEN}✓ macOS APP${NC}"; ap_badge="${GREEN}✓ macOS APP${NC}"
+    elif [ "$OS_TYPE" = "windows" ] || [ "$OS_TYPE" = "wsl" ]; then
+        ([ -f "/c/Program Files/foobar2000/foobar2000.exe" ] || command -v foobar2000.exe &>/dev/null) && fb_badge="${GREEN}✓ INSTALLED${NC}"
+        ([ -f "/c/Program Files (x86)/Winamp/winamp.exe" ] || [ -f "/c/Program Files/Winamp/winamp.exe" ] || command -v winamp.exe &>/dev/null) && wa_badge="${GREEN}✓ INSTALLED${NC}"
+    fi
+    local opts=(
+        "1|Play Mix/Audio File (MP Audio Player)|(Built-in Audio Player, Animated EQ)"
+        "2|Launch Audacious Audio Player (New Window)|(audacious / org.atheme.audacious)"
+        "3|Cliamp Music Player & Current Track Info|(Now Playing Path, Controls & Launch)"
+        "4|Launch VLC Media Player|(vlc / org.videolan.VLC)"
+        "5|Launch Haruna Media Player|(org.kde.haruna)"
+        "6|Launch Kodi Entertainment Center|(tv.kodi.Kodi)"
+        "7|Launch Strawberry Music Player (Legacy)|(strawberry)"
+        "8|Launch foobar2000 Player|${fb_badge}"
+        "9|Launch Winamp Player|${wa_badge}"
+        "10|Launch Apple Music Player|${am_badge}"
+        "11|Launch Apple Podcasts App|${ap_badge}"
+        "12|Launch Audacity Audio Editor|(audacity)"
+        "13|Show Connected USB MIDI Devices|(list-midi-devices)"
+        "14|Configure Default Audio Player & Startup Autoplay|(Current: ${DEFAULT_AUDIO_PLAYER:-mp_audio_player})"
+        "15|View Playing Mix Audio Specifications & Stream Metadata|(Bit Depth, Sample Rate, Codec, Title)"
+        "16|Manage Bluetooth Audio & Auto Stream Routing|(Intelligent BT Monitor, Auto-Switch)"
+        "17|Configure Standalone Liquid Glass Player Backend|(Current: ${LIQUID_GLASS_BACKEND:-opengl^^})"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "AUDIO PLAYERS & PLAYBACK SUITE" "$hdr" opts 0
+    case "$REPLY" in
+        1|mp|mp_player|mpplayer|p|P) manage_mp_audio_player ;;
+        2|audacious) launch_audacious ;;
+        3|cliamp) manage_cliamp ;;
+        4|vlc) launch_vlc ;;
+        5|haruna) launch_haruna ;;
+        6|kodi) launch_kodi ;;
+        7|strawberry) launch_strawberry ;;
+        8|foobar|foobar2000) launch_foobar2000 ;;
+        9|winamp) launch_winamp ;;
+        10|music|"apple music") launch_apple_music ;;
+        11|podcasts|"apple podcasts") launch_apple_podcasts ;;
+        12|audacity) launch_audacity ;;
+        13|midi) list_usb_midi_devices ;;
+        14|config|setup) configure_audio_player_and_startup ;;
+        15|meta|metadata) inspect_playing_audio_file ;;
+        16|bt|bluetooth|"bluetooth audio") manage_bluetooth_audio ;;
+        17|liquid|glass|backend) configure_liquid_glass_backend ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.5 ;;
+    esac
+done
 }
 manage_visualizer_screensaver() {
     local saver_py="$SCRIPT_DIR/scripts/mp_visualizer_idle_saver.py"
@@ -5007,8 +5537,38 @@ inspect_playing_audio_file() {
 local target="$1"; local script_sh="$SCRIPT_DIR/scripts/inspect_playing_audio.sh"; [ ! -f "$script_sh" ] && script_sh="$PWD/scripts/inspect_playing_audio.sh"; if [ -x "$script_sh" ]; then if [ -n "$target" ]; then "$script_sh" "$target"; else "$script_sh"; fi; else local script_py="$SCRIPT_DIR/scripts/inspect_playing_audio.py"; [ ! -f "$script_py" ] && script_py="$PWD/scripts/inspect_playing_audio.py"; if [ -f "$script_py" ]; then if [ -n "$target" ]; then python3 "$script_py" "$target"; else python3 "$script_py"; fi; else echo -e "\n${RED}Error: inspect_playing_audio script not found in scripts/!${NC}"; sleep 1.5; fi; fi
 }
 launch_traktor_monitor_window() {
-local mon_sh=""; if [ -x "$SCRIPT_DIR/scripts/traktor_monitor.sh" ]; then mon_sh="$SCRIPT_DIR/scripts/traktor_monitor.sh"; elif [ -x "$SCRIPT_DIR/traktor_monitor.sh" ]; then mon_sh="$SCRIPT_DIR/traktor_monitor.sh"; elif [ -x "$HOME/.local/bin/traktor-monitor" ]; then mon_sh="$HOME/.local/bin/traktor-monitor"; elif command -v traktor-monitor &>/dev/null; then mon_sh="$(command -v traktor-monitor)"; elif [ -f "$SCRIPT_DIR/scripts/traktor_monitor.py" ]; then mon_sh="$SCRIPT_DIR/scripts/traktor_monitor.py"; elif [ -f "$PWD/scripts/traktor_monitor.py" ]; then mon_sh="$PWD/scripts/traktor_monitor.py"; fi; if [ -z "$mon_sh" ]; then echo -e "\n${RED}Error: traktor_monitor.sh / traktor-monitor was not found in scripts/ or PATH!${NC}"; press_enter; return 1; fi; echo -e "\n${BOLD}${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}\n${BOLD}${CYAN}       🎛️  TRAKTOR PRO LIVE MONITOR & AUDIO RECORDER CONTROL  🎛️               ${NC}\n${BOLD}${CYAN}═══════════════════════════════════════════════════════════════════════════════${NC}\n  ${BOLD}Process Metrics:${NC}   Traktor CPU %, RSS RAM, Thread Count & Execution State\n  ${BOLD}Deck Tracking:${NC}     Active open audio files & deck playback detection\n  ${BOLD}Audio Recorder:${NC}    Live WAV write detection, file-growth tracking & standby\n  ${BOLD}Hardware & I/O:${NC}    Traktor audio device, sample rate, latency & buffer size\n  ${BOLD}Hotkeys in Live:${NC}   [s] Start Rec  │  [x] Stop Rec  │  [t] Toggle Rec  │  [c] Switch Theme  │  [q] Quit\n  ${BOLD}Cross-Platform:${NC}    macOS (AppleScript UI), Windows 10 & 11, Linux (Bazzite/Fedora)\n${BOLD}${CYAN}───────────────────────────────────────────────────────────────────────────────${NC}\nSelect launch target:\n  ${BOLD}${CYAN}1)${NC} Launch Live Monitor in ${BOLD}${GREEN}New Terminal Window${NC} (Recommended)\n  ${BOLD}${CYAN}2)${NC} Run Live Monitor in Current Terminal Window\n  ${BOLD}${CYAN}3)${NC} Single Diagnostic Status Snapshot (--once)\n  ${BOLD}${CYAN}4)${NC} Trigger Traktor Audio Recording: ${GREEN}START RECORDING${NC}\n  ${BOLD}${CYAN}5)${NC} Trigger Traktor Audio Recording: ${RED}STOP RECORDING${NC}\n  ${BOLD}${CYAN}6)${NC} Trigger Traktor Audio Recording: ${YELLOW}TOGGLE RECORDING${NC}\n  ${BOLD}${CYAN}7)${NC} Traktor Monitor Color Themes (14 MP Themes & Previews)\n  ${BOLD}${CYAN}0)${NC} Return to Main Menu"; echo ""; local tm_choice; read -r -p "Enter choice [1-7, default: 1]: " tm_choice; tm_choice="${tm_choice:-1}"; case "$tm_choice" in 1) if ! pgrep -i -f "Traktor" &>/dev/null; then echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"; launch_traktor &>/dev/null || true; sleep 1.5; fi; echo -e "\n${BOLD}${GREEN}Launching Traktor Live Monitor in a new terminal window...${NC}\n"; local full_cmd; printf -v full_cmd '%q; echo ""; echo "Traktor monitor closed. Press [Enter] to exit..."; read -r' "$mon_sh"; if launch_in_terminal "Traktor Live Monitor" "$full_cmd" "window"; then echo -e "${GREEN}✓ Traktor Live Monitor launched in standalone window.${NC}"; sleep 1.2; else echo -e "${YELLOW}External terminal emulator not available; running in current window...${NC}\n"; sleep 0.8; trap ':' INT; "$mon_sh"; trap 'exit_mix_manager' INT; press_enter; fi ;; 2) if ! pgrep -i -f "Traktor" &>/dev/null; then echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"; launch_traktor &>/dev/null || true; sleep 1.5; fi; echo -e "\n${BOLD}${YELLOW}Launching Traktor Live Monitor in current window (Press 'q' to quit)...${NC}\n"; sleep 0.8; trap ':' INT; "$mon_sh"; trap 'exit_mix_manager' INT; press_enter; ;; 3) echo -e "\n${BOLD}${YELLOW}Querying Traktor Diagnostic Snapshot...${NC}\n"; "$mon_sh" --once; echo ""; press_enter
-;; 4) echo -e "\n${BOLD}${YELLOW}Sending START RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --start-recording; echo ""; press_enter; ;; 5) echo -e "\n${BOLD}${YELLOW}Sending STOP RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --stop-recording; echo ""; press_enter; ;; 6) echo -e "\n${BOLD}${YELLOW}Sending TOGGLE RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --toggle-recording; echo ""; press_enter; ;; 7) echo -e "\n${BOLD}${CYAN}Loading Traktor Monitor Theme Browser...${NC}\n"; "$mon_sh" --list-themes; echo ""; read -r -p "Enter theme name to activate (or press Enter to cancel): " thm_in; thm_in="${thm_in//[\'\"]}"; if [ -n "$thm_in" ]; then "$mon_sh" --set-theme "$thm_in"; fi; echo ""; press_enter; ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;; esac
+local mon_sh=""; if [ -x "$SCRIPT_DIR/scripts/traktor_monitor.sh" ]; then mon_sh="$SCRIPT_DIR/scripts/traktor_monitor.sh"; elif [ -x "$SCRIPT_DIR/traktor_monitor.sh" ]; then mon_sh="$SCRIPT_DIR/traktor_monitor.sh"; elif [ -x "$HOME/.local/bin/traktor-monitor" ]; then mon_sh="$HOME/.local/bin/traktor-monitor"; elif command -v traktor-monitor &>/dev/null; then mon_sh="$(command -v traktor-monitor)"; elif [ -f "$SCRIPT_DIR/scripts/traktor_monitor.py" ]; then mon_sh="$SCRIPT_DIR/scripts/traktor_monitor.py"; elif [ -f "$PWD/scripts/traktor_monitor.py" ]; then mon_sh="$PWD/scripts/traktor_monitor.py"; fi; if [ -z "$mon_sh" ]; then echo -e "\n${RED}Error: traktor_monitor.sh / traktor-monitor was not found in scripts/ or PATH!${NC}"; press_enter; return 1; fi
+local hdr
+hdr="  ${BOLD}Process Metrics:${NC}   Traktor CPU %, RSS RAM, Thread Count & Execution State\n"
+hdr+="  ${BOLD}Deck Tracking:${NC}     Active open audio files & deck playback detection\n"
+hdr+="  ${BOLD}Audio Recorder:${NC}    Live WAV write detection, file-growth tracking & standby\n"
+hdr+="  ${BOLD}Hardware & I/O:${NC}    Traktor audio device, sample rate, latency & buffer size\n"
+hdr+="  ${BOLD}Hotkeys in Live:${NC}   [s] Start Rec  │  [x] Stop Rec  │  [t] Toggle Rec  │  [c] Switch Theme  │  [q] Quit\n"
+hdr+="  ${BOLD}Cross-Platform:${NC}    macOS (AppleScript UI), Windows 10 & 11, Linux (Bazzite/Fedora)\n"
+local opts=(
+    "1|Launch Live Monitor in New Terminal Window|(Recommended)"
+    "2|Run Live Monitor in Current Terminal Window|"
+    "3|Single Diagnostic Status Snapshot|(--once)"
+    "SEP|SEP|"
+    "4|Trigger Traktor Audio Recording: ${GREEN}START RECORDING${NC}|"
+    "5|Trigger Traktor Audio Recording: ${RED}STOP RECORDING${NC}|"
+    "6|Trigger Traktor Audio Recording: ${YELLOW}TOGGLE RECORDING${NC}|"
+    "SEP|SEP|"
+    "7|Traktor Monitor Color Themes|(14 MP Themes & Previews)"
+    "0|Return to Main Menu|(or Esc / q)"
+)
+run_interactive_submenu "TRAKTOR PRO LIVE MONITOR & AUDIO RECORDER CONTROL" "$hdr" opts 0
+case "$REPLY" in
+1) if ! pgrep -i -f "Traktor" &>/dev/null; then echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"; launch_traktor &>/dev/null || true; sleep 1.5; fi; echo -e "\n${BOLD}${GREEN}Launching Traktor Live Monitor in a new terminal window...${NC}\n"; local full_cmd; printf -v full_cmd '%q; echo ""; echo "Traktor monitor closed. Press [Enter] to exit..."; read -r' "$mon_sh"; if launch_in_terminal "Traktor Live Monitor" "$full_cmd" "window"; then echo -e "${GREEN}✓ Traktor Live Monitor launched in standalone window.${NC}"; sleep 1.2; else echo -e "${YELLOW}External terminal emulator not available; running in current window...${NC}\n"; sleep 0.8; trap ':' INT; "$mon_sh"; trap 'exit_mix_manager' INT; press_enter; fi ;;
+2) if ! pgrep -i -f "Traktor" &>/dev/null; then echo -e "\n${BOLD}${YELLOW}Traktor Pro is not running. Opening Traktor Pro...${NC}"; launch_traktor &>/dev/null || true; sleep 1.5; fi; echo -e "\n${BOLD}${YELLOW}Launching Traktor Live Monitor in current window (Press 'q' to quit)...${NC}\n"; sleep 0.8; trap ':' INT; "$mon_sh"; trap 'exit_mix_manager' INT; press_enter ;;
+3) echo -e "\n${BOLD}${YELLOW}Querying Traktor Diagnostic Snapshot...${NC}\n"; "$mon_sh" --once; echo ""; press_enter ;;
+4) echo -e "\n${BOLD}${YELLOW}Sending START RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --start-recording; echo ""; press_enter ;;
+5) echo -e "\n${BOLD}${YELLOW}Sending STOP RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --stop-recording; echo ""; press_enter ;;
+6) echo -e "\n${BOLD}${YELLOW}Sending TOGGLE RECORDING trigger to Traktor...${NC}\n"; "$mon_sh" --toggle-recording; echo ""; press_enter ;;
+7) echo -e "\n${BOLD}${CYAN}Loading Traktor Monitor Theme Browser...${NC}\n"; "$mon_sh" --list-themes; echo ""; read -r -p "Enter theme name to activate (or press Enter to cancel): " thm_in; thm_in="${thm_in//[\'\"]}"; if [ -n "$thm_in" ]; then "$mon_sh" --set-theme "$thm_in"; fi; echo ""; press_enter ;;
+0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+*) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1.2 ;;
+esac
 }
 show_mix_drive_space() {
 clear; echo -e "${BOLD}${MAGENTA}${S70}${NC}\n${BOLD}${MAGENTA}       MIX STORAGE DRIVES - DISK SPACE & INVENTORY USAGE REPORT       ${NC}\n${BOLD}${MAGENTA}${S70}${NC}\n"; local all_arch_dirs=(); local adir; while IFS= read -r adir; do [ -n "$adir" ] && all_arch_dirs+=("$adir"); done < <(get_all_mix_archive_dirs); if [ ${#all_arch_dirs[@]} -eq 0 ]; then all_arch_dirs=("${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}"); fi; local folder_audio_bytes=(); local folder_audio_gbs=(); local folder_flacs=(); local folder_wavs=(); local folder_mp3s=(); local total_audio_bytes=0; local total_flacs_all=0; local total_wavs_all=0; local total_mp3s_all=0; local d_path d_bytes d_gb d_flac d_wav d_mp3; while IFS=$'\t' read -r d_path d_bytes d_gb d_flac d_wav d_mp3; do folder_audio_bytes+=("${d_bytes:-0}"); folder_audio_gbs+=("${d_gb:-0.00}"); folder_flacs+=("${d_flac:-0}"); folder_wavs+=("${d_wav:-0}"); folder_mp3s+=("${d_mp3:-0}"); total_audio_bytes=$((total_audio_bytes +${d_bytes:-0})); total_flacs_all=$((total_flacs_all +${d_flac:-0})); total_wavs_all=$((total_wavs_all +${d_wav:-0})); total_mp3s_all=$((total_mp3s_all +${d_mp3:-0}))
@@ -5166,8 +5726,45 @@ local -a s_dirs=("$OUTPUT_DIR" "$PWD" "${MIX_ARCHIVE_DIR:-}") f_dir a_dir; if co
 local tl_opts=("1|Browse & View Tracklists|(Select from Archive List)" "2|Search Tracklist by Title, Episode or Keyword|(Quick Search)" "3|View Tracklist of Currently Playing Track|(Live Player Tracklist)" "4|Export Tracklist to Styled HTML Document|(generate_tracklist_docs.py)" "5|Export Tracklist to Printable PDF Document|(generate_tracklist_docs.py)" "6|Batch Export All Archive Tracklists to HTML & PDF|(Full Archive)" "7|Scan & Generate Missing Tracklists|(Check_Find_Tracklists.sh)" "8|Generate Master Tracklist HTML Index|(Generate_Master_Tracklist.sh)" "0|Return to Main Menu|(or Esc / q / 9)"); while true; do detect_active_music_player; local p_label="${DETECTED_PLAYER_NAME:-None Detected}"; [ -n "$DETECTED_PLAYER_NAME" ] && p_label="${GREEN}${DETECTED_PLAYER_NAME}${NC}" || p_label="${RED}None Detected${NC}"; local tl_hdr="  Active Player: ${p_label}  ${BOLD}${BLUE}│${NC}  Archive Root: ${BOLD}${CYAN}${MIX_ARCHIVE_DIR:-$PWD}${NC}\n"; run_interactive_submenu "TRACKLIST & METADATA MANAGEMENT" "$tl_hdr" tl_opts 0; case "$REPLY" in 1) _collect_all_archive_tracklists; if [ ${#ALL_TRACKLIST_FILES[@]} -eq 0 ]; then echo -e "\n${YELLOW}No tracklist .txt files found in archive directories.${NC}"; press_enter; continue; fi; echo -e "\n${BOLD}${CYAN}Available Tracklists (${#ALL_TRACKLIST_FILES[@]} found):${NC}\n"; local idx=1 display_files=() tf bname; for tf in "${ALL_TRACKLIST_FILES[@]}"; do bname="${tf##*/}"; printf "  %2d) %s\n" "$idx" "$bname"; display_files+=("$tf"); ((idx++)); if [ "$idx" -gt 40 ]; then echo -e "  ${DIM}...and $(( ${#ALL_TRACKLIST_FILES[@]} - 40 )) more (use search option 2 for specific mix)${NC}"; break; fi; done; echo ""; read -r -p "Enter number to view [1-${#display_files[@]}, or q to cancel]: " sel_idx; if [[ "$sel_idx" =~ ^[0-9]+$ ]] && [ "$sel_idx" -ge 1 ] && [ "$sel_idx" -le "${#display_files[@]}" ]; then local chosen_file="${display_files[$((sel_idx - 1))]}"; _view_single_tracklist "$chosen_file"; fi ;; 2) read -r -p "Enter search keyword (e.g. 033, Escape, Episode): " query; if [ -n "$query" ]; then _collect_all_archive_tracklists; local matches=() f bn q_lower="${query,,}"; for f in "${ALL_TRACKLIST_FILES[@]}"; do bn="${f##*/}"; if [[ "${bn,,}" == *"$q_lower"* ]]; then matches+=("$f"); fi; done; if [ ${#matches[@]} -eq 0 ]; then echo -e "\n${YELLOW}No tracklists matching '${query}' found.${NC}"; press_enter; else echo -e "\n${BOLD}${GREEN}Matches Found (${#matches[@]} files):${NC}\n"; local m_idx=1 m; for m in "${matches[@]}"; do printf "  %2d) %s  ${DIM}(%s)${NC}\n" "$m_idx" "${m##*/}" "$(dirname "$m")"; ((m_idx++)); if [ "$m_idx" -gt 40 ]; then echo -e "  ${DIM}...and $(( ${#matches[@]} - 40 )) more${NC}"; break; fi; done; echo ""; read -r -p "Select file to view [1-$((m_idx - 1)), or q to cancel]: " chosen; if [[ "$chosen" =~ ^[0-9]+$ ]] && [ "$chosen" -ge 1 ] && [ "$chosen" -lt "$m_idx" ]; then local chosen_file="${matches[$((chosen - 1))]}"; _view_single_tracklist "$chosen_file"; fi; fi; fi ;; 3) detect_active_music_player; local cur_p="${DETECTED_PLAYER_NAME:-}" cur_path="${DETECTED_TRACK_PATH:-}" cur_title="${DETECTED_TRACK_TITLE:-}"; if [ -z "$cur_p" ]; then echo -e "\n${RED}No music player is currently running.${NC}"; press_enter; continue; fi; if [ -z "$cur_path" ] || [ ! -f "$cur_path" ]; then local fb; fb=$(detect_currently_playing_mix 2>/dev/null || true); [ -n "$fb" ] && [ -f "$fb" ] && cur_path="$fb"; fi; if [ -z "$cur_path" ] && [ -z "$cur_title" ]; then echo -e "\n${YELLOW}${cur_p} is running, but no track is loaded or playing.${NC}"; press_enter; continue; fi; local found_tl=""; [ -n "$cur_path" ] && [ -f "$cur_path" ] && found_tl=$(find_mix_tracklist "$cur_path" 2>/dev/null || true); [ -z "$found_tl" ] && [ -n "$cur_title" ] && found_tl=$(find_mix_tracklist "$cur_title" 2>/dev/null || true); if [ -z "$found_tl" ]; then local st="${cur_title:-${cur_path##*/}}" ep=""; st="${st%.*}"; if [[ "$st" =~ [_\ -]([0-9]{2,3})([_\ -]|$) ]] || [[ "$st" =~ ([0-9]{2,3}) ]]; then ep="${BASH_REMATCH[1]}"; fi; _collect_all_archive_tracklists; local tm bn; if [ -n "$ep" ]; then for tm in "${ALL_TRACKLIST_FILES[@]}"; do bn="${tm##*/}"; if [[ "$bn" =~ [_\ -]0*${ep#0}([_\ -]|$) ]]; then found_tl="$tm"; break; fi; done; fi; if [ -z "$found_tl" ]; then for tm in "${ALL_TRACKLIST_FILES[@]}"; do bn="${tm##*/}"; if [[ "${bn,,}" == *"${st,,}"* ]]; then found_tl="$tm"; break; fi; done; fi; fi; if [ -n "$found_tl" ] && [ -f "$found_tl" ]; then _view_single_tracklist "$found_tl" "$cur_path"; else echo -e "\n${YELLOW}No tracklist found for current track '${cur_title:-${cur_path##*/}}' playing in ${cur_p}.${NC}"; press_enter; fi ;; 4|5) local fmt="html"; [ "$REPLY" = "5" ] && fmt="pdf"; if [ -z "$doc_script" ]; then echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; press_enter; continue; fi; echo -e "\n${BOLD}${CYAN}=== EXPORT TRACKLIST TO ${fmt^^} ===${NC}\n"; local def_tl=""; if [ -n "$DETECTED_TRACK_PATH" ] && [ -f "$DETECTED_TRACK_PATH" ]; then def_tl=$(find_mix_tracklist "$DETECTED_TRACK_PATH" 2>/dev/null || true); fi; if [ -z "$def_tl" ]; then _collect_all_archive_tracklists; [ ${#ALL_TRACKLIST_FILES[@]} -gt 0 ] && def_tl="${ALL_TRACKLIST_FILES[0]}"; fi; read -r -p "Enter path to tracklist .txt file [Default: ${def_tl:-none}]: " inp_tl; inp_tl="${inp_tl:-$def_tl}"; inp_tl="${inp_tl#[\'\"]}"; inp_tl="${inp_tl%[\'\"]}"; _norm_path "$inp_tl"; inp_tl="$REPLY"; if [ -n "$inp_tl" ] && [ -f "$inp_tl" ]; then echo -e "\n${GREEN}Generating ${fmt^^} document for: ${inp_tl##*/}${NC}\n"; python3 "$doc_script" -i "$inp_tl" -f "$fmt"; else echo -e "\n${RED}Error: Tracklist file not found: ${inp_tl}${NC}"; fi; press_enter ;; 6) if [ -n "$doc_script" ]; then local all_dirs=() f_dir; while IFS= read -r f_dir; do [ -n "$f_dir" ] && [ -d "$f_dir" ] && all_dirs+=("$f_dir"); done < <(get_all_flac_output_dirs); [ ${#all_dirs[@]} -eq 0 ] && [ -d "$OUTPUT_DIR" ] && all_dirs+=("$OUTPUT_DIR"); [ ${#all_dirs[@]} -eq 0 ] && all_dirs+=("$PWD"); echo -e "\n${BOLD}${YELLOW}Batch exporting all tracklists across ${#all_dirs[@]} archive(s) to HTML and PDF...${NC}\n"; python3 "$doc_script" -d "${all_dirs[@]}" -f both; else echo -e "\n${RED}Error: generate_tracklist_docs.py not found!${NC}"; fi; press_enter ;; 7) run_sub_script "Check_Find_Tracklists.sh"; press_enter ;; 8) [ -f "$SCRIPT_DIR/Generate_Master_Tracklist.sh" ] && bash "$SCRIPT_DIR/Generate_Master_Tracklist.sh" || run_sub_script "Generate_Master_Tracklist.sh"; press_enter ;; 0|9|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
 }
 manage_promo_outreach() {
-local py_script="" s; for s in "$SCRIPT_DIR/send_promo_email.py" "$SCRIPT_DIR/scripts/send_promo_email.py" "./send_promo_email.py"; do [ -f "$s" ] && { py_script="$s"; break; }; done; [ -z "$py_script" ] && { echo -e "\n${RED}Error: send_promo_email.py not found!${NC}"; press_enter; return 1; }; while true; do clear; local c_cnt=0 c_file="$SCRIPT_DIR/assets/promo_contacts.json"; [ ! -f "$c_file" ] && [ -f "./assets/promo_contacts.json" ] && c_file="./assets/promo_contacts.json"; [ -f "$c_file" ] && c_cnt=$(grep -c '"email":' "$c_file" 2>/dev/null || echo 0); echo -e "${BOLD}${MAGENTA}${S70}\n             PROMOTIONAL & PUBLISHER OUTREACH SYSTEM                  \n         (Promoters, Podcast Publishers, Radio & Labels)              \n${S70}${NC}\n\n  Sender Name:          ${GREEN}${PROMO_SENDER_NAME:-MPlanetarian}${NC}\n  Sender Email:         ${CYAN}${PROMO_SENDER_EMAIL:-Not Set (Direct desktop mailto/preview)}${NC}\n  SMTP Outgoing Server: ${YELLOW}${SMTP_HOST:-None Configured (Mail client / Browser preview)}${NC}\n  Outreach Contacts:    ${GREEN}${c_cnt} contacts in address book${NC}\n\n${BOLD}Send Enquiries & Promotional Pitches:${NC}\n  ${BOLD}${CYAN} 1)${NC} ${GREEN}Interactive Outreach Wizard${NC} (Step-by-step custom email builder)\n  ${BOLD}${CYAN} 2)${NC} Pitch Episode to Podcast Publishers & Syndicators (${CYAN}Apple Podcasts, DI.FM, Proton...${NC})\n  ${BOLD}${CYAN} 3)${NC} Send Booking / Guest Mix Enquiry to Promoters & Venues (${CYAN}Clubs, Festivals...${NC})\n  ${BOLD}${CYAN} 4)${NC} Send New Episode Press & Promo Release Blast\n  ${BOLD}${CYAN} 5)${NC} Send Track Support Courtesy Notice to Labels & Producers\n  ${BOLD}${CYAN} 6)${NC} Submit Radio Guest Mix & Syndication Proposal\n\n${BOLD}Tools, Contacts & Preferences:${NC}\n  ${BOLD}${CYAN} 7)${NC} Preview HTML & Plaintext Email in Browser & Terminal\n  ${BOLD}${CYAN} 8)${NC} Browse & Search Outreach Contacts Book\n  ${BOLD}${CYAN} 9)${NC} Add New Contact (Promoter, Publisher, Label, Radio, Press)\n  ${BOLD}${CYAN}10)${NC} View Sent Email History & Delivery Logs\n  ${BOLD}${CYAN}11)${NC} Configure Sender Profile & SMTP Server Settings\n\n  ${BOLD}${CYAN}12)${NC} Return to Main Menu\n"; read -r -p "Enter choice [1-12]: " p_choice; case "$p_choice" in 1) python3 "$py_script" --interactive; press_enter ;; 2|3|4|5|6) local hdrs=("" "" "PITCH TO PODCAST PUBLISHERS & SYNDICATORS" "PROMOTER & VENUE BOOKING ENQUIRY" "NEW EPISODE PROMO RELEASE BLAST" "TRACK SUPPORT COURTESY NOTICE TO LABELS" "RADIO GUEST MIX & SYNDICATION PROPOSAL"); local prompts=("" "" "saved publishers" "saved promoters" "press/media contacts" "saved labels" "saved radio stations"); local cats=("" "" "publisher" "promoter" "press" "label" "radio"); local tpls=("" "" "podcast_publisher" "promoter_booking" "episode_promo" "track_support" "radio_guestmix"); echo -e "\n${BOLD}${CYAN}=== ${hdrs[$p_choice]} ===${NC}\n"; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q; read -r -p "Enter recipient email (or ENTER to select from ${prompts[$p_choice]}): " to_em; local args=(--template "${tpls[$p_choice]}"); [ -n "$to_em" ] && args+=(--to "$to_em") || args+=(--category "${cats[$p_choice]}"); [ -n "$ep_q" ] && args+=(--episode "$ep_q"); python3 "$py_script" "${args[@]}" --interactive; press_enter ;; 7) echo -e "\n${BOLD}${CYAN}=== PREVIEW EMAIL IN WEB BROWSER ===${NC}\n"; python3 "$py_script" --list-templates; read -r -p "Enter template name [podcast_publisher]: " t_n; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
-local p_args=(--template "${t_n:-podcast_publisher}" --preview); [ -n "$ep_q" ] && p_args+=(--episode "$ep_q"); python3 "$py_script" "${p_args[@]}"; press_enter ;; 8) python3 "$py_script" --list-contacts; press_enter ;; 9) python3 "$py_script" --add-contact; press_enter ;; 10) local l_file="$SCRIPT_DIR/assets/promo_logs/sent_promo_emails.log"; [ ! -f "$l_file" ] && [ -f "./assets/promo_logs/sent_promo_emails.log" ] && l_file="./assets/promo_logs/sent_promo_emails.log"; echo -e "\n${BOLD}${CYAN}=== OUTREACH & DELIVERY LOGS ===${NC}\n"; [ -s "$l_file" ] && tail -n 35 "$l_file" || echo -e "${DIM}No sent emails or drafts logged yet.${NC}"; echo ""; press_enter ;; 11) echo -e "\n${BOLD}${CYAN}=== CONFIGURE SENDER PROFILE & SMTP SERVER ===${NC}\n"; read -r -p "Sender Full Name [${PROMO_SENDER_NAME:-MPlanetarian}]: " n_name; read -r -p "Sender Email Address [${PROMO_SENDER_EMAIL}]: " n_email; read -r -p "SMTP Host (e.g. smtp.gmail.com) [${SMTP_HOST}]: " n_host; read -r -p "SMTP Port [${SMTP_PORT:-587}]: " n_port; read -r -p "SMTP Username / Login Email [${SMTP_USER}]: " n_user; read -r -s -p "SMTP Password / App Password (leave blank to keep existing): " n_pass; echo ""; local cfg="$SCRIPT_DIR/config.env" sed_args=(); [ ! -f "$cfg" ] && [ -f "./config.env" ] && cfg="./config.env"; [ -n "$n_name" ]  && { PROMO_SENDER_NAME="$n_name";  sed_args+=(-e "s|^PROMO_SENDER_NAME=.*|PROMO_SENDER_NAME=\"$n_name\"|"); }; [ -n "$n_email" ] && { PROMO_SENDER_EMAIL="$n_email"; sed_args+=(-e "s|^PROMO_SENDER_EMAIL=.*|PROMO_SENDER_EMAIL=\"$n_email\"|"); }; [ -n "$n_host" ]  && { SMTP_HOST="$n_host";          sed_args+=(-e "s|^SMTP_HOST=.*|SMTP_HOST=\"$n_host\"|"); }; [ -n "$n_port" ]  && { SMTP_PORT="$n_port";          sed_args+=(-e "s|^SMTP_PORT=.*|SMTP_PORT=\"$n_port\"|"); }; [ -n "$n_user" ]  && { SMTP_USER="$n_user";          sed_args+=(-e "s|^SMTP_USER=.*|SMTP_USER=\"$n_user\"|"); }; [ -n "$n_pass" ]  && { SMTP_PASSWORD="$n_pass";      sed_args+=(-e "s|^SMTP_PASSWORD=.*|SMTP_PASSWORD=\"$n_pass\"|"); }; [ ${#sed_args[@]} -gt 0 ] && sed -i "${sed_args[@]}" "$cfg" 2>/dev/null || true; echo -e "\n${GREEN}✔ Outreach settings updated in ${cfg}!${NC}"; press_enter ;; 12|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;; esac; done
+local py_script="" s; for s in "$SCRIPT_DIR/send_promo_email.py" "$SCRIPT_DIR/scripts/send_promo_email.py" "./send_promo_email.py"; do [ -f "$s" ] && { py_script="$s"; break; }; done; [ -z "$py_script" ] && { echo -e "\n${RED}Error: send_promo_email.py not found!${NC}"; press_enter; return 1; }; while true; do
+    local c_cnt=0 c_file="$SCRIPT_DIR/assets/promo_contacts.json"
+    [ ! -f "$c_file" ] && [ -f "./assets/promo_contacts.json" ] && c_file="./assets/promo_contacts.json"
+    [ -f "$c_file" ] && c_cnt=$(grep -c '"email":' "$c_file" 2>/dev/null || echo 0)
+    local hdr
+    hdr="  Sender Name:          ${GREEN}${PROMO_SENDER_NAME:-MPlanetarian}${NC}\n"
+    hdr+="  Sender Email:         ${CYAN}${PROMO_SENDER_EMAIL:-Not Set (Direct desktop mailto/preview)}${NC}\n"
+    hdr+="  SMTP Outgoing Server: ${YELLOW}${SMTP_HOST:-None Configured (Mail client / Browser preview)}${NC}\n"
+    hdr+="  Outreach Contacts:    ${GREEN}${c_cnt} contacts in address book${NC}\n"
+    local opts=(
+        "1|${GREEN}Interactive Outreach Wizard${NC}|(Step-by-step custom email builder)"
+        "SEP|SEP|"
+        "2|Pitch Episode to Podcast Publishers & Syndicators|(Apple Podcasts, DI.FM, Proton...)"
+        "3|Send Booking / Guest Mix Enquiry to Promoters & Venues|(Clubs, Festivals...)"
+        "4|Send New Episode Press & Promo Release Blast|"
+        "5|Send Track Support Courtesy Notice to Labels & Producers|"
+        "6|Submit Radio Guest Mix & Syndication Proposal|"
+        "SEP|SEP|"
+        "7|Preview HTML & Plaintext Email in Browser & Terminal|"
+        "8|Browse & Search Outreach Contacts Book|"
+        "9|Add New Contact|(Promoter, Publisher, Label, Radio, Press)"
+        "10|View Sent Email History & Delivery Logs|"
+        "11|Configure Sender Profile & SMTP Server Settings|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "PROMOTIONAL & PUBLISHER OUTREACH SYSTEM" "$hdr" opts 0
+    case "$REPLY" in
+        1) python3 "$py_script" --interactive; press_enter ;;
+        2|3|4|5|6) local hdrs=("" "" "PITCH TO PODCAST PUBLISHERS & SYNDICATORS" "PROMOTER & VENUE BOOKING ENQUIRY" "NEW EPISODE PROMO RELEASE BLAST" "TRACK SUPPORT COURTESY NOTICE TO LABELS" "RADIO GUEST MIX & SYNDICATION PROPOSAL"); local prompts=("" "" "saved publishers" "saved promoters" "press/media contacts" "saved labels" "saved radio stations"); local cats=("" "" "publisher" "promoter" "press" "label" "radio"); local tpls=("" "" "podcast_publisher" "promoter_booking" "episode_promo" "track_support" "radio_guestmix"); echo -e "\n${BOLD}${CYAN}=== ${hdrs[$REPLY]} ===${NC}\n"; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q; read -r -p "Enter recipient email (or ENTER to select from ${prompts[$REPLY]}): " to_em; local args=(--template "${tpls[$REPLY]}"); [ -n "$to_em" ] && args+=(--to "$to_em") || args+=(--category "${cats[$REPLY]}"); [ -n "$ep_q" ] && args+=(--episode "$ep_q"); python3 "$py_script" "${args[@]}" --interactive; press_enter ;;
+        7) echo -e "\n${BOLD}${CYAN}=== PREVIEW EMAIL IN WEB BROWSER ===${NC}\n"; python3 "$py_script" --list-templates; read -r -p "Enter template name [podcast_publisher]: " t_n; read -r -p "Enter episode number or keyword (or ENTER for latest): " ep_q
+local p_args=(--template "${t_n:-podcast_publisher}" --preview); [ -n "$ep_q" ] && p_args+=(--episode "$ep_q"); python3 "$py_script" "${p_args[@]}"; press_enter ;;
+        8) python3 "$py_script" --list-contacts; press_enter ;;
+        9) python3 "$py_script" --add-contact; press_enter ;;
+        10) local l_file="$SCRIPT_DIR/assets/promo_logs/sent_promo_emails.log"; [ ! -f "$l_file" ] && [ -f "./assets/promo_logs/sent_promo_emails.log" ] && l_file="./assets/promo_logs/sent_promo_emails.log"; echo -e "\n${BOLD}${CYAN}=== OUTREACH & DELIVERY LOGS ===${NC}\n"; [ -s "$l_file" ] && tail -n 35 "$l_file" || echo -e "${DIM}No sent emails or drafts logged yet.${NC}"; echo ""; press_enter ;;
+        11) echo -e "\n${BOLD}${CYAN}=== CONFIGURE SENDER PROFILE & SMTP SERVER ===${NC}\n"; read -r -p "Sender Full Name [${PROMO_SENDER_NAME:-MPlanetarian}]: " n_name; read -r -p "Sender Email Address [${PROMO_SENDER_EMAIL}]: " n_email; read -r -p "SMTP Host (e.g. smtp.gmail.com) [${SMTP_HOST}]: " n_host; read -r -p "SMTP Port [${SMTP_PORT:-587}]: " n_port; read -r -p "SMTP Username / Login Email [${SMTP_USER}]: " n_user; read -r -s -p "SMTP Password / App Password (leave blank to keep existing): " n_pass; echo ""; local cfg="$SCRIPT_DIR/config.env" sed_args=(); [ ! -f "$cfg" ] && [ -f "./config.env" ] && cfg="./config.env"; [ -n "$n_name" ]  && { PROMO_SENDER_NAME="$n_name";  sed_args+=(-e "s|^PROMO_SENDER_NAME=.*|PROMO_SENDER_NAME=\"$n_name\"|"); }; [ -n "$n_email" ] && { PROMO_SENDER_EMAIL="$n_email"; sed_args+=(-e "s|^PROMO_SENDER_EMAIL=.*|PROMO_SENDER_EMAIL=\"$n_email\"|"); }; [ -n "$n_host" ]  && { SMTP_HOST="$n_host";          sed_args+=(-e "s|^SMTP_HOST=.*|SMTP_HOST=\"$n_host\"|"); }; [ -n "$n_port" ]  && { SMTP_PORT="$n_port";          sed_args+=(-e "s|^SMTP_PORT=.*|SMTP_PORT=\"$n_port\"|"); }; [ -n "$n_user" ]  && { SMTP_USER="$n_user";          sed_args+=(-e "s|^SMTP_USER=.*|SMTP_USER=\"$n_user\"|"); }; [ -n "$n_pass" ]  && { SMTP_PASSWORD="$n_pass";      sed_args+=(-e "s|^SMTP_PASSWORD=.*|SMTP_PASSWORD=\"$n_pass\"|"); }; [ ${#sed_args[@]} -gt 0 ] && sed -i "${sed_args[@]}" "$cfg" 2>/dev/null || true; echo -e "\n${GREEN}✔ Outreach settings updated in ${cfg}!${NC}"; press_enter ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1.2 ;;
+    esac
+done
 }
 _find_scr() {
 for s in "$SCRIPT_DIR/$1" "$SCRIPT_DIR/scripts/$1" "./$1"; do [[ -f "$s" ]] && { REPLY="$s"; return 0; }; done; echo -e "\n${RED}Error: $1 not found!${NC}"; press_enter; return 1
@@ -5182,26 +5779,16 @@ manage_cover_converter() {
 local script; _find_scr "convert_cover_art.py" || return 1; script="$REPLY"; local opts=("1|Optimize to 1MB Podcast (JPG)|" "2|Convert to WebP (q90)|" "3|Resize Cover Art|" "4|Custom Byte Target|" "5|Batch Convert COVERS/|" "6|Custom CLI Arguments|" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "COVER ART CONVERTER & OPTIMIZER" "" opts 0; case "$REPLY" in 1|2|3|4) read -r -p "Cover path [default: ./Cover.png]: " img; img="${img:-./Cover.png}"; if [[ ! -f "$img" ]]; then echo -e "\n${RED}Not found: $img${NC}"; press_enter; continue; fi; case "$REPLY" in 1) python3 "$script" -i "$img" --bytes 1MB -f jpg ;; 2) python3 "$script" -i "$img" -f webp -q 90 ;; 3) read -r -p "Preset: 1) 3000x3000 2) 1400x1400 3) 1080x1080 4) 500x500: " r; local res=("1400x1400" "3000x3000" "1400x1400" "1080x1080" "500x500"); python3 "$script" -i "$img" -r "${res[${r:-2}]:-1400x1400}" ;; 4) read -r -p "Target max size [default: 1MB]: " sz; python3 "$script" -i "$img" --bytes "${sz:-1MB}" ;; esac ;; 5) local d="$PWD/COVERS"; [[ ! -d "$d" ]] && d="${MIX_ARCHIVE_DIR:-$SCRIPT_DIR/MIX_ARCHIVE}/COVERS"; [[ -d "$d" ]] && python3 "$script" -d "$d" --bytes 1MB -f jpg || echo -e "\n${YELLOW}COVERS/ not found.${NC}" ;; 6) python3 "$script" -h; read -r -p $'\n'"Custom args: " args; [[ -n "$args" ]] && python3 "$script" $args ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1; continue ;; esac; press_enter; done
 }
 find_duplicate_audio_mixes() {
-local script; _find_scr "find_duplicate_mixes.py" || return 1; script="$REPLY"; local d scan_dirs=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && scan_dirs+=("$d"); done < <(get_all_flac_output_dirs; get_all_wav_archive_dirs; printf "%s\n" "$PWD"); while true; do clear; echo -e "${BOLD}${MAGENTA}${S70}\n             DUPLICATE AUDIO FILE DETECTOR & CLEANER                  \n${S70}${NC}\n  Scanning:"; printf "    ${CYAN}%s${NC}\n" "${scan_dirs[@]}"; echo -e "\n  1) Scan & Report (Safe)   3) Delete Duplicates   5) Return\n  2) Quarantine Duplicates  4) Custom Directory Scan\n"; read -r -p "Enter choice [1-5]: " c; case "$c" in 1) python3 "$script" -d "${scan_dirs[@]}" --action report ;; 2) python3 "$script" -d "${scan_dirs[@]}" --action quarantine ;; 3) read -r -p $'\n'"${BOLD}${RED}⚠️ Permanently delete duplicates? [y/N]: ${NC}" yn; [[ "$yn" =~ ^[yY] ]] && python3 "$script" -d "${scan_dirs[@]}" --action delete || echo -e "\n${GREEN}Cancelled.${NC}" ;; 4) read -r -p "Directory to scan: " cd; [[ -d "$cd" ]] && python3 "$script" -d "$cd" --action report || echo -e "\n${RED}Not found: $cd${NC}" ;; 5|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1; continue ;; esac; press_enter; done
+local script; _find_scr "find_duplicate_mixes.py" || return 1; script="$REPLY"; local d scan_dirs=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && scan_dirs+=("$d"); done < <(get_all_flac_output_dirs; get_all_wav_archive_dirs; printf "%s\n" "$PWD"); local opts=("1|Scan & Report (Safe)|" "2|Quarantine Duplicates|" "3|Delete Duplicates|" "4|Custom Directory Scan|" "0|Return to Main Menu|(or Esc / q)"); local dup_hdr="  Scanning:\n"; local sd; for sd in "${scan_dirs[@]}"; do dup_hdr+="    ${CYAN}${sd}${NC}\n"; done; while true; do run_interactive_submenu "DUPLICATE AUDIO FILE DETECTOR & CLEANER" "$dup_hdr" opts 0; case "$REPLY" in 1) python3 "$script" -d "${scan_dirs[@]}" --action report ;; 2) python3 "$script" -d "${scan_dirs[@]}" --action quarantine ;; 3) read -r -p $'\n'"${BOLD}${RED}⚠️ Permanently delete duplicates? [y/N]: ${NC}" yn; [[ "$yn" =~ ^[yY] ]] && python3 "$script" -d "${scan_dirs[@]}" --action delete || echo -e "\n${GREEN}Cancelled.${NC}" ;; 4) read -r -p "Directory to scan: " cd; [[ -d "$cd" ]] && python3 "$script" -d "$cd" --action report || echo -e "\n${RED}Not found: $cd${NC}" ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid option!${NC}"; sleep 1; continue ;; esac; press_enter; done
 }
 export_mixes_to_path() {
-clear; echo -e "${BOLD}${MAGENTA}${S70}\n                 EXPORT & COPY MIXES TO DESTINATION                   \n${S70}${NC}\n  ${BOLD}${CYAN}0)${NC} ${BOLD}${GREEN}Launch MP Mix Archive Cloner (Clone Entire Mix Archive Folders to Full Path)${NC}\n"; read -r -p "Enter destination path (or '0' to launch MP Mix Archive Cloner): " dest_dir; if [[ "$dest_dir" == "0" || "$dest_dir" =~ ^[cC][lL][oO][nN][eE] ]]; then run_sub_script "MP_Mix_Archive_Cloner.sh"; press_enter; return 0; fi; [[ -z "$dest_dir" ]] && { echo -e "\n${YELLOW}Cancelled.${NC}"; sleep 1; return 0; }; dest_dir="${dest_dir/#\~/$HOME}"; dest_dir="${dest_dir//\\//}"; [[ ! "$dest_dir" =~ ^[a-zA-Z]:/$ && "$dest_dir" != "/" ]] && dest_dir="${dest_dir%/}"; if [[ ! -d "$dest_dir" ]]; then read -r -p "Create directory '${dest_dir}'? [Y/n]: " yn; [[ "$yn" =~ ^[nN] ]] && return 0; mkdir -p "$dest_dir" || { echo -e "${RED}Failed!${NC}"; press_enter; return 1; }; fi; local d all_flac_dirs=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && all_flac_dirs+=("$d"); done < <(get_all_flac_output_dirs); echo -e "\n  1) Complete Package  3) Tracklists/Docs Only  5) Search Keyword\n  2) Audio Files Only  4) Covers & Spek Only    6) Clone Entire Archive Folder (MP_Mix_Archive_Cloner)  7) Cancel\n"; read -r -p "Enter choice [1-7]: " c; shopt -s nullglob; case "$c" in 1) for d in "${all_flac_dirs[@]}"; do rsync -avh --progress "$d"/*.{flac,txt,html,pdf} "$dest_dir/" 2>/dev/null; done; [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null; [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null ;; 2) for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh --progress "$d"/*.{flac,wav,mp3} "$dest_dir/" 2>/dev/null; done ;; 3) for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh "$d"/*.{txt,html,pdf} "$dest_dir/" 2>/dev/null; done ;; 4) [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null; [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null; [[ -f "$PWD/Cover.png" ]] && cp -v "$PWD/Cover.png" "$dest_dir/" 2>/dev/null ;; 5) read -r -p "Search term: " kw; [[ -n "$kw" ]] && find "${all_flac_dirs[@]}" "$PWD" -maxdepth 2 -type f -iname "*${kw}*" -exec cp -v -t "$dest_dir/" {} + 2>/dev/null ;; 6) shopt -u nullglob; run_sub_script "MP_Mix_Archive_Cloner.sh" --all --dest "$dest_dir"; press_enter; return 0 ;; *) shopt -u nullglob; return 0 ;; esac; shopt -u nullglob; echo -e "\n${BOLD}${GREEN}✓ Export finished.${NC}"; press_enter
+clear; echo -e "${BOLD}${MAGENTA}${S70}\n                 EXPORT & COPY MIXES TO DESTINATION                   \n${S70}${NC}\n  ${BOLD}${CYAN}0)${NC} ${BOLD}${GREEN}Launch MP Mix Archive Cloner (Clone Entire Mix Archive Folders to Full Path)${NC}\n"; read -r -p "Enter destination path (or '0' to launch MP Mix Archive Cloner): " dest_dir; if [[ "$dest_dir" == "0" || "$dest_dir" =~ ^[cC][lL][oO][nN][eE] ]]; then run_sub_script "MP_Mix_Archive_Cloner.sh"; press_enter; return 0; fi; [[ -z "$dest_dir" ]] && { echo -e "\n${YELLOW}Cancelled.${NC}"; sleep 1; return 0; }; dest_dir="${dest_dir/#\~/$HOME}"; dest_dir="${dest_dir//\\//}"; [[ ! "$dest_dir" =~ ^[a-zA-Z]:/$ && "$dest_dir" != "/" ]] && dest_dir="${dest_dir%/}"; if [[ ! -d "$dest_dir" ]]; then read -r -p "Create directory '${dest_dir}'? [Y/n]: " yn; [[ "$yn" =~ ^[nN] ]] && return 0; mkdir -p "$dest_dir" || { echo -e "${RED}Failed!${NC}"; press_enter; return 1; }; fi; local d all_flac_dirs=(); while IFS= read -r d; do [[ -n "$d" && -d "$d" ]] && all_flac_dirs+=("$d"); done < <(get_all_flac_output_dirs); local opts=("1|Complete Package|(Audio, Covers, Tracklists, Spek)" "2|Audio Files Only|" "3|Tracklists/Docs Only|" "4|Covers & Spek Only|" "5|Search Keyword|" "6|Clone Entire Archive Folder|(MP_Mix_Archive_Cloner)" "0|Cancel|(or Esc / q)"); run_interactive_submenu "EXPORT & COPY MIXES TO DESTINATION" "  ${BOLD}${CYAN}Destination:${NC} ${dest_dir}\n" opts 0; local c="$REPLY"; shopt -s nullglob; case "$c" in 1) for d in "${all_flac_dirs[@]}"; do rsync -avh --progress "$d"/*.{flac,txt,html,pdf} "$dest_dir/" 2>/dev/null; done; [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null; [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null ;; 2) for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh --progress "$d"/*.{flac,wav,mp3} "$dest_dir/" 2>/dev/null; done ;; 3) for d in "${all_flac_dirs[@]}" "$PWD"; do rsync -avh "$d"/*.{txt,html,pdf} "$dest_dir/" 2>/dev/null; done ;; 4) [[ -d "$PWD/COVERS" ]] && rsync -avh "$PWD/COVERS/" "$dest_dir/COVERS/" 2>/dev/null; [[ -d "$PWD/SPEK_OUTPUTS" ]] && rsync -avh "$PWD/SPEK_OUTPUTS/" "$dest_dir/SPEK_OUTPUTS/" 2>/dev/null; [[ -f "$PWD/Cover.png" ]] && cp -v "$PWD/Cover.png" "$dest_dir/" 2>/dev/null ;; 5) read -r -p "Search term: " kw; [[ -n "$kw" ]] && find "${all_flac_dirs[@]}" "$PWD" -maxdepth 2 -type f -iname "*${kw}*" -exec cp -v -t "$dest_dir/" {} + 2>/dev/null ;; 6) shopt -u nullglob; run_sub_script "MP_Mix_Archive_Cloner.sh" --all --dest "$dest_dir"; press_enter; return 0 ;; *) shopt -u nullglob; return 0 ;; esac; shopt -u nullglob; echo -e "\n${BOLD}${GREEN}✓ Export finished.${NC}"; press_enter
 }
 manage_audio_checksums() {
-local script; _find_scr "manage_checksums.sh" || return 1; script="$REPLY"; while true; do clear
-echo -e "${BOLD}${MAGENTA}======================================================================\n             AUDIO FILE CHECKSUM CREATION & VERIFICATION              \n======================================================================${NC}
-  1) Generate SHA-256 (FLAC_CONVERTED_OUTPUTS)  4) View Manifest
-  2) Generate SHA-256 ($PWD)  5) View Logs
-  3) Verify Archive Checksums                   6) Return\n"
-read -r -p "Enter choice [1-6]: " c; case "$c" in 1) bash "$script" -g -d "$OUTPUT_DIR" ;; 2) bash "$script" -g -d "$PWD" ;; 3) bash "$script" -v ;; 4) local mf="$PWD/checksums.sha256"; [[ ! -f "$mf" ]] && mf="$OUTPUT_DIR/checksums.sha256"; [[ -f "$mf" ]] && head -n 40 "$mf" || echo -e "\n${YELLOW}No manifest found.${NC}" ;; 5) [[ -d "$PWD/VERIFY_LOGS" ]] && ls -lh "$PWD/VERIFY_LOGS" || echo -e "\n${YELLOW}No logs found.${NC}" ;; 6|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid!${NC}"; sleep 1; continue ;; esac; press_enter; done
+local script; _find_scr "manage_checksums.sh" || return 1; script="$REPLY"; local opts=("1|Generate SHA-256 (FLAC_CONVERTED_OUTPUTS)|" "2|Generate SHA-256 (Current Directory)|($PWD)" "3|Verify Archive Checksums|" "4|View Manifest|" "5|View Logs|" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "AUDIO FILE CHECKSUM CREATION & VERIFICATION" "" opts 0; case "$REPLY" in 1) bash "$script" -g -d "$OUTPUT_DIR" ;; 2) bash "$script" -g -d "$PWD" ;; 3) bash "$script" -v ;; 4) local mf="$PWD/checksums.sha256"; [[ ! -f "$mf" ]] && mf="$OUTPUT_DIR/checksums.sha256"; [[ -f "$mf" ]] && head -n 40 "$mf" || echo -e "\n${YELLOW}No manifest found.${NC}" ;; 5) [[ -d "$PWD/VERIFY_LOGS" ]] && ls -lh "$PWD/VERIFY_LOGS" || echo -e "\n${YELLOW}No logs found.${NC}" ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) echo -e "\n${RED}Invalid!${NC}"; sleep 1; continue ;; esac; press_enter; done
 }
 manage_mix_search_and_import() {
-clear 2>/dev/null || true
-echo -e "${BOLD}${MAGENTA}======================================================================\n       Search & Import Mixes from Local Storage & Network SMB         \n======================================================================${NC}
-  1) Universal Search & Import Wizard
-  2) Dedicated Traktor & SOF SMB Share Ingest
-  0) Return to Main Menu\n"
-read -r -p "Select mode [1-2, 0]: " m; case "$m" in 1) run_sub_script "search_and_import_mixes.sh"; press_enter ;; 2) run_sub_script "import_new_mixes.sh"; press_enter ;; esac
+local opts=("1|Universal Search & Import Wizard|" "2|Dedicated Traktor & SOF SMB Share Ingest|" "0|Return to Main Menu|(or Esc / q)"); while true; do run_interactive_submenu "SEARCH & IMPORT MIXES FROM LOCAL STORAGE & NETWORK SMB" "" opts 0; case "$REPLY" in 1) run_sub_script "search_and_import_mixes.sh"; press_enter ;; 2) run_sub_script "import_new_mixes.sh"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) return 0 ;; esac; done
 }
 manage_installation_and_config() { run_sub_script "manage_installation_config.sh"; }
 reboot_system() {
@@ -5340,12 +5927,38 @@ fi
 return "$rc"
 }
 manage_mix_scheduler() {
-local alarm_bin="" p ac_choice a_time a_daily a_vol a_mus sn_min c_id th_ch wk_ch wk_url nt_ch nt_txt nt_id; for p in "$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh" "$SCRIPT_DIR/alarm.sh" "./alarm.sh"; do [ -x "$p" ] && { alarm_bin="$p"; break; }; done
+local alarm_bin="" p a_time a_daily a_vol a_mus sn_min c_id th_ch wk_ch wk_url nt_ch nt_txt nt_id
+for p in "$SCRIPT_DIR/mplanetarians-alarm-clock/alarm.sh" "$SCRIPT_DIR/alarm.sh" "./alarm.sh"; do [ -x "$p" ] && { alarm_bin="$p"; break; }; done
 _run_alarm() {
 if [ -n "$alarm_bin" ]; then "$alarm_bin" "$@"; else printf '%b\n' "${RED}Error: alarm.sh not found!${NC}"; return 1; fi
 }
-while true; do clear; local alarm_summary; alarm_summary=$(get_alarm_clock_status_display); printf '%b\n' "${BOLD}${MAGENTA}======================================================================${NC}" "${BOLD}${MAGENTA}       MORNING ALARM CLOCK & DJ MIX PLAYBACK SCHEDULER SUITE          ${NC}" "${BOLD}${MAGENTA}======================================================================${NC}" "${alarm_summary:+${alarm_summary}\n${BOLD}${MAGENTA}----------------------------------------------------------------------${NC}}" "\n${BOLD}Select an operation:${NC}" "  ${BOLD}${BLUE}─── [ MPLANETARIANS ALARM CLOCK (WAKE UP EDITION) ] ───────────${NC}" "  ${BOLD}${CYAN} 1)${NC} Morning Screen & Daily Brief (${GREEN}Animated Clock, Weather, Steam Games${NC})" "  ${BOLD}${CYAN} 2)${NC} Alarm Clock Interactive Menu (${GREEN}Full TUI Alarm Interface${NC})" "  ${BOLD}${CYAN} 3)${NC} Set New Morning Alarm (${GREEN}Time, Daily/Once, Volume, Mix Path${NC})" "  ${BOLD}${CYAN} 4)${NC} List All Saved Alarms & Timers (${GREEN}systemd user timers & status${NC})" "  ${BOLD}${CYAN} 5)${NC} Silence / Stop Ringing Alarm (${GREEN}Move mouse or manual stop${NC})" "  ${BOLD}${CYAN} 6)${NC} Snooze Ringing Alarm (${GREEN}Ramp volume, custom snooze minutes${NC})" "  ${BOLD}${CYAN} 7)${NC} Cancel / Delete Saved Alarms (${GREEN}Cancel single alarm or all${NC})" "  ${BOLD}${CYAN} 8)${NC} Toggle Alarm Clock (${GREEN}Enable / Disable all alarms${NC})" "  ${BOLD}${CYAN} 9)${NC} Change Alarm Theme (${GREEN}Midnight Ink, Warm Brass, Forest Hour, Porcelain${NC})" "  ${BOLD}${CYAN}10)${NC} Configure Wake-Up Action (${GREEN}Browser on right screen / Console / URL${NC})" "  ${BOLD}${CYAN}11)${NC} Manage Morning Notes & Reminders (${GREEN}View / Add / Remove wake notes${NC})" "  ${BOLD}${CYAN}12)${NC} Test Morning Alarm Now (${RED}Loud Playback Test, Mouse Tracking & Steam Prompt${NC})\n" "  ${BOLD}${BLUE}─── [ DJ MIX AUTOMATED PLAYBACK SCHEDULER ] ───────────────────${NC}" "  ${BOLD}${CYAN}13)${NC} Schedule Single Mix / Playlist for Specific Date & Time (${GREEN}schedule_mix_playback.py${NC})\n" "  ${BOLD}${CYAN} 0)${NC} Return to Main Menu\n"; read -r -p "Enter choice [0-13]: " ac_choice; case "$ac_choice" in 1) clear; _run_alarm brief; press_enter ;; 2) _run_alarm menu || press_enter ;; 3) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SET NEW MORNING ALARM ===${NC}"; read -r -p "Enter alarm time (e.g. 07:30, 6:45am, 1930): " a_time; if [ -n "$a_time" ]; then read -r -p "Repeat daily? [y/N]: " a_daily; read -r -p "Volume percentage [1-100, default 100]: " a_vol; read -r -p "Specific mix path (leave empty for random archive mix): " a_mus; local set_args=("$a_time"); [[ "$a_daily" =~ ^[Yy] ]] && set_args+=("--daily"); [ -n "$a_vol" ] && set_args+=("--volume" "$a_vol"); [ -n "$a_mus" ] && set_args+=("--music" "$a_mus"); _run_alarm set "${set_args[@]}"; fi; press_enter ;; 4) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SAVED ALARMS & TIMERS ===${NC}"; _run_alarm list; press_enter ;; 5) printf '\n%b\n' "${YELLOW}Silencing alarm...${NC}"; _run_alarm stop; press_enter ;; 6) read -r -p "Enter snooze minutes (default 5): " sn_min; _run_alarm snooze "${sn_min:-5}"; press_enter ;; 7) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== CANCEL SAVED ALARMS ===${NC}"; if _run_alarm list; then echo ""; read -r -p "Enter Alarm ID to cancel (or 'all' to cancel all): " c_id; [ -n "$c_id" ] && _run_alarm cancel "$c_id"
-fi; press_enter ;; 8) if [ -n "$alarm_bin" ]; then if [[ "$("$alarm_bin" list 2>/dev/null)" == *[Ee]nabled* ]]; then "$alarm_bin" disable; else "$alarm_bin" enable; fi; fi; sleep 1.2 ;; 9) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CHANGE ALARM CLOCK THEME ===${NC}\n" "  ${BOLD}${CYAN}1)${NC} Midnight Ink (${DIM}navy and silver${NC})" "  ${BOLD}${CYAN}2)${NC} Warm Brass (${DIM}amber lamp-light${NC})" "  ${BOLD}${CYAN}3)${NC} Forest Hour (${DIM}deep green and gold${NC})" "  ${BOLD}${CYAN}4)${NC} Porcelain (${DIM}warm grey and rose${NC})"; read -r -p "Enter choice [1-4]: " th_ch; local themes=("" "midnight-ink" "warm-brass" "forest-hour" "porcelain"); [ -n "${themes[$th_ch]:-}" ] && _run_alarm theme "${themes[$th_ch]}"; sleep 1 ;; 10) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CONFIGURE WAKE-UP ACTION ===${NC}\n\nCurrent action:"; _run_alarm task; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Browser on Display to the Right (Default)" "  ${BOLD}${CYAN}2)${NC} Browser with Custom URL" "  ${BOLD}${CYAN}3)${NC} Dedicated Console Window" "  ${BOLD}${CYAN}4)${NC} Clear / None"; read -r -p "Enter choice [1-4]: " wk_ch; case "$wk_ch" in 1) _run_alarm task browser ;; 2) read -r -p "Enter URL (e.g. https://news.ycombinator.com): " wk_url; _run_alarm task browser "$wk_url" ;; 3) _run_alarm task console ;; 4) _run_alarm task clear ;; esac; sleep 1 ;; 11) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== MORNING WAKE-UP NOTES ===${NC}"; _run_alarm note list; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Add Note" "  ${BOLD}${CYAN}2)${NC} Remove Note by ID" "  ${BOLD}${CYAN}0)${NC} Done"; read -r -p "Enter choice [0-2]: " nt_ch; case "$nt_ch" in 1) read -r -p "Enter note text: " nt_txt; [ -n "$nt_txt" ] && _run_alarm note add "$nt_txt" ;; 2) read -r -p "Enter note ID to remove: " nt_id; [ -n "$nt_id" ] && _run_alarm note rm "$nt_id" ;; esac; sleep 1 ;; 12) clear; printf '%b\n\n' "${BOLD}${RED}=== TESTING MORNING ALARM (LOUD PLAYBACK & STEAM PROMPT) ===${NC}" "${YELLOW}Starting alarm test. Press Ctrl+C or move mouse to stop.${NC}"; _run_alarm test; press_enter ;; 13) printf '\n%b\n\n' "${BOLD}${BLUE}=== DJ MIX SCHEDULER (PLAYS LOUDLY VIA DEFAULT AUDIO PLAYER) ===${NC}"; _run_tool "schedule_mix_playback.sh" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]) return 0 ;; *) printf '\n%b\n' "${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
+while true; do
+    local alarm_summary; alarm_summary=$(get_alarm_clock_status_display)
+    local hdr=""
+    [ -n "$alarm_summary" ] && hdr+="${alarm_summary}\n"
+    local opts=(
+        "SECTION|MPLANETARIANS ALARM CLOCK (WAKE UP EDITION)|"
+        "1|Morning Screen & Daily Brief|(Animated Clock, Weather, Steam Games)"
+        "2|Alarm Clock Interactive Menu|(Full TUI Alarm Interface)"
+        "3|Set New Morning Alarm|(Time, Daily/Once, Volume, Mix Path)"
+        "4|List All Saved Alarms & Timers|(systemd user timers & status)"
+        "5|Silence / Stop Ringing Alarm|(Move mouse or manual stop)"
+        "6|Snooze Ringing Alarm|(Ramp volume, custom snooze minutes)"
+        "7|Cancel / Delete Saved Alarms|(Cancel single alarm or all)"
+        "8|Toggle Alarm Clock|(Enable / Disable all alarms)"
+        "9|Change Alarm Theme|(Midnight Ink, Warm Brass, Forest Hour, Porcelain)"
+        "10|Configure Wake-Up Action|(Browser on right screen / Console / URL)"
+        "11|Manage Morning Notes & Reminders|(View / Add / Remove wake notes)"
+        "12|Test Morning Alarm Now|(Loud Playback Test, Mouse Tracking & Steam Prompt)"
+        "SECTION|DJ MIX AUTOMATED PLAYBACK SCHEDULER|"
+        "13|Schedule Single Mix / Playlist for Specific Date & Time|(schedule_mix_playback.py)"
+        "SEP|SEP|"
+        "0|Return to Main Menu|(or Esc / q)"
+    )
+    run_interactive_submenu "MORNING ALARM CLOCK & DJ MIX PLAYBACK SCHEDULER SUITE" "$hdr" opts 0
+    local ac_choice="$REPLY"
+    case "$ac_choice" in 1) clear; _run_alarm brief; press_enter ;; 2) _run_alarm menu || press_enter ;; 3) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SET NEW MORNING ALARM ===${NC}"; read -r -p "Enter alarm time (e.g. 07:30, 6:45am, 1930): " a_time; if [ -n "$a_time" ]; then read -r -p "Repeat daily? [y/N]: " a_daily; read -r -p "Volume percentage [1-100, default 100]: " a_vol; read -r -p "Specific mix path (leave empty for random archive mix): " a_mus; local set_args=("$a_time"); [[ "$a_daily" =~ ^[Yy] ]] && set_args+=("--daily"); [ -n "$a_vol" ] && set_args+=("--volume" "$a_vol"); [ -n "$a_mus" ] && set_args+=("--music" "$a_mus"); _run_alarm set "${set_args[@]}"; fi; press_enter ;; 4) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== SAVED ALARMS & TIMERS ===${NC}"; _run_alarm list; press_enter ;; 5) printf '\n%b\n' "${YELLOW}Silencing alarm...${NC}"; _run_alarm stop; press_enter ;; 6) read -r -p "Enter snooze minutes (default 5): " sn_min; _run_alarm snooze "${sn_min:-5}"; press_enter ;; 7) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== CANCEL SAVED ALARMS ===${NC}"; if _run_alarm list; then echo ""; read -r -p "Enter Alarm ID to cancel (or 'all' to cancel all): " c_id; [ -n "$c_id" ] && _run_alarm cancel "$c_id"
+fi; press_enter ;; 8) if [ -n "$alarm_bin" ]; then if [[ "$("$alarm_bin" list 2>/dev/null)" == *[Ee]nabled* ]]; then "$alarm_bin" disable; else "$alarm_bin" enable; fi; fi; sleep 1.2 ;; 9) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CHANGE ALARM CLOCK THEME ===${NC}\n" "  ${BOLD}${CYAN}1)${NC} Midnight Ink (${DIM}navy and silver${NC})" "  ${BOLD}${CYAN}2)${NC} Warm Brass (${DIM}amber lamp-light${NC})" "  ${BOLD}${CYAN}3)${NC} Forest Hour (${DIM}deep green and gold${NC})" "  ${BOLD}${CYAN}4)${NC} Porcelain (${DIM}warm grey and rose${NC})"; read -r -p "Enter choice [1-4]: " th_ch; local themes=("" "midnight-ink" "warm-brass" "forest-hour" "porcelain"); [ -n "${themes[$th_ch]:-}" ] && _run_alarm theme "${themes[$th_ch]}"; sleep 1 ;; 10) clear; printf '%b\n' "${BOLD}${MAGENTA}=== CONFIGURE WAKE-UP ACTION ===${NC}\n\nCurrent action:"; _run_alarm task; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Browser on Display to the Right (Default)" "  ${BOLD}${CYAN}2)${NC} Browser with Custom URL" "  ${BOLD}${CYAN}3)${NC} Dedicated Console Window" "  ${BOLD}${CYAN}4)${NC} Clear / None"; read -r -p "Enter choice [1-4]: " wk_ch; case "$wk_ch" in 1) _run_alarm task browser ;; 2) read -r -p "Enter URL (e.g. https://news.ycombinator.com): " wk_url; _run_alarm task browser "$wk_url" ;; 3) _run_alarm task console ;; 4) _run_alarm task clear ;; esac; sleep 1 ;; 11) clear; printf '%b\n\n' "${BOLD}${MAGENTA}=== MORNING WAKE-UP NOTES ===${NC}"; _run_alarm note list; printf '\n%b\n' "  ${BOLD}${CYAN}1)${NC} Add Note" "  ${BOLD}${CYAN}2)${NC} Remove Note by ID" "  ${BOLD}${CYAN}0)${NC} Done"; read -r -p "Enter choice [0-2]: " nt_ch; case "$nt_ch" in 1) read -r -p "Enter note text: " nt_txt; [ -n "$nt_txt" ] && _run_alarm note add "$nt_txt" ;; 2) read -r -p "Enter note ID to remove: " nt_id; [ -n "$nt_id" ] && _run_alarm note rm "$nt_id" ;; esac; sleep 1 ;; 12) clear; printf '%b\n\n' "${BOLD}${RED}=== TESTING MORNING ALARM (LOUD PLAYBACK & STEAM PROMPT) ===${NC}" "${YELLOW}Starting alarm test. Press Ctrl+C or move mouse to stop.${NC}"; _run_alarm test; press_enter ;; 13) printf '\n%b\n\n' "${BOLD}${BLUE}=== DJ MIX SCHEDULER (PLAYS LOUDLY VIA DEFAULT AUDIO PLAYER) ===${NC}"; _run_tool "schedule_mix_playback.sh" --player "${DEFAULT_AUDIO_PLAYER:-strawberry}"; press_enter ;; 0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;; *) printf '\n%b\n' "${RED}Invalid option!${NC}"; sleep 1 ;; esac; done
 }
 _format_system_uptime_text() {
     if [ -r /proc/uptime ]; then
@@ -5505,7 +6118,31 @@ get_planets_above_horizon() {
 [ "${PLANETS_ENABLED:-true}" != "true" ] && return 0; local now="${EPOCHSECONDS:-${EPOCHSECONDS:-$(printf "%(%s)T" -1)}}"; if (( now - _LAST_PLANETS_CHECK < 120 )) && [ -n "$_CACHED_PLANETS_DISPLAY" ]; then printf '%b\n' "$_CACHED_PLANETS_DISPLAY"; return 0; fi; _LAST_PLANETS_CHECK="$now"; local p_py="$SCRIPT_DIR/scripts/get_planets.py"; [ -f "$p_py" ] || p_py="$PWD/scripts/get_planets.py"; if [ -f "$p_py" ] && command -v python3 &>/dev/null; then _CACHED_PLANETS_DISPLAY=$(python3 "$p_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null); [ -n "$_CACHED_PLANETS_DISPLAY" ] && printf '%b\n' "$_CACHED_PLANETS_DISPLAY"; fi
 }
 manage_weather_menu() {
-local w_sh="$SCRIPT_DIR/scripts/get_weather.sh"; [ ! -f "$w_sh" ] && w_sh="$PWD/scripts/get_weather.sh"; local p_py="$SCRIPT_DIR/scripts/get_planets.py"; [ ! -f "$p_py" ] && p_py="$PWD/scripts/get_planets.py"; while :; do clear; printf "%b\n" "${BOLD}${MAGENTA}======================================================================${NC}" "${BOLD}${MAGENTA}        METEOROLOGICAL & PLANETARY EPHEMERIS SETTINGS                 ${NC}" "${BOLD}${MAGENTA}======================================================================${NC}\n"; local w_st="DISABLED" p_st="DISABLED"; [ "${WEATHER_ENABLED:-true}" = "true" ] && w_st="ENABLED"; [ "${PLANETS_ENABLED:-true}" = "true" ] && p_st="ENABLED"; local w_badge="${!w_st:+${GREEN}${w_st}${NC}}"; [ "$w_st" = "DISABLED" ] && w_badge="${RED}DISABLED${NC}"; local p_badge="${!p_st:+${GREEN}${p_st}${NC}}"; [ "$p_st" = "DISABLED" ] && p_badge="${RED}DISABLED${NC}"; printf "%b Weather Banner Display:   %b\n" "${BOLD}" "$w_badge"; printf "%b Planets Banner Display:   %b\n" "${BOLD}" "$p_badge"; printf "%b Configured Location:      %b%b%b\n" "${BOLD}" "${CYAN}" "${WEATHER_LOCATION:-Not Set}" "${NC}"; if [ -x "$w_sh" ]; then local cw; cw=$("$w_sh" get 2>/dev/null); [ -n "$cw" ] && printf "%b Current Conditions:       %b%s%b\n" "${BOLD}" "${WHITE}" "$cw" "${NC}"; fi; if [ -f "$p_py" ] && command -v python3 &>/dev/null; then local cp; cp=$(python3 "$p_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null); [ -n "$cp" ] && printf "%b Planets Above Horizon:    %s\n" "${BOLD}" "${cp#*Planets: }"; fi; printf "%b Config File:              %b%s/config.env%b\n\n" "${BOLD}" "${DIM}" "$SCRIPT_DIR" "${NC}"; printf "%bSelect an option:%b\n" "${BOLD}" "${NC}"; printf "  %b%b 1)%b Toggle Weather Display (%b)\n" "${BOLD}" "${CYAN}" "${NC}" "$w_badge"; printf "  %b%b 2)%b Toggle Planets Above Horizon Display (%b)\n" "${BOLD}" "${CYAN}" "${NC}" "$p_badge"; printf "  %b%b 3)%b Change / Update Observer Location (%b%s%b)\n" "${BOLD}" "${CYAN}" "${NC}" "${BOLD}" "${WEATHER_LOCATION:-Swansea, UK}" "${NC}"; printf "  %b%b 4)%b Force Refresh Weather Now (Fetch live meteorological data)\n" "${BOLD}" "${CYAN}" "${NC}"; printf "  %b%b 5)%b View Full Planetary Ephemeris (All 7 Planets Altitude & Compass Heading)\n" "${BOLD}" "${CYAN}" "${NC}"; printf "  %b%b 6)%b Remove / Clear Location (Disables weather display)\n" "${BOLD}" "${CYAN}" "${NC}"; printf "  %b%b 0)%b Return to Previous Menu\n\n" "${BOLD}" "${CYAN}" "${NC}"; read -r -p "Enter choice [0-6]: " ch; case "$ch" in 1) [ "${WEATHER_ENABLED:-true}" = "true" ] && WEATHER_ENABLED="false" || WEATHER_ENABLED="true"; save_config_setting "WEATHER_ENABLED" "$WEATHER_ENABLED"; echo -e "\n${GREEN}✓ Weather display set to '$WEATHER_ENABLED'!${NC}"; sleep 1 ;; 2) [ "${PLANETS_ENABLED:-true}" = "true" ] && PLANETS_ENABLED="false" || PLANETS_ENABLED="true"; save_config_setting "PLANETS_ENABLED" "$PLANETS_ENABLED"; echo -e "\n${GREEN}✓ Planets display set to '$PLANETS_ENABLED'!${NC}"; sleep 1 ;; 3) echo -e "\nCurrent Location: ${CYAN}${WEATHER_LOCATION:-Swansea, UK}${NC}"; read -r -p "Enter new location: " nl; if [ -n "$nl" ]; then WEATHER_LOCATION="$nl"; WEATHER_ENABLED="true"; save_config_setting "WEATHER_LOCATION" "$nl"; save_config_setting "WEATHER_ENABLED" "true"; [ -x "$w_sh" ] && "$w_sh" clear &>/dev/null; echo -e "\n${GREEN}✓ Observer location updated to '$nl'!${NC}"; sleep 1; fi ;; 4) echo ""; [ -x "$w_sh" ] && "$w_sh" refresh; sleep 1.2 ;; 5) echo ""; [ -f "$p_py" ] && python3 "$p_py" --all --location "${WEATHER_LOCATION:-Swansea, UK}"; read -r -p $'\nPress Enter to return to settings...' ;; 6) WEATHER_LOCATION=""; WEATHER_ENABLED="false"; save_config_setting "WEATHER_LOCATION" ""; save_config_setting "WEATHER_ENABLED" "false"; [ -x "$w_sh" ] && "$w_sh" clear &>/dev/null; echo -e "\n${YELLOW}✓ Observer location cleared.${NC}"; sleep 1.2 ;; 0|[qQ]) return 0 ;; *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1 ;; esac; done
+local w_sh="$SCRIPT_DIR/scripts/get_weather.sh"; [ ! -f "$w_sh" ] && w_sh="$PWD/scripts/get_weather.sh"; local p_py="$SCRIPT_DIR/scripts/get_planets.py"; [ ! -f "$p_py" ] && p_py="$PWD/scripts/get_planets.py"; while :; do
+    local w_st="DISABLED" p_st="DISABLED" w_badge p_badge hdr cw cp
+    [ "${WEATHER_ENABLED:-true}" = "true" ] && w_st="ENABLED"
+    [ "${PLANETS_ENABLED:-true}" = "true" ] && p_st="ENABLED"
+    w_badge="${GREEN}${w_st}${NC}"; [ "$w_st" = "DISABLED" ] && w_badge="${RED}DISABLED${NC}"
+    p_badge="${GREEN}${p_st}${NC}"; [ "$p_st" = "DISABLED" ] && p_badge="${RED}DISABLED${NC}"
+    hdr="  ${BOLD}Weather Banner Display:${NC}   ${w_badge}\n"
+    hdr+="  ${BOLD}Planets Banner Display:${NC}   ${p_badge}\n"
+    hdr+="  ${BOLD}Configured Location:${NC}      ${CYAN}${WEATHER_LOCATION:-Not Set}${NC}\n"
+    if [ -x "$w_sh" ]; then cw=$("$w_sh" get 2>/dev/null); [ -n "$cw" ] && hdr+="  ${BOLD}Current Conditions:${NC}       ${WHITE}${cw}${NC}\n"; fi
+    if [ -f "$p_py" ] && command -v python3 &>/dev/null; then cp=$(python3 "$p_py" --location "${WEATHER_LOCATION:-Swansea, UK}" 2>/dev/null); [ -n "$cp" ] && hdr+="  ${BOLD}Planets Above Horizon:${NC}    ${cp#*Planets: }\n"; fi
+    hdr+="  ${BOLD}Config File:${NC}              ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
+    local opts=("1|Toggle Weather Banner Display|currently ${w_st}" "2|Toggle Planets Above Horizon Display|currently ${p_st}" "3|Change / Update Observer Location|currently ${WEATHER_LOCATION:-Swansea, UK}" "4|Force Refresh Weather Now|(Fetch live meteorological data)" "5|View Full Planetary Ephemeris|(All 7 Planets Altitude & Compass Heading)" "6|Remove / Clear Location|(Disables weather display)" "0|Return to Previous Menu|(or Esc / q)")
+    run_interactive_submenu "METEOROLOGICAL & PLANETARY EPHEMERIS SETTINGS" "$hdr" opts 0
+    case "$REPLY" in
+        1) [ "${WEATHER_ENABLED:-true}" = "true" ] && WEATHER_ENABLED="false" || WEATHER_ENABLED="true"; save_config_setting "WEATHER_ENABLED" "$WEATHER_ENABLED"; echo -e "\n${GREEN}✓ Weather display set to '$WEATHER_ENABLED'!${NC}"; sleep 1 ;;
+        2) [ "${PLANETS_ENABLED:-true}" = "true" ] && PLANETS_ENABLED="false" || PLANETS_ENABLED="true"; save_config_setting "PLANETS_ENABLED" "$PLANETS_ENABLED"; echo -e "\n${GREEN}✓ Planets display set to '$PLANETS_ENABLED'!${NC}"; sleep 1 ;;
+        3) echo -e "\nCurrent Location: ${CYAN}${WEATHER_LOCATION:-Swansea, UK}${NC}"; read -r -p "Enter new location: " nl; if [ -n "$nl" ]; then WEATHER_LOCATION="$nl"; WEATHER_ENABLED="true"; save_config_setting "WEATHER_LOCATION" "$nl"; save_config_setting "WEATHER_ENABLED" "true"; [ -x "$w_sh" ] && "$w_sh" clear &>/dev/null; echo -e "\n${GREEN}✓ Observer location updated to '$nl'!${NC}"; sleep 1; fi ;;
+        4) echo ""; [ -x "$w_sh" ] && "$w_sh" refresh; sleep 1.2 ;;
+        5) echo ""; [ -f "$p_py" ] && python3 "$p_py" --all --location "${WEATHER_LOCATION:-Swansea, UK}"; read -r -p $'\nPress Enter to return to settings...' ;;
+        6) WEATHER_LOCATION=""; WEATHER_ENABLED="false"; save_config_setting "WEATHER_LOCATION" ""; save_config_setting "WEATHER_ENABLED" "false"; [ -x "$w_sh" ] && "$w_sh" clear &>/dev/null; echo -e "\n${YELLOW}✓ Observer location cleared.${NC}"; sleep 1.2 ;;
+        0|[qQ]|[eE][xX][iI][tT]|ESC) return 0 ;;
+        *) echo -e "\n${RED}Invalid choice!${NC}"; sleep 1 ;;
+    esac
+done
 }
 manage_video_dispatcher()          { _run_tool "launch_specific_video.sh" || launch_vlc; }
 manage_publishing_schedule()      { _run_tool "publish_calendar_scheduler.sh"; }
@@ -5524,33 +6161,19 @@ manage_mix_reports_menu() {
 }
 configure_daily_reports_settings() {
 while true; do
-    clear
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}"
-    echo -e "${BOLD}${MAGENTA}          CONFIGURE DAILY MIX REPORTS & AUTOMATED SCHEDULES           ${NC}"
-    echo -e "${BOLD}${MAGENTA}======================================================================${NC}\n"
-    local d_badge="${RED}DISABLED${NC}"
+    local d_badge="${RED}DISABLED${NC}" m_badge="${RED}DISABLED${NC}" y_badge="${RED}DISABLED${NC}" hdr
     [ "${DAILY_REPORTS_ENABLED:-true}" = "true" ] && d_badge="${GREEN}ENABLED${NC}"
-    local m_badge="${RED}DISABLED${NC}"
     [ "${MONTHLY_REPORTS_ENABLED:-true}" = "true" ] && m_badge="${GREEN}ENABLED${NC}"
-    local y_badge="${RED}DISABLED${NC}"
     [ "${YEARLY_REPORTS_ENABLED:-true}" = "true" ] && y_badge="${GREEN}ENABLED${NC}"
-
-    echo -e "  Daily Reports Status:           ${d_badge}"
-    echo -e "  Daily Scheduled Update Time:    ${BOLD}${CYAN}${DAILY_REPORTS_TIME:-10:00}${NC} (24-hour format)"
-    echo -e "  Monthly Reports Status:         ${m_badge}"
-    echo -e "  Yearly Reports Status:          ${y_badge}"
-    echo -e "  Catch-Up Mode:                  ${GREEN}ACTIVE${NC} (Runs on manager start if missed)"
-    echo -e "  Configuration File:             ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
-
-    echo -e "${BOLD}Select an option:${NC}"
-    echo -e "  ${BOLD}${CYAN}1)${NC} Toggle Daily Reports ON / OFF (${d_badge})"
-    echo -e "  ${BOLD}${CYAN}2)${NC} Change Scheduled Daily Update Time (Current: ${BOLD}${DAILY_REPORTS_TIME:-10:00}${NC})"
-    echo -e "  ${BOLD}${CYAN}3)${NC} Toggle Monthly Reports ON / OFF (${m_badge})"
-    echo -e "  ${BOLD}${CYAN}4)${NC} Toggle Yearly Reports ON / OFF (${y_badge})"
-    echo -e "  ${BOLD}${CYAN}5)${NC} View Automated Reporting Engine Status & Diagnostics"
-    echo -e "  ${BOLD}${CYAN}0)${NC} Return to Previous Menu\n"
-    read -r -p "Enter choice [0-5]: " rep_choice
-    case "$rep_choice" in
+    hdr="  Daily Reports Status:           ${d_badge}\n"
+    hdr+="  Daily Scheduled Update Time:    ${BOLD}${CYAN}${DAILY_REPORTS_TIME:-10:00}${NC} (24-hour format)\n"
+    hdr+="  Monthly Reports Status:         ${m_badge}\n"
+    hdr+="  Yearly Reports Status:          ${y_badge}\n"
+    hdr+="  Catch-Up Mode:                  ${GREEN}ACTIVE${NC} (Runs on manager start if missed)\n"
+    hdr+="  Configuration File:             ${DIM}${SCRIPT_DIR}/config.env${NC}\n"
+    local opts=("1|Toggle Daily Reports ON / OFF|currently ${DAILY_REPORTS_ENABLED:-true}" "2|Change Scheduled Daily Update Time|Current: ${DAILY_REPORTS_TIME:-10:00}" "3|Toggle Monthly Reports ON / OFF|currently ${MONTHLY_REPORTS_ENABLED:-true}" "4|Toggle Yearly Reports ON / OFF|currently ${YEARLY_REPORTS_ENABLED:-true}" "5|View Automated Reporting Engine Status & Diagnostics|" "0|Return to Previous Menu|(or Esc / q)")
+    run_interactive_submenu "CONFIGURE DAILY MIX REPORTS & AUTOMATED SCHEDULES" "$hdr" opts 0
+    case "$REPLY" in
         1)
             if [ "${DAILY_REPORTS_ENABLED:-true}" = "true" ]; then
                 DAILY_REPORTS_ENABLED="false"
@@ -5599,7 +6222,7 @@ while true; do
             echo ""
             press_enter
             ;;
-        0|[qQ])
+        0|[qQ]|[eE][xX][iI][tT]|ESC)
             return 0
             ;;
         *)

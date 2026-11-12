@@ -25,10 +25,35 @@ class TestManagerResize(unittest.TestCase):
         self.assertIn("trap '_on_winch' WINCH", content)
         self.assertIn("_TERM_RESIZED=1", content)
 
+    def _library_prefix(self) -> str:
+        """Line number just before the menu helpers that need terminal control.
+
+        These tests used to slice a fixed number of lines, which drifted
+        silently whenever a helper was inserted above the menu. Anchor the
+        slice on the first menu-specific function instead.
+        """
+        with open(MANAGER_SH, "r", encoding="utf-8") as handle:
+            text = handle.read().splitlines()
+        start = next((i for i, line in enumerate(text)
+                      if line.startswith("read_nav_key() {")), None)
+        if start is None:
+            raise AssertionError("read_nav_key() not found")
+        # End on the closing brace of the function that owns read_nav_key.
+        depth = 0
+        for i in range(start, len(text)):
+            depth += text[i].count("{") - text[i].count("}")
+            if depth == 0 and i > start:
+                return str(i + 1)
+        raise AssertionError("read_nav_key() end not found")
+
     def test_resize_detection_flow(self):
+        prefix = self._library_prefix()
         bash_test = f'''
         SCRIPT_DIR="{SCRIPT_DIR}"
-        source <(sed -n '1,142p' "{MANAGER_SH}")
+        source <(sed -n '1,{prefix}p' "{MANAGER_SH}")
+        # Keep stdin open but silent so read_nav_key times out and reports TICK
+        # instead of seeing EOF (which is what a closed stdin would look like).
+        exec 0< <(sleep 10)
         
         # Test initial geometry
         update_terminal_geometry 1
@@ -73,9 +98,10 @@ class TestManagerResize(unittest.TestCase):
 
     def test_scaling_dimensions_on_zoom(self):
         """Verify that _set_menu_box_width and render_main_header adapt to Ctrl+ (zoom in) and Ctrl- (zoom out) sizes."""
+        prefix = self._library_prefix()
         bash_test = """
         SCRIPT_DIR=""" + f'"{SCRIPT_DIR}"' + """
-        source <(sed -n '1,142p' """ + f'"{MANAGER_SH}"' + """)
+        source <(sed -n '1,""" + prefix + """p' """ + f'"{MANAGER_SH}"' + """)
         is_mix_archive_configured() { return 0; }
         get_manager_uptime() { _MANAGER_UPTIME_LINE="Uptime: 1h"; }
         source <(sed -n '/^render_main_header() {/,/^}/p' """ + f'"{MANAGER_SH}"' + """)

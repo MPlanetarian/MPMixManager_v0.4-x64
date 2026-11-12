@@ -53,6 +53,29 @@ class TestOption33Submenus(unittest.TestCase):
         self.assertIn('run_interactive_submenu "BESZEL WORKSTATION & GPU MONITORING SUITE"', self.mgr_content)
         self.assertIn('run_interactive_submenu "MP VIDEO & IMAGE DIRECTORY OUTPUT MONITOR"', self.mgr_content)
 
+
+    def _server_prefix(self) -> str:
+        """Line count covering every server submenu, derived from the script.
+
+        The old version hard-coded `head -n 2613`, which went stale as soon as
+        anything above the AI servers changed length; it then evaluated a
+        truncated function body. Walk the last required function instead.
+        """
+        with open(MGR_SH, "r", encoding="utf-8") as handle:
+            text = handle.read().splitlines()
+        last = None
+        for i, line in enumerate(text):
+            if line.startswith("manage_ai_models() {"):
+                last = i
+        if last is None:
+            raise AssertionError("manage_ai_models() not found")
+        depth = 0
+        for i in range(last, len(text)):
+            depth += text[i].count("{") - text[i].count("}")
+            if depth == 0 and i > last:
+                return str(i + 1)
+        raise AssertionError("manage_ai_models() end not found")
+
     def test_submenus_exit_cleanly_on_zero(self):
         """Tests that invoking any submenu with '0' as input exits cleanly with return code 0."""
         submenus = [
@@ -65,9 +88,10 @@ class TestOption33Submenus(unittest.TestCase):
             "manage_beszel",
             "run_wan2gp_output_monitor",
         ]
+        prefix = self._server_prefix()
         for fn in submenus:
             bash_cmd = f"""
-            eval "$(head -n 2613 "{MGR_SH}")"
+            eval "$(head -n {prefix} "{MGR_SH}")"
             echo "0" | {fn}
             """
             res = subprocess.run(["bash", "-c", bash_cmd], cwd=str(BASE_DIR), capture_output=True, text=True)
@@ -76,8 +100,9 @@ class TestOption33Submenus(unittest.TestCase):
     def test_submenus_cli_argument_dispatch(self):
         """Tests that server submenus with arguments dispatch cleanly to their sub-scripts without starting an interactive menu."""
         # Test manage_open_webui status
+        prefix = self._server_prefix()
         bash_cmd = f"""
-        eval "$(head -n 2613 "{MGR_SH}")"
+        eval "$(head -n {prefix} "{MGR_SH}")"
         manage_open_webui status
         """
         res = subprocess.run(["bash", "-c", bash_cmd], cwd=str(BASE_DIR), capture_output=True, text=True)
@@ -86,12 +111,12 @@ class TestOption33Submenus(unittest.TestCase):
 
         # Test manage_beszel status
         bash_cmd = f"""
-        eval "$(head -n 2613 "{MGR_SH}")"
+        eval "$(head -n {prefix} "{MGR_SH}")"
         manage_beszel status
         """
         res = subprocess.run(["bash", "-c", bash_cmd], cwd=str(BASE_DIR), capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("Beszel Hub Port", res.stdout)
+        self.assertIn("Beszel Hub:", res.stdout)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **One navigation bar on every page of the Manager** (`Mix_Archive_Manager.sh`, `tests/test_uniform_navigation.py`):
+  - Twenty-nine sub-pages used to print a plain list and ask for `Enter choice`. They now render through `run_interactive_submenu()`, so the whole program shares one interaction model: ↑/↓ and PgUp/PgDn/Home/End to move, `/` to filter, Enter to select, Esc/`0`/`q` to go back, and `[G] MP Gui`, `[B] Bash`, `[Shift+A]` and `[C] Theme` everywhere.
+  - Converted pages: Video Cutting & Splitting, System & Hardware Process Monitors, Bash CLI Runner, Visual/Video/Art Launchers, Live Session & Stream Monitors, Monitor Processes & Bash Commands, Video Playlists, Spectrogram (Spek) Suite, Cover Art Converter, Duplicate Detector, Search & Import, Liquid Glass Backend, Weather & Ephemeris, Daily Reports, Audio Players, Audio Player & Startup config (plus its tracklist-viewer, video-player and YouTube sub-pages), Visualizer Presets, Visualizer Screen Saver, cliamp, DAWs, Network Services, System Maintenance (all four OS variants), Traktor Live Monitor, Promotional Outreach, Bluetooth Audio, Audio Checksums, Open Mix in DAW, Export/Copy Mixes, and the Morning Alarm & DJ Mix Scheduler.
+  - Pages that used to print a wide `=====` banner now put that status text in the menu header, where the scrolling viewport keeps it above the option list.
+- **Mouse support in the Manager menus** (`Mix_Archive_Manager.sh`):
+  - SGR mouse reporting (`1000`/`1006`) is enabled only while a menu is on screen and switched off again by `cleanup_submenu_screen()` and `exit_mix_manager()`, so the console is never left capturing the pointer.
+  - A single left click moves the highlight, and a double click on the same row within 600 ms activates that option — the main page and every submenu share the behaviour, and the double-clicked row is routed through exactly the same select path as Enter.
+  - The mouse wheel steps the highlight up and down one selectable row.
+  - `MP_MANAGER_MOUSE=0` disables the feature for anyone who prefers the terminal's native text selection; the setting is checked before reporting is turned on.
+- **`tests/test_uniform_navigation.py`** guards the unified menus: no reachable page may prompt for a menu choice outside `run_interactive_submenu`, and the mouse wiring (enable/disable, SGR parse, click, double click, wheel) is asserted directly, including two live pty tests that click real painted rows.
+
+### Fixed
+- **Two navigation tests had been failing on `main`** (`tests/test_manager_resize.py`, `tests/test_option33_submenus.py`):
+  - Both sliced the manager with hard-coded line counts (`sed -n '1,142p'`, `head -n 2613`). As soon as anything above the menu grew, the slice stopped mid-function and every case failed with `syntax error: unexpected end of file`.
+  - The resize test now anchors on `read_nav_key()` and feeds `read_nav_key` an open but silent stdin, so the TICK/RESIZE flow is exercised instead of tripping over EOF.
+  - The option-33 test derives the prefix from `manage_ai_models()` and asserts on the current `Beszel Hub:` status line rather than a row that had been renamed.
+
+---
 
 ## [0.4.3 Stable (Liquid)] - 2026-11-12
 
@@ -97,6 +118,13 @@ Released November 12, 2026. This release finishes the visualizer work started in
   - Press **`R`** again to turn random mode off and leave the window on the preset it is showing.
   - `pick_random_preset()` never repeats the preset already on screen, so random mode cannot appear to have stalled.
   - The shared `RandomPresetMixin` owns only the on/off state and the dwell clock; each host supplies `preset` and `switch_preset()`, so the **Vulkan and OpenGL** renderers behave identically. `RANDOM_PRESET_INTERVAL` is 60 seconds.
+- **Uniform navigation and mouse support on every menu page** (`Mix_Archive_Manager.sh`, `tests/test_uniform_navigation.py`):
+  - 30 pages still used plain `echo` lists with `read -r -p "Enter choice"`: no arrow keys, no `/` search, and no consistent Esc/0/q. They are all converted to `run_interactive_submenu()`, so every navigable page now shares one navigation contract.
+  - Converted pages include Video Cut/Split, Process Monitors, Bash CLI, Visual Launchers, Live Monitors, Video Playlists, the Spek Suite, Cover Converter, Duplicate Detector, Search & Import, Liquid Glass Backend, Weather/Ephemeris, Daily Reports, Audio Players, Audio Player & Startup config (with its three nested sub-pages), Visualizer Presets, Screen Saver, cliamp, DAWs, Network Services, System Maintenance (all four OS variants), Traktor Monitor, Promo Outreach, Bluetooth, Audio Checksums, Open Mix in DAW, Export Mixes, and the Morning Alarm/DJ Scheduler.
+  - Wide `=====` banners became menu header text, so status information stays visible above the options in the scrolling viewport. Every page keeps its original option set; only the presentation and numbering changed (`14) return` becomes `0) return`).
+  - **Mouse support** with SGR reporting (`1000`/`1006`), enabled only for the duration of a menu: single click moves the highlight, a double click on the same row within 600 ms activates it through the same path as Enter, and the wheel steps the highlight one row. Reporting is switched off in `cleanup_submenu_screen()` and `exit_mix_manager()`, so the terminal is never left capturing the pointer. `MP_MANAGER_MOUSE=false` opts out to keep native text selection.
+  - `tests/test_uniform_navigation.py` adds 12 tests, including one that walks the call graph from the main loop and fails if any reachable page prompts outside the nav system.
+
 - **Four-instance cap for MP Gui and MP Liquid Player** (`scripts/mp_instance_limit.py`, `scripts/mp_instance_limit.sh`, `MP_Gui.sh`, `scripts/launch_liquid_glass.sh`, `scripts/launch-liquid-glass`, `scripts/launch_mp_gui.bat`, `scripts/launch_liquid_glass.bat`, `scripts/mp_system_tray.py`, `scripts/windows_tray.ps1`, `Mix_Archive_Manager.sh`, `scripts/bigscreen_vr.py`, the four Liquid Glass hosts, `tests/test_instance_limit.py`):
   - MP Gui and MP Liquid Player can never exceed **4 live windows**. Each launch opens another window until the fourth; a fifth launch focuses a window that is already open and shows a notice instead of spawning.
   - One shared counter (`~/.config/mix-manager/instances/`) backs every entry point: desktop shortcuts, KDE global shortcut keys, the shared tray icon on Linux/macOS/Windows, the console manager menu and **`G`** / **`L`** keys, **VR Mode**, and the Liquid Glass hosts themselves. A host launched by any path also claims its own slot before it draws, so bypassing a launcher cannot create a fifth window.
@@ -171,6 +199,7 @@ Released November 12, 2026. This release finishes the visualizer work started in
 - `tests/test_web_companion_playlist.py` — 41 cases, adding saved-order streaming, de-duplication, missing-file skipping, the `.m3u8` mirror, alias resolution, three advertised modes, the five-row window, scrollable geometry, playlist parse caching, reselect-no-rewind, and the empty-Favorites behaviour.
 - `tests/test_player_banner_eq_alignment.py` — 7 tests for the JSON decoder, surrogate pairs, the fixed-width EQ field, the state reader, and the UTF-8 writer.
 - `tests/test_tracklist_viewer_scroll_export.py` and `tests/test_package_dev_utility.py` cover the new exports and both package architectures.
+- `tests/test_uniform_navigation.py` — 12 tests: every reachable page routes through `run_interactive_submenu()`, mouse reporting is enabled and torn down correctly, and click/double-click/wheel map to the same selection path as the keyboard.
 - `tests/test_visualizer_backend_parity.py` — 23 tests: the Vulkan in-window background matches the OpenGL layer, preset and cover re-upload on change, the standalone renderer resolves auto/OpenGL/Vulkan, and every launcher forwards the chosen backend.
 - `tests/test_rainbow_fx_visualizers.py` — 17 tests: style registration, alias resolution, distinctness from Stream of Frequency, glyph safety on limited consoles, and per-style rendering for all three new rainbow effects.
 - `tests/test_visualizer_random_mode.py` — 17 tests: toggling random mode on and off, the 60-second dwell, never repeating the current preset, the empty-pool guard, and identical behaviour across both backends.
