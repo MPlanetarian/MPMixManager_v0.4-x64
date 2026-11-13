@@ -48,6 +48,7 @@ An enterprise-grade workstation orchestration console and media management suite
 
 ![MP Mix Manager 0.4.3 Screenshot (MP Audio CLI Player) ](003.png)
 
+- [🛑 0.4 Is End of Life — Upgrade to 0.5](#-04-is-end-of-life--upgrade-to-05)
 - [🚀 What's New in v0.4.3 Stable (Liquid)](#-whats-new-in-v043-stable-liquid)
 - [📅 Updates in the 0.4.2 release window](#-updates-in-the-042-release-window)
 - [🍏 What's New in v0.4.2 Stable (Liquid)](#-whats-new-in-v042-stable-liquid)
@@ -78,6 +79,63 @@ An enterprise-grade workstation orchestration console and media management suite
 - [⚙️ Configuration Guide (`config.env`)](#️-configuration-guide-configenv)
 - [🧪 Automated Test Suite & Quality Assurance](#-automated-test-suite--quality-assurance)
 - [📜 License](#-license)
+
+---
+
+## 🛑 0.4 Is End of Life — Upgrade to 0.5
+
+> [!IMPORTANT]
+> **0.4.3 is the final 0.4 release.** Development continues as
+> **[MP Mix Manager 0.5](https://github.com/MPlanetarian/MPMixManager_v0.5-x64)**.
+> This repository stays online, and so does everything already published under
+> its URLs, so existing 0.4 installs keep working. It will not receive new features.
+
+### One command upgrades you
+
+```bash
+./Mix_Archive_Manager.sh update
+# or, from anywhere:
+mix-archive-manager update
+```
+
+On a 0.4 install, `update` now performs the 0.5 hand-off:
+
+1. Checks that the 0.5 repository is published and reachable.
+2. Clones it into a **sibling** directory, `~/MPMixManager_v0.5-x64`, so the
+   version-numbered folders sit side by side exactly as documented.
+3. Copies your `config.env`, playlists, covers, themes, reports, logs and
+   in-tree archive folders into the new tree. **A file that already exists in
+   0.5 is never overwritten**, so the release keeps its own shipped files.
+4. Runs the 0.5 installer, which rebuilds the launchers, desktop shortcuts and
+   tray icon.
+5. Points `manager` and `~/manager.sh` at 0.5 and records the install in
+   `~/.config/mix-manager/install_dir`.
+
+Your 0.4 folder is **never modified or deleted**. Keep it until you are happy
+with 0.5, then remove it whenever you like. Converted audio is not moved.
+
+| Command | What it does |
+| :--- | :--- |
+| `mix-archive-manager update` | Upgrade a 0.4 install to 0.5 |
+| `mix-archive-manager update --check` | Preview the upgrade without changing anything |
+| `mix-archive-manager update --force` | Refresh an existing 0.5 install (re-copy missing data, rebuild launchers) |
+
+Shared settings under `~/.config/mix-manager` (theme, favourites, music folders,
+archive configuration) are used by both versions, so your setup carries over
+automatically.
+
+### Before the 0.5 repository was published
+
+While the 0.5 repository had no published branch, `update` detected that and
+fell back to the normal 0.4 git pull, so 0.4 users kept receiving 0.4 fixes.
+Once 0.5 is published, the same command upgrades instead.
+
+### Notes
+
+- The upgrade needs `git` and network access to GitHub.
+- Nothing is committed or pushed by the updater; it only clones and copies.
+- If `~/MPMixManager_v0.5-x64` already exists but is not a 0.5 install, the
+  updater stops and asks you to move it, rather than overwriting it.
 
 ---
 

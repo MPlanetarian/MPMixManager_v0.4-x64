@@ -82,6 +82,10 @@ ${BOLD}LAUNCH FLAGS & OPTIONS:${NC}
 
   ${BOLD}${GREEN}update, --update${NC}
       Check for and automatically install the latest updates from remote Git.
+      0.4 is end of life: on a 0.4 install this upgrades you to MP Mix Manager
+      0.5. The 0.5 tree is cloned next to this one and your config, playlists,
+      covers, themes and reports are copied across; this 0.4 folder is kept
+      unchanged. Until 0.5 is published, it falls back to a normal 0.4 pull.
       ${DIM}Sub-options:${NC}
         ${GREEN}--check, -c${NC}    Check for updates without installing
         ${GREEN}--force, -f${NC}    Force re-pull and reinstall from remote repository

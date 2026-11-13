@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [Unreleased]
+
+### Added
+- **`update` upgrades 0.4 installs to MP Mix Manager 0.5** (`update_manager.sh`, `scripts/update_manager.sh`, `tests/test_update_manager_eol_upgrade.py`):
+  - 0.4.3 is the last 0.4 release, so `./Mix_Archive_Manager.sh update` and `mix-archive-manager update` now hand the user over to [MPMixManager_v0.5-x64](https://github.com/MPlanetarian/MPMixManager_v0.5-x64) instead of only pulling 0.4 commits.
+  - The published 0.5 tree is cloned into a sibling directory (`~/MPMixManager_v0.5-x64`), so the two version-numbered folders sit side by side and the 0.4 tree is never modified or deleted.
+  - `config.env`, `PLAYLISTS_GENERATED`, `COVERS`, `MIX_ARCHIVE`, `REPORTS`, `logs`, `LOGS`, `BACKUP_LOGS`, `VERIFY_LOGS`, `IMPORT_LOGS`, `SPEK_OUTPUTS`, `config_backups`, `exported_configs`, `themes`, `scripts/playlists` and the converted-output folders are copied across. **Files that already exist in 0.5 are never overwritten**, so the release keeps its own shipped files.
+  - The 0.5 installer then runs, so launchers, desktop shortcuts and the tray icon are rebuilt, and `~/.config/mix-manager/install_dir` plus the `manager` / `~/manager.sh` symlinks point at the new tree.
+  - The clone goes to a temporary sibling first and is only moved into place after `VERSION` confirms the download really is 0.5 or newer. A failed or tampered download leaves the 0.4 install untouched.
+  - Re-running `update` on an already-upgraded machine reports that 0.5 is installed and changes nothing; `update --force` refreshes it.
+  - `update --check` previews the hand-off without installing anything.
+  - If the 0.5 repository has no published branch yet (or cannot be reached), the updater says so and falls back to the normal 0.4 git pull, so 0.4 users keep receiving 0.4 fixes until 0.5 ships.
+  - A 0.5 tree keeps the ordinary git-pull behaviour; the hand-off only applies to 0.4 and older.
+  - An existing `~/MPMixManager_v0.5-x64` that is not a 0.5 install is reported and left alone rather than overwritten.
+
+### Documentation
+- **README:** new *0.4 Is End of Life — Upgrade to 0.5* section covering the one-command upgrade, what is carried across, the `--check` / `--force` options, and the unpublished-repository fallback.
+
+---
+
 ## [0.4.3 Stable (Liquid)] - 2026-11-12
 
 Released November 12, 2026. This release finishes the visualizer work started in 0.4.2 (preset 11, the desktop screen saver, multi-monitor spans, OpenGL/Vulkan parity), adds BigScreen VR mode, the Favorites DJ Set exporter, MP Harmony tracklist narration, the Web Companion launch pad, a reinstall/factory-reset flow, the Web Companion system service, uniform menus with mouse support, three rainbow EQ effects, the arm64/amd64 package builder, tracklist HTML/TEXT export, the instance cap, and the Web Companion Favorites library. It also fixes the player banner layout, the Theme navbars, the tracklist viewer, Traktor history sync, and the visualizer detaching from the player in Mini and Micro mode.
